@@ -37,6 +37,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleWorkspacePin.defaultsKey) private var toggleWorkspacePinShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
@@ -647,6 +648,25 @@ struct cmuxApp: App {
                     _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
+                let isNonMainWindowFocused: Bool = {
+                    guard let keyWindow = NSApp.keyWindow else { return false }
+                    return AppDelegate.shared?.canPinWorkspace(from: keyWindow) != true
+                }()
+                let workspacePinTarget = NSApp.keyWindow.flatMap {
+                    AppDelegate.shared?.workspaceForWorkspacePin(from: $0)
+                } ?? activeTabManager.selectedWorkspace
+                splitCommandButton(
+                    title: !isNonMainWindowFocused && workspacePinTarget?.isPinned == true
+                        ? String(localized: "contextMenu.unpinWorkspace", defaultValue: "Unpin Workspace")
+                        : String(localized: "contextMenu.pinWorkspace", defaultValue: "Pin Workspace"),
+                    shortcut: toggleWorkspacePinMenuShortcut
+                ) {
+                    _ = AppDelegate.shared?.toggleWorkspacePinInActiveMainWindow(
+                        preferredWindow: NSApp.keyWindow
+                    )
+                }
+                .disabled(isNonMainWindowFocused)
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: splitRightMenuShortcut) {
@@ -825,6 +845,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: renameWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.renameWorkspace.defaultShortcut
+        )
+    }
+
+    private var toggleWorkspacePinMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleWorkspacePinShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleWorkspacePin.defaultShortcut
         )
     }
 

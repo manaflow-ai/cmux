@@ -4706,6 +4706,8 @@ struct ContentView: View {
             return .renameTab
         case "palette.renameWorkspace":
             return .renameWorkspace
+        case "palette.toggleWorkspacePin":
+            return .toggleWorkspacePin
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":

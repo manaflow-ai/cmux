@@ -1783,6 +1783,27 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.eventModifiers.contains(.control))
     }
 
+    func testToggleWorkspacePinShortcutDefaultsAndMetadata() {
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleWorkspacePin.label, "Pin Workspace")
+        XCTAssertEqual(KeyboardShortcutSettings.Action.toggleWorkspacePin.defaultsKey, "shortcut.toggleWorkspacePin")
+
+        let shortcut = KeyboardShortcutSettings.Action.toggleWorkspacePin.defaultShortcut
+        XCTAssertEqual(shortcut.key, "p")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+    }
+
+    func testToggleWorkspacePinShortcutConvertsToMenuShortcut() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleWorkspacePin.defaultShortcut
+        XCTAssertEqual(shortcut.menuItemKeyEquivalent, "p")
+        XCTAssertTrue(shortcut.eventModifiers.contains(.command))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.shift))
+        XCTAssertTrue(shortcut.eventModifiers.contains(.option))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
+    }
+
     func testCloseWorkspaceShortcutDefaultsAndMetadata() {
         XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.label, "Close Workspace")
         XCTAssertEqual(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey, "shortcut.closeWorkspace")

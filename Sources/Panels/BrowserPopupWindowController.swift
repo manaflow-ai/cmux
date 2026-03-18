@@ -81,6 +81,15 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     private static var associatedObjectKey: UInt8 = 0
 
+    static func openerWorkspaceId(for window: NSWindow?) -> UUID? {
+        guard let window,
+              let controller = objc_getAssociatedObject(window, &Self.associatedObjectKey)
+                as? BrowserPopupWindowController else {
+            return nil
+        }
+        return controller.openerPanel?.workspaceId
+    }
+
     init(
         configuration: WKWebViewConfiguration,
         windowFeatures: WKWindowFeatures,
