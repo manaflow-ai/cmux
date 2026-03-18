@@ -127,10 +127,23 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
         if let externalHarness = loadExternalHarnessFromEnvironment(env) ?? loadExternalHarnessFromManifest(env) {
-            displayReadyPath = externalHarness.readyPath
-            displayIDPath = externalHarness.displayIDPath
-            displayStartPath = externalHarness.startPath
-            displayDonePath = externalHarness.donePath
+            if let helperBinaryPath = externalHarness.helperBinaryPath, !helperBinaryPath.isEmpty {
+                self.helperBinaryPath = helperBinaryPath
+                try launchDisplayHelper()
+                return
+            }
+            guard let readyPath = externalHarness.readyPath, !readyPath.isEmpty,
+                  let displayIDPath = externalHarness.displayIDPath, !displayIDPath.isEmpty,
+                  let startPath = externalHarness.startPath, !startPath.isEmpty,
+                  let donePath = externalHarness.donePath, !donePath.isEmpty else {
+                throw NSError(domain: "DisplayResolutionRegressionUITests", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Incomplete external display harness configuration"
+                ])
+            }
+            displayReadyPath = readyPath
+            self.displayIDPath = displayIDPath
+            displayStartPath = startPath
+            displayDonePath = donePath
             if let logPath = externalHarness.logPath, !logPath.isEmpty {
                 helperLogPath = logPath
             }
@@ -162,7 +175,8 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             displayIDPath: displayIDPath,
             startPath: startPath,
             donePath: donePath,
-            logPath: env["CMUX_UI_TEST_DISPLAY_LOG_PATH"]
+            logPath: env["CMUX_UI_TEST_DISPLAY_LOG_PATH"],
+            helperBinaryPath: nil
         )
     }
 
@@ -394,10 +408,11 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     private struct ExternalDisplayHarness: Decodable {
-        let readyPath: String
-        let displayIDPath: String
-        let startPath: String
-        let donePath: String
+        let readyPath: String?
+        let displayIDPath: String?
+        let startPath: String?
+        let donePath: String?
         let logPath: String?
+        let helperBinaryPath: String?
     }
 }

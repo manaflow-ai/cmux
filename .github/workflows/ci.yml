@@ -466,11 +466,18 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           HELPER_PATH="/tmp/create-virtual-display"
+          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+
+          rm -f "$MANIFEST_PATH"
+          trap 'rm -f "$MANIFEST_PATH"' EXIT
 
           clang -framework Foundation -framework CoreGraphics \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-          CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH" \
+          cat >"$MANIFEST_PATH" <<EOF
+          {"helperBinaryPath":"$HELPER_PATH"}
+          EOF
+
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \

@@ -209,13 +209,17 @@ jobs:
 
           if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
             HELPER_PATH="/tmp/create-virtual-display"
+            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+
+            rm -f "$MANIFEST_PATH"
+            trap 'rm -f "$MANIFEST_PATH"' EXIT
 
             clang -framework Foundation -framework CoreGraphics \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-            DISPLAY_ENV_PREFIX=(
-              CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH"
-            )
+            cat >"$MANIFEST_PATH" <<EOF
+            {"helperBinaryPath":"$HELPER_PATH"}
+            EOF
           fi
 
           # Start recording right before the test (after build/resolve).
