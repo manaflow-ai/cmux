@@ -73,7 +73,7 @@ jobs:
   tests:
     # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: warp-macos-15-arm64-12x
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -235,7 +235,7 @@ jobs:
     # XCUIApplication stuck "Running Background", 62s activation timeout per
     # test). Interactive UI tests run via test-e2e.yml on GitHub-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: warp-macos-15-arm64-12x
     timeout-minutes: 20
     steps:
       - name: Checkout
