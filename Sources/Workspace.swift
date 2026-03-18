@@ -5164,8 +5164,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Prevents repeated close gestures (e.g., middle-click spam) from stacking dialogs.
     private var pendingCloseConfirmTabIds: Set<TabID> = []
 
-    /// Tab IDs whose next close attempt came from an explicit user close gesture
-    /// (Cmd+W or the tab-strip X button), rather than an internal close/move flow.
+    /// Tab IDs whose next close attempt should be treated as an explicit
+    /// workspace-close gesture from the user (the tab-strip X button, or Cmd+W when
+    /// the shortcut preference is set to close the workspace on the last surface),
+    /// rather than an internal close/move flow.
     private var explicitUserCloseTabIds: Set<TabID> = []
 
     /// Deterministic tab selection to apply after a tab closes.

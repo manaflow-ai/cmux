@@ -43256,13 +43256,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closing Last Surface Closes Workspace"
+            "value": "Keep Workspace Open When Closing Last Surface"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のサーフェスを閉じるとワークスペースも閉じる"
+            "value": "最後のサーフェスを閉じてもワークスペースを残す"
           }
         }
       }
@@ -43273,13 +43273,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
+            "value": "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のサーフェスを閉じてもワークスペースは残ります。ワークスペースを明示的に閉じるにはCmd+Shift+Wを使います。"
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つなら、サーフェスを閉じるショートカットはワークスペースも閉じます。"
           }
         }
       }
@@ -43290,13 +43290,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Closing the last surface also closes its workspace."
+            "value": "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のサーフェスを閉じると、そのワークスペースも閉じます。"
+            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つでも、サーフェスを閉じるショートカットはサーフェスだけを閉じ、ワークスペースは残します。ワークスペースを閉じるショートカットを使うと明示的に閉じられます。"
           }
         }
       }

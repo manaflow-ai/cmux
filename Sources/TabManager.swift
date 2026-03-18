@@ -60,6 +60,20 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum LastSurfaceCloseShortcutSettings {
+    static let key = "closeWorkspaceOnLastSurfaceShortcut"
+    // Keep the legacy stored meaning so existing values still map to the same
+    // behavior. The default is flipped to preserve current Cmd+W behavior.
+    static let defaultValue = true
+
+    static func closesWorkspace(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: key) == nil {
+            return defaultValue
+        }
+        return defaults.bool(forKey: key)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true
@@ -2101,6 +2115,12 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
+        LastSurfaceCloseShortcutSettings.closesWorkspace() &&
+            workspace.panels.count <= 1 &&
+            workspace.panels[panelId] != nil
+    }
+
     private func closePanelWithConfirmation(tab: Workspace, panelId: UUID) {
         guard tab.panels[panelId] != nil else {
 #if DEBUG
@@ -2121,18 +2141,20 @@ class TabManager: ObservableObject {
             if panel is BrowserPanel { return "browser" }
             return String(describing: type(of: panel))
         }()
+        let closesWorkspaceOnLastSurfaceShortcut = shouldCloseWorkspaceOnLastSurfaceShortcut(tab, panelId: panelId)
 #if DEBUG
         dlog(
             "surface.close.shortcut.begin tab=\(tab.id.uuidString.prefix(5)) " +
             "panel=\(panelId.uuidString.prefix(5)) kind=\(panelKind) " +
-            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount)"
+            "panelCount=\(tab.panels.count) bonsplitTabs=\(bonsplitTabCount) " +
+            "closeWorkspaceOnLastSurface=\(closesWorkspaceOnLastSurfaceShortcut ? 1 : 0)"
         )
 #endif
 
-        // Route Cmd+W through Bonsplit/Workspace close handling so it matches the tab close
-        // button, including shared confirmation, last-surface workspace/window-close behavior,
-        // and the usual replacement-panel flow when the close does not collapse the workspace.
-        if let surfaceId = tab.surfaceIdFromPanelId(panelId) {
+        // The last-surface shortcut preference only affects Cmd+W. The tab close button
+        // continues to use Workspace's explicit-close path when it closes the last surface.
+        if closesWorkspaceOnLastSurfaceShortcut,
+           let surfaceId = tab.surfaceIdFromPanelId(panelId) {
             tab.markExplicitClose(surfaceId: surfaceId)
         }
         let closed = tab.closePanel(panelId)

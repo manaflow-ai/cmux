@@ -6,6 +6,8 @@ import XCTest
 @testable import cmux
 #endif
 
+private let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
+
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
@@ -712,6 +714,63 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             self.window(withId: windowId),
             "Cmd+W on the last surface in the last workspace should close the window"
         )
+    }
+
+    func testCmdWKeepsLastSurfaceWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+            }
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let targetWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused panel")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: targetWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertNotNil(
+            self.window(withId: windowId),
+            "Cmd+W should keep the window open when the keep-workspace-open preference is enabled"
+        )
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertNil(workspace.panels[initialPanelId])
+        XCTAssertEqual(workspace.panels.count, 1)
+        XCTAssertNotEqual(workspace.focusedPanelId, initialPanelId)
     }
 
     func testCmdWClosesAuxiliaryWindowInsteadOfMainTerminalPanel() throws {
