@@ -4,6 +4,89 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
+enum WorkspaceTitlebarSettings {
+    static let showTitlebarKey = "workspaceTitlebarVisible"
+    static let defaultShowTitlebar = true
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showTitlebarKey) == nil {
+            return defaultShowTitlebar
+        }
+        return defaults.bool(forKey: showTitlebarKey)
+    }
+}
+
+enum WorkspacePresentationModeSettings {
+    static let modeKey = "workspacePresentationMode"
+
+    enum Mode: String {
+        case standard
+        case minimal
+    }
+
+    static let defaultMode: Mode = .standard
+
+    static func mode(for rawValue: String?) -> Mode {
+        Mode(rawValue: rawValue ?? "") ?? defaultMode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> Mode {
+        mode(for: defaults.string(forKey: modeKey))
+    }
+
+    static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
+        mode(defaults: defaults) == .minimal
+    }
+}
+
+enum WorkspaceButtonFadeSettings {
+    static let modeKey = "workspaceButtonsFadeMode"
+    static let legacyTitlebarControlsVisibilityModeKey = "titlebarControlsVisibilityMode"
+    static let legacyPaneTabBarControlsVisibilityModeKey = "paneTabBarControlsVisibilityMode"
+
+    enum Mode: String {
+        case enabled
+        case disabled
+    }
+
+    static let defaultMode: Mode = .disabled
+
+    static func mode(for rawValue: String?) -> Mode {
+        Mode(rawValue: rawValue ?? "") ?? defaultMode
+    }
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        mode(for: defaults.string(forKey: modeKey)) == .enabled
+    }
+
+    static func initializeStoredModeIfNeeded(defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: modeKey) == nil else { return }
+
+        if let migratedMode = migratedLegacyMode(defaults: defaults) {
+            defaults.set(migratedMode.rawValue, forKey: modeKey)
+            return
+        }
+
+        let initialMode: Mode = WorkspaceTitlebarSettings.isVisible(defaults: defaults) ? .disabled : .enabled
+        defaults.set(initialMode.rawValue, forKey: modeKey)
+    }
+
+    private static func migratedLegacyMode(defaults: UserDefaults) -> Mode? {
+        let legacyValues = [
+            defaults.string(forKey: legacyTitlebarControlsVisibilityModeKey),
+            defaults.string(forKey: legacyPaneTabBarControlsVisibilityModeKey),
+        ]
+
+        if legacyValues.contains(where: { $0 == "onHover" || $0 == "hover" || $0 == "enabled" }) {
+            return .enabled
+        }
+        if legacyValues.contains(where: { $0 == "always" || $0 == "disabled" }) {
+            return .disabled
+        }
+        return nil
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
@@ -2492,6 +2575,8 @@ private struct AcknowledgmentsView: View {
 
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
+    private var pendingFocusRestoreWorkItems: [DispatchWorkItem] = []
+    private var focusRestoreGeneration = 0
 
     private init() {
         let window = NSWindow(
@@ -2533,6 +2618,93 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 #if DEBUG
         dlog("settings.window.show completed isVisible=\(window.isVisible ? 1 : 0) isKey=\(window.isKeyWindow ? 1 : 0)")
 #endif
+    }
+
+    func preserveFocusAfterPreferenceMutation() {
+        guard let window, window.isVisible else { return }
+        cancelPendingFocusRestore()
+        focusRestoreGeneration += 1
+        let generation = focusRestoreGeneration
+        writeFocusDiagnosticsIfNeeded(stage: "requested")
+        scheduleFocusRestore(
+            for: window,
+            generation: generation,
+            delays: [0, 0.04, 0.12, 0.24, 0.4, 0.7]
+        )
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        cancelPendingFocusRestore()
+        writeFocusDiagnosticsIfNeeded(stage: "windowWillClose")
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        writeFocusDiagnosticsIfNeeded(stage: "didBecomeKey")
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window else { return }
+        writeFocusDiagnosticsIfNeeded(stage: "didResignKey")
+        guard focusRestoreGeneration > 0 else { return }
+        scheduleFocusRestore(
+            for: window,
+            generation: focusRestoreGeneration,
+            delays: [0, 0.03, 0.1]
+        )
+    }
+
+    private func scheduleFocusRestore(
+        for window: NSWindow,
+        generation: Int,
+        delays: [TimeInterval]
+    ) {
+        for (index, delay) in delays.enumerated() {
+            let isLastAttempt = index == delays.count - 1
+            let workItem = DispatchWorkItem { [weak self, weak window] in
+                guard let self, let window, window.isVisible else { return }
+                guard self.focusRestoreGeneration == generation else { return }
+                self.writeFocusDiagnosticsIfNeeded(stage: "restoreAttempt.\(index)")
+                if !window.isKeyWindow {
+                    NSApp.activate(ignoringOtherApps: true)
+                    window.orderFrontRegardless()
+                    window.makeKeyAndOrderFront(nil)
+                    self.writeFocusDiagnosticsIfNeeded(stage: "restoreApplied.\(index)")
+                }
+                if isLastAttempt, self.focusRestoreGeneration == generation {
+                    self.focusRestoreGeneration = 0
+                }
+            }
+            pendingFocusRestoreWorkItems.append(workItem)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+        }
+    }
+
+    private func cancelPendingFocusRestore() {
+        pendingFocusRestoreWorkItems.forEach { $0.cancel() }
+        pendingFocusRestoreWorkItems.removeAll()
+        focusRestoreGeneration = 0
+    }
+
+    private func writeFocusDiagnosticsIfNeeded(stage: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+
+        var payload = loadFocusDiagnostics(at: path)
+        payload["focusStage"] = stage
+        payload["keyWindowIdentifier"] = NSApp.keyWindow?.identifier?.rawValue ?? ""
+        payload["mainWindowIdentifier"] = NSApp.mainWindow?.identifier?.rawValue ?? ""
+        payload["settingsWindowIsKey"] = (window?.isKeyWindow ?? false) ? "1" : "0"
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    private func loadFocusDiagnostics(at path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return [:]
+        }
+        return object
     }
 }
 
@@ -3597,6 +3769,8 @@ struct SettingsView: View {
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage(AppIconSettings.modeKey) private var appIconMode = AppIconSettings.defaultMode.rawValue
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
@@ -3685,6 +3859,23 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var minimalModeEnabled: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var minimalModeSubtitle: String {
+        if minimalModeEnabled {
+            return String(
+                localized: "settings.app.minimalMode.subtitleOn",
+                defaultValue: "Hide the workspace title bar and move workspace controls into the sidebar."
+            )
+        }
+        return String(
+            localized: "settings.app.minimalMode.subtitleOff",
+            defaultValue: "Use the standard workspace title bar and controls."
+        )
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
@@ -3778,6 +3969,18 @@ struct SettingsView: View {
                     socketPasswordStatusMessage = nil
                     socketPasswordStatusIsError = false
                 }
+            }
+        )
+    }
+
+    private var minimalModeBinding: Binding<Bool> {
+        Binding(
+            get: { minimalModeEnabled },
+            set: { newValue in
+                workspacePresentationMode = newValue
+                    ? WorkspacePresentationModeSettings.Mode.minimal.rawValue
+                    : WorkspacePresentationModeSettings.Mode.standard.rawValue
+                SettingsWindowController.shared.preserveFocusAfterPreferenceMutation()
             }
         )
     }
@@ -4138,6 +4341,21 @@ struct SettingsView: View {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
+                            subtitle: minimalModeSubtitle
+                        ) {
+                            Toggle("", isOn: minimalModeBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsMinimalModeToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -5305,6 +5523,12 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.modeKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyTitlebarControlsVisibilityModeKey)
+        defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -5870,7 +6094,7 @@ private struct ShortcutSettingRow: View {
             .onChange(of: shortcut) { newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
             }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 let latest = KeyboardShortcutSettings.shortcut(for: action)
                 if latest != shortcut {
                     shortcut = latest

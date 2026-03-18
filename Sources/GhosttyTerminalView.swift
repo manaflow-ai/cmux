@@ -6093,9 +6093,22 @@ func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
     keyWindow: NSWindow?,
-    mainWindow: NSWindow?
+    mainWindow: NSWindow?,
+    targetWindow: NSWindow
 ) -> Bool {
-    activeTabManager === targetTabManager || (keyWindow == nil && mainWindow == nil)
+    guard activeTabManager === targetTabManager || (keyWindow == nil && mainWindow == nil) else {
+        return false
+    }
+
+    if let keyWindow {
+        return keyWindow === targetWindow
+    }
+
+    if let mainWindow {
+        return mainWindow === targetWindow
+    }
+
+    return true
 }
 
 final class GhosttySurfaceScrollView: NSView {
@@ -7652,7 +7665,8 @@ final class GhosttySurfaceScrollView: NSView {
                 activeTabManager: delegate.tabManager,
                 targetTabManager: tabManager,
                 keyWindow: NSApp.keyWindow,
-                mainWindow: NSApp.mainWindow
+                mainWindow: NSApp.mainWindow,
+                targetWindow: window
             ) else {
                 return
             }

@@ -1609,6 +1609,7 @@ struct ContentView: View {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
+        static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
@@ -2035,6 +2036,16 @@ struct ContentView: View {
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
     /// height; otherwise controls like Bonsplit tab dragging can be interpreted as window drags.
     @State private var titlebarPadding: CGFloat = 32
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
+
+    private var effectiveTitlebarPadding: CGFloat {
+        isMinimalMode ? 0 : titlebarPadding
+    }
 
     private var terminalContent: some View {
         let mountedWorkspaceIdSet = Set(mountedWorkspaceIds)
@@ -2092,10 +2103,12 @@ struct ContentView: View {
                 .allowsHitTesting(sidebarSelectionState.selection == .notifications)
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
-        .padding(.top, titlebarPadding)
+        .padding(.top, effectiveTitlebarPadding)
         .overlay(alignment: .top) {
-            // Titlebar overlay is only over terminal content, not the sidebar.
-            customTitlebar
+            if !isMinimalMode {
+                // Titlebar overlay is only over terminal content, not the sidebar.
+                customTitlebar
+            }
         }
     }
 
@@ -2134,7 +2147,8 @@ struct ContentView: View {
                     anchorView: fullscreenControlsViewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { tabManager.addTab() }
+            onNewTab: { tabManager.addTab() },
+            visibilityMode: .alwaysVisible
         )
     }
 
@@ -2312,7 +2326,7 @@ struct ContentView: View {
             contentAndSidebarLayout
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topLeading) {
-                    if isFullScreen && sidebarState.isVisible {
+                    if isFullScreen && sidebarState.isVisible && !isMinimalMode {
                         fullscreenControls
                             .padding(.leading, 10)
                             .padding(.top, 4)
@@ -4875,6 +4889,7 @@ struct ContentView: View {
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
     ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
+        snapshot.setBool(CommandPaletteContextKeys.workspaceMinimalModeEnabled, isMinimalMode)
 
         if let workspace = tabManager.selectedWorkspace {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
@@ -5077,6 +5092,24 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.enableMinimalMode",
+                title: constant(String(localized: "command.enableMinimalMode.title", defaultValue: "Enable Minimal Mode")),
+                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
+                keywords: ["minimal", "mode", "titlebar", "sidebar", "layout"],
+                when: { !$0.bool(CommandPaletteContextKeys.workspaceMinimalModeEnabled) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.disableMinimalMode",
+                title: constant(String(localized: "command.disableMinimalMode.title", defaultValue: "Disable Minimal Mode")),
+                subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
+                keywords: ["minimal", "mode", "titlebar", "sidebar", "layout"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceMinimalModeEnabled) }
             )
         )
         contributions.append(
@@ -5697,6 +5730,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.enableMinimalMode") {
+            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue
+        }
+        registry.register(commandId: "palette.disableMinimalMode") {
+            workspacePresentationMode = WorkspacePresentationModeSettings.Mode.standard.rawValue
         }
         registry.register(commandId: "palette.triggerFlash") {
             tabManager.triggerFocusFlash()
@@ -8093,10 +8132,17 @@ struct VerticalTabsSidebar: View {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
     private let tabRowSpacing: CGFloat = 2
+    private let hiddenTitlebarControlsLeadingInset: CGFloat = 72
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     private var showsSidebarNotificationMessage: Bool {
         SidebarWorkspaceDetailSettings.resolvedNotificationMessageVisibility(
@@ -8193,6 +8239,13 @@ struct VerticalTabsSidebar: View {
                     // drag-to-move and double-click action (zoom/minimize).
                     WindowDragHandleView()
                         .frame(height: trafficLightPadding)
+                }
+                .overlay(alignment: .topLeading) {
+                    if isMinimalMode {
+                        HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
+                            .padding(.leading, hiddenTitlebarControlsLeadingInset)
+                            .padding(.top, 2)
+                    }
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
