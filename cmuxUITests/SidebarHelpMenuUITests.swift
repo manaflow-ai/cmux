@@ -315,12 +315,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-socketControlMode", "cmuxOnly"]
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -402,13 +402,13 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-socketControlMode", "cmuxOnly"]
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -484,12 +484,12 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-socketControlMode", "cmuxOnly"]
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "cmuxOnly"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         launchAndActivate(app)
 
         XCTAssertTrue(
