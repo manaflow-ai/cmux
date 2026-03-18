@@ -560,10 +560,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             refinedQueryResolvedWhileKeepingEmptyStateVisible,
             "Expected the refined no-match query to resolve while keeping the empty-state label visible"
         )
-        let refinedSnapshot = try XCTUnwrap(refinedSnapshot)
+        let resolvedRefinedSnapshot = try XCTUnwrap(refinedSnapshot)
         XCTAssertTrue(
-            commandPaletteResultRows(from: refinedSnapshot).isEmpty,
-            "Expected the refined no-match query to stay empty. snapshot=\(refinedSnapshot)"
+            commandPaletteResultRows(from: resolvedRefinedSnapshot).isEmpty,
+            "Expected the refined no-match query to stay empty. snapshot=\(resolvedRefinedSnapshot)"
         )
     }
 
@@ -598,7 +598,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         for _ in 0..<2 {
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            if sidebarHelpPollUntil(timeout: 1.0) { !searchField.exists } {
+            if sidebarHelpPollUntil(timeout: 1.0, condition: { !searchField.exists }) {
                 return
             }
         }
