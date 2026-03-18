@@ -6105,6 +6105,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
+    private var isPerformingLayoutPass = false
     private var lastSentRow: Int?
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
     /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
@@ -6135,6 +6136,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
 #if DEBUG
+    private var debugForceLayoutPassInProgress = false
     private var lastDropZoneOverlayLogSignature: String?
     private var lastDragGeometryLogSignature: String?
     private var dragLayoutLogSequence: UInt64 = 0
@@ -6172,6 +6174,10 @@ final class GhosttySurfaceScrollView: NSView {
     static func recordSurfaceDraw(_ surfaceId: UUID) {
         drawCounts[surfaceId, default: 0] += 1
         lastDrawTimes[surfaceId] = CACurrentMediaTime()
+    }
+
+    func debugSetLayoutPassInProgressForTesting(_ inProgress: Bool) {
+        debugForceLayoutPassInProgress = inProgress
     }
 
     private static func contentsKey(for layer: CALayer?) -> String {
@@ -6507,8 +6513,18 @@ final class GhosttySurfaceScrollView: NSView {
     override var acceptsFirstResponder: Bool { false }
 
     override func layout() {
+        isPerformingLayoutPass = true
+        defer { isPerformingLayoutPass = false }
         super.layout()
         synchronizeGeometryAndContent()
+    }
+
+    var isGeometryReconcileLayoutInProgress: Bool {
+#if DEBUG
+        debugForceLayoutPassInProgress || isPerformingLayoutPass
+#else
+        isPerformingLayoutPass
+#endif
     }
 
     override func viewDidMoveToSuperview() {

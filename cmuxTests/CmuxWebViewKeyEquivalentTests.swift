@@ -13141,6 +13141,15 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         }
     }
 
+    private final class LayoutCountingContentView: NSView {
+        private(set) var layoutCallCount = 0
+
+        override func layout() {
+            layoutCallCount += 1
+            super.layout()
+        }
+    }
+
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -13224,6 +13233,55 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         terminalPortal.synchronizeHostedViewForAnchor(anchor)
 
         assertHostOrder("Terminal portal bind/sync should not rise above the browser portal host")
+    }
+
+    func testWorkspaceGeometryReconcileDefersForcedWindowLayoutWhileTerminalLayoutIsInFlight() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = LayoutCountingContentView(frame: NSRect(x: 0, y: 0, width: 500, height: 320))
+        contentView.autoresizingMask = [.width, .height]
+        window.contentView = contentView
+
+        let anchor = NSView(frame: NSRect(x: 24, y: 24, width: 220, height: 150))
+        contentView.addSubview(anchor)
+
+        let workspace = Workspace()
+        let portal = WindowTerminalPortal(window: window)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let hostedView = terminalPanel.hostedView
+
+        portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(anchor)
+        realizeWindowLayout(window)
+
+        XCTAssertNotNil(hostedView.window)
+        XCTAssertNotNil(hostedView.superview)
+
+        let baselineLayoutCallCount = contentView.layoutCallCount
+        hostedView.debugSetLayoutPassInProgressForTesting(true)
+        defer { hostedView.debugSetLayoutPassInProgressForTesting(false) }
+
+        workspace.scheduleDebugStressTerminalGeometryReconcile()
+        for _ in 0..<8 {
+            drainMainQueue()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(
+            contentView.layoutCallCount,
+            baselineLayoutCallCount,
+            "Geometry reconcile should wait for the active terminal layout pass instead of forcing nested window layout"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 
     func testRegistryPrunesPortalWhenWindowCloses() {

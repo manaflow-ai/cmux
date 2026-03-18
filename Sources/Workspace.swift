@@ -8232,16 +8232,32 @@ final class Workspace: Identifiable, ObservableObject {
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
     private func reconcileTerminalGeometryPass() -> Bool {
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+        guard !terminalPanels.isEmpty else { return false }
+
         var needsFollowUpPass = false
 
-        // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
-        for window in NSApp.windows {
-            window.contentView?.layoutSubtreeIfNeeded()
+        let activeWindows = Set(terminalPanels.compactMap { $0.hostedView.window })
+        let layoutInFlight = terminalPanels.contains { $0.hostedView.isGeometryReconcileLayoutInProgress }
+
+        // Skip the forced window layout flush while one of this workspace's terminals is already
+        // inside AppKit layout. Re-entering layout from the debug stress-workspaces flow can wedge
+        // SwiftUI/AppKit for minutes; defer one pass and let the current layout finish first.
+        if layoutInFlight {
+            needsFollowUpPass = true
+        } else {
+            // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
+            for window in activeWindows {
+                window.contentView?.layoutSubtreeIfNeeded()
+            }
         }
 
-        for panel in panels.values {
-            guard let terminalPanel = panel as? TerminalPanel else { continue }
+        for terminalPanel in terminalPanels {
             let hostedView = terminalPanel.hostedView
+            if hostedView.isGeometryReconcileLayoutInProgress {
+                needsFollowUpPass = true
+                continue
+            }
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
             let isAttached = hostedView.window != nil && hostedView.superview != nil
