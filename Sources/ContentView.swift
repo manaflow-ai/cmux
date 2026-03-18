@@ -1320,6 +1320,40 @@ enum WorkspaceMountPolicy {
     }
 }
 
+struct MountedWorkspacePresentation: Equatable {
+    let isRenderedVisible: Bool
+    let isPanelVisible: Bool
+    let renderOpacity: Double
+}
+
+enum MountedWorkspacePresentationPolicy {
+    static func resolve(
+        isSelectedWorkspace: Bool,
+        isRetiringWorkspace: Bool,
+        shouldPrimeInBackground: Bool
+    ) -> MountedWorkspacePresentation {
+        let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
+        let renderOpacity: Double = {
+            if isRenderedVisible {
+                return 1
+            }
+            if shouldPrimeInBackground {
+                // Keep the workspace mounted long enough to warm the terminal surface, but do
+                // not mark it panel-visible. Visible portal entries intentionally survive
+                // transient anchor loss during bonsplit drag/reparent churn.
+                return 0.001
+            }
+            return 0
+        }()
+
+        return MountedWorkspacePresentation(
+            isRenderedVisible: isRenderedVisible,
+            isPanelVisible: isRenderedVisible,
+            renderOpacity: renderOpacity
+        )
+    }
+}
+
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
@@ -2014,17 +2048,11 @@ struct ContentView: View {
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
-                    let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
-                    let isWorkspaceVisibleToPanels = isRenderedVisible || shouldPrimeInBackground
-                    let workspaceRenderOpacity: Double = {
-                        if isRenderedVisible {
-                            return 1
-                        }
-                        if shouldPrimeInBackground {
-                            return 0.001
-                        }
-                        return 0
-                    }()
+                    let presentation = MountedWorkspacePresentationPolicy.resolve(
+                        isSelectedWorkspace: isSelectedWorkspace,
+                        isRetiringWorkspace: isRetiringWorkspace,
+                        shouldPrimeInBackground: shouldPrimeInBackground
+                    )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
@@ -2033,7 +2061,7 @@ struct ContentView: View {
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isWorkspaceVisibleToPanels,
+                        isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
@@ -2046,9 +2074,9 @@ struct ContentView: View {
                             )
                         }
                     )
-                    .opacity(workspaceRenderOpacity)
+                    .opacity(presentation.renderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!isRenderedVisible)
+                    .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                     .task(id: shouldPrimeInBackground ? tab.id : nil) {
                         await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
@@ -8372,6 +8400,11 @@ private struct FeedbackComposerAppMetadata {
     let bundleIdentifier: String
     let osVersion: String
     let localeIdentifier: String
+    let hardwareModel: String
+    let chip: String
+    let memoryGB: String
+    let architecture: String
+    let displayInfo: String
 
     static var current: FeedbackComposerAppMetadata {
         let infoDictionary = Bundle.main.infoDictionary ?? [:]
@@ -8386,8 +8419,49 @@ private struct FeedbackComposerAppMetadata {
             appCommit: commit ?? "",
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "",
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            localeIdentifier: Locale.preferredLanguages.first ?? Locale.current.identifier
+            localeIdentifier: Locale.preferredLanguages.first ?? Locale.current.identifier,
+            hardwareModel: sysctlString("hw.model") ?? "",
+            chip: sysctlString("machdep.cpu.brand_string") ?? "",
+            memoryGB: formatMemoryGB(),
+            architecture: currentArchitecture(),
+            displayInfo: currentDisplayInfo()
         )
+    }
+
+    private static func sysctlString(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
+        return String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func formatMemoryGB() -> String {
+        let bytes = ProcessInfo.processInfo.physicalMemory
+        let gb = Double(bytes) / (1024 * 1024 * 1024)
+        return "\(Int(gb)) GB"
+    }
+
+    private static func currentArchitecture() -> String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    private static func currentDisplayInfo() -> String {
+        let screens = NSScreen.screens
+        let descriptions = screens.map { screen -> String in
+            let frame = screen.frame
+            let scale = screen.backingScaleFactor
+            return "\(Int(frame.width))x\(Int(frame.height)) @\(Int(scale))x"
+        }
+        let count = screens.count
+        let prefix = "\(count) display\(count == 1 ? "" : "s")"
+        return "\(prefix), \(descriptions.joined(separator: "; "))"
     }
 }
 
@@ -8442,6 +8516,11 @@ private enum FeedbackComposerClient {
         appendField("bundleIdentifier", value: metadata.bundleIdentifier, to: &body, boundary: boundary)
         appendField("osVersion", value: metadata.osVersion, to: &body, boundary: boundary)
         appendField("locale", value: metadata.localeIdentifier, to: &body, boundary: boundary)
+        appendField("hardwareModel", value: metadata.hardwareModel, to: &body, boundary: boundary)
+        appendField("chip", value: metadata.chip, to: &body, boundary: boundary)
+        appendField("memoryGB", value: metadata.memoryGB, to: &body, boundary: boundary)
+        appendField("architecture", value: metadata.architecture, to: &body, boundary: boundary)
+        appendField("displayInfo", value: metadata.displayInfo, to: &body, boundary: boundary)
 
         for attachment in preparedAttachments {
             appendFile(
@@ -9314,6 +9393,7 @@ private struct SidebarFeedbackComposerSheet: View {
             )
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
+            .textSelection(.enabled)
 
             HStack {
                 Spacer()

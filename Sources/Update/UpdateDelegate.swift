@@ -79,20 +79,6 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
     }
 
-    func updater(_ updater: SPUUpdater, willExtractUpdate item: SUAppcastItem) {
-        prepareQuarantineRepair(for: item.fileURL)
-        do {
-            let result = try UpdateQuarantineRepair.repairDownloadedArchiveIfNeeded(
-                hostName: UpdateQuarantineRepair.sparkleHostName(),
-                versionString: item.versionString,
-                dataURL: item.fileURL
-            )
-            logUpdateQuarantineRepair(stage: "download", result: result)
-        } catch {
-            UpdateLogStore.shared.append("quarantine repair download failed: \(error.localizedDescription)")
-        }
-    }
-
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
         viewModel.clearDetectedUpdate()
         let nsError = error as NSError
@@ -123,13 +109,6 @@ extension UpdateDriver: SPUUpdaterDelegate {
             }
         }
     }
-}
-
-private func logUpdateQuarantineRepair(stage: String, result: UpdateQuarantineRepairResult) {
-    let path = result.url?.path ?? "<not-found>"
-    let before = result.beforeRawValue ?? "<none>"
-    let after = result.afterRawValue ?? "<none>"
-    UpdateLogStore.shared.append("quarantine repair \(stage): \(result.outcome) path=\(path) before=\(before) after=\(after)")
 }
 
 private func describeNoUpdateFoundReason(_ reason: SPUNoUpdateFoundReason) -> String {
