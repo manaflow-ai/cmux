@@ -8963,7 +8963,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // browser NSTextView during split focus transitions.
         if matchShortcut(
             event: event,
-            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+            shortcut: KeyboardShortcutSettings.shortcut(for: .closePanel)
         ) {
             // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
             // This AppDelegate path is a fallback for cases where AppKit routes the
