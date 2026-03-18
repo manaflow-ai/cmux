@@ -465,9 +465,7 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          HARNESS_DIR="${RUNNER_TEMP}/cmux-display-churn-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "$HARNESS_DIR"
-          PREFIX="${HARNESS_DIR}/cmux-display-churn"
+          PREFIX="/tmp/cmux-display-churn-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           READY_PATH="${PREFIX}.ready"
           DISPLAY_ID_PATH="${PREFIX}.id"
           START_PATH="${PREFIX}.start"

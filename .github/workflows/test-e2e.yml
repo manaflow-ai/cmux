@@ -208,9 +208,7 @@ jobs:
           DISPLAY_ENV_PREFIX=()
 
           if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
-            HARNESS_DIR="${RUNNER_TEMP}/cmux-display-churn-${{ github.run_id }}-${{ github.run_attempt }}"
-            mkdir -p "$HARNESS_DIR"
-            PREFIX="${HARNESS_DIR}/cmux-display-churn"
+            PREFIX="/tmp/cmux-display-churn-${{ github.run_id }}-${{ github.run_attempt }}"
             READY_PATH="${PREFIX}.ready"
             DISPLAY_ID_PATH="${PREFIX}.id"
             START_PATH="${PREFIX}.start"
