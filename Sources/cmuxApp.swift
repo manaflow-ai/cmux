@@ -4,6 +4,43 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 
+enum UITestLaunchManifest {
+    static let argumentName = "-cmuxUITestLaunchManifest"
+
+    struct Payload: Decodable {
+        let environment: [String: String]
+    }
+
+    static func applyIfPresent(
+        arguments: [String] = CommandLine.arguments,
+        loadData: (String) -> Data? = { path in
+            try? Data(contentsOf: URL(fileURLWithPath: path))
+        },
+        applyEnvironment: (String, String) -> Void = { key, value in
+            setenv(key, value, 1)
+        }
+    ) {
+        guard let path = manifestPath(from: arguments),
+              let data = loadData(path),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
+            return
+        }
+
+        for (key, value) in payload.environment {
+            applyEnvironment(key, value)
+        }
+    }
+
+    static func manifestPath(from arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: argumentName) else { return nil }
+        let valueIndex = arguments.index(after: index)
+        guard valueIndex < arguments.endIndex else { return nil }
+
+        let rawPath = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        return rawPath.isEmpty ? nil : rawPath
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -45,6 +82,8 @@ struct cmuxApp: App {
     }
 
     init() {
+        UITestLaunchManifest.applyIfPresent()
+
         if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
             Self.terminateForMissingLaunchTag()
         }

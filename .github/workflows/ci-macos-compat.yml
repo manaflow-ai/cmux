@@ -48,9 +48,10 @@ jobs:
           echo "Selected: $XCODE_APP"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
-          XCODE_VER="$(xcodebuild -version | head -1)"
+          XCODE_VERSION_OUTPUT="$(xcodebuild -version)"
+          XCODE_VER="${XCODE_VERSION_OUTPUT%%$'\n'*}"
           echo "XCODE_VER=$XCODE_VER" >> "$GITHUB_ENV"
-          echo "$XCODE_VER"
+          echo "$XCODE_VERSION_OUTPUT"
           xcrun --sdk macosx --show-sdk-path
           sw_vers
 

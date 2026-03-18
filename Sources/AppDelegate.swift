@@ -2043,6 +2043,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    private var didSetupDisplayResolutionUITestDiagnostics = false
+    private var displayResolutionUITestObservers: [NSObjectProtocol] = []
+    private struct UITestRenderDiagnosticsSnapshot {
+        let panelId: UUID
+        let drawCount: Int
+        let presentCount: Int
+        let lastPresentTime: Double
+        let windowVisible: Bool
+        let appIsActive: Bool
+        let desiredFocus: Bool
+        let isFirstResponder: Bool
+    }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
@@ -2343,6 +2355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if NSApp.windows.isEmpty {
                     self.openNewMainWindow(nil)
                 }
+                self.moveUITestWindowToTargetDisplayIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
             }
@@ -2380,6 +2393,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windows = NSApp.windows
         let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
         let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
+        let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
+        let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
 
         payload["stage"] = stage
         payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
@@ -2388,6 +2403,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["windowsCount"] = String(windows.count)
         payload["windowIdentifiers"] = ids
         payload["windowVisibleFlags"] = vis
+        payload["windowScreenDisplayIDs"] = screenIDs
+        payload["uiTestTargetDisplayID"] = targetDisplayID
+        if let rawDisplayID = UInt32(targetDisplayID) {
+            let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
+            let movedWindow = windows.contains(where: { $0.screen?.cmuxDisplayID == rawDisplayID })
+            payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
+            payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
+        }
+        appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
+        appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -2399,6 +2424,160 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return [:]
         }
         return object
+    }
+
+    private func appendUITestSocketDiagnosticsIfNeeded(
+        _ payload: inout [String: String],
+        environment env: [String: String]
+    ) {
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""
+            payload["socketMode"] = "off"
+            payload["socketReady"] = "0"
+            payload["socketPingResponse"] = ""
+            payload["socketIsRunning"] = "0"
+            payload["socketAcceptLoopAlive"] = "0"
+            payload["socketPathMatches"] = "0"
+            payload["socketPathExists"] = "0"
+            payload["socketFailureSignals"] = "socket_disabled"
+            return
+        }
+
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        let pingResponse = health.isHealthy
+            ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+            : nil
+        let isReady = health.isHealthy && pingResponse == "PONG"
+        var failureSignals = health.failureSignals
+        if health.isHealthy && pingResponse != "PONG" {
+            failureSignals.append("ping_timeout")
+        }
+
+        payload["socketExpectedPath"] = socketPath
+        payload["socketMode"] = config.mode.rawValue
+        payload["socketReady"] = isReady ? "1" : "0"
+        payload["socketPingResponse"] = pingResponse ?? ""
+        payload["socketIsRunning"] = health.isRunning ? "1" : "0"
+        payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
+        payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
+        payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
+        payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
+    }
+
+    private func appendUITestRenderDiagnosticsIfNeeded(
+        _ payload: inout [String: String],
+        environment env: [String: String]
+    ) {
+        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
+
+        guard let renderState = currentUITestRenderDiagnostics() else {
+            payload["renderStatsAvailable"] = "0"
+            payload["renderPanelId"] = ""
+            payload["renderDrawCount"] = ""
+            payload["renderPresentCount"] = ""
+            payload["renderLastPresentTime"] = ""
+            payload["renderWindowVisible"] = ""
+            payload["renderAppIsActive"] = ""
+            payload["renderDesiredFocus"] = ""
+            payload["renderIsFirstResponder"] = ""
+            payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
+            return
+        }
+
+        payload["renderStatsAvailable"] = "1"
+        payload["renderPanelId"] = renderState.panelId.uuidString
+        payload["renderDrawCount"] = String(renderState.drawCount)
+        payload["renderPresentCount"] = String(renderState.presentCount)
+        payload["renderLastPresentTime"] = String(format: "%.6f", renderState.lastPresentTime)
+        payload["renderWindowVisible"] = renderState.windowVisible ? "1" : "0"
+        payload["renderAppIsActive"] = renderState.appIsActive ? "1" : "0"
+        payload["renderDesiredFocus"] = renderState.desiredFocus ? "1" : "0"
+        payload["renderIsFirstResponder"] = renderState.isFirstResponder ? "1" : "0"
+        payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func currentUITestRenderDiagnostics() -> UITestRenderDiagnosticsSnapshot? {
+        guard let tabManager,
+              let tabId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+            return nil
+        }
+
+        let terminalPanel: TerminalPanel? = {
+            if let focusedPanelId = workspace.focusedPanelId,
+               let terminalPanel = workspace.terminalPanel(for: focusedPanelId) {
+                return terminalPanel
+            }
+            if let focusedTerminalPanel = workspace.focusedTerminalPanel {
+                return focusedTerminalPanel
+            }
+            return workspace.panels.values.compactMap { $0 as? TerminalPanel }.first
+        }()
+
+        guard let terminalPanel else { return nil }
+        let stats = terminalPanel.hostedView.debugRenderStats()
+        return UITestRenderDiagnosticsSnapshot(
+            panelId: terminalPanel.id,
+            drawCount: stats.drawCount,
+            presentCount: stats.presentCount,
+            lastPresentTime: stats.lastPresentTime,
+            windowVisible: stats.windowOcclusionVisible,
+            appIsActive: stats.appIsActive,
+            desiredFocus: stats.desiredFocus,
+            isFirstResponder: stats.isFirstResponder
+        )
+    }
+
+    private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
+        let env = ProcessInfo.processInfo.environment
+        guard let rawDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"],
+              let targetDisplayID = UInt32(rawDisplayID) else {
+            return
+        }
+
+        guard let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == targetDisplayID }) else {
+            if attempt < 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
+                }
+            }
+            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayMissing")
+            return
+        }
+
+        guard let window = NSApp.windows.first else {
+            if attempt < 20 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
+                }
+            }
+            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayNoWindow")
+            return
+        }
+
+        let visibleFrame = screen.visibleFrame
+        let width = min(window.frame.width, max(visibleFrame.width - 80, 480))
+        let height = min(window.frame.height, max(visibleFrame.height - 80, 360))
+        let frame = NSRect(
+            x: visibleFrame.midX - (width / 2),
+            y: visibleFrame.midY - (height / 2),
+            width: width,
+            height: height
+        ).integral
+
+        window.setFrame(frame, display: true, animate: false)
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        if window.screen?.cmuxDisplayID != targetDisplayID, attempt < 20 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
+            }
+            return
+        }
+        self.writeUITestDiagnosticsIfNeeded(stage: "afterMoveToTargetDisplay")
     }
 #endif
 
@@ -2466,6 +2645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
+        setupDisplayResolutionUITestDiagnosticsIfNeeded()
 
         // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
         // The automation socket is a core testing primitive, so ensure it's started here when
@@ -2482,10 +2662,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     socketPath: SocketControlSettings.socketPath(),
                     accessMode: mode
                 )
+                scheduleUITestSocketSanityCheckIfNeeded()
             }
         }
 #endif
     }
+
+#if DEBUG
+    private func scheduleUITestSocketSanityCheckIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            guard let self else { return }
+            guard let config = self.socketListenerConfigurationIfEnabled() else {
+                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityDisabled")
+                return
+            }
+
+            let expectedPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
+            let pingResponse = health.isHealthy
+                ? TerminalController.probeSocketCommand("ping", at: expectedPath, timeout: 1.0)
+                : nil
+            let isReady = health.isHealthy && pingResponse == "PONG"
+            if isReady {
+                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
+                return
+            }
+
+            self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
+            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+                self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
+            }
+        }
+    }
+
+    private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
+        guard !didSetupDisplayResolutionUITestDiagnostics else { return }
+        didSetupDisplayResolutionUITestDiagnostics = true
+
+        let center = NotificationCenter.default
+        let observe: (Notification.Name, String) -> Void = { [weak self] name, stage in
+            guard let self else { return }
+            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.writeUITestDiagnosticsIfNeeded(stage: stage)
+                }
+            }
+            self.displayResolutionUITestObservers.append(observer)
+        }
+
+        observe(NSWindow.didResizeNotification, "displayUITest.windowDidResize")
+        observe(NSWindow.didMoveNotification, "displayUITest.windowDidMove")
+        observe(NSWindow.didChangeScreenNotification, "displayUITest.windowDidChangeScreen")
+        observe(NSWindow.didChangeBackingPropertiesNotification, "displayUITest.windowDidChangeBacking")
+        observe(.terminalSurfaceDidBecomeReady, "displayUITest.terminalSurfaceDidBecomeReady")
+        observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
+
+        writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+    }
+#endif
 
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }

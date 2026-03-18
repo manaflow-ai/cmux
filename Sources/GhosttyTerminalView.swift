@@ -6611,6 +6611,9 @@ final class GhosttySurfaceScrollView: NSView {
         if let overlay = searchOverlayHostingView {
             _ = setFrameIfNeeded(overlay, to: bounds)
         }
+        // NSScrollView can defer clip-view/content-size updates until its own layout pass,
+        // which makes interactive width changes arrive a queue turn late on Sequoia.
+        scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: .standardFocus)
         synchronizeScrollView()
@@ -8834,6 +8837,14 @@ struct GhosttyTerminalView: NSViewRepresentable {
         return !hostedViewHasSuperview
     }
 
+    static func shouldSynchronizePortalGeometryImmediately(
+        hostInLiveResize: Bool,
+        windowInLiveResize: Bool,
+        interactiveGeometryResizeActive: Bool
+    ) -> Bool {
+        hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
+    }
+
     private static func synchronizePortalGeometry(
         for host: HostContainerView,
         coordinator: Coordinator
@@ -8841,14 +8852,20 @@ struct GhosttyTerminalView: NSViewRepresentable {
         let geometryRevision = host.geometryRevision
         guard coordinator.lastSynchronizedHostGeometryRevision != geometryRevision else { return }
         coordinator.lastSynchronizedHostGeometryRevision = geometryRevision
-        if host.inLiveResize || host.window?.inLiveResize == true {
+        let window = host.window
+        if shouldSynchronizePortalGeometryImmediately(
+            hostInLiveResize: host.inLiveResize,
+            windowInLiveResize: window?.inLiveResize == true,
+            interactiveGeometryResizeActive: TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        ) {
             TerminalWindowPortalRegistry.synchronizeForAnchor(host)
             return
         }
         // Avoid synchronizing the terminal portal while AppKit is still inside
         // the current layout turn. Re-entrant syncs here can wedge window resize
         // handling and leave the app spinning on the wait cursor.
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        guard let window else { return }
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
     }
 
     func makeNSView(context: Context) -> NSView {
