@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ 演示视频</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ 演示视频</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## 功能特性
@@ -121,7 +121,7 @@ cmux 是原语，而非解决方案。它提供终端、浏览器、通知、工
 
 ## 文档
 
-有关 cmux 配置的更多信息，请[查看我们的文档](https://cmux.dev/docs/getting-started?utm_source=readme)。
+有关 cmux 配置的更多信息，请[查看我们的文档](https://cmux.com/docs/getting-started?utm_source=readme)。
 
 ## 键盘快捷键
 

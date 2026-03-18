@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demovideo</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demovideo</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funksjoner
@@ -121,7 +121,7 @@ Gi en million utviklere komponerbare primitiver og de vil kollektivt finne de me
 
 ## Dokumentasjon
 
-For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen vår](https://cmux.dev/docs/getting-started?utm_source=readme).
+For mer informasjon om hvordan du konfigurerer cmux, [gå til dokumentasjonen vår](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Tastatursnarveier
 

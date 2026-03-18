@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Film demonstracyjny</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Film demonstracyjny</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funkcje
@@ -121,7 +121,7 @@ Daj milionowi programistów kompozycyjne prymitywy, a wspólnie znajdą najefekt
 
 ## Dokumentacja
 
-Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https://cmux.dev/docs/getting-started?utm_source=readme).
+Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Skróty Klawiszowe
 

@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Демо-видео</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Демо-видео</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Возможности
@@ -121,7 +121,7 @@ cmux — это примитив, а не решение. Он даёт вам �
 
 ## Документация
 
-Подробнее о настройке cmux читайте в [нашей документации](https://cmux.dev/docs/getting-started?utm_source=readme).
+Подробнее о настройке cmux читайте в [нашей документации](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Сочетания Клавиш
 

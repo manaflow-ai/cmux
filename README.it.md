@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video demo</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video demo</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funzionalità
@@ -121,7 +121,7 @@ Date a un milione di sviluppatori primitive componibili e troveranno collettivam
 
 ## Documentazione
 
-Per maggiori informazioni su come configurare cmux, [consulta la nostra documentazione](https://cmux.dev/docs/getting-started?utm_source=readme).
+Per maggiori informazioni su come configurare cmux, [consulta la nostra documentazione](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Scorciatoie da Tastiera
 

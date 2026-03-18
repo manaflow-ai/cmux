@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo-Video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo-Video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funktionen
@@ -121,7 +121,7 @@ Geben Sie einer Million Entwickler komponierbare Grundbausteine, und sie werden 
 
 ## Dokumentation
 
-Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokumentation](https://cmux.dev/docs/getting-started?utm_source=readme).
+Weitere Informationen zur Konfiguration von cmux finden Sie in [unserer Dokumentation](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Tastenkürzel
 

@@ -2598,7 +2598,7 @@ private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://cmux.dev/docs")
+    private let docsURL = URL(string: "https://cmux.com/docs")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }

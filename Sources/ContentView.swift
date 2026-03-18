@@ -8308,7 +8308,7 @@ enum DevBuildBannerDebugSettings {
 private enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
-    static let defaultEndpoint = "https://www.cmux.dev/api/feedback"
+    static let defaultEndpoint = "https://cmux.com/api/feedback"
     static let foundersEmail = "founders@manaflow.com"
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 10
@@ -9755,8 +9755,8 @@ enum FeedbackComposerBridge {
 }
 
 private struct SidebarHelpMenuButton: View {
-    private let docsURL = URL(string: "https://cmux.dev/docs")
-    private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
+    private let docsURL = URL(string: "https://cmux.com/docs")
+    private let changelogURL = URL(string: "https://cmux.com/docs/changelog")
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")

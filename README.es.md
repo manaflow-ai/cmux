@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video de demostración</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Video de demostración</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Características
@@ -121,7 +121,7 @@ Dale a un millón de desarrolladores primitivos componibles y encontrarán colec
 
 ## Documentación
 
-Para más información sobre cómo configurar cmux, [visita nuestra documentación](https://cmux.dev/docs/getting-started?utm_source=readme).
+Para más información sobre cómo configurar cmux, [visita nuestra documentación](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Atajos de teclado
 
