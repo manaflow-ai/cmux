@@ -412,7 +412,8 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
         let app = XCUIApplication()
-        configureSocketControlledLaunch(app)
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -421,30 +422,25 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             },
             "Expected the main window to be visible"
         )
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
-
-        let mainWindowId = try XCTUnwrap(
-            socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
 
         openCommandPaletteCommands(app: app)
-        try debugTypeText("check")
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.typeText("check")
 
-        let snapshot = try XCTUnwrap(
-            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "check", timeout: 5.0) { snapshot in
-                let rows = self.commandPaletteResultRows(from: snapshot)
-                guard rows.count >= 2 else { return false }
-                let firstCommandId = rows[0]["command_id"] as? String
-                let secondCommandId = rows[1]["command_id"] as? String
-                return firstCommandId == "palette.checkForUpdates"
-                    && secondCommandId == "palette.attemptUpdate"
+        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
+        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 5.0) {
+                row0.exists &&
+                    row1.exists &&
+                    (row0.value as? String) == "palette.checkForUpdates" &&
+                    (row1.value as? String) == "palette.attemptUpdate"
             },
-            "Expected the check query to rank Check for Updates before Attempt Update"
+            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
         )
-
-        let rows = commandPaletteResultRows(from: snapshot)
-        XCTAssertEqual(rows.first?["command_id"] as? String, "palette.checkForUpdates")
-        XCTAssertEqual(rows.first?["title"] as? String, "Check for Updates")
+        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
+        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
     }
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
