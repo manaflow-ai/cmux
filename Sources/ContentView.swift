@@ -1739,18 +1739,27 @@ struct ContentView: View {
     }
 
     private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
-        let resolvedAvailableWidth = availableWidth
-            ?? observedWindow?.contentView?.bounds.width
-            ?? observedWindow?.contentLayoutRect.width
-            ?? NSApp.keyWindow?.contentView?.bounds.width
-            ?? NSApp.keyWindow?.contentLayoutRect.width
-        if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+        // Use explicitly provided width first
+        if let availableWidth, availableWidth > 0 {
+            return max(Self.minimumSidebarWidth, availableWidth * Self.maximumSidebarWidthRatio)
         }
 
-        let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
-            ?? NSScreen.main?.frame.width
-            ?? 1920
+        // Use observedWindow dimensions if available, even if temporarily 0 during workspace transitions.
+        // Falling back to NSApp.keyWindow or screen dimensions can cause incorrect sidebar sizing
+        // when switching macOS workspaces, as those may reference different windows or the full screen.
+        if let observedWindow {
+            let windowWidth = observedWindow.contentView?.bounds.width
+                ?? observedWindow.contentLayoutRect.width
+            // If window exists but dimensions are not yet ready (e.g., during workspace switch),
+            // return a conservative default rather than falling back to screen width.
+            if let windowWidth, windowWidth > 0 {
+                return max(Self.minimumSidebarWidth, windowWidth * Self.maximumSidebarWidthRatio)
+            }
+            return Self.minimumSidebarWidth
+        }
+
+        // Final fallback only when no observedWindow exists
+        let fallbackScreenWidth = NSScreen.main?.frame.width ?? 1920
         return max(Self.minimumSidebarWidth, fallbackScreenWidth * Self.maximumSidebarWidthRatio)
     }
 
