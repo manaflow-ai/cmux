@@ -289,13 +289,22 @@ jobs:
             fi
           fi
 
+          XCODEBUILD_CMD=(
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
+            -disableAutomaticPackageResolution
+            -destination "platform=macOS"
+            -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
+            $ONLY_TESTING
+            test
+          )
+
           set +e
-          OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            $ONLY_TESTING test 2>&1)
+          if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
+            OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
+          else
+            OUTPUT=$("${XCODEBUILD_CMD[@]}" 2>&1)
+          fi
           EXIT_CODE=$?
           set -e
 
