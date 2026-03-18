@@ -9266,6 +9266,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Handle reload page shortcut - only reload when browser is focused, otherwise pass through to terminal
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .reloadPage)) {
+            if let browserPanel = tabManager?.focusedBrowserPanel {
+                browserPanel.reload()
+                return true
+            }
+            // Pass through to terminal apps when not in browser
+            return false
+        }
+
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
         if flags == [.command],
            let manager = tabManager,

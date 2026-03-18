@@ -70,6 +70,8 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.reloadPage.defaultsKey)
+    private var reloadPageShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
@@ -630,10 +632,9 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("]", modifiers: .command)
 
-                Button(String(localized: "menu.view.reloadPage", defaultValue: "Reload Page")) {
+                splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: reloadPageMenuShortcut) {
                     activeTabManager.focusedBrowserPanel?.reload()
                 }
-                .keyboardShortcut("r", modifiers: .command)
 
                 splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: toggleBrowserDeveloperToolsMenuShortcut) {
                     let manager = activeTabManager
@@ -872,6 +873,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var reloadPageMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: reloadPageShortcutData,
+            fallback: KeyboardShortcutSettings.Action.reloadPage.defaultShortcut
         )
     }
 

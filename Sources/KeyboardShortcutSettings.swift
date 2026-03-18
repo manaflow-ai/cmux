@@ -39,6 +39,7 @@ enum KeyboardShortcutSettings {
 
         // Panels
         case openBrowser
+        case reloadPage
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
 
@@ -74,6 +75,7 @@ enum KeyboardShortcutSettings {
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
+            case .reloadPage: return String(localized: "shortcut.reloadPage.label", defaultValue: "Reload Page")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
             }
@@ -109,6 +111,7 @@ enum KeyboardShortcutSettings {
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
             case .openBrowser: return "shortcut.openBrowser"
+            case .reloadPage: return "shortcut.reloadPage"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
             }
@@ -172,6 +175,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
+            case .reloadPage:
+                // Default to Cmd+R for reload page, but can be remapped or cleared by user
+                return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .toggleBrowserDeveloperTools:
                 // Safari default: Show Web Inspector.
                 return StoredShortcut(key: "i", command: true, shift: false, option: true, control: false)
@@ -249,6 +255,7 @@ enum KeyboardShortcutSettings {
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
+    static func reloadPageShortcut() -> StoredShortcut { shortcut(for: .reloadPage) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
