@@ -9342,6 +9342,7 @@ private struct SidebarFeedbackComposerSheet: View {
             )
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
+            .textSelection(.enabled)
 
             HStack {
                 Spacer()
