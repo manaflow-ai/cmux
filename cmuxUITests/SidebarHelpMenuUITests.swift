@@ -410,6 +410,39 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testCmdShiftPCheckQueryPrefersCheckForUpdatesBeforeAttemptUpdate() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 1
+            },
+            "Expected the main window to be visible"
+        )
+
+        openCommandPaletteCommands(app: app)
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.typeText("check")
+
+        let row0 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
+        let row1 = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.1").firstMatch
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 5.0) {
+                row0.exists &&
+                    row1.exists &&
+                    (row0.value as? String) == "palette.checkForUpdates" &&
+                    (row1.value as? String) == "palette.attemptUpdate"
+            },
+            "Expected the check query to rank Check for Updates before Attempt Update. row0=\(String(describing: row0.value)) row1=\(String(describing: row1.value))"
+        )
+        XCTAssertEqual(row0.value as? String, "palette.checkForUpdates")
+        XCTAssertEqual(row1.value as? String, "palette.attemptUpdate")
+    }
+
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
         let app = XCUIApplication()
         configureSocketControlledLaunch(app, showSettingsWindow: true)
