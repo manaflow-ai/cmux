@@ -3214,6 +3214,35 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 unset _cmux_ghostty_bash _cmux_bash_integration; \
                 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
                 """)
+            } else if shellName == "fish" {
+                // Fish shell integration: create a config snippet in conf.d/
+                // Fish automatically sources all .fish files in $XDG_CONFIG_HOME/fish/conf.d/
+                // We create a temporary conf.d path that Fish will load via environment.
+                let fishConfDir = URL(fileURLWithPath: integrationDir).appendingPathComponent("fish/conf.d")
+                let fishConfFile = fishConfDir.appendingPathComponent("cmux.fish")
+                let fishIntegrationContent = """
+                # cmux fish integration - auto-generated, do not modify
+                if test "$CMUX_SHELL_INTEGRATION" != "0" -a -n "$CMUX_SHELL_INTEGRATION_DIR"
+                    set -l _cmux_fish "$CMUX_SHELL_INTEGRATION_DIR/cmux-fish-integration.fish"
+                    test -r "$_cmux_fish"; and source "$_cmux_fish"
+                    set -e _cmux_fish
+                end
+                """
+                do {
+                    try FileManager.default.createDirectory(at: fishConfDir, withIntermediateDirectories: true)
+                    try fishIntegrationContent.write(to: fishConfFile, atomically: true, encoding: .utf8)
+                    // Point Fish to our integration directory via XDG_CONFIG_HOME
+                    // We prepend our path so it takes precedence
+                    let currentXdgConfig = env["XDG_CONFIG_HOME"] ?? ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser?.appendingPathComponent(".config").path ?? ""
+                    if !currentXdgConfig.isEmpty {
+                        setManagedEnvironmentValue("XDG_CONFIG_HOME", integrationDir + ":" + currentXdgConfig)
+                    } else {
+                        setManagedEnvironmentValue("XDG_CONFIG_HOME", integrationDir)
+                    }
+                } catch {
+                    // If we can't set up Fish integration, continue without it
+                    NSLog("[cmux] Failed to set up Fish shell integration: \(error)")
+                }
             }
         }
         env = Self.mergedStartupEnvironment(
