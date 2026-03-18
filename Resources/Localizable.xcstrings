@@ -38278,13 +38278,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import From Browser…"
+            "value": "Import Browser Data…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザーから取り込む…"
+            "value": "ブラウザーデータを取り込む…"
           }
         }
       }
@@ -51224,13 +51224,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import From Browser"
+            "value": "Import Browser Data"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザーから取り込む"
+            "value": "ブラウザーデータを取り込む"
           }
         }
       }

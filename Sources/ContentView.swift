@@ -9809,7 +9809,7 @@ private struct SidebarHelpMenuButton: View {
                 isExternalLink: false
             )
             helpOptionButton(
-                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"),
+                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
                 action: .importBrowserData,
                 accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
                 isExternalLink: false

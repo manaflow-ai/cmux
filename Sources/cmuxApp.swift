@@ -628,7 +628,7 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
-                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…")) {
+                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
                     // Defer modal presentation until after AppKit finishes menu tracking.
                     DispatchQueue.main.async {
                         BrowserDataImportCoordinator.shared.presentImportDialog()
@@ -2167,7 +2167,7 @@ private struct BrowserProfilePopoverDebugView: View {
             Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
                 .font(.system(size: 12))
 
-            Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"))
+            Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
                 .font(.system(size: 12))
         }
         .padding(.horizontal, BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(horizontalPaddingRaw))
@@ -4880,7 +4880,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(String(localized: "settings.browser.import", defaultValue: "Import From Browser"))
+                                Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
                                     .font(.system(size: 13, weight: .semibold))
 
                                 VStack(alignment: .leading, spacing: 6) {
