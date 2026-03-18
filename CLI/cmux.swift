@@ -3920,6 +3920,9 @@ struct CMUXCLI {
             "  cmux_term='xterm-ghostty'",
             "fi",
             "export TERM=\"$cmux_term\"",
+            "if command -v stty >/dev/null 2>&1; then",
+            "  stty erase '^?' >/dev/null 2>&1 || true",
+            "fi",
         ]
         guard let terminfoSource else { return lines }
         let trimmedTerminfoSource = terminfoSource.trimmingCharacters(in: .whitespacesAndNewlines)

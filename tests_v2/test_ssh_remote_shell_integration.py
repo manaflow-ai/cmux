@@ -268,6 +268,34 @@ def _wait_surface_contains(
     raise cmuxError(f"Timed out waiting for terminal token: {token}")
 
 
+def _probe_backspace_round_trip(client: cmux, workspace_id: str, surface_id: str, timeout: float = 20.0) -> str:
+    token = f"__CMUX_BACKSPACE_{secrets.token_hex(6)}__"
+    expected = f"{token}abZ"
+    client.send_surface(surface_id, f"printf '{token}'")
+    client.send_surface(surface_id, "abc")
+    client.send_key_surface(surface_id, "backspace")
+    client.send_surface(surface_id, "Z\n")
+
+    deadline = time.time() + timeout
+    saw_missing_surface = False
+    while time.time() < deadline:
+        try:
+            text = _surface_text_scrollback(client, workspace_id, surface_id)
+        except cmuxError as exc:
+            if _is_terminal_surface_not_found(exc):
+                saw_missing_surface = True
+                time.sleep(0.2)
+                continue
+            raise
+        if expected in text:
+            return expected
+        time.sleep(0.2)
+
+    if saw_missing_surface:
+        raise cmuxError("terminal surface not found")
+    raise cmuxError("Timed out waiting for backspace probe output")
+
+
 def _layout_panes(client: cmux) -> list[dict]:
     layout_payload = client.layout_debug() or {}
     layout = layout_payload.get("layout") or {}
@@ -449,6 +477,22 @@ def main() -> int:
 
             term_program_version = _read_probe_payload(client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-}\"")
             _must(bool(term_program_version), "ssh-env should propagate non-empty TERM_PROGRAM_VERSION")
+
+            stty_erase = _read_probe_payload(
+                client,
+                surface_id,
+                "stty -a 2>/dev/null | sed -n 's/.*erase = \\([^;]*\\);.*/\\1/p' | head -n1",
+            )
+            _must(
+                stty_erase == "^?",
+                f"ssh shell should normalize erase to ^? for Backspace, got: {stty_erase!r}",
+            )
+
+            backspace_probe = _probe_backspace_round_trip(client, workspace_id, surface_id)
+            _must(
+                backspace_probe.endswith("abZ"),
+                f"ssh Backspace round-trip regressed: {backspace_probe!r}",
+            )
 
             ls_stamp = secrets.token_hex(4)
             ls_entries = [f"CMUX_RESIZE_LS_{ls_stamp}_{index:02d}" for index in range(1, 17)]
