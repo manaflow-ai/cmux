@@ -99,7 +99,8 @@
 					F9000000A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
-					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
+				A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008382 /* CommandPaletteSearchEngineTests.swift */; };
+				AB169902A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000002 /* InfoPlist.xcstrings */; };
 		A5001623 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = A5001622 /* cmux.sdef */; };
@@ -250,6 +251,7 @@
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
 					A5008380 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
 				A5008382 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
+				AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateQuarantineRepairTests.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DA7A10CA710E000000000002 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		A5001622 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = cmux.sdef; sourceTree = "<group>"; };
@@ -489,6 +491,7 @@
 					FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 					A5008380 /* BrowserFindJavaScriptTests.swift */,
 					A5008382 /* CommandPaletteSearchEngineTests.swift */,
+					AB169903A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -733,6 +736,7 @@
 					FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 					A5008381 /* BrowserFindJavaScriptTests.swift in Sources */,
 					A5008383 /* CommandPaletteSearchEngineTests.swift in Sources */,
+					AB169902A1B2C3D4E5F60718 /* UpdateQuarantineRepairTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
