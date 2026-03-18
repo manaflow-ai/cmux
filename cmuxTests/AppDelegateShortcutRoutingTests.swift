@@ -2793,7 +2793,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         modifiers: NSEvent.ModifierFlags,
         keyCode: UInt16,
         windowNumber: Int,
-        isARepeat: Bool = false
+        isARepeat: Bool = false,
+        charsIgnoringModifiers: String? = nil
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: type,
@@ -2803,7 +2804,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             windowNumber: windowNumber,
             context: nil,
             characters: key,
-            charactersIgnoringModifiers: key,
+            charactersIgnoringModifiers: charsIgnoringModifiers ?? key,
             isARepeat: isARepeat,
             keyCode: keyCode
         )
@@ -2911,6 +2912,102 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
             return UUID(uuidString: String(raw.dropFirst("cmux.main.".count)))
         })
+    }
+
+    // MARK: - CJK IME shortcut tests
+
+    /// When a CJK input method is active, charactersIgnoringModifiers returns
+    /// non-ASCII characters (e.g. "ㅅ" for the T key on Korean 2-Set).
+    /// matchShortcut must fall through to keyCode-based matching in this case.
+    func testCmdTMatchesNewSurfaceWithKoreanIMECharacters() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let window = window(withId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected window context")
+            return
+        }
+
+        let surfaceCountBefore = workspace.panels.count
+        appDelegate.tabManager = manager
+
+        // Simulate Korean 2-Set IME: physical T key (keyCode 17) but chars = "ㅅ"
+        // Also stub layout provider to return Korean character (simulating CJK input source)
+        let savedProvider = appDelegate.shortcutLayoutCharacterProvider
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in "ㅅ" }
+        defer { appDelegate.shortcutLayoutCharacterProvider = savedProvider }
+
+        guard let event = makeKeyEvent(
+            type: .keyDown,
+            key: "ㅅ",
+            modifiers: [.command],
+            keyCode: 17, // kVK_ANSI_T
+            windowNumber: window.windowNumber,
+            charsIgnoringModifiers: "ㅅ"
+        ) else {
+            XCTFail("Failed to construct Korean IME Cmd+T event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event),
+                       "Cmd+T should match newSurface even with Korean IME active")
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1,
+                        "Cmd+T with Korean IME should create a new surface")
+    }
+
+    func testCmdShiftLMatchesOpenBrowserWithKoreanIMECharacters() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let window = window(withId: windowId) else {
+            XCTFail("Expected window context")
+            return
+        }
+
+        appDelegate.tabManager = manager
+
+        // Simulate Korean 2-Set IME: physical L key (keyCode 37) but chars = "ㄹ"
+        let savedProvider = appDelegate.shortcutLayoutCharacterProvider
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in "ㄹ" }
+        defer { appDelegate.shortcutLayoutCharacterProvider = savedProvider }
+
+        guard let event = makeKeyEvent(
+            type: .keyDown,
+            key: "ㄹ",
+            modifiers: [.command, .shift],
+            keyCode: 37, // kVK_ANSI_L
+            windowNumber: window.windowNumber,
+            charsIgnoringModifiers: "ㄹ"
+        ) else {
+            XCTFail("Failed to construct Korean IME Cmd+Shift+L event")
+            return
+        }
+
+#if DEBUG
+        let handled = appDelegate.debugHandleCustomShortcut(event: event)
+        XCTAssertTrue(handled,
+                       "Cmd+Shift+L should match openBrowser even with Korean IME active")
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
     }
 
     private func closeWindow(withId windowId: UUID) {

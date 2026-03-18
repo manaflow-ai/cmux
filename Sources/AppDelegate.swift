@@ -10271,8 +10271,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
-        if hasEventChars,
+        //
+        // When a CJK input method (Korean, Japanese, Chinese) is active,
+        // charactersIgnoringModifiers returns non-ASCII characters (e.g. "ㅅ" for the T key
+        // on Korean 2-Set). These cannot match ASCII shortcut keys, so treat them as absent
+        // to allow keyCode-based fallback — matching the behavior of AppKit menu shortcuts
+        // which work regardless of input source.
+        let hasUsableEventChars: Bool = {
+            guard let chars = eventCharsIgnoringModifiers, !chars.isEmpty else { return false }
+            return chars.unicodeScalars.allSatisfy { $0.isASCII }
+        }()
+        if hasUsableEventChars,
            flags.contains(.command),
            !flags.contains(.control),
            shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
@@ -10295,12 +10304,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
+        // When a CJK input source is active, the layout provider also returns non-ASCII
+        // characters, so apply the same ASCII-usability check to layoutCharacter.
+        let hasUsableLayoutChar = layoutCharacter.map {
+            !$0.isEmpty && $0.unicodeScalars.allSatisfy { $0.isASCII }
+        } ?? false
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || (!hasUsableEventChars && !hasUsableLayoutChar)
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
