@@ -3311,7 +3311,14 @@ class TabManager: ObservableObject {
                 return
             }
 
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+            // Calculate ratio based on leaf weights (like ghostty's equalize algorithm).
+            // Children with the same orientation contribute their full leaf count,
+            // children with a different orientation count as 1.
+            let leftWeight = weightForDirection(splitNode.first, direction: splitNode.orientation)
+            let rightWeight = weightForDirection(splitNode.second, direction: splitNode.orientation)
+            let ratio = Double(leftWeight) / Double(leftWeight + rightWeight)
+
+            if !controller.setDividerPosition(ratio, forSplit: splitId) {
                 allSucceeded = false
             }
 
@@ -3327,6 +3334,23 @@ class TabManager: ObservableObject {
                 foundSplit: &foundSplit,
                 allSucceeded: &allSucceeded
             )
+        }
+    }
+
+    /// Calculate weight for equalization based on split direction.
+    /// Children with the same direction contribute their full leaf count,
+    /// children with a different direction count as 1.
+    private func weightForDirection(_ node: ExternalTreeNode, direction: String) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let splitNode):
+            if splitNode.orientation == direction {
+                return weightForDirection(splitNode.first, direction: direction)
+                     + weightForDirection(splitNode.second, direction: direction)
+            } else {
+                return 1
+            }
         }
     }
 
