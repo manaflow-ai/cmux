@@ -377,14 +377,21 @@ enum SessionPersistenceStore {
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
+            let data = try encodedSnapshotData(snapshot)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return true
+            }
             try data.write(to: fileURL, options: .atomic)
             return true
         } catch {
             return false
         }
+    }
+
+    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(snapshot)
     }
 
     static func removeSnapshot(fileURL: URL? = nil) {
