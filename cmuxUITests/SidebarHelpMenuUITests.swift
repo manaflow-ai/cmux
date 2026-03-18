@@ -313,11 +313,24 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         super.tearDown()
     }
 
-    func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
-        let app = XCUIApplication()
+    private func configureSocketControlledLaunch(
+        _ app: XCUIApplication,
+        showSettingsWindow: Bool = false
+    ) {
+        app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        if showSettingsWindow {
+            app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        }
+    }
+
+    func testCmdShiftPBackspaceReturnsToWorkspaceResults() throws {
+        let app = XCUIApplication()
+        configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -399,10 +412,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testCmdPSearchCanIncludeSurfacesFromOtherWorkspacesWhenEnabled() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketControlledLaunch(app, showSettingsWindow: true)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -478,9 +488,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
     func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        configureSocketControlledLaunch(app)
         launchAndActivate(app)
 
         XCTAssertTrue(
@@ -501,6 +509,25 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertTrue(searchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
         searchField.click()
 
+        let seededWorkspaceTitlePrefix = "\(noMatchWorkspaceQuery)-"
+        try debugTypeText(noMatchWorkspaceQuery)
+
+        let seededSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, query: noMatchWorkspaceQuery, timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    ((row["title"] as? String) ?? "").hasPrefix(seededWorkspaceTitlePrefix)
+                }
+            },
+            "Expected seeded workspace titles to be indexed before exercising the no-match path"
+        )
+        XCTAssertTrue(
+            commandPaletteResultRows(from: seededSnapshot).contains { row in
+                ((row["title"] as? String) ?? "").hasPrefix(seededWorkspaceTitlePrefix)
+            },
+            "Expected the seeded workspace corpus to be searchable before the no-match assertion. snapshot=\(seededSnapshot)"
+        )
+
+        try clearCommandPaletteSearchField(app: app, windowId: mainWindowId)
         try debugTypeText(String(repeating: "z", count: 8))
 
         let emptyLabel = app.staticTexts["No workspaces match your search."].firstMatch
@@ -516,26 +543,35 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
 
         try debugTypeText("z")
 
-        let emptyLabelDisappearedWhileRefining = sidebarHelpPollUntil(timeout: 0.5, pollInterval: 0.01) {
-            !emptyLabel.exists
+        let refinedQuery = String(repeating: "z", count: 9)
+        var refinedSnapshot: [String: Any]?
+        var emptyLabelDisappearedWhileRefining = false
+        let refinedQueryResolvedWhileKeepingEmptyStateVisible = sidebarHelpPollUntil(
+            timeout: 5.0,
+            pollInterval: 0.01
+        ) {
+            guard emptyLabel.exists else {
+                emptyLabelDisappearedWhileRefining = true
+                return false
+            }
+            guard let snapshot = commandPaletteSnapshot(windowId: mainWindowId) else { return false }
+            guard (snapshot["query"] as? String) == refinedQuery else { return false }
+            guard self.commandPaletteResultRows(from: snapshot).isEmpty else { return false }
+            refinedSnapshot = snapshot
+            return true
         }
         XCTAssertFalse(
             emptyLabelDisappearedWhileRefining,
             "Expected refining an already-empty switcher query to keep the empty-state label visible"
         )
-
-        let refinedSnapshot = try XCTUnwrap(
-            waitForCommandPaletteSnapshot(
-                windowId: mainWindowId,
-                query: String(repeating: "z", count: 9),
-                timeout: 5.0
-            ) { snapshot in
-                self.commandPaletteResultRows(from: snapshot).isEmpty
-            }
-        )
         XCTAssertTrue(
-            commandPaletteResultRows(from: refinedSnapshot).isEmpty,
-            "Expected the refined no-match query to stay empty. snapshot=\(refinedSnapshot)"
+            refinedQueryResolvedWhileKeepingEmptyStateVisible,
+            "Expected the refined no-match query to resolve while keeping the empty-state label visible"
+        )
+        let resolvedRefinedSnapshot = try XCTUnwrap(refinedSnapshot)
+        XCTAssertTrue(
+            commandPaletteResultRows(from: resolvedRefinedSnapshot).isEmpty,
+            "Expected the refined no-match query to stay empty. snapshot=\(resolvedRefinedSnapshot)"
         )
     }
 
@@ -570,7 +606,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         let searchField = app.textFields["CommandPaletteSearchField"]
         for _ in 0..<2 {
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
-            if sidebarHelpPollUntil(timeout: 1.0) { !searchField.exists } {
+            if sidebarHelpPollUntil(timeout: 1.0, condition: { !searchField.exists }) {
                 return
             }
         }
@@ -667,6 +703,22 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         XCTAssertEqual(response["ok"] as? Bool, true, "Expected debug.type to succeed. response=\(response)")
     }
 
+    private func clearCommandPaletteSearchField(app: XCUIApplication, windowId: String) throws {
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.click()
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        let clearedSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: windowId, query: "", timeout: 5.0),
+            "Expected the command palette query to clear"
+        )
+        XCTAssertEqual(
+            clearedSnapshot["query"] as? String,
+            "",
+            "Expected the command palette query to clear"
+        )
+    }
+
     private func seedWorkspaceSwitcherCorpus(workspaceCount: Int) throws {
         guard workspaceCount > 1 else { return }
 
@@ -675,7 +727,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
                 okUUID(from: socketCommand("new_workspace")),
                 "Expected new_workspace to return a workspace ID"
             )
-            let title = "\(noMatchWorkspaceQuery)-\(index)-" + String(repeating: "workspace-", count: 8)
+            let title = seededWorkspaceTitle(index: index)
             let response = try XCTUnwrap(
                 socketJSON(
                     method: "workspace.rename",
@@ -694,6 +746,10 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         }
 
         XCTAssertEqual(socketCommand("select_workspace 0"), "OK")
+    }
+
+    private func seededWorkspaceTitle(index: Int) -> String {
+        "\(noMatchWorkspaceQuery)-\(index)-" + String(repeating: "workspace-", count: 8)
     }
 
     private func socketCommand(_ command: String) -> String? {
@@ -720,7 +776,7 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
             guard (snapshot["query"] as? String) == query else { return false }
             return predicate?(snapshot) ?? true
         }
-        return matched ? latest : latest
+        return matched ? latest : nil
     }
 
     private func commandPaletteSnapshot(windowId: String) -> [String: Any]? {
