@@ -15,6 +15,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
+        // Prevent a single hanging test from consuming the entire CI timeout budget.
+        executionTimeAllowance = 30
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
