@@ -181,7 +181,7 @@ export default function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; 2026 Manaflow. All rights reserved.
+        Copyright &copy; {new Date().getFullYear()} Manaflow. All rights reserved.
       </p>
     </>
   );
