@@ -5784,8 +5784,11 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        // If this is the only panel and no custom title, update workspace title
-        if panels.count == 1, customTitle == nil {
+        let shouldRefreshWorkspaceTitle = customTitle == nil &&
+            (panels.count == 1 || panelId == focusedPanelId)
+
+        // Keep the workspace title in sync with the focused panel without touching unrelated tabs.
+        if shouldRefreshWorkspaceTitle {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true

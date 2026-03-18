@@ -1255,6 +1255,75 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertNotNil(createdWorkspace)
         XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
     }
+
+    func testOpenNotificationFallsBackToFocusedPanelWhenTargetSurfaceIsMissing() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let originalNotificationStore = app.notificationStore
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        app.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            app.notificationStore = originalNotificationStore
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+
+        guard let workspace = manager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        let staleSurfaceId = UUID()
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: staleSurfaceId,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+
+        guard let notification = store.notifications.first else {
+            XCTFail("Expected unread notification")
+            return
+        }
+
+        XCTAssertTrue(
+            app.openNotification(
+                tabId: workspace.id,
+                surfaceId: staleSurfaceId,
+                notificationId: notification.id
+            ),
+            "Expected jump-to-unread to recover from stale surface ids instead of returning a no-op"
+        )
+
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, workspace.id)
+        XCTAssertEqual(manager.focusedSurfaceId(for: workspace.id), focusedPanelId)
+        XCTAssertTrue(store.notifications.first?.isRead == true)
+    }
 }
 
 @MainActor
@@ -1283,6 +1352,27 @@ final class AppDelegateLaunchServicesRegistrationTests: XCTestCase {
         scheduledWork?()
 
         XCTAssertEqual(registerCallCount, 1)
+    }
+}
+
+@MainActor
+final class WorkspaceTitleSyncTests: XCTestCase {
+    func testFocusedSplitWorkspaceUpdatesWorkspaceTitleWhenPanelTitleChanges() {
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+
+        workspace.applyProcessTitle("cmux-macmini: claude --dangerously-skip-permissions")
+        XCTAssertEqual(workspace.title, "cmux-macmini: claude --dangerously-skip-permissions")
+
+        XCTAssertTrue(workspace.updatePanelTitle(panelId: rightPanel.id, title: "cmux-macmini: codex"))
+        XCTAssertEqual(workspace.panelTitle(panelId: rightPanel.id), "cmux-macmini: codex")
+        XCTAssertEqual(workspace.title, "cmux-macmini: codex")
     }
 }
 
