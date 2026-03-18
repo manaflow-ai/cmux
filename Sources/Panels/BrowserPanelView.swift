@@ -612,6 +612,16 @@ struct BrowserPanelView: View {
                 refreshSuggestions()
             }
         }
+        .onChange(of: isVisibleInUI) { visibleInUI in
+            if visibleInUI {
+                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+                return
+            }
+            // Pane/workspace churn can briefly mark the browser hidden before the
+            // final host settles. Only treat a stable hide as a signal to consume
+            // an attached-inspector X-close.
+            panel.scheduleDeveloperToolsVisibilityLossCheck()
+        }
         .onChange(of: isFocused) { focused in
 #if DEBUG
             logBrowserFocusState(
@@ -627,6 +637,12 @@ struct BrowserPanelView: View {
                 panel.invalidateAddressBarPageFocusRestoreAttempts()
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
+                // Surface switches in split layouts can keep the browser visible, so
+                // `isVisibleInUI` never flips to false. Check for an attached-inspector
+                // X-close when focus leaves as well so the persisted intent stays in sync.
+                DispatchQueue.main.async {
+                    panel.scheduleDeveloperToolsVisibilityLossCheck()
+                }
             }
             syncWebViewResponderPolicyWithViewState(
                 reason: "panelFocusChanged",
@@ -5937,6 +5953,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.lastPortalHostId = nil
         coordinator.lastSynchronizedHostGeometryRevision = 0
         if didAttachWebViewToLocalHost {
+            panel.noteDeveloperToolsHostAttached()
             panel.restoreDeveloperToolsAfterAttachIfNeeded()
             webView.needsLayout = true
             webView.layoutSubtreeIfNeeded()
@@ -5950,6 +5967,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update.async")
             }
         } else {
+            panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
             host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update")
         }
 

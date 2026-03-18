@@ -1405,6 +1405,7 @@ struct ContentView: View {
     @State private var commandPaletteResolvedSearchScope: CommandPaletteListScope?
     @State private var commandPaletteResolvedSearchFingerprint: Int?
     @State private var commandPaletteResolvedMatchingQuery = ""
+    @State private var commandPaletteTerminalOpenTargetAvailability: Set<TerminalDirectoryOpenTarget> = []
     @State private var isCommandPaletteSearchPending = false
     @State private var commandPalettePendingActivation: CommandPalettePendingActivation?
     @State private var commandPaletteResultsRevision: UInt64 = 0
@@ -1566,6 +1567,10 @@ struct ContentView: View {
         }
     }
 
+    private struct CommandPaletteCommandsContext {
+        let snapshot: CommandPaletteContextSnapshot
+    }
+
     private enum CommandPaletteContextKeys {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
@@ -1588,6 +1593,7 @@ struct ContentView: View {
         static let panelHasUnread = "panel.hasUnread"
 
         static let updateHasAvailable = "update.hasAvailable"
+        static let cliInstalledInPATH = "cli.installedInPATH"
 
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
@@ -3766,9 +3772,11 @@ struct ContentView: View {
     }
 
     private var commandPaletteCurrentSearchFingerprint: Int {
-        commandPaletteEntriesFingerprint(
-            for: commandPaletteListScope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+        let scope = commandPaletteListScope
+        return commandPaletteEntriesFingerprint(
+            for: scope,
+            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
+            commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
     }
 
@@ -3872,11 +3880,12 @@ struct ContentView: View {
 
     private func commandPaletteEntries(
         for scope: CommandPaletteListScope,
-        includeSurfaces: Bool
+        includeSurfaces: Bool,
+        commandsContext: CommandPaletteCommandsContext? = nil
     ) -> [CommandPaletteCommand] {
         switch scope {
         case .commands:
-            return commandPaletteCommands()
+            return commandPaletteCommands(commandsContext: commandsContext ?? commandPaletteCachedCommandsContext())
         case .switcher:
             return commandPaletteSwitcherEntries(includeSurfaces: includeSurfaces)
         }
@@ -3904,15 +3913,27 @@ struct ContentView: View {
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
             query: effectiveQuery
         )
+        let terminalOpenTargets = resolveCommandPaletteTerminalOpenTargets(for: scope)
+        if commandPaletteTerminalOpenTargetAvailability != terminalOpenTargets {
+            commandPaletteTerminalOpenTargetAvailability = terminalOpenTargets
+        }
+        let commandsContext = scope == .commands
+            ? commandPaletteCommandsContext(terminalOpenTargets: terminalOpenTargets)
+            : nil
         let fingerprint = commandPaletteEntriesFingerprint(
             for: scope,
-            includeSurfaces: includeSurfaces
+            includeSurfaces: includeSurfaces,
+            commandsContext: commandsContext
         )
         guard force || cachedCommandPaletteScope != scope || cachedCommandPaletteFingerprint != fingerprint else {
             return
         }
 
-        let entries = commandPaletteEntries(for: scope, includeSurfaces: includeSurfaces)
+        let entries = commandPaletteEntries(
+            for: scope,
+            includeSurfaces: includeSurfaces,
+            commandsContext: commandsContext
+        )
         commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -4276,21 +4297,21 @@ struct ContentView: View {
 
     private func commandPaletteEntriesFingerprint(
         for scope: CommandPaletteListScope,
-        includeSurfaces: Bool
+        includeSurfaces: Bool,
+        commandsContext: CommandPaletteCommandsContext? = nil
     ) -> Int {
         switch scope {
         case .commands:
-            return commandPaletteCommandsFingerprint()
+            return commandPaletteCommandsFingerprint(
+                commandsContext: commandsContext ?? commandPaletteCachedCommandsContext()
+            )
         case .switcher:
             return commandPaletteSwitcherEntriesFingerprint(includeSurfaces: includeSurfaces)
         }
     }
 
-    private func commandPaletteCommandsFingerprint() -> Int {
-        var hasher = Hasher()
-        hasher.combine(commandPaletteContextSnapshot().fingerprint())
-        hasher.combine(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false)
-        return hasher.finalize()
+    private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
+        commandsContext.snapshot.fingerprint()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
@@ -4642,8 +4663,37 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteCommands() -> [CommandPaletteCommand] {
-        let context = commandPaletteContextSnapshot()
+    private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
+        commandPaletteCommandsContext(
+            terminalOpenTargets: commandPaletteTerminalOpenTargetAvailability
+        )
+    }
+
+    private func resolveCommandPaletteTerminalOpenTargets(
+        for scope: CommandPaletteListScope
+    ) -> Set<TerminalDirectoryOpenTarget> {
+        guard scope == .commands,
+              focusedPanelContext?.panel.panelType == .terminal else {
+            return []
+        }
+        return TerminalDirectoryOpenTarget.availableTargets()
+    }
+
+    private func commandPaletteCommandsContext(
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
+    ) -> CommandPaletteCommandsContext {
+        let cliInstalledInPATH = AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
+        var snapshot = commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets)
+        snapshot.setBool(CommandPaletteContextKeys.cliInstalledInPATH, cliInstalledInPATH)
+        return CommandPaletteCommandsContext(
+            snapshot: snapshot
+        )
+    }
+
+    private func commandPaletteCommands(
+        commandsContext: CommandPaletteCommandsContext
+    ) -> [CommandPaletteCommand] {
+        let context = commandsContext.snapshot
         let contributions = commandPaletteCommandContributions()
         var handlerRegistry = CommandPaletteHandlerRegistry()
         registerCommandPaletteHandlers(&handlerRegistry)
@@ -4789,7 +4839,9 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteContextSnapshot() -> CommandPaletteContextSnapshot {
+    private func commandPaletteContextSnapshot(
+        terminalOpenTargets: Set<TerminalDirectoryOpenTarget>? = nil
+    ) -> CommandPaletteContextSnapshot {
         var snapshot = CommandPaletteContextSnapshot()
 
         if let workspace = tabManager.selectedWorkspace {
@@ -4840,7 +4892,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelHasUnread, hasUnread)
 
             if panelIsTerminal {
-                let availableTargets = TerminalDirectoryOpenTarget.availableTargets()
+                let availableTargets = terminalOpenTargets ?? TerminalDirectoryOpenTarget.availableTargets()
                 for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
                     snapshot.setBool(
                         CommandPaletteContextKeys.terminalOpenTargetAvailable(target),
@@ -4906,7 +4958,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH")),
                 subtitle: constant(String(localized: "command.installCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["install", "cli", "path", "shell", "command", "symlink"],
-                when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
+                when: { !$0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
             )
         )
         contributions.append(
@@ -4915,7 +4967,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
                 subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
-                when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+                when: { $0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
             )
         )
         contributions.append(
@@ -6406,6 +6458,7 @@ struct ContentView: View {
         commandPaletteResolvedSearchRequestID = commandPaletteSearchRequestID
         commandPaletteResolvedSearchScope = nil
         commandPaletteResolvedSearchFingerprint = nil
+        commandPaletteTerminalOpenTargetAvailability = []
         isCommandPaletteSearchPending = false
         commandPalettePendingActivation = nil
         commandPaletteResultsRevision &+= 1

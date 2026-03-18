@@ -2572,6 +2572,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Tracks the last focus state to avoid sending redundant focus events.
+    /// This prevents prompt redraw issues with zsh themes like Powerlevel10k.
+    private var lastFocusState: Bool = false
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
 #endif
@@ -3463,6 +3466,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func setFocus(_ focused: Bool) {
         guard let surface = surface else { return }
+        // Only send focus events when the state changes to avoid redundant
+        // prompt redraws with zsh themes like Powerlevel10k.
+        guard focused != lastFocusState else { return }
+        lastFocusState = focused
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -6112,6 +6119,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var windowObservers: [NSObjectProtocol] = []
     private var isLiveScrolling = false
     private var lastSentRow: Int?
+    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
+    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
+    /// where the terminal fights the user's scroll position.
+    private var userScrolledAwayFromBottom = false
+    /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
+    private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
@@ -6439,6 +6452,8 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
+            // Final scroll position check to update userScrolledAwayFromBottom state
+            self?.handleLiveScroll()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -8356,11 +8371,29 @@ final class GhosttySurfaceScrollView: NSView {
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-                if !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) {
+
+                // Check if we're currently at the bottom (with threshold for float drift)
+                let currentOrigin = scrollView.contentView.bounds.origin
+                let documentHeight = documentView.frame.height
+                let viewportHeight = scrollView.contentView.bounds.height
+                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
+                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+
+                // Update userScrolledAwayFromBottom based on current position
+                if isAtBottom {
+                    userScrolledAwayFromBottom = false
+                }
+
+                // Only auto-scroll if user hasn't manually scrolled away from bottom
+                // or if we're following terminal output (scrollbar shows we're at bottom)
+                let shouldAutoScroll = !userScrolledAwayFromBottom ||
+                    (scrollbar.offset + scrollbar.len >= scrollbar.total)
+
+                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
 #if DEBUG
                     logDragGeometryChange(
                         event: "scrollOrigin",
-                        old: scrollView.contentView.bounds.origin,
+                        old: currentOrigin,
                         new: targetOrigin
                     )
 #endif
@@ -8387,6 +8420,14 @@ final class GhosttySurfaceScrollView: NSView {
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+
+        // Track if user has scrolled away from bottom to review scrollback
+        if scrollOffset > Self.scrollToBottomThreshold {
+            userScrolledAwayFromBottom = true
+        } else if scrollOffset <= 0 {
+            userScrolledAwayFromBottom = false
+        }
+
         let row = Int(scrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }

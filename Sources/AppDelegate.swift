@@ -10461,14 +10461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func ensureApplicationIcon() {
         let mode = AppIconSettings.resolvedMode()
-        if mode == .automatic {
-            // Let the asset catalog handle appearance-based icon selection.
-            if let icon = NSImage(named: NSImage.applicationIconName) {
-                NSApplication.shared.applicationIconImage = icon
-            }
-        } else {
-            AppIconSettings.applyIcon(mode)
-        }
+        AppIconSettings.applyIcon(mode)
     }
 
     private func scheduleLaunchServicesBundleRegistration(
