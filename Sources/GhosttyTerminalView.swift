@@ -3953,6 +3953,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
     }
 
+    /// Tracks the last window this view was attached to for optimizing re-parenting within the same window.
+    private var lastAttachedWindow: NSWindow?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let windowObserver {
@@ -3966,7 +3969,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "pending=\(String(format: "%.1fx%.1f", pendingSurfaceSize?.width ?? 0, pendingSurfaceSize?.height ?? 0))"
         )
 #endif
-        guard let window else { return }
+        guard let window else {
+            // View is being detached from a window - clear the tracking reference
+            lastAttachedWindow = nil
+            return
+        }
+
+        // Check if this is a re-parenting within the same window (no actual window change)
+        let isReparentingWithinSameWindow = lastAttachedWindow === window
+        lastAttachedWindow = window
 
         // If the surface creation was deferred while detached, create/attach it now.
         terminalSurface?.attachToView(self)
@@ -3993,6 +4004,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            let displayID = window.screen?.displayID,
            displayID != 0 {
             ghostty_surface_set_display_id(surface, displayID)
+        }
+
+        // Skip expensive layout and surface updates when re-parenting within the same window
+        // to avoid terminal flicker during workspace layout changes (e.g., new-workspace).
+        if isReparentingWithinSameWindow {
+            // Still invalidate text input coordinates as the view position may have changed
+            invalidateTextInputCoordinates()
+            return
         }
 
         // Recompute from current bounds after layout. Pending size is only a fallback

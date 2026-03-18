@@ -2044,6 +2044,9 @@ struct ContentView: View {
                             )
                         }
                     )
+                    // Stable identity prevents view recreation when mountedWorkspaces changes,
+                    // avoiding terminal flicker during workspace layout transitions (e.g., new-workspace).
+                    .id(tab.id)
                     .opacity(workspaceRenderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
                     .accessibilityHidden(!isRenderedVisible)
