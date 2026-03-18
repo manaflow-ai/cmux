@@ -413,6 +413,38 @@ final class BrowserProfileStore: ObservableObject {
         return true
     }
 
+    @discardableResult
+    func removeProfile(id: UUID) -> Bool {
+        guard let index = profiles.firstIndex(where: { $0.id == id }),
+              !profiles[index].isBuiltInDefault else {
+            return false
+        }
+
+        profiles.remove(at: index)
+        dataStores[id] = nil
+        historyStores[id] = nil
+
+        if let historyFileURL = historyFileURL(for: id) {
+            try? FileManager.default.removeItem(at: historyFileURL)
+            let profileDirectory = historyFileURL.deletingLastPathComponent()
+            if let remainingContents = try? FileManager.default.contentsOfDirectory(
+                at: profileDirectory,
+                includingPropertiesForKeys: nil
+            ),
+               remainingContents.isEmpty {
+                try? FileManager.default.removeItem(at: profileDirectory)
+            }
+        }
+
+        if lastUsedProfileID == id {
+            lastUsedProfileID = Self.builtInDefaultProfileID
+            defaults.set(lastUsedProfileID.uuidString, forKey: Self.lastUsedProfileDefaultsKey)
+        }
+
+        persist()
+        return true
+    }
+
     func canRenameProfile(id: UUID) -> Bool {
         guard let profile = profileDefinition(id: id) else { return false }
         return !profile.isBuiltInDefault
@@ -9618,13 +9650,7 @@ final class BrowserDataImportCoordinator {
         }
 
         private func defaultSelectedSourceProfileIDs(for browser: InstalledBrowserCandidate) -> Set<String> {
-            if let defaultProfile = browser.profiles.first(where: \.isDefault) {
-                return [defaultProfile.id]
-            }
-            if let firstProfile = browser.profiles.first {
-                return [firstProfile.id]
-            }
-            return []
+            Set(browser.profiles.map(\.id))
         }
 
         private func selectedSourceProfiles() -> [InstalledBrowserProfile] {
