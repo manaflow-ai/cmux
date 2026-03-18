@@ -4401,6 +4401,17 @@ extension BrowserPanel {
             return
         }
         guard !isDeveloperToolsTransitionInFlight else { return }
+        // Sync preference from inspector before deciding to restore. This ensures that
+        // manual closes (e.g., clicking the X button) are respected when switching
+        // surfaces, preventing DevTools from reappearing after being closed.
+        syncDeveloperToolsPreferenceFromInspector()
+        // Re-check preferredDeveloperToolsVisible after syncing, as it may have changed
+        // if the user manually closed DevTools.
+        guard preferredDeveloperToolsVisible else {
+            cancelDeveloperToolsRestoreRetry()
+            forceDeveloperToolsRefreshOnNextAttach = false
+            return
+        }
         guard let inspector = webView.cmuxInspectorObject() else {
             scheduleDeveloperToolsRestoreRetry()
             return
