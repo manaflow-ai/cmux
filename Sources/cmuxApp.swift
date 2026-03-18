@@ -75,6 +75,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeTab.defaultsKey) private var closeTabShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -536,10 +537,9 @@ struct cmuxApp: App {
                 // default, closing the last surface also closes the workspace and the window
                 // if it was also the last workspace. Users can opt into keeping the workspace
                 // open instead.
-                Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
+                splitCommandButton(title: String(localized: "menu.file.closeTab", defaultValue: "Close Tab"), shortcut: closeTabMenuShortcut) {
                     closePanelOrWindow()
                 }
-                .keyboardShortcut("w", modifiers: .command)
 
                 Button(String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")) {
                     closeOtherTabsInFocusedPane()
@@ -872,6 +872,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var closeTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: closeTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.closeTab.defaultShortcut
         )
     }
 

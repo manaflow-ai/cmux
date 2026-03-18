@@ -9,6 +9,7 @@ enum KeyboardShortcutSettings {
         case newTab
         case newWindow
         case closeWindow
+        case closeTab
         case openFolder
         case sendFeedback
         case showNotifications
@@ -50,6 +51,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
+            case .closeTab: return String(localized: "shortcut.closeTab.label", defaultValue: "Close Tab")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
             case .showNotifications: return String(localized: "shortcut.showNotifications.label", defaultValue: "Show Notifications")
@@ -85,6 +87,7 @@ enum KeyboardShortcutSettings {
             case .newTab: return "shortcut.newTab"
             case .newWindow: return "shortcut.newWindow"
             case .closeWindow: return "shortcut.closeWindow"
+            case .closeTab: return "shortcut.closeTab"
             case .openFolder: return "shortcut.openFolder"
             case .sendFeedback: return "shortcut.sendFeedback"
             case .showNotifications: return "shortcut.showNotifications"
@@ -124,6 +127,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
             case .closeWindow:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
+            case .closeTab:
+                return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .sendFeedback:
