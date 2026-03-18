@@ -60,6 +60,72 @@ enum WorkspaceAutoReorderSettings {
     }
 }
 
+enum SidebarFontRole {
+    case text
+    case shortcutHint
+    case codeDetail
+}
+
+enum SidebarFontSettings {
+    // Keep the original storage keys so existing selections continue to apply.
+    static let textFamilyKey = "sidebarFontFamilyTitle"
+    static let shortcutHintFamilyKey = "sidebarFontFamilyShortcutHint"
+    static let codeDetailFamilyKey = "sidebarFontFamilyDetail"
+
+    /// Empty string means "use the legacy built-in default for this role".
+    static let defaultFamily = ""
+
+    /// All font families available on the system, sorted alphabetically.
+    static let availableFamilies = NSFontManager.shared.availableFontFamilies.sorted()
+    private static let availableFamilySet = Set(availableFamilies)
+
+    /// Cache mapping family name → PostScript face name for the regular member.
+    private static let familyToFaceName: [String: String] = {
+        var map = [String: String]()
+        for family in availableFamilies {
+            guard let members = NSFontManager.shared.availableMembers(ofFontFamily: family),
+                  let first = members.first,
+                  let faceName = first[0] as? String else { continue }
+            map[family] = faceName
+        }
+        return map
+    }()
+
+    static func legacyFont(
+        role: SidebarFontRole,
+        size: CGFloat,
+        weight: Font.Weight = .regular
+    ) -> Font {
+        switch role {
+        case .text:
+            return .system(size: size, weight: weight)
+        case .shortcutHint:
+            return .system(size: size, weight: weight, design: .rounded)
+        case .codeDetail:
+            return .system(size: size, weight: weight, design: .monospaced)
+        }
+    }
+
+    /// Returns a SwiftUI `Font` for the given stored family name.
+    /// An empty or invalid family falls back to the role's legacy built-in
+    /// font so resets preserve the pre-settings sidebar styling.
+    static func font(
+        family: String,
+        role: SidebarFontRole,
+        size: CGFloat,
+        weight: Font.Weight = .regular
+    ) -> Font {
+        let trimmed = family.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return legacyFont(role: role, size: size, weight: weight)
+        }
+        guard let faceName = familyToFaceName[trimmed] else {
+            return legacyFont(role: role, size: size, weight: weight)
+        }
+        return .custom(faceName, size: size).weight(weight)
+    }
+}
+
 enum SidebarBranchLayoutSettings {
     static let key = "sidebarBranchVerticalLayout"
     static let defaultVerticalLayout = true

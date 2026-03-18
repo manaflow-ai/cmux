@@ -10447,6 +10447,12 @@ private struct TabItemView: View, Equatable {
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var activeTabIndicatorStyleRaw = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var textFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.shortcutHintFamilyKey)
+    private var shortcutHintFontFamily = SidebarFontSettings.defaultFamily
+    @AppStorage(SidebarFontSettings.codeDetailFamilyKey)
+    private var codeDetailFontFamily = SidebarFontSettings.defaultFamily
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -10696,7 +10702,7 @@ private struct TabItemView: View, Equatable {
                 }
 
                 Text(tab.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -10724,7 +10730,7 @@ private struct TabItemView: View, Equatable {
                         Text(workspaceShortcutLabel)
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .font(SidebarFontSettings.font(family: shortcutHintFontFamily, role: .shortcutHint, size: 10, weight: .semibold))
                             .monospacedDigit()
                             .foregroundColor(activePrimaryTextColor)
                             .padding(.horizontal, 6)
@@ -10743,7 +10749,7 @@ private struct TabItemView: View, Equatable {
 
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -10780,7 +10786,7 @@ private struct TabItemView: View, Equatable {
                         .font(.system(size: 8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(.system(size: 10))
+                        .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -10804,7 +10810,7 @@ private struct TabItemView: View, Equatable {
 
                     if let label = progress.label {
                         Text(label)
-                            .font(.system(size: 9))
+                            .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 9))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
@@ -10827,7 +10833,7 @@ private struct TabItemView: View, Equatable {
                                     HStack(spacing: 3) {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(SidebarFontSettings.font(family: codeDetailFontFamily, role: .codeDetail, size: 10))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -10840,7 +10846,7 @@ private struct TabItemView: View, Equatable {
                                         }
                                         if let directory = line.directory {
                                             Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
+                                                .font(SidebarFontSettings.font(family: codeDetailFontFamily, role: .codeDetail, size: 10))
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -10858,7 +10864,7 @@ private struct TabItemView: View, Equatable {
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(SidebarFontSettings.font(family: codeDetailFontFamily, role: .codeDetail, size: 10))
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -10886,7 +10892,7 @@ private struct TabItemView: View, Equatable {
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10, weight: .semibold))
                             .foregroundColor(pullRequestForegroundColor)
                         }
                         .buttonStyle(.plain)
@@ -10898,7 +10904,7 @@ private struct TabItemView: View, Equatable {
             // Ports row
             if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
                 Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(SidebarFontSettings.font(family: codeDetailFontFamily, role: .codeDetail, size: 10))
                     .foregroundColor(activeSecondaryColor(0.75))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -11838,6 +11844,8 @@ private struct SidebarMetadataRows: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var textFontFamily = SidebarFontSettings.defaultFamily
     private let collapsedEntryLimit = 3
 
     var body: some View {
@@ -11854,7 +11862,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10, weight: .semibold))
                 .foregroundColor(isActive ? activeSecondaryTextColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -11887,6 +11895,8 @@ private struct SidebarMetadataRows: View {
 private struct SidebarMetadataEntryRow: View {
     let entry: SidebarStatusEntry
     let isActive: Bool
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var textFontFamily = SidebarFontSettings.defaultFamily
     let onFocus: () -> Void
 
     var body: some View {
@@ -11920,7 +11930,7 @@ private struct SidebarMetadataEntryRow: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 10))
+        .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10))
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -11987,6 +11997,8 @@ private struct SidebarMetadataMarkdownBlocks: View {
     let onFocus: () -> Void
 
     @State private var isExpanded: Bool = false
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var textFontFamily = SidebarFontSettings.defaultFamily
     private let collapsedBlockLimit = 1
 
     var body: some View {
@@ -12007,7 +12019,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10, weight: .semibold))
+                .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10, weight: .semibold))
                 .foregroundColor(isActive ? .white.opacity(0.65) : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -12030,6 +12042,8 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let onFocus: () -> Void
 
     @State private var renderedMarkdown: AttributedString?
+    @AppStorage(SidebarFontSettings.textFamilyKey)
+    private var textFontFamily = SidebarFontSettings.defaultFamily
 
     var body: some View {
         Group {
@@ -12041,7 +12055,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
                     .foregroundColor(foregroundColor)
             }
         }
-        .font(.system(size: 10))
+        .font(SidebarFontSettings.font(family: textFontFamily, role: .text, size: 10))
         .multilineTextAlignment(.leading)
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
