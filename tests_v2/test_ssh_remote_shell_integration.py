@@ -423,6 +423,17 @@ def main() -> int:
             _run(["ghostty", "+ssh-cache", f"--remove={host}"], check=False)
         _wait_for_ssh(host, host_ssh_port, key_path)
 
+        pre_bootstrap_erase = _ssh_run(
+            host,
+            host_ssh_port,
+            key_path,
+            "bash -ic " + _shell_single_quote("stty -a 2>/dev/null | sed -n 's/.*erase = \\([^;]*\\);.*/\\1/p' | head -n1"),
+        )
+        _must(
+            pre_bootstrap_erase.returncode == 0 and pre_bootstrap_erase.stdout.strip() == "^H",
+            f"fixture should start with erase=^H before cmux bootstrap runs: {pre_bootstrap_erase.stdout!r} {pre_bootstrap_erase.stderr!r}",
+        )
+
         pre = _ssh_run(host, host_ssh_port, key_path, "if infocmp xterm-ghostty >/dev/null 2>&1; then echo present; else echo missing; fi")
         _must("missing" in pre.stdout, f"Fresh container should not have xterm-ghostty terminfo preinstalled: {pre.stdout!r}")
 
