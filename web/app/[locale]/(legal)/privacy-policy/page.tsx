@@ -4,13 +4,14 @@ import { Link } from "../../../../i18n/navigation";
 export const metadata: Metadata = {
   title: "Privacy Policy — cmux",
   description: "Privacy policy for cmux",
+  alternates: { canonical: "./" },
 };
 
 export default function PrivacyPolicyPage() {
   return (
     <>
       <h1>Privacy Policy</h1>
-      <p>Last updated: December 2, 2025</p>
+      <p>Last updated: March 18, 2026</p>
 
       <p>
         Manaflow (the &ldquo;Company&rdquo;) is committed to maintaining robust

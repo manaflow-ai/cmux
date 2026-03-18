@@ -3,13 +3,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Terms of Service — cmux",
   description: "Terms of service for cmux",
+  alternates: { canonical: "./" },
 };
 
 export default function TermsOfServicePage() {
   return (
     <>
       <h1>Terms of Service</h1>
-      <p>Last revised on: December 2, 2025</p>
+      <p>Last revised on: March 18, 2026</p>
 
       <p>
         The website located at{" "}
@@ -180,7 +181,7 @@ export default function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; 2025 Manaflow. All rights reserved.
+        Copyright &copy; 2026 Manaflow. All rights reserved.
       </p>
     </>
   );
