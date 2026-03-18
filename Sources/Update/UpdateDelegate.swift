@@ -80,6 +80,7 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, willExtractUpdate item: SUAppcastItem) {
+        prepareQuarantineRepair(for: item.fileURL)
         do {
             let result = try UpdateQuarantineRepair.repairDownloadedArchiveIfNeeded(
                 hostName: UpdateQuarantineRepair.sparkleHostName(),
@@ -89,15 +90,6 @@ extension UpdateDriver: SPUUpdaterDelegate {
             logUpdateQuarantineRepair(stage: "download", result: result)
         } catch {
             UpdateLogStore.shared.append("quarantine repair download failed: \(error.localizedDescription)")
-        }
-    }
-
-    func updater(_ updater: SPUUpdater, didExtractUpdate item: SUAppcastItem) {
-        do {
-            let result = try UpdateQuarantineRepair.repairExtractedApplicationIfNeeded(dataURL: item.fileURL)
-            logUpdateQuarantineRepair(stage: "extracted-app", result: result)
-        } catch {
-            UpdateLogStore.shared.append("quarantine repair extracted-app failed: \(error.localizedDescription)")
         }
     }
 
