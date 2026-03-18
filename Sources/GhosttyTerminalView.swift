@@ -2479,6 +2479,21 @@ class GhosttyApp {
             #endif
             return performOnMain {
                 surfaceView.tmuxControlMode = entered
+                if !entered {
+                    surfaceView.tmuxCleanupAllPanes()
+                }
+                return true
+            }
+        case GHOSTTY_ACTION_TMUX_WINDOWS_CHANGED:
+            return performOnMain {
+                surfaceView.handleTmuxWindowsChanged()
+                return true
+            }
+        case GHOSTTY_ACTION_TMUX_PANE_UNREGISTERED:
+            let paneId = action.action.tmux_pane_unregistered.pane_id
+            let regId = action.action.tmux_pane_unregistered.reg_id
+            return performOnMain {
+                surfaceView.handleTmuxPaneUnregistered(paneId: paneId, regId: regId)
                 return true
             }
         default:
@@ -3619,6 +3634,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tabId: UUID?
     /// True when this surface is in tmux control mode.
     var tmuxControlMode: Bool = false
+
+    /// Tmux pane surface management (Phase 2).
+    struct TmuxPaneState {
+        let surface: ghostty_surface_t
+        let view: NSView
+        let regId: UInt32
+        let writeContext: UnsafeMutablePointer<TmuxPaneWriteContext>
+    }
+
+    /// Context passed through the C io_write_cb for a tmux pane surface.
+    class TmuxPaneWriteContext {
+        let hostSurface: ghostty_surface_t
+        let paneId: UInt
+
+        init(hostSurface: ghostty_surface_t, paneId: UInt) {
+            self.hostSurface = hostSurface
+            self.paneId = paneId
+        }
+    }
+
+    var tmuxPaneSurfaces: [UInt: TmuxPaneState] = [:]
+    var tmuxRegIdCounter: UInt32 = 0
+    var tmuxPaneContainer: NSView?
+    /// Pane IDs awaiting unregister ack before surface can be freed.
+    var tmuxPendingUnregister: [UInt: UInt32] = [:]
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -4837,12 +4877,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
-        guard let surface = ensureSurfaceReadyForInput() else {
+        guard var surface = ensureSurfaceReadyForInput() else {
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
             super.keyDown(with: event)
             return
+        }
+        // In tmux control mode, redirect keyboard input to the pane surface.
+        // This preserves the full keyDown flow (IME, interpretKeyEvents, etc.)
+        // while routing the encoded key bytes to the pane's Manual I/O backend.
+        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
+            surface = paneState.surface
         }
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
@@ -5622,6 +5668,338 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return false
+    }
+
+    // MARK: - Tmux Phase 2: Pane Surface Management
+
+    /// Handle tmux windows/pane topology change. Creates or destroys
+    /// native Ghostty surfaces for each tmux pane.
+    func handleTmuxWindowsChanged() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        guard let app = ghostty_surface_app(hostSurface) else { return }
+
+        // Query current pane topology
+        let count = ghostty_surface_tmux_panes(hostSurface, nil, 0)
+        guard count > 0 else {
+            #if DEBUG
+            dlog("tmux.windowsChanged: no panes")
+            #endif
+            return
+        }
+
+        var panes = [ghostty_tmux_pane_info_s](repeating: ghostty_tmux_pane_info_s(), count: Int(count))
+        let written = ghostty_surface_tmux_panes(hostSurface, &panes, count)
+
+        #if DEBUG
+        dlog("tmux.windowsChanged paneCount=\(written)")
+        #endif
+
+        // Determine which panes are new vs existing vs removed
+        let currentPaneIds = Set(panes[0..<Int(written)].map { $0.pane_id })
+        let existingPaneIds = Set(tmuxPaneSurfaces.keys)
+        let toAdd = currentPaneIds.subtracting(existingPaneIds)
+        let toRemove = existingPaneIds.subtracting(currentPaneIds)
+
+        // Remove stale panes (two-phase: unregister first, destroy on ack)
+        for paneId in toRemove {
+            guard let state = tmuxPaneSurfaces[paneId] else { continue }
+            tmuxPendingUnregister[paneId] = state.regId
+            ghostty_surface_tmux_unregister_pane(hostSurface, paneId, state.regId)
+            state.view.removeFromSuperview()
+            tmuxPaneSurfaces.removeValue(forKey: paneId)
+            #if DEBUG
+            dlog("tmux.pane remove pane=\(paneId) regId=\(state.regId)")
+            #endif
+        }
+
+        // Ensure container exists — add above the scroll view so it's
+        // not hidden behind the host terminal's Metal rendering layer.
+        if tmuxPaneContainer == nil {
+            let container = NSView(frame: bounds)
+            container.wantsLayer = true
+            container.autoresizingMask = [.width, .height]
+            // Walk up: GhosttyNSView → documentView → clipView → scrollView → GhosttySurfaceScrollView
+            if let parentView = enclosingScrollView?.superview {
+                parentView.addSubview(container, positioned: .above, relativeTo: nil)
+                container.frame = parentView.bounds
+                #if DEBUG
+                dlog("tmux.container added to parentView=\(type(of: parentView)) frame=\(parentView.bounds)")
+                #endif
+            } else {
+                // Fallback: add to window content view
+                if let contentView = window?.contentView {
+                    contentView.addSubview(container, positioned: .above, relativeTo: nil)
+                    container.frame = contentView.bounds
+                    #if DEBUG
+                    dlog("tmux.container fallback to window.contentView frame=\(contentView.bounds)")
+                    #endif
+                } else {
+                    addSubview(container)
+                    #if DEBUG
+                    dlog("tmux.container fallback to self (nothing else available)")
+                    #endif
+                }
+            }
+            tmuxPaneContainer = container
+        }
+
+        // Create surfaces for new panes
+        for i in 0..<Int(written) {
+            let paneInfo = panes[i]
+            guard toAdd.contains(paneInfo.pane_id) else { continue }
+
+            tmuxRegIdCounter += 1
+            let regId = tmuxRegIdCounter
+
+            // Create a host NSView for the pane surface.
+            // Do NOT set wantsLayer here — Ghostty's Metal renderer sets
+            // the view's layer property first, then enables wantsLayer
+            // (layer-hosting mode). Pre-setting wantsLayer creates a
+            // layer-backed view which breaks Metal rendering.
+            let paneView = NSView(frame: tmuxPaneFrame(paneInfo))
+            #if DEBUG
+            dlog("tmux.paneView frame=\(paneView.frame) container=\(tmuxPaneContainer?.frame ?? .zero)")
+            #endif
+            tmuxPaneContainer?.addSubview(paneView)
+
+            // Create Ghostty surface in Manual I/O mode
+            var config = ghostty_surface_config_new()
+            config.platform_tag = GHOSTTY_PLATFORM_MACOS
+            config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
+                nsview: Unmanaged.passUnretained(paneView).toOpaque()
+            ))
+            if let window = window {
+                config.scale_factor = Double(window.backingScaleFactor)
+            }
+            config.io_mode = GHOSTTY_IO_MODE_MANUAL
+
+            // Set up write callback context (C function + opaque pointer)
+            let writeCtx = UnsafeMutablePointer<TmuxPaneWriteContext>.allocate(capacity: 1)
+            writeCtx.initialize(to: TmuxPaneWriteContext(hostSurface: hostSurface, paneId: paneInfo.pane_id))
+            config.io_write_cb = { (userdata: UnsafeMutableRawPointer?, data: UnsafePointer<UInt8>?, len: Int) in
+                guard let userdata = userdata, let data = data, len > 0 else { return }
+                let ctx = userdata.assumingMemoryBound(to: TmuxPaneWriteContext.self).pointee
+                // Classify: printable UTF-8 → literal, control/escape → key name
+                let bytes = UnsafeBufferPointer(start: data, count: len)
+                let first = bytes[0]
+
+                if first == 0x1B && len > 1 {
+                    // Escape sequence → map to tmux key name
+                    if let keyName = GhosttyNSView.tmuxMapEscapeSequence(bytes) {
+                        keyName.withCString { cstr in
+                            ghostty_surface_tmux_send_keys(
+                                ctx.hostSurface, ctx.paneId,
+                                UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                                strlen(cstr), 1  // key_type=1 (key name)
+                            )
+                        }
+                    }
+                } else if first < 0x20 || first == 0x7F {
+                    // Control character → map to tmux key name
+                    if let keyName = GhosttyNSView.tmuxMapControlChar(first) {
+                        keyName.withCString { cstr in
+                            ghostty_surface_tmux_send_keys(
+                                ctx.hostSurface, ctx.paneId,
+                                UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                                strlen(cstr), 1
+                            )
+                        }
+                    }
+                } else {
+                    // Printable text → literal
+                    ghostty_surface_tmux_send_keys(
+                        ctx.hostSurface, ctx.paneId,
+                        data, len, 0  // key_type=0 (literal)
+                    )
+                }
+            }
+            config.io_write_userdata = UnsafeMutableRawPointer(writeCtx)
+
+            guard let paneSurface = ghostty_surface_new(app, &config) else {
+                #if DEBUG
+                dlog("tmux.pane create FAILED pane=\(paneInfo.pane_id)")
+                #endif
+                writeCtx.deinitialize(count: 1)
+                writeCtx.deallocate()
+                paneView.removeFromSuperview()
+                continue
+            }
+
+            // Register with host for %output routing + initial sync
+            ghostty_surface_tmux_register_pane(hostSurface, paneInfo.pane_id, regId, paneSurface)
+
+            tmuxPaneSurfaces[paneInfo.pane_id] = TmuxPaneState(
+                surface: paneSurface,
+                view: paneView,
+                regId: regId,
+                writeContext: writeCtx
+            )
+
+            // Complete surface initialization (same as normal surface flow):
+            // set display ID, content scale, and pixel size so renderer starts.
+            if let screen = window?.screen,
+               let displayID = screen.displayID,
+               displayID != 0 {
+                ghostty_surface_set_display_id(paneSurface, displayID)
+            }
+            let scaleFactor = window?.backingScaleFactor ?? 2.0
+            ghostty_surface_set_content_scale(paneSurface, scaleFactor, scaleFactor)
+            let backingSize = paneView.convertToBacking(NSRect(origin: .zero, size: paneView.bounds.size)).size
+            let wpx = UInt32(max(backingSize.width, 1))
+            let hpx = UInt32(max(backingSize.height, 1))
+            ghostty_surface_set_size(paneSurface, wpx, hpx)
+
+            // Focus the pane surface so it starts accepting input
+            ghostty_surface_set_focus(paneSurface, true)
+
+            #if DEBUG
+            dlog("tmux.pane create pane=\(paneInfo.pane_id) regId=\(regId) viewFrame=\(paneView.frame) wpx=\(wpx) hpx=\(hpx) scale=\(scaleFactor)")
+            #endif
+        }
+
+        // Update layout for existing panes
+        for i in 0..<Int(written) {
+            let paneInfo = panes[i]
+            if let state = tmuxPaneSurfaces[paneInfo.pane_id], !toAdd.contains(paneInfo.pane_id) {
+                state.view.frame = tmuxPaneFrame(paneInfo)
+            }
+        }
+    }
+
+    /// Convert tmux pane cell coordinates to NSView frame.
+    /// Uses the container bounds to scale: each cell maps to
+    /// (container_width / window_cols) × (container_height / window_rows).
+    private func tmuxPaneFrame(_ pane: ghostty_tmux_pane_info_s) -> NSRect {
+        guard let container = tmuxPaneContainer else { return .zero }
+        let containerBounds = container.bounds
+
+        // For a single-pane window, the pane IS the window — fill container.
+        // For multi-pane, we need the window dimensions to compute cell size.
+        // tmux pane x/y/width/height are in cells. The pane at (0,0) with
+        // full window width/height should fill the entire container.
+        // We use the host surface's cell size for pixel mapping.
+        let cw = max(cellSize.width, 1)
+        let ch = max(cellSize.height, 1)
+
+        let x = CGFloat(pane.x) * cw
+        let y = CGFloat(pane.y) * ch
+        let w = CGFloat(pane.width) * cw
+        let h = CGFloat(pane.height) * ch
+
+        // Clamp to container bounds
+        return NSRect(
+            x: min(x, containerBounds.width),
+            y: min(y, containerBounds.height),
+            width: min(w, containerBounds.width - min(x, containerBounds.width)),
+            height: min(h, containerBounds.height - min(y, containerBounds.height))
+        )
+    }
+
+    /// Handle ack from I/O thread that a pane surface is unregistered.
+    /// Now safe to destroy the surface.
+    func handleTmuxPaneUnregistered(paneId: UInt, regId: UInt32) {
+        #if DEBUG
+        dlog("tmux.pane unregistered ack pane=\(paneId) regId=\(regId)")
+        #endif
+
+        // Verify this ack matches our pending unregister
+        if let pendingRegId = tmuxPendingUnregister[paneId], pendingRegId == regId {
+            tmuxPendingUnregister.removeValue(forKey: paneId)
+        }
+
+        // If the pane is still in our surfaces map with a DIFFERENT regId,
+        // it's been re-registered — don't destroy.
+        if let current = tmuxPaneSurfaces[paneId], current.regId == regId {
+            current.view.removeFromSuperview()
+            ghostty_surface_free(current.surface)
+            current.writeContext.deinitialize(count: 1)
+            current.writeContext.deallocate()
+            tmuxPaneSurfaces.removeValue(forKey: paneId)
+        }
+    }
+
+    /// Clean up all tmux pane surfaces (called on tmux exit).
+    func tmuxCleanupAllPanes() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        for (paneId, state) in tmuxPaneSurfaces {
+            ghostty_surface_tmux_unregister_pane(hostSurface, paneId, state.regId)
+            state.view.removeFromSuperview()
+            ghostty_surface_free(state.surface)
+            state.writeContext.deinitialize(count: 1)
+            state.writeContext.deallocate()
+        }
+        tmuxPaneSurfaces.removeAll()
+        tmuxPendingUnregister.removeAll()
+        tmuxPaneContainer?.removeFromSuperview()
+        tmuxPaneContainer = nil
+    }
+
+    /// Map escape sequences to tmux key names.
+    static func tmuxMapEscapeSequence(_ bytes: UnsafeBufferPointer<UInt8>) -> String? {
+        if bytes.count == 3 && bytes[1] == 0x5B { // ESC[
+            switch bytes[2] {
+            case 0x41: return "Up"
+            case 0x42: return "Down"
+            case 0x43: return "Right"
+            case 0x44: return "Left"
+            case 0x48: return "Home"
+            case 0x46: return "End"
+            default: break
+            }
+        }
+        if bytes.count == 4 && bytes[1] == 0x5B { // ESC[x~
+            if bytes[3] == 0x7E { // ~
+                switch bytes[2] {
+                case 0x32: return "IC"     // Insert
+                case 0x33: return "DC"     // Delete
+                case 0x35: return "PPage"  // Page Up
+                case 0x36: return "NPage"  // Page Down
+                default: break
+                }
+            }
+        }
+        if bytes.count == 1 {
+            return "Escape"
+        }
+        // Unknown escape sequence — log and skip
+        #if DEBUG
+        let hex = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+        dlog("tmux.input unmapped escape: \(hex)")
+        #endif
+        return nil
+    }
+
+    /// Map control characters to tmux key names.
+    static func tmuxMapControlChar(_ byte: UInt8) -> String? {
+        switch byte {
+        case 0x0D: return "Enter"
+        case 0x09: return "Tab"
+        case 0x1B: return "Escape"
+        case 0x7F: return "BSpace"
+        case 0x08: return "BSpace"
+        case 0x01: return "C-a"
+        case 0x02: return "C-b"
+        case 0x03: return "C-c"
+        case 0x04: return "C-d"
+        case 0x05: return "C-e"
+        case 0x06: return "C-f"
+        case 0x0B: return "C-k"
+        case 0x0C: return "C-l"
+        case 0x0E: return "C-n"
+        case 0x10: return "C-p"
+        case 0x12: return "C-r"
+        case 0x15: return "C-u"
+        case 0x17: return "C-w"
+        case 0x19: return "C-y"
+        case 0x1A: return "C-z"
+        default:
+            if byte < 0x20 {
+                // Generic C-x mapping
+                let ch = Character(UnicodeScalar(byte + 0x60))
+                return "C-\(ch)"
+            }
+            return nil
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
