@@ -4221,11 +4221,18 @@ extension BrowserPanel {
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
         developerToolsLastAttachedHostAt = Date()
-        developerToolsLastKnownVisibleAt = isDeveloperToolsVisible() ? Date() : nil
+        if isDeveloperToolsVisible() {
+            developerToolsLastKnownVisibleAt = Date()
+        }
     }
 
     func scheduleDeveloperToolsVisibilityLossCheck() {
         developerToolsVisibilityLossCheckWorkItem?.cancel()
+        let attachedAge = developerToolsLastAttachedHostAt.map { Date().timeIntervalSince($0) } ?? 0
+        let delay = max(
+            developerToolsTransitionSettleDelay,
+            developerToolsAttachedManualCloseDetectionDelay - attachedAge
+        )
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.developerToolsVisibilityLossCheckWorkItem = nil
@@ -4233,7 +4240,7 @@ extension BrowserPanel {
         }
         developerToolsVisibilityLossCheckWorkItem = workItem
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + developerToolsTransitionSettleDelay,
+            deadline: .now() + max(0, delay),
             execute: workItem
         )
     }

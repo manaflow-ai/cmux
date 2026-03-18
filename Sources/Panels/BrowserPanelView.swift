@@ -542,7 +542,7 @@ struct BrowserPanelView: View {
                 // `isVisibleInUI` never flips to false. Check for an attached-inspector
                 // X-close when focus leaves as well so the persisted intent stays in sync.
                 DispatchQueue.main.async {
-                    _ = panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
+                    panel.scheduleDeveloperToolsVisibilityLossCheck()
                 }
             }
             syncWebViewResponderPolicyWithViewState(
