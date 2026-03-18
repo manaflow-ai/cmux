@@ -2476,36 +2476,6 @@ class GhosttyApp {
             let entered = action.action.tmux_state == GHOSTTY_TMUX_STATE_ENTER
             #if DEBUG
             dlog("tmux.state entered=\(entered)")
-            if !entered {
-                dlog("tmux.exit — control mode disconnected (likely tmux detached or session ended)")
-            }
-            if entered, let surface = surfaceView.terminalSurface?.surface {
-                // Query immediately (likely no panes yet)
-                var textResult = ghostty_text_s()
-                let ok = ghostty_surface_tmux_pane_text(surface, UInt.max, &textResult)
-                if ok, let ptr = textResult.text {
-                    let paneText = String(cString: ptr)
-                    let preview = String(paneText.prefix(200))
-                    dlog("tmux.paneText.immediate len=\(paneText.count) preview=\(preview)")
-                    ghostty_surface_free_text(surface, &textResult)
-                } else {
-                    dlog("tmux.paneText.immediate returned false (no panes yet)")
-                }
-                // Retry after 2s to let viewer populate panes
-                let surfaceCopy = surface
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
-                    var delayedResult = ghostty_text_s()
-                    let ok2 = ghostty_surface_tmux_pane_text(surfaceCopy, UInt.max, &delayedResult)
-                    if ok2, let ptr2 = delayedResult.text {
-                        let text2 = String(cString: ptr2)
-                        let preview2 = String(text2.prefix(300))
-                        dlog("tmux.paneText.delayed len=\(text2.count) preview=\(preview2)")
-                        ghostty_surface_free_text(surfaceCopy, &delayedResult)
-                    } else {
-                        dlog("tmux.paneText.delayed returned false")
-                    }
-                }
-            }
             #endif
             return performOnMain {
                 surfaceView.tmuxControlMode = entered
@@ -5506,9 +5476,152 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         guard let surface = surface else { return }
+
+        // tmux control mode: Ghostty's native link detection fails because
+        // the render state is empty. Intercept cmd+click and use the tmux
+        // pane text query API to find file paths at the click position.
+        if tmuxControlMode && event.modifierFlags.contains(.command) {
+            if handleTmuxCmdClick(surface: surface, event: event) {
+                return
+            }
+        }
+
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+    }
+
+    /// Handle cmd+click in tmux control mode by querying pane text
+    /// and finding file paths at the clicked row.
+    private func handleTmuxCmdClick(surface: ghostty_surface_t, event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        // Convert pixel position to terminal row (0-indexed, top=0)
+        guard cellSize.height > 0 else { return false }
+        let row = Int((bounds.height - point.y) / cellSize.height)
+        let col = Int(point.x / cellSize.width)
+
+        #if DEBUG
+        dlog("tmux.cmdClick row=\(row) col=\(col)")
+        #endif
+
+        // Query tmux pane text
+        var textResult = ghostty_text_s()
+        guard ghostty_surface_tmux_pane_text(surface, UInt.max, &textResult),
+              let ptr = textResult.text else {
+            #if DEBUG
+            dlog("tmux.cmdClick pane text query failed")
+            #endif
+            return false
+        }
+        defer { var mutable = textResult; ghostty_surface_free_text(surface, &mutable) }
+
+        let fullText = String(cString: ptr)
+        let lines = fullText.components(separatedBy: "\n")
+
+        guard row >= 0 && row < lines.count else {
+            #if DEBUG
+            dlog("tmux.cmdClick row \(row) out of range (lines=\(lines.count))")
+            #endif
+            return false
+        }
+
+        let line = lines[row]
+        #if DEBUG
+        dlog("tmux.cmdClick line[\(row)]=\(line.prefix(120))")
+        #endif
+
+        // Find file paths in the clicked line using a simple regex:
+        // absolute paths (/...) or ~/ paths
+        guard let regex = try? NSRegularExpression(
+            pattern: "(?:/[\\w.@~+-]+)+(?::\\d+)?|~/[\\w.@/+-]+(?::\\d+)?",
+            options: []
+        ) else { return false }
+
+        let nsLine = line as NSString
+        let matches = regex.matches(in: line, range: NSRange(location: 0, length: nsLine.length))
+
+        // Find the match that contains the click column
+        for match in matches {
+            let range = match.range
+            if col >= range.location && col < range.location + range.length {
+                let path = nsLine.substring(with: range)
+                #if DEBUG
+                dlog("tmux.cmdClick matched path=\(path) at col \(range.location)-\(range.location + range.length)")
+                #endif
+                return openTmuxClickedPath(path)
+            }
+        }
+
+        // No match at click position — try the nearest match on the line
+        if let nearest = matches.first {
+            let path = nsLine.substring(with: nearest.range)
+            #if DEBUG
+            dlog("tmux.cmdClick nearest path=\(path) (click col \(col) not inside match)")
+            #endif
+        }
+
+        return false
+    }
+
+    /// Open a file path found via tmux cmd+click.
+    private func openTmuxClickedPath(_ rawPath: String) -> Bool {
+        // Strip optional :line_number suffix
+        let path: String
+        if let colonIdx = rawPath.lastIndex(of: ":"),
+           colonIdx > rawPath.startIndex,
+           rawPath[rawPath.index(after: colonIdx)...].allSatisfy(\.isNumber) {
+            path = String(rawPath[..<colonIdx])
+        } else {
+            path = rawPath
+        }
+
+        // Expand ~ to home directory
+        let expanded = (path as NSString).expandingTildeInPath
+
+        guard let target = resolveTerminalOpenURLTarget(expanded) else {
+            #if DEBUG
+            dlog("tmux.cmdClick resolve failed for path=\(expanded)")
+            #endif
+            return false
+        }
+
+        if case let .internalFile(fileURL) = target {
+            let filePath = fileURL.path
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir),
+                  !isDir.boolValue else {
+                #if DEBUG
+                dlog("tmux.cmdClick file not found or is directory path=\(filePath)")
+                #endif
+                return false
+            }
+
+            guard let tabId = tabId,
+                  let surfaceId = terminalSurface?.id,
+                  let app = AppDelegate.shared,
+                  let resolved = app.workspaceContainingPanel(
+                    panelId: surfaceId,
+                    preferredWorkspaceId: tabId
+                  ) else {
+                NSWorkspace.shared.open(fileURL)
+                return true
+            }
+
+            if resolved.workspace.newMarkdownSplit(
+                from: surfaceId,
+                orientation: .horizontal,
+                filePath: filePath
+            ) != nil {
+                #if DEBUG
+                dlog("tmux.cmdClick opened markdown panel path=\(filePath)")
+                #endif
+                return true
+            }
+            NSWorkspace.shared.open(fileURL)
+            return true
+        }
+
+        return false
     }
 
     override func mouseUp(with event: NSEvent) {
