@@ -4886,8 +4886,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
+            // First pass: check if a menu item would handle this event.
+            // If not, process the key directly instead of relying on AppKit redispatch,
+            // which silently drops unbound Cmd+Shift combinations.
             lastPerformKeyEvent = event.timestamp
-            return false
+            if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                return true
+            }
+            equivalent = event.characters ?? ""
+            break
         }
 
         let finalEvent = NSEvent.keyEvent(
