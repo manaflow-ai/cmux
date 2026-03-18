@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -96,7 +97,7 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
     env.pop("CMUX_COMMIT", None)
 
     proc = subprocess.Popen(
-        [cli_path, *args],
+        ["/usr/bin/time", "-l", cli_path, *args],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -104,54 +105,42 @@ def run_with_limits(cli_path: str, *args: str) -> dict[str, object]:
     )
 
     started = time.time()
-    peak_rss_kb = 0
-    failure_reason: str | None = None
-
-    while True:
-        exit_code = proc.poll()
-        if exit_code is not None:
-            stdout, stderr = proc.communicate()
-            return {
-                "exit_code": exit_code,
-                "stdout": stdout.strip(),
-                "stderr": stderr.strip(),
-                "elapsed": time.time() - started,
-                "peak_rss_kb": peak_rss_kb,
-                "failure_reason": None,
-            }
-
-        try:
-            rss_kb = int(
-                subprocess.check_output(
-                    ["ps", "-o", "rss=", "-p", str(proc.pid)],
-                    text=True,
-                ).strip()
-                or "0"
-            )
-        except subprocess.CalledProcessError:
-            rss_kb = 0
-
-        peak_rss_kb = max(peak_rss_kb, rss_kb)
+    try:
+        stdout, stderr = proc.communicate(timeout=TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        stdout, stderr = proc.communicate()
         elapsed = time.time() - started
+        return {
+            "exit_code": proc.returncode,
+            "stdout": stdout.strip(),
+            "stderr": stderr.strip(),
+            "elapsed": elapsed,
+            "peak_rss_kb": 0,
+            "failure_reason": f"timeout exceeded ({elapsed:.2f}s > {TIMEOUT_SECONDS:.2f}s)",
+        }
 
-        if rss_kb > RSS_LIMIT_KB:
-            failure_reason = f"rss limit exceeded ({rss_kb} KB > {RSS_LIMIT_KB} KB)"
-        elif elapsed > TIMEOUT_SECONDS:
-            failure_reason = f"timeout exceeded ({elapsed:.2f}s > {TIMEOUT_SECONDS:.2f}s)"
+    elapsed = time.time() - started
+    peak_rss_kb = 0
+    rss_match = re.search(r"(\d+)\s+maximum resident set size", stderr)
+    if rss_match:
+        peak_rss_raw = int(rss_match.group(1))
+        peak_rss_kb = peak_rss_raw if peak_rss_raw <= RSS_LIMIT_KB * 16 else peak_rss_raw // 1024
 
-        if failure_reason:
-            proc.kill()
-            stdout, stderr = proc.communicate()
-            return {
-                "exit_code": proc.returncode,
-                "stdout": stdout.strip(),
-                "stderr": stderr.strip(),
-                "elapsed": elapsed,
-                "peak_rss_kb": peak_rss_kb,
-                "failure_reason": failure_reason,
-            }
+    failure_reason: str | None = None
+    if peak_rss_kb > RSS_LIMIT_KB:
+        failure_reason = f"rss limit exceeded ({peak_rss_kb} KB > {RSS_LIMIT_KB} KB)"
+    elif elapsed > TIMEOUT_SECONDS:
+        failure_reason = f"timeout exceeded ({elapsed:.2f}s > {TIMEOUT_SECONDS:.2f}s)"
 
-        time.sleep(0.05)
+    return {
+        "exit_code": proc.returncode,
+        "stdout": stdout.strip(),
+        "stderr": stderr.strip(),
+        "elapsed": elapsed,
+        "peak_rss_kb": peak_rss_kb,
+        "failure_reason": failure_reason,
+    }
 
 
 def main() -> int:

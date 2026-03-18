@@ -925,40 +925,23 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForOmnibarToContainExampleDomain(_ omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        waitForCondition(timeout: timeout) {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("example.com") || value.contains("example.org") {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return value.contains("example.com") || value.contains("example.org")
         }
-        let value = (omnibar.value as? String) ?? ""
-        return value.contains("example.com") || value.contains("example.org")
     }
 
     private func waitForOmnibarToContain(_ omnibar: XCUIElement, value expectedSubstring: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        waitForCondition(timeout: timeout) {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains(expectedSubstring) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return value.contains(expectedSubstring)
         }
-        let value = (omnibar.value as? String) ?? ""
-        return value.contains(expectedSubstring)
     }
 
     private func waitForElementToBecomeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if element.exists && element.isHittable {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            element.exists && element.isHittable
         }
-        return element.exists && element.isHittable
     }
 
     private var autofocusRacePageURL: String {
@@ -989,31 +972,17 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
-    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), predicate(data) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return predicate(data)
         }
-        if let data = loadData(), predicate(data) {
-            return true
-        }
-        return false
     }
 
     private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -1027,5 +996,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 }

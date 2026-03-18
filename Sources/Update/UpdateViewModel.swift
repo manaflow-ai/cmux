@@ -6,12 +6,21 @@ import Sparkle
 class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
+    @Published var detectedUpdateVersion: String?
     #if DEBUG
     @Published var debugOverrideText: String?
     #endif
 
     var effectiveState: UpdateState {
         overrideState ?? state
+    }
+
+    func recordDetectedUpdate(_ item: SUAppcastItem) {
+        detectedUpdateVersion = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+    }
+
+    func clearDetectedUpdate() {
+        detectedUpdateVersion = nil
     }
 
     var text: String {
@@ -333,6 +342,11 @@ class UpdateViewModel: ObservableObject {
         default:
             return nil
         }
+    }
+
+    static func normalizedDetectedUpdateVersion(from version: String) -> String? {
+        let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }
 

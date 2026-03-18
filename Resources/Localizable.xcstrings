@@ -551,7 +551,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A Ghostty-based terminal with vertical tabs\\nand a notification panel for macOS."
+            "value": "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."
           }
         },
         "ja": {
@@ -563,43 +563,43 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "基于 Ghostty 的 macOS 终端，\\n支持垂直标签页和通知面板。"
+            "value": "基于 Ghostty 的 macOS 终端，\n支持垂直标签页和通知面板。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "基於 Ghostty 的 macOS 終端機，\\n具備垂直標籤頁與通知面板。"
+            "value": "基於 Ghostty 的 macOS 終端機，\n具備垂直標籤頁與通知面板。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세로 탭과 알림 패널을 갖춘\\nGhostty 기반 macOS 터미널."
+            "value": "세로 탭과 알림 패널을 갖춘\nGhostty 기반 macOS 터미널."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\\nund einem Benachrichtigungsfeld für macOS."
+            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\nund einem Benachrichtigungsfeld für macOS."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basado en Ghostty con pestañas verticales\\ny un panel de notificaciones para macOS."
+            "value": "Un terminal basado en Ghostty con pestañas verticales\ny un panel de notificaciones para macOS."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\\net un panneau de notifications pour macOS."
+            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\net un panneau de notifications pour macOS."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminale basato su Ghostty con schede verticali\\ne un pannello notifiche per macOS."
+            "value": "Un terminale basato su Ghostty con schede verticali\ne un pannello notifiche per macOS."
           }
         },
         "da": {
@@ -617,43 +617,43 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминал на базе Ghostty с вертикальными вкладками\\nи панелью уведомлений для macOS."
+            "value": "Терминал на базе Ghostty с вертикальными вкладками\nи панелью уведомлений для macOS."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\\ni panelom za obavještenja za macOS."
+            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\ni panelom za obavještenja za macOS."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\\nولوحة إشعارات لنظام macOS."
+            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\nولوحة إشعارات لنظام macOS."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En Ghostty-basert terminal med vertikale faner\\nog et varselpanel for macOS."
+            "value": "En Ghostty-basert terminal med vertikale faner\nog et varselpanel for macOS."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um terminal baseado no Ghostty com abas verticais\\ne um painel de notificações para macOS."
+            "value": "Um terminal baseado no Ghostty com abas verticais\ne um painel de notificações para macOS."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\\nและแผงการแจ้งเตือนสำหรับ macOS"
+            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\nและแผงการแจ้งเตือนสำหรับ macOS"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS için dikey sekmeli ve bildirim panelli\\nGhostty tabanlı terminal."
+            "value": "macOS için dikey sekmeli ve bildirim panelli\nGhostty tabanlı terminal."
           }
         }
       }
@@ -801,6 +801,193 @@
           "stringUnit": {
             "state": "translated",
             "value": "負荷テスト用ワークスペースを開いてすべてのターミナルを読み込む"
+          }
+        }
+      }
+    },
+    "debug.menu.browserToolbarButtonSpacing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Toolbar Button Spacing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーツールバーのボタン間隔"
+          }
+        }
+      }
+    },
+    "debug.menu.browserProfilePopoverDebug": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover Debug…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバーのデバッグ…"
+          }
+        }
+      }
+    },
+    "debug.windows.browserProfilePopover.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover Debug"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバーのデバッグ"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile Popover"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイルポップオーバー"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune the profile popover padding live while comparing it against the browser toolbar menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーツールバーのメニューと見比べながら、プロファイルポップオーバーの余白をライブで調整します。"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.group.padding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padding"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "余白"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.label.horizontal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horizontal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "水平"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.label.vertical": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertical"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "垂直"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.group.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "debug.browserProfilePopover.liveNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply live to the browser profile popover."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はブラウザープロファイルポップオーバーにライブで反映されます。"
           }
         }
       }
@@ -4564,6 +4751,1451 @@
         }
       }
     },
+    "browser.profile.buttonHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Profile: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル: %@"
+          }
+        }
+      }
+    },
+    "browser.profile.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        }
+      }
+    },
+    "browser.profile.menu.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profiles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        }
+      }
+    },
+    "browser.profile.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Profile..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいプロファイル..."
+          }
+        }
+      }
+    },
+    "browser.profile.new.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a separate browser profile for cookies, history, and local storage."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie、履歴、ローカルストレージを分けるためのブラウザープロファイルを作成します。"
+          }
+        }
+      }
+    },
+    "browser.profile.new.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル名"
+          }
+        }
+      }
+    },
+    "browser.profile.new.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Browser Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザープロファイル"
+          }
+        }
+      }
+    },
+    "browser.profile.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Current Profile..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプロファイル名を変更..."
+          }
+        }
+      }
+    },
+    "browser.profile.rename.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a new name for this browser profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このブラウザープロファイルの新しい名前を入力します。"
+          }
+        }
+      }
+    },
+    "browser.profile.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Browser Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザープロファイル名を変更"
+          }
+        }
+      }
+    },
+    "browser.import.additionalData.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bookmarks, settings, and extensions are not available yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマーク、設定、拡張機能はまだ利用できません。"
+          }
+        }
+      }
+    },
+    "browser.import.additionalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional data (bookmarks, settings, extensions)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加データ（ブックマーク、設定、拡張機能）"
+          }
+        }
+      }
+    },
+    "browser.import.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
+          }
+        }
+      }
+    },
+    "browser.import.complete.browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザー: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.createdProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created cmux profiles: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成した cmux プロファイル: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.destinationProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination profile: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先プロファイル: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.domainFilter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domain filter: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインフィルタ: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.profileMapping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ -> %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ -> %2$@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.profileMappings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile mappings:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル対応:"
+          }
+        }
+      }
+    },
+    "browser.import.complete.importedCookies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported cookies: %ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートしたCookie: %ld"
+          }
+        }
+      }
+    },
+    "browser.import.complete.importedHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported history entries: %ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートした履歴件数: %ld"
+          }
+        }
+      }
+    },
+    "browser.import.complete.scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.skippedCookies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped cookies: %ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップしたCookie: %ld"
+          }
+        }
+      }
+    },
+    "browser.import.complete.sourceProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source profiles: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元プロファイル: %@"
+          }
+        }
+      }
+    },
+    "browser.import.complete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser data import complete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータのインポートが完了しました"
+          }
+        }
+      }
+    },
+    "browser.import.complete.warnings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnings:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告:"
+          }
+        }
+      }
+    },
+    "browser.import.cookies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies (site sign-ins)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie（サイトのログイン状態）"
+          }
+        }
+      }
+    },
+    "browser.import.destination.cmux": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destination"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存先"
+          }
+        }
+      }
+    },
+    "browser.import.destinationProfile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import into"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート先"
+          }
+        }
+      }
+    },
+    "browser.import.destinationProfile.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create \"%@\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" を作成"
+          }
+        }
+      }
+    },
+    "browser.import.destinationProfile.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported data goes into the selected cmux profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートしたデータは、選択した cmux プロファイルに保存されます。"
+          }
+        }
+      }
+    },
+    "browser.import.destinationProfile.mergeHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All selected source profiles go into one cmux profile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した元プロファイルは、1つの cmux プロファイルにまとめて取り込まれます。"
+          }
+        }
+      }
+    },
+    "browser.import.destinationProfile.separateHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing cmux profiles are created on import."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不足している cmux プロファイルは、インポート時に作成されます。"
+          }
+        }
+      }
+    },
+    "browser.import.destinationMode.merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge into one"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つにまとめる"
+          }
+        }
+      }
+    },
+    "browser.import.destinationMode.separate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separate profiles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分けて取り込む"
+          }
+        }
+      }
+    },
+    "browser.import.detected.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出済み: %@。"
+          }
+        }
+      }
+    },
+    "browser.import.detected.more.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected: %@, +1 more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出済み: %@、ほか1件。"
+          }
+        }
+      }
+    },
+    "browser.import.detected.more.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detected: %@, +%ld more."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出済み: %@、ほか%ld件。"
+          }
+        }
+      }
+    },
+    "browser.import.detected.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No supported browsers detected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応しているブラウザーが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "browser.import.domain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domains"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメイン"
+          }
+        }
+      }
+    },
+    "browser.import.domain.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional domains, comma-separated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意のドメインをカンマ区切りで指定"
+          }
+        }
+      }
+    },
+    "browser.import.error.destinationCreateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not create the destination profile \"%@\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は保存先プロファイル「%@」を作成できませんでした。"
+          }
+        }
+      }
+    },
+    "browser.import.error.destinationMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected cmux browser profile no longer exists. Pick a destination profile again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した cmux ブラウザープロファイルが見つかりません。保存先プロファイルを選び直してください。"
+          }
+        }
+      }
+    },
+    "browser.import.error.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import could not start"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートを開始できませんでした"
+          }
+        }
+      }
+    },
+    "browser.import.history": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History (visited pages)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴（訪問したページ）"
+          }
+        }
+      }
+    },
+    "browser.import.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次へ"
+          }
+        }
+      }
+    },
+    "browser.import.noBrowsers.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not find browser profiles to import from on this Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacでインポート元にできるブラウザープロファイルが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "browser.import.noBrowsers.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No importable browsers found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートできるブラウザーが見つかりません"
+          }
+        }
+      }
+    },
+    "browser.import.progress.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing %@ from %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ から %1$@ をインポート中…"
+          }
+        }
+      }
+    },
+    "browser.import.progress.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This can take a few seconds for large profiles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルが大きい場合は数秒かかることがあります。"
+          }
+        }
+      }
+    },
+    "browser.import.progress.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importing Browser Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート中"
+          }
+        }
+      }
+    },
+    "browser.import.scope.cookiesAndHistory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies + history"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookie + 履歴"
+          }
+        }
+      }
+    },
+    "browser.import.scope.cookiesOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookies only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cookieのみ"
+          }
+        }
+      }
+    },
+    "browser.import.scope.everything": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて"
+          }
+        }
+      }
+    },
+    "browser.import.scope.historyOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "History only"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "履歴のみ"
+          }
+        }
+      }
+    },
+    "browser.import.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザー"
+          }
+        }
+      }
+    },
+    "browser.import.sourceProfile.fallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile %ld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル%ld"
+          }
+        }
+      }
+    },
+    "browser.import.sourceProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profiles"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル"
+          }
+        }
+      }
+    },
+    "browser.import.sourceProfiles.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select one or more profiles."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つ以上のプロファイルを選択してください。"
+          }
+        }
+      }
+    },
+    "browser.import.sourceProfiles.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No source profiles detected for %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の元プロファイルが見つかりません。"
+          }
+        }
+      }
+    },
+    "browser.import.start": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Import"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート開始"
+          }
+        }
+      }
+    },
+    "browser.import.step.dataTypes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 3 of 3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 / 3"
+          }
+        }
+      }
+    },
+    "browser.import.step.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 1 of 3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 / 3"
+          }
+        }
+      }
+    },
+    "browser.import.step.sourceProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step 2 of 3"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 / 3"
+          }
+        }
+      }
+    },
+    "browser.import.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Browser Data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート"
+          }
+        }
+      }
+    },
+    "browser.import.hint.dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Hint"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを隠す"
+          }
+        }
+      }
+    },
+    "browser.import.hint.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート…"
+          }
+        }
+      }
+    },
+    "browser.import.hint.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザー設定"
+          }
+        }
+      }
+    },
+    "browser.import.hint.settingsFootnote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can always find this in Settings > Browser."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あとでいつでも「設定 > ブラウザー」で見つけられます。"
+          }
+        }
+      }
+    },
+    "browser.import.hint.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import browser data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート"
+          }
+        }
+      }
+    },
+    "browser.import.hint.toolbar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート"
+          }
+        }
+      }
+    },
+    "browser.import.hint.toolbar.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import browser data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータをインポート"
+          }
+        }
+      }
+    },
+    "browser.import.validation.scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Cookies, History, or both before starting import."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートを始める前に、Cookie、履歴、またはその両方を選択してください。"
+          }
+        }
+      }
+    },
+    "browser.import.validation.sourceProfiles": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose at least one source profile to import."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートする元プロファイルを少なくとも1つ選択してください。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.additionalDataUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bookmarks, settings, and extensions import are not available yet. Imported cookies and history only."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマーク、設定、拡張機能のインポートにはまだ対応していません。Cookieと履歴のみを取り込みました。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.browserCookiesReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed reading %@ cookies at %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のCookieを %@ から読み込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "browser.import.warning.browserHistoryReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed reading %@ history at %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の履歴を %@ から読み込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "browser.import.warning.cookieImportUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cookie import is not implemented yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のCookieインポートにはまだ対応していません。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.encryptedCookiesSkipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped %ld encrypted cookies that require Keychain decryption."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keychainでの復号が必要な暗号化Cookieを%ld件スキップしました。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.keychainDecryptFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skipped %ld encrypted %@ cookies because %@ could not be unlocked from Keychain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keychain から %3$@ を開けなかったため、暗号化された %2$@ のCookieを%1$ld件スキップしました。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.firefoxCookiesReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed reading Firefox cookies at %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox のCookieを %@ から読み込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "browser.import.warning.firefoxHistoryReadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed reading Firefox history at %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox の履歴を %@ から読み込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "browser.import.warning.noHistoryDatabase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No history database found for %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の履歴データベースが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "browser.import.warning.safariCookiesUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Safari のCookieは Cookies.binarycookies に保存されており、このインポーターではまだ対応していません。"
+          }
+        }
+      }
+    },
+    "browser.theme.buttonHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser Theme: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーテーマ: %@"
+          }
+        }
+      }
+    },
     "browser.addressBarSuggestions": {
       "extractionState": "manual",
       "localizations": {
@@ -7272,6 +8904,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Varsayılan Tarayıcıda Aç"
+          }
+        }
+      }
+    },
+    "browser.popup.loadingTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading\u2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\u8aad\u307f\u8fbc\u307f\u4e2d\u2026"
           }
         }
       }
@@ -22955,6 +24604,23 @@
         }
       }
     },
+    "common.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
+          }
+        }
+      }
+    },
     "common.close": {
       "extractionState": "manual",
       "localizations": {
@@ -25554,6 +27220,91 @@
         }
       }
     },
+    "contextMenu.copyError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーをコピー"
+          }
+        }
+      }
+    },
+    "contextMenu.copyErrors": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Errors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラーをコピー"
+          }
+        }
+      }
+    },
+    "clipboard.sshError.item": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@ (%@): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld. %@ (%@): %@"
+          }
+        }
+      }
+    },
+    "clipboard.sshError.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH error (%@): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH エラー (%@): %@"
+          }
+        }
+      }
+    },
+    "contextMenu.copySshError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy SSH Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSHエラーをコピー"
+          }
+        }
+      }
+    },
     "contextMenu.moveDown": {
       "extractionState": "manual",
       "localizations": {
@@ -27697,6 +29448,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kapat"
+          }
+        }
+      }
+    },
+    "dialog.closeTab.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
           }
         }
       }
@@ -36504,6 +38272,23 @@
         }
       }
     },
+    "menu.view.importFromBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import From Browser…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーから取り込む…"
+          }
+        }
+      }
+    },
     "menu.view.forward": {
       "extractionState": "manual",
       "localizations": {
@@ -43296,6 +45081,40 @@
         }
       }
     },
+    "settings.app.showSSH": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show SSH in Sidebar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにSSHを表示"
+          }
+        }
+      }
+    },
+    "settings.app.showSSH.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the SSH target for remote workspaces in its own row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートワークスペースのSSHターゲットを専用の行に表示します。"
+          }
+        }
+      }
+    },
     "settings.app.showPorts.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -49405,6 +51224,40 @@
         }
       }
     },
+    "settings.browser.emptyImport.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose What to Import…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り込む項目を選ぶ…"
+          }
+        }
+      }
+    },
+    "settings.browser.emptyImport.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import browser data"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーデータを取り込む"
+          }
+        }
+      }
+    },
     "settings.browser.history": {
       "extractionState": "manual",
       "localizations": {
@@ -49514,6 +51367,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tarama Geçmişi"
+          }
+        }
+      }
+    },
+    "settings.browser.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import From Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーから取り込む"
+          }
+        }
+      }
+    },
+    "settings.browser.import.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択…"
+          }
+        }
+      }
+    },
+    "settings.browser.import.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再読み込み"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The blank-tab import hint is hidden. Turn it back on here any time."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空タブのインポート案内は非表示です。ここでいつでも再表示できます。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.settingsOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank tabs are currently using Settings only mode from the debug window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在、空タブはデバッグウィンドウの「設定のみ」モードになっています。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.note.visible": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blank browser tabs can show this import suggestion. Hide or re-enable it here."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のブラウザータブにこのインポート案内を表示できます。ここで非表示や再表示を切り替えられます。"
+          }
+        }
+      }
+    },
+    "settings.browser.import.hint.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show import hint on blank browser tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空のブラウザータブにインポート案内を表示"
           }
         }
       }
@@ -62057,6 +64029,261 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bu çalışma alanına odaklanmak için etkinleştirin. Yeniden sıralamak için sürükleyin veya Yukarı Taşı ve Aşağı Taşı eylemlerini kullanın."
+          }
+        }
+      }
+    },
+    "sidebar.remote.badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH"
+          }
+        }
+      }
+    },
+    "remote.status.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続済み"
+          }
+        }
+      }
+    },
+    "remote.status.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中"
+          }
+        }
+      }
+    },
+    "remote.status.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切断済み"
+          }
+        }
+      }
+    },
+    "remote.status.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
+      }
+    },
+    "sidebar.remote.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH • %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH • %@"
+          }
+        }
+      }
+    },
+    "sidebar.remote.subtitleFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ワークスペース"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connected to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH は %@ に接続済み"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH connecting to %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH は %@ に接続中"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH error for %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の SSH エラー"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.errorWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH error for %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の SSH エラー: %@"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH disconnected from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH は %@ から切断済み"
+          }
+        }
+      }
+    },
+    "sidebar.remote.help.targetFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote host"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホスト"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.leftRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left Rail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左レール"
+          }
+        }
+      }
+    },
+    "sidebar.activeTabIndicator.solidFill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solid Fill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "塗りつぶし"
           }
         }
       }

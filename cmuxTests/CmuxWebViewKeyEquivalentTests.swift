@@ -65,6 +65,15 @@ private func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+@MainActor
+private func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileDefinition {
+    try XCTUnwrap(
+        BrowserProfileStore.shared.createProfile(
+            named: "\(prefix)-\(UUID().uuidString)"
+        )
+    )
+}
+
 final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     func testSuppressesWhenFirstResponderFallsBackAndHostedViewIsTiny() {
         XCTAssertTrue(
@@ -1197,6 +1206,55 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
     }
+
+    func testApplicationOpenURLsAddsWorkspaceForDroppedFolderURL() throws {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+
+        let defaults = UserDefaults.standard
+        let previousWelcomeShown = defaults.object(forKey: WelcomeSettings.shownKey)
+        defaults.set(true, forKey: WelcomeSettings.shownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: WelcomeSettings.shownKey)
+            } else {
+                defaults.removeObject(forKey: WelcomeSettings.shownKey)
+            }
+        }
+
+        let rootDirectory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let droppedDirectory = rootDirectory.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: droppedDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootDirectory) }
+
+        let existingWorkspaceIds = Set(manager.tabs.map(\.id))
+
+        app.application(
+            NSApplication.shared,
+            open: [URL(fileURLWithPath: droppedDirectory.path)]
+        )
+
+        let createdWorkspace = manager.tabs.first { !existingWorkspaceIds.contains($0.id) }
+        XCTAssertNotNil(createdWorkspace)
+        XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
+    }
 }
 
 @MainActor
@@ -1409,6 +1467,56 @@ final class BrowserDevToolsButtonDebugSettingsTests: XCTestCase {
         XCTAssertEqual(
             BrowserDevToolsButtonDebugSettings.colorOption(defaults: defaults),
             BrowserDevToolsButtonDebugSettings.defaultColor
+        )
+    }
+
+    func testBrowserToolbarAccessorySpacingDefaultsToTwoWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        defaults.removeObject(forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+
+        XCTAssertEqual(
+            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
+            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        )
+    }
+
+    func testBrowserToolbarAccessorySpacingFallsBackToDefaultForUnsupportedValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(99, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+
+        XCTAssertEqual(
+            BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults),
+            BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        )
+    }
+
+    func testBrowserProfilePopoverPaddingDefaultsWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.removeObject(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+        )
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+        )
+    }
+
+    func testBrowserProfilePopoverPaddingFallsBackForUnsupportedValues() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(-3, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
+        defaults.set(999, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
+        )
+        XCTAssertEqual(
+            BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults),
+            BrowserProfilePopoverDebugSettings.defaultVerticalPadding
         )
     }
 
@@ -2614,6 +2722,113 @@ final class BrowserNavigationNewTabDecisionTests: XCTestCase {
                 buttonNumber: 2
             )
         )
+    }
+}
+
+final class BrowserPopupDecisionTests: XCTestCase {
+    func testLinkActivatedPlainLeftClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationPlainLeftClickCreatesPopup() {
+        XCTAssertTrue(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 0
+            )
+        )
+    }
+
+    func testOtherNavigationMiddleClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .other,
+                modifierFlags: [],
+                buttonNumber: 2
+            )
+        )
+    }
+
+    func testLinkActivatedCmdClickDoesNotCreatePopup() {
+        XCTAssertFalse(
+            browserNavigationShouldCreatePopup(
+                navigationType: .linkActivated,
+                modifierFlags: [.command],
+                buttonNumber: 0
+            )
+        )
+    }
+}
+
+final class BrowserNilTargetFallbackDecisionTests: XCTestCase {
+    func testOtherNavigationDoesNotFallbackToNewTab() {
+        XCTAssertFalse(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .other
+            )
+        )
+    }
+
+    func testLinkActivatedNavigationFallsBackToNewTab() {
+        XCTAssertTrue(
+            browserNavigationShouldFallbackNilTargetToNewTab(
+                navigationType: .linkActivated
+            )
+        )
+    }
+}
+
+final class BrowserPopupContentRectTests: XCTestCase {
+    func testExplicitTopOriginCoordinatesConvertToAppKitBottomOrigin() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 400,
+            requestedHeight: 300,
+            requestedX: 150,
+            requestedTopY: 120,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 150, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 430, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 400, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 300, accuracy: 0.01)
+    }
+
+    func testExplicitCoordinatesClampToVisibleFrame() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 1400,
+            requestedHeight: 1200,
+            requestedX: 900,
+            requestedTopY: -25,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 100, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 50, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 1000, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 800, accuracy: 0.01)
+    }
+
+    func testMissingCoordinatesCentersPopup() {
+        let rect = browserPopupContentRect(
+            requestedWidth: 300,
+            requestedHeight: 200,
+            requestedX: nil,
+            requestedTopY: nil,
+            visibleFrame: NSRect(x: 100, y: 50, width: 1000, height: 800)
+        )
+
+        XCTAssertEqual(rect.origin.x, 450, accuracy: 0.01)
+        XCTAssertEqual(rect.origin.y, 350, accuracy: 0.01)
+        XCTAssertEqual(rect.width, 300, accuracy: 0.01)
+        XCTAssertEqual(rect.height, 200, accuracy: 0.01)
     }
 }
 
@@ -5034,6 +5249,105 @@ final class UpdateChannelSettingsTests: XCTestCase {
     }
 }
 
+final class UpdateSettingsTests: XCTestCase {
+    func testApplyEnablesAutomaticChecksAndDailySchedule() {
+        let defaults = makeDefaults()
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.sendProfileInfoKey))
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.migrationKey))
+    }
+
+    func testApplyRepairsLegacyDisabledAutomaticChecksOnce() {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        defaults.set(0, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+        XCTAssertEqual(defaults.double(forKey: UpdateSettings.scheduledCheckIntervalKey), UpdateSettings.scheduledCheckInterval)
+        XCTAssertTrue(defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+
+        defaults.set(false, forKey: UpdateSettings.automaticChecksKey)
+        UpdateSettings.apply(to: defaults)
+
+        XCTAssertFalse(defaults.bool(forKey: UpdateSettings.automaticChecksKey))
+    }
+
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "UpdateSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create isolated UserDefaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+}
+
+final class SidebarRemoteErrorCopySupportTests: XCTestCase {
+    func testMenuLabelIsNilWhenThereAreNoErrors() {
+        XCTAssertNil(SidebarRemoteErrorCopySupport.menuLabel(for: []))
+        XCTAssertNil(SidebarRemoteErrorCopySupport.clipboardText(for: []))
+    }
+
+    func testSingleErrorUsesCopyErrorLabelAndSingleLinePayload() {
+        let entries = [
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "alpha",
+                target: "devbox:22",
+                detail: "failed to start reverse relay"
+            )
+        ]
+
+        XCTAssertEqual(SidebarRemoteErrorCopySupport.menuLabel(for: entries), "Copy Error")
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: entries),
+            "SSH error (devbox:22): failed to start reverse relay"
+        )
+    }
+
+    func testMultipleErrorsUseCopyErrorsLabelAndEnumeratedPayload() {
+        let entries = [
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "alpha",
+                target: "devbox-a:22",
+                detail: "connection timed out"
+            ),
+            SidebarRemoteErrorCopyEntry(
+                workspaceTitle: "beta",
+                target: "devbox-b:22",
+                detail: "permission denied"
+            ),
+        ]
+
+        XCTAssertEqual(SidebarRemoteErrorCopySupport.menuLabel(for: entries), "Copy Errors")
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: entries),
+            """
+            1. alpha (devbox-a:22): connection timed out
+            2. beta (devbox-b:22): permission denied
+            """
+        )
+    }
+
+    func testClipboardTextSingleEntryUsesStructuredEntryFields() {
+        let entry = SidebarRemoteErrorCopyEntry(
+            workspaceTitle: "alpha",
+            target: "devbox:22",
+            detail: "failed to bootstrap daemon"
+        )
+        XCTAssertEqual(
+            SidebarRemoteErrorCopySupport.clipboardText(for: [entry]),
+            "SSH error (devbox:22): failed to bootstrap daemon"
+        )
+    }
+}
+
 final class WorkspaceReorderTests: XCTestCase {
     @MainActor
     func testReorderWorkspaceMovesWorkspaceToRequestedIndex() {
@@ -5065,6 +5379,32 @@ final class WorkspaceReorderTests: XCTestCase {
     func testReorderWorkspaceReturnsFalseForUnknownWorkspace() {
         let manager = TabManager()
         XCTAssertFalse(manager.reorderWorkspace(tabId: UUID(), toIndex: 0))
+    }
+
+    @MainActor
+    func testReorderWorkspaceKeepsUnpinnedWorkspaceBelowPinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: unpinned.id, toIndex: 0))
+        XCTAssertEqual(manager.tabs.map(\.id), [firstPinned.id, secondPinned.id, unpinned.id])
+    }
+
+    @MainActor
+    func testReorderWorkspaceKeepsPinnedWorkspaceInsidePinnedSegment() {
+        let manager = TabManager()
+        let firstPinned = manager.tabs[0]
+        manager.setPinned(firstPinned, pinned: true)
+        let secondPinned = manager.addWorkspace()
+        manager.setPinned(secondPinned, pinned: true)
+        let unpinned = manager.addWorkspace()
+
+        XCTAssertTrue(manager.reorderWorkspace(tabId: firstPinned.id, toIndex: 999))
+        XCTAssertEqual(manager.tabs.map(\.id), [secondPinned.id, firstPinned.id, unpinned.id])
     }
 }
 
@@ -6082,6 +6422,129 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
 }
 
 @MainActor
+final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
+    private final class RejectingCreateTabDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+            false
+        }
+    }
+
+    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
+        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+            false
+        }
+    }
+
+    func testNewBrowserSurfacePrefersSelectedBrowserProfileInTargetPane() throws {
+        let workspace = Workspace()
+        let profileA = try makeTemporaryBrowserProfile(named: "Alpha")
+        let profileB = try makeTemporaryBrowserProfile(named: "Beta")
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browserA = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                preferredProfileID: profileA.id
+            )
+        )
+        _ = try XCTUnwrap(
+            workspace.newBrowserSplit(
+                from: browserA.id,
+                orientation: .horizontal,
+                preferredProfileID: profileB.id,
+                focus: true
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            profileB.id,
+            "Expected workspace preference to drift to the most recently created browser profile"
+        )
+
+        let leftSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(browserA.id))
+        workspace.bonsplitController.focusPane(paneId)
+        workspace.bonsplitController.selectTab(leftSurfaceId)
+
+        let created = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: false
+            )
+        )
+
+        XCTAssertEqual(
+            created.profileID,
+            profileA.id,
+            "Expected new browser creation to inherit the selected browser profile from the target pane"
+        )
+    }
+
+    func testNewBrowserSurfaceFailureDoesNotMutatePreferredProfile() throws {
+        let workspace = Workspace()
+        let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
+        let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        _ = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: false,
+                preferredProfileID: preferredProfile.id
+            )
+        )
+        XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
+
+        let rejectingDelegate = RejectingCreateTabDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+        let created = workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: false,
+            preferredProfileID: unexpectedProfile.id
+        )
+
+        XCTAssertNil(created)
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            preferredProfile.id,
+            "Expected a failed browser creation to leave the workspace preferred profile unchanged"
+        )
+    }
+
+    func testNewBrowserSplitFailureDoesNotMutatePreferredProfile() throws {
+        let workspace = Workspace()
+        let preferredProfile = try makeTemporaryBrowserProfile(named: "Preferred")
+        let unexpectedProfile = try makeTemporaryBrowserProfile(named: "Unexpected")
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let browser = try XCTUnwrap(
+            workspace.newBrowserSurface(
+                inPane: paneId,
+                focus: true,
+                preferredProfileID: preferredProfile.id
+            )
+        )
+        XCTAssertEqual(workspace.preferredBrowserProfileID, preferredProfile.id)
+
+        let rejectingDelegate = RejectingSplitPaneDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+        let created = workspace.newBrowserSplit(
+            from: browser.id,
+            orientation: .horizontal,
+            preferredProfileID: unexpectedProfile.id,
+            focus: false
+        )
+
+        XCTAssertNil(created)
+        XCTAssertEqual(
+            workspace.preferredBrowserProfileID,
+            preferredProfile.id,
+            "Expected a failed browser split to leave the workspace preferred profile unchanged"
+        )
+    }
+}
+
+@MainActor
 final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
     func testUsesFocusedTerminalWhenTerminalIsFocused() {
         let manager = TabManager()
@@ -6134,6 +6597,52 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
             sourcePanel?.id,
             leftTerminalPanelId,
             "Expected workspace inheritance source to use last focused terminal across panes"
+        )
+    }
+}
+
+@MainActor
+final class BrowserPanelProfileIsolationTests: XCTestCase {
+    func testStaleDidFinishDoesNotRecordVisitIntoSwitchedProfileHistory() throws {
+        let alternateProfile = try makeTemporaryBrowserProfile(named: "Switched")
+        let defaultStore = BrowserHistoryStore.shared
+        let alternateStore = BrowserProfileStore.shared.historyStore(for: alternateProfile.id)
+        defaultStore.clearHistory()
+        alternateStore.clearHistory()
+        defer {
+            defaultStore.clearHistory()
+            alternateStore.clearHistory()
+        }
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID
+        )
+        let staleWebView = panel.webView
+        let staleDelegate = try XCTUnwrap(staleWebView.navigationDelegate)
+        let staleURL = try XCTUnwrap(URL(string: "https://example.com/stale-finish"))
+        staleWebView.loadHTMLString(
+            "<html><head><title>Stale</title></head><body>stale</body></html>",
+            baseURL: staleURL
+        )
+
+        XCTAssertTrue(
+            panel.switchToProfile(alternateProfile.id),
+            "Expected profile switch to succeed, current=\(panel.profileID) requested=\(alternateProfile.id) exists=\(BrowserProfileStore.shared.profileDefinition(id: alternateProfile.id) != nil)"
+        )
+        defaultStore.clearHistory()
+        alternateStore.clearHistory()
+
+        staleDelegate.webView?(staleWebView, didFinish: nil)
+        drainMainQueue()
+
+        XCTAssertTrue(
+            defaultStore.entries.isEmpty,
+            "Expected stale completion callbacks to avoid writing into the old profile history store, found \(defaultStore.entries.map { $0.url })"
+        )
+        XCTAssertTrue(
+            alternateStore.entries.isEmpty,
+            "Expected stale completion callbacks to avoid writing into the newly selected profile history store, found \(alternateStore.entries.map { $0.url })"
         )
     }
 }
@@ -6569,6 +7078,66 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             workspace.focusedPanelId,
             browserSplitPanel.id,
             "Expected explicit focus intent to keep the split panel focused"
+        )
+    }
+
+    func testNewTerminalSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newTerminalSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected terminal surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus terminal surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
+        )
+    }
+
+    func testNewBrowserSurfaceWithFocusFalsePreservesFocusedPanel() {
+        let workspace = Workspace()
+        guard let originalFocusedPanelId = workspace.focusedPanelId,
+              let originalPaneId = workspace.paneId(forPanelId: originalFocusedPanelId) else {
+            XCTFail("Expected initial focused panel and pane")
+            return
+        }
+
+        guard let newPanel = workspace.newBrowserSurface(inPane: originalPaneId, focus: false) else {
+            XCTFail("Expected browser surface to be created")
+            return
+        }
+
+        drainMainQueue()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertNotEqual(newPanel.id, originalFocusedPanelId)
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            originalFocusedPanelId,
+            "Expected non-focus browser surface creation to preserve the existing focused panel"
+        )
+        XCTAssertEqual(
+            workspace.bonsplitController.selectedTab(inPane: originalPaneId)?.id,
+            workspace.surfaceIdFromPanelId(originalFocusedPanelId),
+            "Expected selected tab to stay on the original focused panel"
         )
     }
 
@@ -7033,14 +7602,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: first,
                 targetTabId: first,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: third,
                 targetTabId: nil,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7051,14 +7622,16 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: nil,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
         XCTAssertNil(
             SidebarDropPlanner.indicator(
                 draggedTabId: only,
                 targetTabId: only,
-                tabIds: [only]
+                tabIds: [only],
+                pinnedTabIds: []
             )
         )
     }
@@ -7072,7 +7645,8 @@ final class SidebarDropPlannerTests: XCTestCase {
         let indicator = SidebarDropPlanner.indicator(
             draggedTabId: second,
             targetTabId: nil,
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(indicator?.tabId, nil)
         XCTAssertEqual(indicator?.edge, .bottom)
@@ -7088,7 +7662,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: second,
             targetTabId: nil,
             indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
-            tabIds: tabIds
+            tabIds: tabIds,
+            pinnedTabIds: []
         )
         XCTAssertEqual(index, 2)
     }
@@ -7103,7 +7678,8 @@ final class SidebarDropPlannerTests: XCTestCase {
             SidebarDropPlanner.indicator(
                 draggedTabId: second,
                 targetTabId: second,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             )
         )
     }
@@ -7119,6 +7695,7 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 2,
                 targetHeight: 40
             )
@@ -7135,6 +7712,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: first,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7145,7 +7723,8 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: first,
                 targetTabId: second,
                 indicator: indicator,
-                tabIds: tabIds
+                tabIds: tabIds,
+                pinnedTabIds: []
             ),
             1
         )
@@ -7161,6 +7740,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: first,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 38,
             targetHeight: 40
         )
@@ -7168,6 +7748,7 @@ final class SidebarDropPlannerTests: XCTestCase {
             draggedTabId: third,
             targetTabId: second,
             tabIds: tabIds,
+            pinnedTabIds: [],
             pointerY: 2,
             targetHeight: 40
         )
@@ -7189,11 +7770,53 @@ final class SidebarDropPlannerTests: XCTestCase {
                 draggedTabId: third,
                 targetTabId: second,
                 tabIds: tabIds,
+                pinnedTabIds: [],
                 pointerY: 38,
                 targetHeight: 40
             )
         )
     }
+
+    func testIndicatorSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let indicator = SidebarDropPlanner.indicator(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            pointerY: 2,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(indicator?.tabId, unpinnedA)
+        XCTAssertEqual(indicator?.edge, .top)
+    }
+
+    func testTargetIndexSnapsUnpinnedDropToFirstUnpinnedBoundaryWhenHoveringPinnedWorkspace() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let targetIndex = SidebarDropPlanner.targetIndex(
+            draggedTabId: unpinnedB,
+            targetTabId: pinnedA,
+            indicator: SidebarDropIndicator(tabId: pinnedA, edge: .top),
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds
+        )
+
+        XCTAssertEqual(targetIndex, 2)
+    }
+
 }
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
@@ -7272,12 +7895,14 @@ final class FinderServicePathResolverTests: XCTestCase {
 final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
     private func environment(
         existingPaths: Set<String>,
-        homeDirectoryPath: String = "/Users/tester"
+        homeDirectoryPath: String = "/Users/tester",
+        applicationPathsByName: [String: String] = [:]
     ) -> TerminalDirectoryOpenTarget.DetectionEnvironment {
         TerminalDirectoryOpenTarget.DetectionEnvironment(
             homeDirectoryPath: homeDirectoryPath,
             fileExistsAtPath: { existingPaths.contains($0) },
-            isExecutableFileAtPath: { existingPaths.contains($0) }
+            isExecutableFileAtPath: { existingPaths.contains($0) },
+            applicationPathForName: { applicationPathsByName[$0] }
         )
     }
 
@@ -7316,9 +7941,10 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
         XCTAssertFalse(availableTargets.contains(.vscode))
     }
 
-    func testVSCodeRequiresCodeTunnelExecutable() {
+    func testVSCodeInlineRequiresCodeTunnelExecutable() {
         let env = environment(existingPaths: ["/Applications/Visual Studio Code.app"])
-        XCTAssertFalse(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+        XCTAssertTrue(TerminalDirectoryOpenTarget.vscode.isAvailable(in: env))
+        XCTAssertFalse(TerminalDirectoryOpenTarget.vscodeInline.isAvailable(in: env))
     }
 
     func testITerm2DetectsLegacyBundleName() {
@@ -7328,6 +7954,35 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
     func testTowerDetected() {
         let env = environment(existingPaths: ["/Applications/Tower.app"])
+        XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
+    }
+
+    func testAvailableTargetsFallbackToApplicationLookupForVSCodeAliasOutsideApplications() {
+        let vscodePath = "/Volumes/Tools/Code.app"
+        let env = environment(
+            existingPaths: [
+                vscodePath,
+                "\(vscodePath)/Contents/Resources/app/bin/code-tunnel",
+            ],
+            applicationPathsByName: [
+                "Code": vscodePath,
+            ]
+        )
+
+        let availableTargets = TerminalDirectoryOpenTarget.availableTargets(in: env)
+        XCTAssertTrue(availableTargets.contains(.vscode))
+        XCTAssertTrue(availableTargets.contains(.vscodeInline))
+    }
+
+    func testTowerDetectedViaApplicationLookupOutsideApplications() {
+        let towerPath = "/Volumes/Setapp/Tower.app"
+        let env = environment(
+            existingPaths: [towerPath],
+            applicationPathsByName: [
+                "Tower": towerPath,
+            ]
+        )
+
         XCTAssertTrue(TerminalDirectoryOpenTarget.tower.isAvailable(in: env))
     }
 
@@ -11936,6 +12591,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return nil
     }
 
+    private func firstResponderOwnsTextField(_ firstResponder: NSResponder?, textField: NSTextField) -> Bool {
+        if firstResponder === textField {
+            return true
+        }
+        if let editor = firstResponder as? NSTextView,
+           editor.isFieldEditor,
+           editor.delegate as? NSTextField === textField {
+            return true
+        }
+        return false
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -12068,10 +12735,103 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let searchState = TerminalSurface.SearchState(needle: "example")
         hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
+    }
+
+    func testRapidSearchOverlayToggleDoesNotLeaveStaleOverlayMounted() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "example"))
+        hostedView.setSearchOverlay(searchState: nil)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            hostedView.debugHasSearchOverlay(),
+            "A stale deferred mount must not resurrect the find overlay after it closes"
+        )
+    }
+
+    func testSearchOverlayFocusesSearchFieldAfterDeferredAttach() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+
+        let searchState = TerminalSurface.SearchState(needle: "")
+        surface.searchState = searchState
+        hostedView.setSearchOverlay(searchState: searchState)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let searchField = findEditableTextField(in: hostedView) else {
+            XCTFail("Expected mounted find text field")
+            return
+        }
+
+        XCTAssertTrue(
+            firstResponderOwnsTextField(window.firstResponder, textField: searchField),
+            "Deferred search overlay attach should still move focus into the find field"
+        )
+    }
+
+    func testStartOrFocusTerminalSearchReusesExistingSearchState() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let existingSearchState = TerminalSurface.SearchState(needle: "existing")
+        surface.searchState = existingSearchState
+
+        var focusNotificationCount = 0
+        XCTAssertTrue(
+            startOrFocusTerminalSearch(surface) { _ in
+                focusNotificationCount += 1
+            }
+        )
+
+        XCTAssertTrue(surface.searchState === existingSearchState)
+        XCTAssertEqual(
+            focusNotificationCount,
+            1,
+            "Re-triggering terminal Find should refocus the existing overlay without recreating state"
+        )
     }
 
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
@@ -12309,6 +13069,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "split"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchorA, visibleInUI: true)
@@ -12347,6 +13108,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)
@@ -12772,6 +13534,89 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertNotNil(
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
             "The scheduled external geometry sync should move the portal-hosted terminal to the anchor's new window position"
+        )
+    }
+
+    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 260, height: 180))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 180))
+        shiftedContainer.addSubview(anchor)
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
+        let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
+        )
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+        DispatchQueue.main.async {
+            shiftedContainer.frame.origin.x += 72
+            contentView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertGreaterThan(
+            shiftedAnchorFrameInWindow.minX,
+            originalAnchorFrameInWindow.minX + 1,
+            "The queued layout shift should move the anchor to the right"
+        )
+        XCTAssertGreaterThan(
+            shiftedAnchorFrameInWindow.maxX,
+            originalAnchorFrameInWindow.maxX + 1,
+            "The shifted anchor should expose a new trailing region outside the stale portal frame"
+        )
+        let retiredStaleWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        let shiftedWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "The delayed external sync should move the portal-hosted terminal to the queued layout shift position"
         )
     }
 }
@@ -14685,6 +15530,32 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return fd
     }
 
+    private func acceptSingleClient(
+        on listenerFD: Int32,
+        handler: @escaping (_ clientFD: Int32) -> Void
+    ) -> XCTestExpectation {
+        let handled = expectation(description: "socket client handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                handled.fulfill()
+                return
+            }
+            defer {
+                Darwin.close(clientFD)
+                handled.fulfill()
+            }
+            handler(clientFD)
+        }
+        return handled
+    }
+
     @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
@@ -14711,21 +15582,64 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(health.isHealthy)
     }
 
+    func testProbeSocketCommandReturnsFirstLineResponse() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            let response = "PONG\nextra\n"
+            _ = response.withCString { ptr in
+                write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5)
+
+        XCTAssertEqual(response, "PONG")
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testProbeSocketCommandTimesOutWithoutPollingUntilServerResponds() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let releaseServer = DispatchSemaphore(value: 0)
+        let handled = acceptSingleClient(on: listenerFD) { clientFD in
+            var buffer = [UInt8](repeating: 0, count: 256)
+            _ = read(clientFD, &buffer, buffer.count)
+            _ = releaseServer.wait(timeout: .now() + 1.0)
+        }
+
+        let startedAt = Date()
+        let response = TerminalController.probeSocketCommand("ping", at: path, timeout: 0.2)
+        let elapsed = Date().timeIntervalSince(startedAt)
+        releaseServer.signal()
+
+        XCTAssertNil(response)
+        XCTAssertGreaterThanOrEqual(elapsed, 0.18)
+        XCTAssertLessThan(elapsed, 0.8)
+        wait(for: [handled], timeout: 1.0)
+    }
+
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketProbePerformed: true,
-            socketConnectable: true,
-            socketConnectErrno: nil
+            socketPathExists: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
-        XCTAssertTrue(health.socketProbePerformed)
-        XCTAssertEqual(health.socketConnectable, true)
-        XCTAssertNil(health.socketConnectErrno)
     }
 
     func testSocketListenerHealthFailureSignalsIncludeAllDetectedProblems() {
@@ -14733,15 +15647,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false,
-            socketProbePerformed: false,
-            socketConnectable: nil,
-            socketConnectErrno: nil
+            socketPathExists: false
         )
         XCTAssertFalse(health.isHealthy)
-        XCTAssertFalse(health.socketProbePerformed)
-        XCTAssertNil(health.socketConnectable)
-        XCTAssertNil(health.socketConnectErrno)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]

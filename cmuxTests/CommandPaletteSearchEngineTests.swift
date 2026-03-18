@@ -434,6 +434,59 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testPendingEmptyStateIsPreservedWhenRefiningAResolvedNoMatchQuery() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsNotPreservedWhenQueryDoesNotRefineResolvedNoMatch() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzza",
+                resolvedMatchingQuery: "zzzzb"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsNotPreservedWhenResolvedResultsMayBeStale() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: false,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: false,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
     func testVisibleResultsResetWhenQueryChangesCommandPaletteScope() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
