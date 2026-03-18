@@ -1288,8 +1288,10 @@ class GhosttyApp {
                 font = "Hiragino Sans"
                 langRanges = japaneseRanges
             } else if lower.hasPrefix("ko") {
-                font = "Apple SD Gothic Neo"
-                langRanges = koreanRanges
+                // Skip Korean font injection to let Ghostty's native CTFontCreateForString
+                // handle Hangul with proper font matching to the primary terminal font.
+                // See: https://github.com/manaflow-ai/cmux/issues/1693
+                continue
             } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
                 font = "PingFang TC"
             } else if lower.hasPrefix("zh") {
