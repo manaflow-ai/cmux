@@ -1920,7 +1920,7 @@ struct ContentView: View {
                 scheduleSidebarResizerCursorRelease(force: true)
             }
             .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                DragGesture(minimumDistance: 3, coordinateSpace: .global)
                     .onChanged { value in
                         if !isResizerDragging {
                             isResizerDragging = true
