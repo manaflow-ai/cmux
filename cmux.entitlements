@@ -14,5 +14,7 @@
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
+	<key>com.apple.developer.web-browser</key>
+	<true/>
 </dict>
 </plist>
