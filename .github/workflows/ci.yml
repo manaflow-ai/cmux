@@ -513,6 +513,7 @@ jobs:
           CMUX_UI_TEST_DISPLAY_START_PATH="$START_PATH" \
           CMUX_UI_TEST_DISPLAY_DONE_PATH="$DONE_PATH" \
           CMUX_UI_TEST_DISPLAY_LOG_PATH="$LOG_PATH" \
+          CMUX_UI_TEST_DISPLAY_HARNESS_MANIFEST_PATH="$MANIFEST_PATH" \
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \

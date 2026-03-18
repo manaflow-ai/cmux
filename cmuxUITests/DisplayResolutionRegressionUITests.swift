@@ -2,7 +2,7 @@ import XCTest
 import Foundation
 
 final class DisplayResolutionRegressionUITests: XCTestCase {
-    private let displayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
+    private let defaultDisplayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
     private var launchTag = ""
     private var diagnosticsPath = ""
     private var displayReadyPath = ""
@@ -118,7 +118,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
     private func prepareDisplayHarnessIfNeeded() throws {
         let env = ProcessInfo.processInfo.environment
-        if let externalHarness = loadExternalHarnessFromEnvironment(env) ?? loadExternalHarnessFromManifest() {
+        if let externalHarness = loadExternalHarnessFromEnvironment(env) ?? loadExternalHarnessFromManifest(env) {
             displayReadyPath = externalHarness.readyPath
             displayIDPath = externalHarness.displayIDPath
             displayStartPath = externalHarness.startPath
@@ -150,8 +150,9 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         )
     }
 
-    private func loadExternalHarnessFromManifest() -> ExternalDisplayHarness? {
-        let manifestURL = URL(fileURLWithPath: displayHarnessManifestPath)
+    private func loadExternalHarnessFromManifest(_ env: [String: String]) -> ExternalDisplayHarness? {
+        let manifestPath = env["CMUX_UI_TEST_DISPLAY_HARNESS_MANIFEST_PATH"] ?? defaultDisplayHarnessManifestPath
+        let manifestURL = URL(fileURLWithPath: manifestPath)
         guard let data = try? Data(contentsOf: manifestURL) else {
             return nil
         }
