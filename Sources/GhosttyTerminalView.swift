@@ -4886,8 +4886,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
+            // First pass: instead of returning false and hoping for a redispatch
+            // (which AppKit may not do if no menu item matches), directly send
+            // unbound Cmd+Shift combinations through to keyDown so they reach the
+            // terminal application via the kitty keyboard protocol.
+            // This fixes issue #1718 where unbound Cmd+Shift+<key> was silently swallowed.
             lastPerformKeyEvent = event.timestamp
-            return false
+            keyDown(with: event)
+            return true
         }
 
         let finalEvent = NSEvent.keyEvent(
