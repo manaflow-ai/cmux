@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { locales } from "../i18n/routing";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://cmux.dev";
+  const base = "https://cmux.com";
 
   const paths = [
     { path: "", lastModified: new Date(), changeFrequency: "weekly" as const, priority: 1 },

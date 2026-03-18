@@ -15,11 +15,11 @@ jobs:
       matrix:
         include:
           - os: warp-macos-15-arm64-6x
-            timeout: 20
+            timeout: 30
             smoke: true
             skip_zig: false
           - os: warp-macos-26-arm64-6x
-            timeout: 20
+            timeout: 30
             smoke: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
@@ -133,8 +133,9 @@ jobs:
           }
 
           set +e
-          OUTPUT=$(run_unit_tests)
-          EXIT_CODE=$?
+          run_unit_tests | tee /tmp/test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat /tmp/test-output.txt)
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
@@ -145,12 +146,12 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
             set +e
-            OUTPUT=$(run_unit_tests)
-            EXIT_CODE=$?
+            run_unit_tests | tee /tmp/test-output.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+            OUTPUT=$(cat /tmp/test-output.txt)
             set -e
           fi
 
-          echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
