@@ -101,7 +101,7 @@ struct MarkdownPanelView: View {
         return VStack(alignment: .leading, spacing: 4) {
             ScrollView(.horizontal, showsIndicators: true) {
                 Text(code)
-                    .font(.system(size: 13, design: .monospaced))
+                    .font(.system(size: 13 * panel.fontScale, design: .monospaced))
                     .foregroundColor(colorScheme == .dark
                         ? Color(red: 0.9, green: 0.9, blue: 0.9)
                         : Color(red: 0.2, green: 0.2, blue: 0.2))
@@ -169,12 +169,13 @@ struct MarkdownPanelView: View {
 
     private var cmuxMarkdownTheme: Theme {
         let isDark = colorScheme == .dark
+        let scale = panel.fontScale
 
         return Theme()
             // Text
             .text {
                 ForegroundColor(isDark ? .white.opacity(0.9) : .primary)
-                FontSize(14)
+                FontSize(14 * scale)
             }
             // Headings
             .heading1 { configuration in
@@ -182,7 +183,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(28)
+                            FontSize(28 * scale)
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
@@ -194,7 +195,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontWeight(.bold)
-                            FontSize(22)
+                            FontSize(22 * scale)
                             ForegroundColor(isDark ? .white : .primary)
                         }
                     Divider()
@@ -205,7 +206,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(18)
+                        FontSize(18 * scale)
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 16, bottom: 8)
@@ -214,7 +215,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.semibold)
-                        FontSize(16)
+                        FontSize(16 * scale)
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 12, bottom: 6)
@@ -223,7 +224,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(14)
+                        FontSize(14 * scale)
                         ForegroundColor(isDark ? .white : .primary)
                     }
                     .markdownMargin(top: 10, bottom: 4)
@@ -232,7 +233,7 @@ struct MarkdownPanelView: View {
                 configuration.label
                     .markdownTextStyle {
                         FontWeight(.medium)
-                        FontSize(13)
+                        FontSize(13 * scale)
                         ForegroundColor(isDark ? .white.opacity(0.7) : .secondary)
                     }
                     .markdownMargin(top: 8, bottom: 4)
@@ -243,7 +244,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             FontFamilyVariant(.monospaced)
-                            FontSize(13)
+                            FontSize(13 * scale)
                             ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
                         }
                         .padding(12)
@@ -257,7 +258,7 @@ struct MarkdownPanelView: View {
             // Inline code
             .code {
                 FontFamilyVariant(.monospaced)
-                FontSize(13)
+                FontSize(13 * scale)
                 ForegroundColor(isDark ? Color(red: 0.85, green: 0.6, blue: 0.95) : Color(red: 0.6, green: 0.2, blue: 0.7))
                 BackgroundColor(isDark
                     ? Color(nsColor: NSColor(white: 0.18, alpha: 1.0))
@@ -272,7 +273,7 @@ struct MarkdownPanelView: View {
                     configuration.label
                         .markdownTextStyle {
                             ForegroundColor(isDark ? .white.opacity(0.6) : .secondary)
-                            FontSize(14)
+                            FontSize(14 * scale)
                         }
                         .padding(.leading, 12)
                 }

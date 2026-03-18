@@ -43,6 +43,19 @@ final class MarkdownPanel: Panel, ObservableObject {
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
+    /// Font scale factor (1.0 = default). Persisted in UserDefaults.
+    @Published var fontScale: CGFloat {
+        didSet {
+            UserDefaults.standard.set(Double(fontScale), forKey: Self.fontScaleDefaultsKey)
+        }
+    }
+
+    /// Minimum and maximum font scale bounds.
+    static let minFontScale: CGFloat = 0.5
+    static let maxFontScale: CGFloat = 3.0
+    static let fontScaleStep: CGFloat = 0.1
+    private static let fontScaleDefaultsKey = "MarkdownPanelFontScale"
+
     /// Parsed segments of the content (markdown + mermaid blocks).
     @Published private(set) var segments: [MarkdownSegment] = []
 
@@ -74,6 +87,9 @@ final class MarkdownPanel: Panel, ObservableObject {
         self.filePath = filePath
         self.displayTitle = (filePath as NSString).lastPathComponent
 
+        let saved = UserDefaults.standard.double(forKey: Self.fontScaleDefaultsKey)
+        self.fontScale = saved > 0 ? CGFloat(saved) : 1.0
+
         loadFileContent()
         startFileWatcher()
         if isFileUnavailable && fileWatchSource == nil {
@@ -103,6 +119,31 @@ final class MarkdownPanel: Panel, ObservableObject {
     func triggerFlash() {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
+    }
+
+    // MARK: - Font Scale
+
+    @discardableResult
+    func zoomIn() -> Bool {
+        let newScale = min(fontScale + Self.fontScaleStep, Self.maxFontScale)
+        guard newScale != fontScale else { return false }
+        fontScale = newScale
+        return true
+    }
+
+    @discardableResult
+    func zoomOut() -> Bool {
+        let newScale = max(fontScale - Self.fontScaleStep, Self.minFontScale)
+        guard newScale != fontScale else { return false }
+        fontScale = newScale
+        return true
+    }
+
+    @discardableResult
+    func resetZoom() -> Bool {
+        guard fontScale != 1.0 else { return false }
+        fontScale = 1.0
+        return true
     }
 
     // MARK: - File I/O
