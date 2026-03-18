@@ -1751,11 +1751,11 @@ struct ContentView: View {
             let windowWidth = observedWindow.contentView?.bounds.width
                 ?? observedWindow.contentLayoutRect.width
             // If window exists but dimensions are not yet ready (e.g., during workspace switch),
-            // return a conservative default rather than falling back to screen width.
-            if let windowWidth, windowWidth > 0 {
+            // return a very large maximum so no clamping occurs, preserving the persisted sidebar size.
+            if windowWidth > 0 {
                 return max(Self.minimumSidebarWidth, windowWidth * Self.maximumSidebarWidthRatio)
             }
-            return Self.minimumSidebarWidth
+            return CGFloat.greatestFiniteMagnitude
         }
 
         // Final fallback only when no observedWindow exists
