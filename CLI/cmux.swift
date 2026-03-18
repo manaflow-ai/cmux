@@ -10118,13 +10118,19 @@ struct CMUXCLI {
                 _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
             }
 
-            try setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Idle",
-                icon: "pause.circle.fill",
-                color: "#8E8E93"
-            )
+            // Only set status to "Idle" if it's not already "Needs input".
+            // This prevents the stop hook from overwriting a pending notification
+            // that requires user input, ensuring consistent status display.
+            let currentStatus = try? getClaudeStatus(client: client, workspaceId: workspaceId)
+            if currentStatus?.lowercased() != "needs input" {
+                try setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93"
+                )
+            }
             print("OK")
 
         case "prompt-submit":
@@ -10301,6 +10307,28 @@ struct CMUXCLI {
 
     private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    /// Retrieves the current status value for the claude_code status entry.
+    /// Returns nil if the status entry doesn't exist or can't be retrieved.
+    private func getClaudeStatus(client: SocketClient, workspaceId: String) throws -> String? {
+        let response = try client.send(command: "list_status --tab=\(workspaceId)")
+        // Response format: "claude_code=<value> icon=<icon> color=<color> ..."
+        // or "No status entries" if empty
+        guard !response.contains("No status entries") else { return nil }
+        for line in response.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("claude_code=") {
+                // Extract value after "claude_code=" and before next space or end of line
+                let afterKey = trimmed.dropFirst("claude_code=".count)
+                if let spaceIndex = afterKey.firstIndex(of: " ") {
+                    return String(afterKey[..<spaceIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
+                } else {
+                    return String(afterKey).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+            }
+        }
+        return nil
     }
 
     private func describeAskUserQuestion(_ object: [String: Any]?) -> String? {
