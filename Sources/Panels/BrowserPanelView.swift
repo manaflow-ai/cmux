@@ -615,6 +615,10 @@ struct BrowserPanelView: View {
         .onChange(of: isVisibleInUI) { visibleInUI in
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+                // When returning to a workspace with DevTools open, ensure they are restored.
+                // The visibility loss check may have run while hidden, or the DevTools UI
+                // may need refreshing after the portal host is reattached.
+                panel.restoreDeveloperToolsAfterAttachIfNeeded()
                 return
             }
             // Pane/workspace churn can briefly mark the browser hidden before the
