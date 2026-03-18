@@ -164,7 +164,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
     }
 
-    private func legacyResults(
+    private func referenceResults(
         entries: [FixtureEntry],
         query: String
     ) -> [FixtureResult] {
@@ -174,9 +174,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
             }
             : entries.compactMap { entry in
-                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                guard let fuzzyScore = weightedReferenceScore(
                     query: query,
-                    candidates: entry.searchableTexts
+                    entry: entry
                 ) else {
                     return nil
                 }
@@ -186,7 +186,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     title: entry.title,
                     score: fuzzyScore,
                     titleMatchIndices: CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                        query: query,
+                    query: query,
                         candidate: entry.title
                     )
                 )
@@ -197,6 +197,25 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private func weightedReferenceScore(
+        query: String,
+        entry: FixtureEntry
+    ) -> Int? {
+        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+            query: query,
+            candidates: entry.searchableTexts
+        ) else {
+            return nil
+        }
+        guard let titleScore = CommandPaletteFuzzyMatcher.score(
+            query: query,
+            candidate: entry.title
+        ) else {
+            return fuzzyScore
+        }
+        return max(fuzzyScore, titleScore + 2000)
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
@@ -210,7 +229,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
     }
 
-    func testOptimizedSearchMatchesLegacyPipeline() {
+    func testOptimizedSearchMatchesReferencePipeline() {
         let commandEntries = makeCommandEntries(count: 96)
         let switcherEntries = makeSwitcherEntries(count: 64)
         let queries = [
@@ -228,12 +247,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for query in queries {
             XCTAssertEqual(
                 optimizedResults(entries: commandEntries, query: query),
-                legacyResults(entries: commandEntries, query: query),
+                referenceResults(entries: commandEntries, query: query),
                 "Command corpus mismatch for query \(query)"
             )
             XCTAssertEqual(
                 optimizedResults(entries: switcherEntries, query: query),
-                legacyResults(entries: switcherEntries, query: query),
+                referenceResults(entries: switcherEntries, query: query),
                 "Switcher corpus mismatch for query \(query)"
             )
         }
@@ -345,6 +364,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             "command.finder"
         )
     }
+
     func testSearchPrefersTitleMatchOverKeywordOnlyMatchForCheckQuery() {
         let results = optimizedResults(entries: makeUpdateCommandEntries(), query: "check")
 
@@ -353,7 +373,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ["command.checkForUpdates", "command.attemptUpdate"]
         )
     }
-
 
     func testResolvedSelectionIndexPrefersAnchoredCommand() {
         let resultIDs = ["command.0", "command.1", "command.2"]
@@ -811,13 +830,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         for query in queries.prefix(8) {
-            _ = legacyResults(entries: entries, query: query)
+            _ = referenceResults(entries: entries, query: query)
             _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
         }
 
-        let legacyMs = benchmarkElapsedMs {
+        let referenceMs = benchmarkElapsedMs {
             for query in queries {
-                _ = legacyResults(entries: entries, query: query)
+                _ = referenceResults(entries: entries, query: query)
             }
         }
         let optimizedMs = benchmarkElapsedMs {
@@ -826,11 +845,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
         }
 
-        print(String(format: "BENCH cmd+shift+p legacy=%.2fms optimized=%.2fms", legacyMs, optimizedMs))
+        print(String(format: "BENCH cmd+shift+p reference=%.2fms optimized=%.2fms", referenceMs, optimizedMs))
         XCTAssertLessThan(
             optimizedMs,
-            legacyMs * 1.25,
-            "Optimized command search regressed significantly: legacy=\(legacyMs) optimized=\(optimizedMs)"
+            referenceMs * 1.25,
+            "Optimized command search regressed significantly: reference=\(referenceMs) optimized=\(optimizedMs)"
         )
     }
 
@@ -850,13 +869,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         for query in queries.prefix(8) {
-            _ = legacyResults(entries: entries, query: query)
+            _ = referenceResults(entries: entries, query: query)
             _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
         }
 
-        let legacyMs = benchmarkElapsedMs {
+        let referenceMs = benchmarkElapsedMs {
             for query in queries {
-                _ = legacyResults(entries: entries, query: query)
+                _ = referenceResults(entries: entries, query: query)
             }
         }
         let optimizedMs = benchmarkElapsedMs {
@@ -865,11 +884,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
         }
 
-        print(String(format: "BENCH cmd+p legacy=%.2fms optimized=%.2fms", legacyMs, optimizedMs))
+        print(String(format: "BENCH cmd+p reference=%.2fms optimized=%.2fms", referenceMs, optimizedMs))
         XCTAssertLessThan(
             optimizedMs,
-            legacyMs * 1.25,
-            "Optimized switcher search regressed significantly: legacy=\(legacyMs) optimized=\(optimizedMs)"
+            referenceMs * 1.25,
+            "Optimized switcher search regressed significantly: reference=\(referenceMs) optimized=\(optimizedMs)"
         )
     }
 }

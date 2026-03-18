@@ -7926,12 +7926,14 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
     let payload: Payload
     let rank: Int
     let title: String
+    let normalizedTitle: String
     let normalizedSearchableTexts: [String]
 
     init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
         self.payload = payload
         self.rank = rank
         self.title = title
+        self.normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
         self.normalizedSearchableTexts = searchableTexts
             .map(CommandPaletteFuzzyMatcher.normalizeForSearch)
             .filter { !$0.isEmpty }
@@ -7947,6 +7949,8 @@ struct CommandPaletteSearchCorpusResult<Payload>: Sendable where Payload: Sendab
 }
 
 enum CommandPaletteSearchEngine {
+    private static let titleMatchBonus = 2000
+
     static func search<Payload: Sendable>(
         entries: [CommandPaletteSearchCorpusEntry<Payload>],
         query: String,
@@ -8006,9 +8010,9 @@ enum CommandPaletteSearchEngine {
         } else {
             for (index, entry) in entries.enumerated() {
                 if shouldCancelSearch(at: index) { return [] }
-                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                guard let fuzzyScore = weightedScore(
                     preparedQuery: preparedQuery,
-                    normalizedCandidates: entry.normalizedSearchableTexts
+                    entry: entry
                 ) else {
                     continue
                 }
@@ -8034,6 +8038,26 @@ enum CommandPaletteSearchEngine {
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private static func weightedScore<Payload: Sendable>(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        entry: CommandPaletteSearchCorpusEntry<Payload>
+    ) -> Int? {
+        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                    preparedQuery: preparedQuery,
+                    normalizedCandidates: entry.normalizedSearchableTexts
+                ) else {
+            return nil
+        }
+        guard !entry.normalizedTitle.isEmpty,
+              let titleScore = CommandPaletteFuzzyMatcher.score(
+                preparedQuery: preparedQuery,
+                normalizedCandidates: [entry.normalizedTitle]
+              ) else {
+            return fuzzyScore
+        }
+        return max(fuzzyScore, titleScore + titleMatchBonus)
     }
 }
 
