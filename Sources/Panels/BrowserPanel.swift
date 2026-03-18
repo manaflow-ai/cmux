@@ -786,6 +786,68 @@ enum BrowserInsecureHTTPSettings {
     }
 }
 
+// MARK: - Insecure HTTPS (Self-Signed Certificate) Settings
+
+enum BrowserInsecureHTTPSSettings {
+    static let allowlistKey = "browserInsecureHTTPSAllowlist"
+    static let defaultAllowlistPatterns: [String] = []
+    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
+
+    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+    }
+
+    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
+        let source: String
+        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            source = rawValue
+        } else {
+            source = defaultAllowlistText
+        }
+        let parsed = parsePatterns(from: source)
+        return parsed
+    }
+
+    static func isHostAllowed(_ host: String, defaults: UserDefaults = .standard) -> Bool {
+        isHostAllowed(host, rawAllowlist: defaults.string(forKey: allowlistKey))
+    }
+
+    static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
+            hostMatchesPattern(normalizedHost, pattern: pattern)
+        }
+    }
+
+    static func addAllowedHost(_ host: String, defaults: UserDefaults = .standard) {
+        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return }
+        var patterns = normalizedAllowlistPatterns(defaults: defaults)
+        guard !patterns.contains(normalizedHost) else { return }
+        patterns.append(normalizedHost)
+        defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
+    }
+
+    private static func parsePatterns(from rawValue: String) -> [String] {
+        let separators = CharacterSet(charactersIn: ",;\n\r\t")
+        var out: [String] = []
+        var seen = Set<String>()
+        for token in rawValue.components(separatedBy: separators) {
+            guard let normalized = BrowserInsecureHTTPSettings.normalizeHost(token) else { continue }
+            guard seen.insert(normalized).inserted else { continue }
+            out.append(normalized)
+        }
+        return out
+    }
+
+    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
+        if pattern.hasPrefix("*.") {
+            let suffix = String(pattern.dropFirst(2))
+            return host == suffix || host.hasSuffix(".\(suffix)")
+        }
+        return host == pattern
+    }
+}
+
 func browserShouldBlockInsecureHTTPURL(
     _ url: URL,
     defaults: UserDefaults = .standard
@@ -2503,6 +2565,8 @@ final class BrowserPanel: Panel, ObservableObject {
         configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
+        // Add script message handler for certificate bypass button from error pages
+        webView.configuration.userContentController.add(navigationDelegate!, name: "certificateBypass")
         setupObservers(for: webView)
     }
 
@@ -2585,6 +2649,9 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navDelegate.handleBlockedInsecureHTTPNavigation = { [weak self] request, intent in
             self?.presentInsecureHTTPAlert(for: request, intent: intent, recordTypedNavigation: false)
+        }
+        navDelegate.handleCertificateBypass = { [weak self] url in
+            self?.handleCertificateBypass(for: url)
         }
         navDelegate.didTerminateWebContentProcess = { [weak self] webView in
             self?.replaceWebViewAfterContentProcessTermination(for: webView)
@@ -3696,6 +3763,13 @@ final class BrowserPanel: Panel, ObservableObject {
         default:
             return
         }
+    }
+
+    private func handleCertificateBypass(for url: URL) {
+        // The host has already been added to the allowlist by the navigation delegate.
+        // Simply reload the page - the next certificate challenge will be accepted.
+        let request = URLRequest(url: url)
+        webView.load(request)
     }
 
     deinit {
@@ -5691,13 +5765,15 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
-private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
+    /// Callback for handling certificate bypass requests from the error page.
+    var handleCertificateBypass: ((URL) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
@@ -5748,6 +5824,17 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        // Check if this is a server trust challenge for a host in the insecure HTTPS allowlist.
+        // If so, accept the certificate to allow self-signed/invalid certificates for localhost
+        // and development servers, similar to Safari's "Visit this website" bypass.
+        if let serverTrust = challenge.protectionSpace.serverTrust,
+           let host = challenge.protectionSpace.host as String?,
+           BrowserInsecureHTTPSSettings.isHostAllowed(host) {
+            let credential = URLCredential(trust: serverTrust)
+            completionHandler(.useCredential, credential)
+            return
+        }
+
         // WKWebView rejects all authentication challenges by default when this
         // delegate method is not implemented (.rejectProtectionSpace). This
         // breaks TLS client-certificate flows such as Microsoft Entra ID
@@ -5771,6 +5858,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     private func loadErrorPage(in webView: WKWebView, failedURL: String, error: NSError) {
         let title: String
         let message: String
+        let isCertificateError: Bool
 
         switch (error.domain, error.code) {
         case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
@@ -5782,10 +5870,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             } else {
                 message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
             }
+            isCertificateError = false
         case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
              (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
             title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
             message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
+            isCertificateError = false
         case (NSURLErrorDomain, NSURLErrorSecureConnectionFailed),
              (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
              (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
@@ -5793,9 +5883,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
              (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
             title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
             message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
+            isCertificateError = true
         default:
             title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
             message = error.localizedDescription
+            isCertificateError = false
         }
 
         let escapeHTML: (String) -> String = { value in
@@ -5810,6 +5902,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let escapedMessage = escapeHTML(message)
         let escapedURL = escapeHTML(failedURL)
         let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
+        let escapedProceedLabel = escapeHTML(String(localized: "browser.error.proceedAnyway", defaultValue: "Proceed anyway"))
+
+        // Build buttons HTML
+        var buttonsHTML = "<button onclick=\"location.reload()\">\(escapedReloadLabel)</button>"
+        if isCertificateError, let url = URL(string: failedURL), let host = url.host {
+            let escapedHost = escapeHTML(host)
+            buttonsHTML += "<button onclick=\"window.webkit.messageHandlers.certificateBypass.postMessage('\(escapedHost)')\">\(escapedProceedLabel)</button>"
+        }
 
         let html = """
         <!DOCTYPE html>
@@ -5832,6 +5932,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             margin-top: 20px; padding: 6px 20px;
             background: #333; color: #e0e0e0; border: 1px solid #555;
             border-radius: 6px; font-size: 13px; cursor: pointer;
+            margin-left: 8px; margin-right: 8px;
         }
         button:hover { background: #444; }
         @media (prefers-color-scheme: light) {
@@ -5848,7 +5949,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             <h1>\(escapedTitle)</h1>
             <p>\(escapedMessage)</p>
             <div class="url">\(escapedURL)</div>
-            <button onclick="location.reload()">\(escapedReloadLabel)</button>
+            \(buttonsHTML)
         </div>
         </body>
         </html>
@@ -6017,6 +6118,16 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         #endif
         NSLog("BrowserPanel download didBecome from navigationResponse")
         download.delegate = downloadDelegate
+    }
+
+    // MARK: - WKScriptMessageHandler
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "certificateBypass" else { return }
+        guard let host = message.body as? String else { return }
+        // Add the host to the allowlist and trigger the bypass callback
+        BrowserInsecureHTTPSSettings.addAllowedHost(host)
+        handleCertificateBypass?(URL(string: "https://\(host)")!)
     }
 }
 
