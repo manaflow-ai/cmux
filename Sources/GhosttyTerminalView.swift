@@ -4878,18 +4878,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if let lastPerformKeyEvent {
-                self.lastPerformKeyEvent = nil
-                if lastPerformKeyEvent == event.timestamp {
-                    equivalent = event.characters ?? ""
-                    break
-                }
-            }
-
-            lastPerformKeyEvent = event.timestamp
-            return false
+            // For unbound Command-modified keys (e.g., Cmd+Shift+K with no binding),
+            // forward directly to the terminal rather than relying on AppKit's redispatch.
+            // AppKit may drop the event if no menu item matches, preventing the key from
+            // reaching the terminal via the kitty keyboard protocol.
+            // See: https://github.com/manaflow-ai/cmux/issues/1718
+            lastPerformKeyEvent = nil
+            keyDown(with: event)
+            return true
         }
 
+        // Handle \r and / cases by creating a modified event and forwarding to keyDown.
         let finalEvent = NSEvent.keyEvent(
             with: .keyDown,
             location: event.locationInWindow,
