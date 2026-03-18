@@ -13,7 +13,7 @@ export default function TermsOfServicePage() {
 
       <p>
         The website located at{" "}
-        <a href="https://cmux.dev">cmux.dev</a> (the
+        <a href="https://cmux.com">cmux.com</a> (the
         &ldquo;Site&rdquo;) and the cmux desktop application (the
         &ldquo;Application&rdquo;) are copyrighted works belonging to Manaflow
         (&ldquo;Company&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;, and
