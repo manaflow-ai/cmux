@@ -6526,6 +6526,11 @@ final class GhosttySurfaceScrollView: NSView {
         cancelFocusRequest()
     }
 
+    // MARK: - Public Accessors
+
+    /// The underlying terminal surface view. Exposed for key event forwarding from panel hosts.
+    var terminalSurfaceView: GhosttyNSView { surfaceView }
+
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
@@ -8753,6 +8758,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     private final class HostContainerView: NSView {
         var onDidMoveToWindow: (() -> Void)?
         var onGeometryChanged: (() -> Void)?
+        weak var hostedView: GhosttySurfaceScrollView?
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
 
@@ -8804,6 +8810,59 @@ struct GhosttyTerminalView: NSViewRepresentable {
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             notifyGeometryChangedIfNeeded()
+        }
+
+        // MARK: - Key Event Forwarding
+        // Forward key events to the hosted terminal view so Esc and other keys work inside panels.
+        // The portal window system hosts the actual terminal view above SwiftUI, but key events
+        // need to be forwarded from this anchor view to ensure proper terminal input handling.
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override func becomeFirstResponder() -> Bool {
+            // When this container becomes first responder, try to transfer focus to the hosted terminal view.
+            if let hostedView = hostedView,
+               hostedView.terminalSurfaceView.acceptsFirstResponder {
+                window?.makeFirstResponder(hostedView.terminalSurfaceView)
+                return true
+            }
+            return super.becomeFirstResponder()
+        }
+
+        override func keyDown(with event: NSEvent) {
+            // Forward key events to the hosted terminal view.
+            if let surfaceView = hostedView?.terminalSurfaceView {
+                surfaceView.keyDown(with: event)
+            } else {
+                super.keyDown(with: event)
+            }
+        }
+
+        override func keyUp(with event: NSEvent) {
+            // Forward key events to the hosted terminal view.
+            if let surfaceView = hostedView?.terminalSurfaceView {
+                surfaceView.keyUp(with: event)
+            } else {
+                super.keyUp(with: event)
+            }
+        }
+
+        override func flagsChanged(with event: NSEvent) {
+            // Forward modifier key events to the hosted terminal view.
+            if let surfaceView = hostedView?.terminalSurfaceView {
+                surfaceView.flagsChanged(with: event)
+            } else {
+                super.flagsChanged(with: event)
+            }
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            // Forward key equivalent events (like Esc) to the hosted terminal view.
+            // This is critical for keys like Escape to work inside panels.
+            if let surfaceView = hostedView?.terminalSurfaceView {
+                return surfaceView.performKeyEquivalent(with: event)
+            }
+            return super.performKeyEquivalent(with: event)
         }
     }
 
@@ -8900,6 +8959,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
 #endif
 
         let hostContainer = nsView as? HostContainerView
+        // Set the hosted view on the container so it can forward key events.
+        hostContainer?.hostedView = hostedView
         let hostOwnsPortalNow = hostContainer.map { host in
             terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
