@@ -4889,6 +4889,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // First pass: check if a menu item would handle this event.
             // If not, process the key directly instead of relying on AppKit redispatch,
             // which silently drops unbound Cmd+Shift combinations.
+            // Only route to main menu if shouldRouteCommandEquivalentDirectlyToMainMenu
+            // permits it (e.g., Cmd+` is intentionally excluded).
+            if !shouldRouteCommandEquivalentDirectlyToMainMenu(event) {
+                lastPerformKeyEvent = nil
+                return false
+            }
             lastPerformKeyEvent = event.timestamp
             if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
                 return true
