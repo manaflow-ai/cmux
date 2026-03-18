@@ -10882,7 +10882,7 @@ private struct TabItemView: View, Equatable {
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
+                                Text(pullRequestStatusLabel(pullRequest.status, checks: pullRequest.checks))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
@@ -11578,6 +11578,7 @@ private struct TabItemView: View, Equatable {
         let label: String
         let url: URL
         let status: SidebarPullRequestStatus
+        let checks: SidebarPullRequestChecksStatus?
     }
 
     private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [PullRequestDisplay] {
@@ -11587,7 +11588,8 @@ private struct TabItemView: View, Equatable {
                 number: pullRequest.number,
                 label: pullRequest.label,
                 url: pullRequest.url,
-                status: pullRequest.status
+                status: pullRequest.status,
+                checks: pullRequest.checks
             )
         }
     }
@@ -11612,7 +11614,10 @@ private struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
+    private func pullRequestStatusLabel(
+        _ status: SidebarPullRequestStatus,
+        checks _: SidebarPullRequestChecksStatus?
+    ) -> String {
         switch status {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")

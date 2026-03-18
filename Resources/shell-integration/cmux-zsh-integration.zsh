@@ -312,8 +312,6 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
-    local explicit_branch_output="" explicit_branch_error="" explicit_branch_status=0
-    local implicit_probe_indicates_no_pr=0 explicit_probe_indicates_no_pr=0
     local -a gh_repo_args
     gh_repo_args=()
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
@@ -330,7 +328,7 @@ _cmux_report_pr_for_path() {
     [[ -n "$err_file" ]] || return 1
     gh_output="$(
         builtin cd "$repo_path" 2>/dev/null \
-            && gh pr view \
+            && gh pr view "$branch" \
                 "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
@@ -342,53 +340,20 @@ _cmux_report_pr_for_path() {
         /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
     fi
 
-    if (( gh_status == 0 )) && [[ -n "$gh_output" ]]; then
-        :
-    else
+    if (( gh_status != 0 )) || [[ -z "$gh_output" ]]; then
         if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
-            implicit_probe_indicates_no_pr=1
-        elif _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
-            implicit_probe_indicates_no_pr=1
+            _cmux_clear_pr_for_panel
+            return 0
+        fi
+        if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            _cmux_clear_pr_for_panel
+            return 0
         fi
 
-        # `gh pr view` without an explicit branch can fail to resolve the
-        # current worktree branch even when the branch has a PR. Fall back to
-        # the explicit branch name before concluding there is no PR.
-        err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
-        [[ -n "$err_file" ]] || return 1
-        explicit_branch_output="$(
-            builtin cd "$repo_path" 2>/dev/null \
-                && gh pr view "$branch" \
-                    "${gh_repo_args[@]}" \
-                    --json number,state,url \
-                    --jq '[.number, .state, .url] | @tsv' \
-                    2>"$err_file"
-        )"
-        explicit_branch_status=$?
-        if [[ -f "$err_file" ]]; then
-            explicit_branch_error="$("/bin/cat" -- "$err_file" 2>/dev/null || true)"
-            /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
-        fi
-
-        if (( explicit_branch_status == 0 )) && [[ -n "$explicit_branch_output" ]]; then
-            gh_output="$explicit_branch_output"
-            gh_status=0
-        else
-            if (( explicit_branch_status == 0 )) && [[ -z "$explicit_branch_output" ]]; then
-                explicit_probe_indicates_no_pr=1
-            elif _cmux_pr_output_indicates_no_pull_request "$explicit_branch_error"; then
-                explicit_probe_indicates_no_pr=1
-            fi
-
-            if (( implicit_probe_indicates_no_pr )) && (( explicit_probe_indicates_no_pr )); then
-                _cmux_clear_pr_for_panel
-                return 0
-            fi
-
-            # Keep the last-known PR badge on transient gh failures (auth hiccups,
-            # API lag after creation, or rate limiting) and retry on the next poll.
-            return 1
-        fi
+        # Always scope PR detection to the exact current branch. When gh fails
+        # transiently (auth hiccups, API lag, rate limiting), keep the last-known
+        # badge and retry on the next poll instead of showing a mismatched PR.
+        return 1
     fi
 
     local IFS=$'\t'
@@ -404,7 +369,8 @@ _cmux_report_pr_for_path() {
         *) return 1 ;;
     esac
 
-    _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    local quoted_branch="${branch//\"/\\\"}"
+    _cmux_send "report_pr $number $url $status_opt --branch=\"$quoted_branch\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_child_pids() {

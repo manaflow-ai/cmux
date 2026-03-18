@@ -7294,6 +7294,40 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
     }
 
+    @MainActor
+    func testSidebarPullRequestsTrackFocusedPanelOnly() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected focused panel and a second panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: secondPanel.id,
+            number: 1629,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/1629")!,
+            status: .open
+        )
+
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertTrue(
+            workspace.sidebarPullRequestsInDisplayOrder().isEmpty,
+            "Expected background panel PRs to stay hidden while the focused panel has no PR"
+        )
+
+        workspace.focusPanel(secondPanel.id)
+
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder().map(\.number),
+            [1629]
+        )
+    }
+
     func testSidebarOrderingUsesPaneOrderThenTabOrderWithBranchDeduping() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
@@ -7624,6 +7658,62 @@ final class SidebarBranchOrderingTests: XCTestCase {
         )
     }
 
+    func testOrderedUniquePullRequestsPrefersEntryWithChecksWhenStatusesMatch() {
+        let first = UUID()
+        let second = UUID()
+
+        let pullRequests = SidebarBranchOrdering.orderedUniquePullRequests(
+            orderedPanelIds: [first, second],
+            panelPullRequests: [
+                first: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open
+                ),
+                second: pullRequestState(
+                    number: 42,
+                    label: "PR",
+                    url: "https://github.com/manaflow-ai/cmux/pull/42",
+                    status: .open,
+                    checks: .pass
+                )
+            ],
+            fallbackPullRequest: nil
+        )
+
+        XCTAssertEqual(pullRequests.count, 1)
+        XCTAssertEqual(pullRequests.first?.checks, .pass)
+    }
+
+    @MainActor
+    func testUpdatePanelPullRequestPreservesExistingChecksWhenUpdateOmitsThem() {
+        let workspace = Workspace(title: "Tests", workingDirectory: FileManager.default.currentDirectoryPath, portOrdinal: 0)
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel for new workspace")
+            return
+        }
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
+            status: .open,
+            checks: .pass
+        )
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
+            status: .open
+        )
+
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.checks, .pass)
+        XCTAssertEqual(workspace.pullRequest?.checks, .pass)
+    }
+
     func testOrderedUniquePullRequestsUsesFallbackWhenNoPanelPullRequestsExist() {
         let fallback = pullRequestState(
             number: 11,
@@ -7640,17 +7730,66 @@ final class SidebarBranchOrderingTests: XCTestCase {
         XCTAssertEqual(pullRequests, [fallback])
     }
 
+    @MainActor
+    func testUpdatePanelGitBranchClearsFocusedPullRequestWhenBranchChanges() {
+        let workspace = Workspace(title: "Tests", workingDirectory: FileManager.default.currentDirectoryPath, portOrdinal: 0)
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel for new workspace")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 1629,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/1629")!,
+            status: .open
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertNil(workspace.panelPullRequests[panelId])
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
+    @MainActor
+    func testSidebarPullRequestsHideBranchMismatches() {
+        let workspace = Workspace(title: "Tests", workingDirectory: FileManager.default.currentDirectoryPath, portOrdinal: 0)
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected focused panel for new workspace")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 1629,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/1629")!,
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
     private func pullRequestState(
         number: Int,
         label: String,
         url: String,
-        status: SidebarPullRequestStatus
+        status: SidebarPullRequestStatus,
+        branch: String? = nil,
+        checks: SidebarPullRequestChecksStatus? = nil
     ) -> SidebarPullRequestState {
         SidebarPullRequestState(
             number: number,
             label: label,
             url: URL(string: url)!,
-            status: status
+            status: status,
+            branch: branch,
+            checks: checks
         )
     }
 }

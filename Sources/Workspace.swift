@@ -4506,11 +4506,41 @@ enum SidebarPullRequestStatus: String {
     case closed
 }
 
+enum SidebarPullRequestChecksStatus: String {
+    case pass
+    case fail
+    case pending
+}
+
+private func normalizedSidebarBranchName(_ branch: String?) -> String? {
+    guard let branch else { return nil }
+    let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
 struct SidebarPullRequestState: Equatable {
     let number: Int
     let label: String
     let url: URL
     let status: SidebarPullRequestStatus
+    let branch: String?
+    let checks: SidebarPullRequestChecksStatus?
+
+    init(
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus,
+        branch: String? = nil,
+        checks: SidebarPullRequestChecksStatus? = nil
+    ) {
+        self.number = number
+        self.label = label
+        self.url = url
+        self.status = status
+        self.branch = normalizedSidebarBranchName(branch)
+        self.checks = checks
+    }
 }
 
 enum SidebarBranchOrdering {
@@ -4606,6 +4636,15 @@ enum SidebarBranchOrdering {
             }
         }
 
+        func checksPriority(_ checks: SidebarPullRequestChecksStatus?) -> Int {
+            switch checks {
+            case .fail: return 3
+            case .pending: return 2
+            case .pass: return 1
+            case nil: return 0
+            }
+        }
+
         func normalizedReviewURLKey(for url: URL) -> String {
             guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
                 return url.absoluteString
@@ -4641,6 +4680,9 @@ enum SidebarBranchOrdering {
             }
             guard let existing = pullRequestsByKey[key] else { continue }
             if statusPriority(state.status) > statusPriority(existing.status) {
+                pullRequestsByKey[key] = state
+            } else if state.status == existing.status,
+                      checksPriority(state.checks) > checksPriority(existing.checks) {
                 pullRequestsByKey[key] = state
             }
         }
@@ -5671,8 +5713,15 @@ final class Workspace: Identifiable, ObservableObject {
     func updatePanelGitBranch(panelId: UUID, branch: String, isDirty: Bool) {
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
         let existing = panelGitBranches[panelId]
+        let branchChanged = existing?.branch != nil && existing?.branch != branch
         if existing?.branch != branch || existing?.isDirty != isDirty {
             panelGitBranches[panelId] = state
+        }
+        if branchChanged {
+            panelPullRequests.removeValue(forKey: panelId)
+            if panelId == focusedPanelId {
+                pullRequest = nil
+            }
         }
         if panelId == focusedPanelId {
             gitBranch = state
@@ -5681,8 +5730,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func clearPanelGitBranch(panelId: UUID) {
         panelGitBranches.removeValue(forKey: panelId)
+        panelPullRequests.removeValue(forKey: panelId)
         if panelId == focusedPanelId {
             gitBranch = nil
+            pullRequest = nil
         }
     }
 
@@ -5691,10 +5742,50 @@ final class Workspace: Identifiable, ObservableObject {
         number: Int,
         label: String,
         url: URL,
-        status: SidebarPullRequestStatus
+        status: SidebarPullRequestStatus,
+        branch: String? = nil,
+        checks: SidebarPullRequestChecksStatus? = nil
     ) {
-        let state = SidebarPullRequestState(number: number, label: label, url: url, status: status)
         let existing = panelPullRequests[panelId]
+        let normalizedBranch = normalizedSidebarBranchName(branch)
+        let currentPanelBranch = normalizedSidebarBranchName(panelGitBranches[panelId]?.branch)
+        let resolvedBranch: String? = {
+            if let normalizedBranch {
+                return normalizedBranch
+            }
+            if let currentPanelBranch {
+                return currentPanelBranch
+            }
+            guard let existing,
+                  existing.number == number,
+                  existing.label == label,
+                  existing.url == url,
+                  existing.status == status else {
+                return nil
+            }
+            return existing.branch
+        }()
+        let resolvedChecks: SidebarPullRequestChecksStatus? = {
+            if let checks {
+                return checks
+            }
+            guard let existing,
+                  existing.number == number,
+                  existing.label == label,
+                  existing.url == url,
+                  existing.status == status else {
+                return nil
+            }
+            return existing.checks
+        }()
+        let state = SidebarPullRequestState(
+            number: number,
+            label: label,
+            url: url,
+            status: status,
+            branch: resolvedBranch,
+            checks: resolvedChecks
+        )
         if existing != state {
             panelPullRequests[panelId] = state
         }
@@ -5873,10 +5964,16 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarPullRequestsInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarPullRequestState] {
-        SidebarBranchOrdering.orderedUniquePullRequests(
+        let validPanelPullRequests = panelPullRequests.filter { panelId, state in
+            guard let pullRequestBranch = normalizedSidebarBranchName(state.branch) else {
+                return true
+            }
+            return normalizedSidebarBranchName(panelGitBranches[panelId]?.branch) == pullRequestBranch
+        }
+        return SidebarBranchOrdering.orderedUniquePullRequests(
             orderedPanelIds: orderedPanelIds,
-            panelPullRequests: panelPullRequests,
-            fallbackPullRequest: pullRequest
+            panelPullRequests: validPanelPullRequests,
+            fallbackPullRequest: nil
         )
     }
 

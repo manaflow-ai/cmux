@@ -387,10 +387,42 @@ class TerminalController {
         number: Int,
         label: String,
         url: URL,
-        status: SidebarPullRequestStatus
+        status: SidebarPullRequestStatus,
+        branch: String?,
+        checks: SidebarPullRequestChecksStatus?
     ) -> Bool {
         guard let current else { return true }
-        return current.number != number || current.label != label || current.url != url || current.status != status
+        let normalizedBranch = branch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveBranch: String? = {
+            if let normalizedBranch, !normalizedBranch.isEmpty {
+                return normalizedBranch
+            }
+            guard current.number == number,
+                  current.label == label,
+                  current.url == url,
+                  current.status == status else {
+                return nil
+            }
+            return current.branch
+        }()
+        let effectiveChecks: SidebarPullRequestChecksStatus? = {
+            if let checks {
+                return checks
+            }
+            guard current.number == number,
+                  current.label == label,
+                  current.url == url,
+                  current.status == status else {
+                return nil
+            }
+            return current.checks
+        }()
+        return current.number != number
+            || current.label != label
+            || current.url != url
+            || current.status != status
+            || current.branch != effectiveBranch
+            || current.checks != effectiveChecks
     }
 
     nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
@@ -10844,8 +10876,8 @@ class TerminalController {
           clear_progress [--tab=X] - Clear progress bar
           report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
-          report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Report pull request / review item
-          report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
+          report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--checks=pass|fail|pending] [--tab=X] [--panel=Y] - Report pull request / review item
+          report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--checks=pass|fail|pending] [--tab=X] [--panel=Y] - Alias for provider-specific review item
           clear_pr [--tab=X] [--panel=Y] - Clear pull request
           report_ports <port1> [port2...] [--tab=X] [--panel=Y] - Report listening ports
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
@@ -14492,7 +14524,12 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                tab.updatePanelGitBranch(panelId: scope.panelId, branch: branch, isDirty: isDirty)
+                tabManager.updateSurfaceGitBranch(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    branch: branch,
+                    isDirty: isDirty
+                )
             }
             return "OK"
         }
@@ -14523,7 +14560,7 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
-                tab.clearPanelGitBranch(panelId: scope.panelId)
+                tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
             }
             return "OK"
         }
@@ -14541,7 +14578,7 @@ class TerminalController {
     private func reportPullRequest(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard parsed.positional.count >= 2 else {
-            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            return "ERROR: Missing pull request number or URL — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--checks=pass|fail|pending] [--tab=X] [--panel=Y]"
         }
 
         let rawNumber = parsed.positional[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14561,10 +14598,21 @@ class TerminalController {
         guard let status = SidebarPullRequestStatus(rawValue: statusRaw) else {
             return "ERROR: Invalid pull request state '\(statusRaw)' — use: open, merged, closed"
         }
+        let branch = normalizedOptionValue(parsed.options["branch"])
+
+        let checks: SidebarPullRequestChecksStatus?
+        if let rawChecks = normalizedOptionValue(parsed.options["checks"]) {
+            guard let parsedChecks = SidebarPullRequestChecksStatus(rawValue: rawChecks.lowercased()) else {
+                return "ERROR: Invalid pull request checks '\(rawChecks)' — use: pass, fail, pending"
+            }
+            checks = parsedChecks
+        } else {
+            checks = nil
+        }
 
         let labelRaw = normalizedOptionValue(parsed.options["label"]) ?? "PR"
         guard !labelRaw.isEmpty else {
-            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            return "ERROR: Invalid review label — usage: report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--checks=pass|fail|pending] [--tab=X] [--panel=Y]"
         }
         let label = String(labelRaw.prefix(16))
 
@@ -14573,14 +14621,16 @@ class TerminalController {
         return schedulePanelMetadataMutation(
             args: args,
             options: parsed.options,
-            missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--tab=X] [--panel=Y]"
+            missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--checks=pass|fail|pending] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
                 label: label,
                 url: url,
-                status: status
+                status: status,
+                branch: branch,
+                checks: checks
             ) else {
                 return
             }
@@ -14590,7 +14640,9 @@ class TerminalController {
                 number: number,
                 label: label,
                 url: url,
-                status: status
+                status: status,
+                branch: branch,
+                checks: checks
             )
         }
     }
@@ -14958,12 +15010,14 @@ class TerminalController {
                 lines.append("git_branch=none")
             }
 
-            if let pr = tab.pullRequest {
+            if let pr = tab.sidebarPullRequestsInDisplayOrder().first {
                 lines.append("pr=#\(pr.number) \(pr.status.rawValue) \(pr.url.absoluteString)")
                 lines.append("pr_label=\(pr.label)")
+                lines.append("pr_checks=\(pr.checks?.rawValue ?? "none")")
             } else {
                 lines.append("pr=none")
                 lines.append("pr_label=none")
+                lines.append("pr_checks=none")
             }
 
             if tab.listeningPorts.isEmpty {
