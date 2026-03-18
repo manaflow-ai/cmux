@@ -47,6 +47,11 @@
 			A5008373 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008372 /* BrowserFindJavaScript.swift */; };
 			A50012F1 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F0 /* Backport.swift */; };
 			A50012F3 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F2 /* KeyboardShortcutSettings.swift */; };
+			QT000001 /* QuickTerminalWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = QT000002 /* QuickTerminalWindow.swift */; };
+			QT000003 /* QuickTerminalPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = QT000004 /* QuickTerminalPosition.swift */; };
+			QT000005 /* QuickTerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = QT000006 /* QuickTerminalController.swift */; };
+			QT000007 /* QuickTerminalHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = QT000008 /* QuickTerminalHotKey.swift */; };
+			QT000009 /* QuickTerminalContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = QT00000A /* QuickTerminalContentView.swift */; };
 			A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
 			A5001521 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001520 /* PostHogAnalytics.swift */; };
 			A5001201 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001211 /* UpdateController.swift */; };
@@ -213,6 +218,11 @@
 		A5008372 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		A50012F0 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
 		A50012F2 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
+		QT000002 /* QuickTerminalWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminal/QuickTerminalWindow.swift; sourceTree = "<group>"; };
+		QT000004 /* QuickTerminalPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminal/QuickTerminalPosition.swift; sourceTree = "<group>"; };
+		QT000006 /* QuickTerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminal/QuickTerminalController.swift; sourceTree = "<group>"; };
+		QT000008 /* QuickTerminalHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminal/QuickTerminalHotKey.swift; sourceTree = "<group>"; };
+		QT00000A /* QuickTerminalContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickTerminal/QuickTerminalContentView.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		A5001211 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateController.swift; sourceTree = "<group>"; };
 		A5001212 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateDelegate.swift; sourceTree = "<group>"; };
@@ -430,6 +440,11 @@
 				A5001419 /* MarkdownPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
+				QT000002 /* QuickTerminalWindow.swift */,
+				QT000004 /* QuickTerminalPosition.swift */,
+				QT000006 /* QuickTerminalController.swift */,
+				QT000008 /* QuickTerminalHotKey.swift */,
+				QT00000A /* QuickTerminalContentView.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
 				A5001213 /* UpdateDriver.swift */,
@@ -690,6 +705,11 @@
 					B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,
 					A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
+					QT000001 /* QuickTerminalWindow.swift in Sources */,
+					QT000003 /* QuickTerminalPosition.swift in Sources */,
+					QT000005 /* QuickTerminalController.swift in Sources */,
+					QT000007 /* QuickTerminalHotKey.swift in Sources */,
+					QT000009 /* QuickTerminalContentView.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 						A5001003 /* TabManager.swift in Sources */,
 						A5001501 /* UITestRecorder.swift in Sources */,

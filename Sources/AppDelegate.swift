@@ -1968,6 +1968,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    private(set) var quickTerminalController: QuickTerminalController?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -2308,6 +2309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
+        quickTerminalController = QuickTerminalController()
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -8679,6 +8681,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleCustomShortcut(event: NSEvent) -> Bool {
+        // When the Quick Terminal is active, route shortcuts to its own TabManager.
+        if quickTerminalController?.visible == true &&
+            (event.window is QuickTerminalWindow || NSApp.keyWindow is QuickTerminalWindow) {
+            if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleQuickTerminal)) {
+                quickTerminalController?.toggle()
+                return true
+            }
+            // Route split/tab shortcuts to the quick terminal's TabManager.
+            if let qtTabManager = quickTerminalController?.tabManager {
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
+                    qtTabManager.createSplit(direction: .right)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
+                    qtTabManager.createSplit(direction: .down)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .focusLeft)) {
+                    qtTabManager.movePaneFocus(direction: .left)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .focusRight)) {
+                    qtTabManager.movePaneFocus(direction: .right)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .focusUp)) {
+                    qtTabManager.movePaneFocus(direction: .up)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .focusDown)) {
+                    qtTabManager.movePaneFocus(direction: .down)
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
+                    _ = qtTabManager.toggleFocusedSplitZoom()
+                    return true
+                }
+                if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newSurface)) {
+                    qtTabManager.newSurface()
+                    return true
+                }
+                // Cmd+W: close the focused pane in the quick terminal.
+                if matchShortcut(event: event, shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)) {
+                    if let workspace = qtTabManager.selectedWorkspace,
+                       let panelId = workspace.focusedPanelId {
+                        qtTabManager.closePanelWithConfirmation(tabId: workspace.id, surfaceId: panelId)
+                    }
+                    return true
+                }
+            }
+            // Don't consume unhandled Cmd shortcuts — let system commands
+            // (Cmd+Q, Cmd+H, Cmd+M, etc.) pass through to the main menu.
+            return false
+        }
+
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
@@ -9347,6 +9404,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             recordGotoSplitZoomIfNeeded()
 #endif
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleQuickTerminal)) {
+            quickTerminalController?.toggle()
             return true
         }
 
