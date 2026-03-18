@@ -42,6 +42,10 @@ enum KeyboardShortcutSettings {
         case toggleBrowserDeveloperTools
         case showBrowserJavaScriptConsole
 
+        // Command Palette
+        case commandPaletteNext
+        case commandPalettePrevious
+
         var id: String { rawValue }
 
         var label: String {
@@ -76,6 +80,8 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
+            case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette Next")
+            case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette Previous")
             }
         }
 
@@ -111,6 +117,8 @@ enum KeyboardShortcutSettings {
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
+            case .commandPaletteNext: return "shortcut.commandPaletteNext"
+            case .commandPalettePrevious: return "shortcut.commandPalettePrevious"
             }
         }
 
@@ -178,6 +186,10 @@ enum KeyboardShortcutSettings {
             case .showBrowserJavaScriptConsole:
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
+            case .commandPaletteNext:
+                return StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)
+            case .commandPalettePrevious:
+                return StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)
             }
         }
 
@@ -251,6 +263,9 @@ enum KeyboardShortcutSettings {
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
+
+    static func commandPaletteNextShortcut() -> StoredShortcut { shortcut(for: .commandPaletteNext) }
+    static func commandPalettePreviousShortcut() -> StoredShortcut { shortcut(for: .commandPalettePrevious) }
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults

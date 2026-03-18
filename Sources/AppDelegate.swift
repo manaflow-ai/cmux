@@ -1519,13 +1519,15 @@ func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
 func commandPaletteSelectionDeltaForKeyboardNavigation(
     flags: NSEvent.ModifierFlags,
     chars: String,
-    keyCode: UInt16
+    keyCode: UInt16,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> Int? {
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function])
     let normalizedChars = chars.lowercased()
 
+    // Arrow keys always work for navigation without modifiers
     if normalizedFlags == [] {
         switch keyCode {
         case 125: return 1    // Down arrow
@@ -1534,15 +1536,80 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
         }
     }
 
-    if normalizedFlags == [.control] {
-        // Control modifiers can surface as either printable chars or ASCII control chars.
-        if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
-        if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
-        if keyCode == 38 || normalizedChars == "j" || normalizedChars == "\u{0a}" { return 1 }    // Ctrl+J
-        if keyCode == 40 || normalizedChars == "k" || normalizedChars == "\u{0b}" { return -1 }   // Ctrl+K
+    // Check customizable shortcuts
+    let nextShortcut = KeyboardShortcutSettings.commandPaletteNextShortcut()
+    let previousShortcut = KeyboardShortcutSettings.commandPalettePreviousShortcut()
+
+    // Build current event shortcut for comparison
+    let currentShortcut = StoredShortcut(
+        key: normalizedChars,
+        command: normalizedFlags.contains(.command),
+        shift: normalizedFlags.contains(.shift),
+        option: normalizedFlags.contains(.option),
+        control: normalizedFlags.contains(.control)
+    )
+
+    // Check if current shortcut matches next
+    if shortcutsMatch(current: currentShortcut, configured: nextShortcut, keyCode: keyCode, chars: normalizedChars, layoutCharacterProvider: layoutCharacterProvider) {
+        return 1
+    }
+
+    // Check if current shortcut matches previous
+    if shortcutsMatch(current: currentShortcut, configured: previousShortcut, keyCode: keyCode, chars: normalizedChars, layoutCharacterProvider: layoutCharacterProvider) {
+        return -1
     }
 
     return nil
+}
+
+/// Check if current shortcut matches configured shortcut, handling key code and character variations
+private func shortcutsMatch(
+    current: StoredShortcut,
+    configured: StoredShortcut,
+    keyCode: UInt16,
+    chars: String,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String?
+) -> Bool {
+    // Check modifier flags match
+    let modifiersMatch = current.command == configured.command &&
+        current.shift == configured.shift &&
+        current.option == configured.option &&
+        current.control == configured.control
+
+    guard modifiersMatch else { return false }
+
+    // Check key matches - try multiple approaches
+    let configuredKey = configured.key.lowercased()
+
+    // Direct character match
+    if chars == configuredKey {
+        return true
+    }
+
+    // Key code-based match for common keys
+    let keyCodeMatches: Bool = {
+        switch configuredKey {
+        case "n": return keyCode == 45  // kVK_ANSI_N
+        case "p": return keyCode == 35  // kVK_ANSI_P
+        case "j": return keyCode == 38  // kVK_ANSI_J
+        case "k": return keyCode == 40  // kVK_ANSI_K
+        case "[": return keyCode == 33  // kVK_ANSI_LeftBracket
+        case "]": return keyCode == 30  // kVK_ANSI_RightBracket
+        default: return false
+        }
+    }()
+
+    if keyCodeMatches {
+        return true
+    }
+
+    // Layout-based character match
+    if let layoutChar = layoutCharacterProvider(keyCode, current.modifierFlags)?.lowercased(),
+       layoutChar == configuredKey {
+        return true
+    }
+
+    return false
 }
 
 func shouldConsumeShortcutWhileCommandPaletteVisible(
