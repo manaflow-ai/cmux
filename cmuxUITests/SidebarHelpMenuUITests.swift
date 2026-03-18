@@ -586,6 +586,97 @@ final class CommandPaletteAllSurfacesUITests: XCTestCase {
         )
     }
 
+    func testCommandPaletteCanEnableAndDisableMinimalMode() throws {
+        let app = XCUIApplication()
+        configureSocketControlledLaunch(app, showSettingsWindow: true)
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
+        launchAndActivate(app)
+
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 8.0) {
+                app.windows.count >= 2
+            },
+            "Expected the main window and Settings window to be visible"
+        )
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        let mainWindowId = try XCTUnwrap(
+            socketCommand("current_window")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+
+        focusSettingsWindow(app: app)
+        let toggle = try requireMinimalModeToggle(app: app)
+        if toggleIsOn(toggle) {
+            toggle.click()
+            XCTAssertTrue(
+                sidebarHelpPollUntil(timeout: 3.0) {
+                    toggle.exists && !toggleIsOn(toggle)
+                },
+                "Expected the minimal mode setting to start from off for this test"
+            )
+        }
+
+        XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
+        openCommandPaletteCommands(app: app)
+        let searchField = app.textFields["CommandPaletteSearchField"]
+        searchField.typeText("minimal")
+
+        let enableSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    (row["command_id"] as? String) == "palette.enableMinimalMode"
+                }
+            },
+            "Expected the command palette to show Enable Minimal Mode while standard mode is active"
+        )
+        XCTAssertFalse(
+            commandPaletteResultRows(from: enableSnapshot).contains { row in
+                (row["command_id"] as? String) == "palette.disableMinimalMode"
+            },
+            "Expected Disable Minimal Mode to stay hidden while standard mode is active. snapshot=\(enableSnapshot)"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        focusSettingsWindow(app: app)
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && toggleIsOn(toggle)
+            },
+            "Expected running the command palette action to enable minimal mode"
+        )
+
+        XCTAssertEqual(socketCommand("focus_window \(mainWindowId)"), "OK")
+        openCommandPaletteCommands(app: app)
+        let disableSearchField = app.textFields["CommandPaletteSearchField"]
+        disableSearchField.typeText("minimal")
+
+        let disableSnapshot = try XCTUnwrap(
+            waitForCommandPaletteSnapshot(windowId: mainWindowId, mode: "commands", query: "minimal", timeout: 5.0) { snapshot in
+                self.commandPaletteResultRows(from: snapshot).contains { row in
+                    (row["command_id"] as? String) == "palette.disableMinimalMode"
+                }
+            },
+            "Expected the command palette to show Disable Minimal Mode while minimal mode is active"
+        )
+        XCTAssertFalse(
+            commandPaletteResultRows(from: disableSnapshot).contains { row in
+                (row["command_id"] as? String) == "palette.enableMinimalMode"
+            },
+            "Expected Enable Minimal Mode to stay hidden while minimal mode is active. snapshot=\(disableSnapshot)"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        focusSettingsWindow(app: app)
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) {
+                toggle.exists && !toggleIsOn(toggle)
+            },
+            "Expected running the command palette action to disable minimal mode"
+        )
+    }
+
     func testSwitcherEmptyStateDoesNotBlinkWhileRefiningNoMatchQuery() throws {
         let app = XCUIApplication()
         configureSocketControlledLaunch(app)
