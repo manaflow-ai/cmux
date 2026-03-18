@@ -8,8 +8,9 @@ enum UpdateSettings {
     static let automaticallyUpdateKey = "SUAutomaticallyUpdate"
     static let scheduledCheckIntervalKey = "SUScheduledCheckInterval"
     static let sendProfileInfoKey = "SUSendProfileInfo"
-    static let migrationKey = "cmux.sparkle.automaticChecksMigration.v1"
-    static let scheduledCheckInterval: TimeInterval = 60 * 60 * 24
+    static let migrationKey = "cmux.sparkle.automaticChecksMigration.v2"
+    static let previousDefaultScheduledCheckInterval: TimeInterval = 60 * 60 * 24
+    static let scheduledCheckInterval: TimeInterval = 60 * 60
 
     static func apply(to defaults: UserDefaults) {
         defaults.register(defaults: [
@@ -26,7 +27,9 @@ enum UpdateSettings {
         defaults.set(true, forKey: automaticChecksKey)
 
         if let interval = defaults.object(forKey: scheduledCheckIntervalKey) as? NSNumber {
-            if interval.doubleValue <= 0 {
+            let currentInterval = interval.doubleValue
+            if currentInterval <= 0 ||
+                abs(currentInterval - previousDefaultScheduledCheckInterval) < 1 {
                 defaults.set(scheduledCheckInterval, forKey: scheduledCheckIntervalKey)
             }
         } else {
@@ -54,9 +57,11 @@ class UpdateController {
     private var noUpdateDismissCancellable: AnyCancellable?
     private var noUpdateDismissWorkItem: DispatchWorkItem?
     private var readyCheckWorkItem: DispatchWorkItem?
+    private var backgroundProbeTimer: Timer?
     private var didStartUpdater: Bool = false
     private let readyRetryDelay: TimeInterval = 0.25
     private let readyRetryCount: Int = 20
+    private let backgroundProbeInterval: TimeInterval = UpdateSettings.scheduledCheckInterval
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -88,6 +93,7 @@ class UpdateController {
         noUpdateDismissCancellable?.cancel()
         noUpdateDismissWorkItem?.cancel()
         readyCheckWorkItem?.cancel()
+        backgroundProbeTimer?.invalidate()
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
@@ -115,6 +121,7 @@ class UpdateController {
             UpdateLogStore.shared.append(
                 "updater started (autoChecks=\(updater.automaticallyChecksForUpdates), interval=\(interval)s, autoDownloads=\(updater.automaticallyDownloadsUpdates))"
             )
+            startLaunchUpdateProbeIfNeeded()
         } catch {
             userDriver.viewModel.state = .error(.init(
                 error: error,
@@ -127,6 +134,27 @@ class UpdateController {
                     self?.userDriver.viewModel.state = .idle
                 }
             ))
+        }
+    }
+
+    private func startLaunchUpdateProbeIfNeeded() {
+        guard updater.automaticallyChecksForUpdates else {
+            UpdateLogStore.shared.append("launch update probe skipped (automatic checks disabled)")
+            return
+        }
+
+        // Probe immediately on launch so the sidebar can surface a passive update indicator
+        // without waiting for Sparkle's scheduled check or opening interactive update UI.
+        UpdateLogStore.shared.append("starting launch update probe")
+        updater.checkForUpdateInformation()
+
+        // Re-probe every hour so the banner appears even if the app has been running
+        // for a while when a new version is published.
+        backgroundProbeTimer?.invalidate()
+        backgroundProbeTimer = Timer.scheduledTimer(withTimeInterval: backgroundProbeInterval, repeats: true) { [weak self] _ in
+            guard let self, self.updater.automaticallyChecksForUpdates else { return }
+            UpdateLogStore.shared.append("periodic background update probe")
+            self.updater.checkForUpdateInformation()
         }
     }
 
