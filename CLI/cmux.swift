@@ -10720,7 +10720,7 @@ struct CMUXCLI {
         print()
         print(shortcuts)
         print()
-        print("  \(bold)Docs\(reset)\(subdued)                https://cmux.dev/docs\(reset)")
+        print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
         print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")
         print("  \(bold)GitHub\(reset)\(subdued)              https://github.com/manaflow-ai/cmux (please leave a star ⭐)\(reset)")
         print("  \(bold)Email\(reset)\(subdued)               founders@manaflow.com\(reset)")

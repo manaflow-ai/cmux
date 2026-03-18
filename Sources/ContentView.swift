@@ -1320,6 +1320,40 @@ enum WorkspaceMountPolicy {
     }
 }
 
+struct MountedWorkspacePresentation: Equatable {
+    let isRenderedVisible: Bool
+    let isPanelVisible: Bool
+    let renderOpacity: Double
+}
+
+enum MountedWorkspacePresentationPolicy {
+    static func resolve(
+        isSelectedWorkspace: Bool,
+        isRetiringWorkspace: Bool,
+        shouldPrimeInBackground: Bool
+    ) -> MountedWorkspacePresentation {
+        let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
+        let renderOpacity: Double = {
+            if isRenderedVisible {
+                return 1
+            }
+            if shouldPrimeInBackground {
+                // Keep the workspace mounted long enough to warm the terminal surface, but do
+                // not mark it panel-visible. Visible portal entries intentionally survive
+                // transient anchor loss during bonsplit drag/reparent churn.
+                return 0.001
+            }
+            return 0
+        }()
+
+        return MountedWorkspacePresentation(
+            isRenderedVisible: isRenderedVisible,
+            isPanelVisible: isRenderedVisible,
+            renderOpacity: renderOpacity
+        )
+    }
+}
+
 /// Installs a FileDropOverlayView on the window's theme frame for Finder file drag support.
 func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     guard objc_getAssociatedObject(window, &fileDropOverlayKey) == nil,
@@ -1914,7 +1948,10 @@ struct ContentView: View {
             }
             .onDisappear {
                 hoveredResizerHandles.remove(handle)
-                isResizerDragging = false
+                if isResizerDragging {
+                    TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                    isResizerDragging = false
+                }
                 sidebarDragStartWidth = nil
                 isResizerBandActive = false
                 scheduleSidebarResizerCursorRelease(force: true)
@@ -1923,11 +1960,9 @@ struct ContentView: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
                         if !isResizerDragging {
+                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
                             isResizerDragging = true
                             sidebarDragStartWidth = sidebarWidth
-                            #if DEBUG
-                            dlog("sidebar.resizeDragStart")
-                            #endif
                         }
 
                         activateSidebarResizerCursor()
@@ -1942,6 +1977,7 @@ struct ContentView: View {
                     }
                     .onEnded { _ in
                         if isResizerDragging {
+                            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                             isResizerDragging = false
                             sidebarDragStartWidth = nil
                         }
@@ -2022,17 +2058,11 @@ struct ContentView: View {
                     let isSelectedWorkspace = selectedWorkspaceId == tab.id
                     let isRetiringWorkspace = retiringWorkspaceId == tab.id
                     let shouldPrimeInBackground = tabManager.pendingBackgroundWorkspaceLoadIds.contains(tab.id)
-                    let isRenderedVisible = isSelectedWorkspace || isRetiringWorkspace
-                    let isWorkspaceVisibleToPanels = isRenderedVisible || shouldPrimeInBackground
-                    let workspaceRenderOpacity: Double = {
-                        if isRenderedVisible {
-                            return 1
-                        }
-                        if shouldPrimeInBackground {
-                            return 0.001
-                        }
-                        return 0
-                    }()
+                    let presentation = MountedWorkspacePresentationPolicy.resolve(
+                        isSelectedWorkspace: isSelectedWorkspace,
+                        isRetiringWorkspace: isRetiringWorkspace,
+                        shouldPrimeInBackground: shouldPrimeInBackground
+                    )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
@@ -2041,7 +2071,7 @@ struct ContentView: View {
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isWorkspaceVisibleToPanels,
+                        isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
@@ -2054,9 +2084,9 @@ struct ContentView: View {
                             )
                         }
                     )
-                    .opacity(workspaceRenderOpacity)
+                    .opacity(presentation.renderOpacity)
                     .allowsHitTesting(isSelectedWorkspace)
-                    .accessibilityHidden(!isRenderedVisible)
+                    .accessibilityHidden(!presentation.isRenderedVisible)
                     .zIndex(isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0))
                     .task(id: shouldPrimeInBackground ? tab.id : nil) {
                         await primeBackgroundWorkspaceIfNeeded(workspaceId: tab.id)
@@ -2725,12 +2755,20 @@ struct ContentView: View {
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals need an explicit post-layout geometry resync.
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            if let observedWindow {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            if let observedWindow {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
             updateSidebarResizerBandState()
         })
 
@@ -2752,6 +2790,11 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onDisappear {
+            if isResizerDragging {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                isResizerDragging = false
+                sidebarDragStartWidth = nil
+            }
             removeSidebarResizerPointerMonitor()
         })
 
@@ -3333,6 +3376,8 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
+                            .accessibilityValue(result.id)
                             .id(index)
                             .onHover { hovering in
                                 if hovering {
@@ -7896,12 +7941,14 @@ struct CommandPaletteSearchCorpusEntry<Payload>: Sendable where Payload: Sendabl
     let payload: Payload
     let rank: Int
     let title: String
+    let normalizedTitle: String
     let normalizedSearchableTexts: [String]
 
     init(payload: Payload, rank: Int, title: String, searchableTexts: [String]) {
         self.payload = payload
         self.rank = rank
         self.title = title
+        self.normalizedTitle = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
         self.normalizedSearchableTexts = searchableTexts
             .map(CommandPaletteFuzzyMatcher.normalizeForSearch)
             .filter { !$0.isEmpty }
@@ -7917,6 +7964,8 @@ struct CommandPaletteSearchCorpusResult<Payload>: Sendable where Payload: Sendab
 }
 
 enum CommandPaletteSearchEngine {
+    private static let titleMatchBonus = 2000
+
     static func search<Payload: Sendable>(
         entries: [CommandPaletteSearchCorpusEntry<Payload>],
         query: String,
@@ -7976,9 +8025,9 @@ enum CommandPaletteSearchEngine {
         } else {
             for (index, entry) in entries.enumerated() {
                 if shouldCancelSearch(at: index) { return [] }
-                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                guard let fuzzyScore = weightedScore(
                     preparedQuery: preparedQuery,
-                    normalizedCandidates: entry.normalizedSearchableTexts
+                    entry: entry
                 ) else {
                     continue
                 }
@@ -8004,6 +8053,26 @@ enum CommandPaletteSearchEngine {
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private static func weightedScore<Payload: Sendable>(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        entry: CommandPaletteSearchCorpusEntry<Payload>
+    ) -> Int? {
+        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                    preparedQuery: preparedQuery,
+                    normalizedCandidates: entry.normalizedSearchableTexts
+                ) else {
+            return nil
+        }
+        guard !entry.normalizedTitle.isEmpty,
+              let titleScore = CommandPaletteFuzzyMatcher.score(
+                preparedQuery: preparedQuery,
+                normalizedCandidates: [entry.normalizedTitle]
+              ) else {
+            return fuzzyScore
+        }
+        return max(fuzzyScore, titleScore + titleMatchBonus)
     }
 }
 
@@ -8320,7 +8389,7 @@ enum DevBuildBannerDebugSettings {
 private enum FeedbackComposerSettings {
     static let storedEmailKey = "sidebarHelpFeedbackEmail"
     static let endpointEnvironmentKey = "CMUX_FEEDBACK_API_URL"
-    static let defaultEndpoint = "https://www.cmux.dev/api/feedback"
+    static let defaultEndpoint = "https://cmux.com/api/feedback"
     static let foundersEmail = "founders@manaflow.com"
     static let maxMessageLength = 4_000
     static let maxAttachmentCount = 10
@@ -8384,6 +8453,11 @@ private struct FeedbackComposerAppMetadata {
     let bundleIdentifier: String
     let osVersion: String
     let localeIdentifier: String
+    let hardwareModel: String
+    let chip: String
+    let memoryGB: String
+    let architecture: String
+    let displayInfo: String
 
     static var current: FeedbackComposerAppMetadata {
         let infoDictionary = Bundle.main.infoDictionary ?? [:]
@@ -8398,8 +8472,49 @@ private struct FeedbackComposerAppMetadata {
             appCommit: commit ?? "",
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "",
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-            localeIdentifier: Locale.preferredLanguages.first ?? Locale.current.identifier
+            localeIdentifier: Locale.preferredLanguages.first ?? Locale.current.identifier,
+            hardwareModel: sysctlString("hw.model") ?? "",
+            chip: sysctlString("machdep.cpu.brand_string") ?? "",
+            memoryGB: formatMemoryGB(),
+            architecture: currentArchitecture(),
+            displayInfo: currentDisplayInfo()
         )
+    }
+
+    private static func sysctlString(_ name: String) -> String? {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buffer, &size, nil, 0) == 0 else { return nil }
+        return String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func formatMemoryGB() -> String {
+        let bytes = ProcessInfo.processInfo.physicalMemory
+        let gb = Double(bytes) / (1024 * 1024 * 1024)
+        return "\(Int(gb)) GB"
+    }
+
+    private static func currentArchitecture() -> String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    private static func currentDisplayInfo() -> String {
+        let screens = NSScreen.screens
+        let descriptions = screens.map { screen -> String in
+            let frame = screen.frame
+            let scale = screen.backingScaleFactor
+            return "\(Int(frame.width))x\(Int(frame.height)) @\(Int(scale))x"
+        }
+        let count = screens.count
+        let prefix = "\(count) display\(count == 1 ? "" : "s")"
+        return "\(prefix), \(descriptions.joined(separator: "; "))"
     }
 }
 
@@ -8454,6 +8569,11 @@ private enum FeedbackComposerClient {
         appendField("bundleIdentifier", value: metadata.bundleIdentifier, to: &body, boundary: boundary)
         appendField("osVersion", value: metadata.osVersion, to: &body, boundary: boundary)
         appendField("locale", value: metadata.localeIdentifier, to: &body, boundary: boundary)
+        appendField("hardwareModel", value: metadata.hardwareModel, to: &body, boundary: boundary)
+        appendField("chip", value: metadata.chip, to: &body, boundary: boundary)
+        appendField("memoryGB", value: metadata.memoryGB, to: &body, boundary: boundary)
+        appendField("architecture", value: metadata.architecture, to: &body, boundary: boundary)
+        appendField("displayInfo", value: metadata.displayInfo, to: &body, boundary: boundary)
 
         for attachment in preparedAttachments {
             appendFile(
@@ -9326,6 +9446,7 @@ private struct SidebarFeedbackComposerSheet: View {
             )
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
+            .textSelection(.enabled)
 
             HStack {
                 Spacer()
@@ -9767,8 +9888,8 @@ enum FeedbackComposerBridge {
 }
 
 private struct SidebarHelpMenuButton: View {
-    private let docsURL = URL(string: "https://cmux.dev/docs")
-    private let changelogURL = URL(string: "https://cmux.dev/docs/changelog")
+    private let docsURL = URL(string: "https://cmux.com/docs")
+    private let changelogURL = URL(string: "https://cmux.com/docs/changelog")
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
     private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
     private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
@@ -9836,7 +9957,7 @@ private struct SidebarHelpMenuButton: View {
                 isExternalLink: false
             )
             helpOptionButton(
-                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"),
+                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
                 action: .importBrowserData,
                 accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
                 isExternalLink: false
@@ -10909,7 +11030,7 @@ private struct TabItemView: View, Equatable {
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
+                                Text(pullRequestStatusLabel(pullRequest.status, checks: pullRequest.checks))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
@@ -11605,6 +11726,7 @@ private struct TabItemView: View, Equatable {
         let label: String
         let url: URL
         let status: SidebarPullRequestStatus
+        let checks: SidebarPullRequestChecksStatus?
     }
 
     private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [PullRequestDisplay] {
@@ -11614,7 +11736,8 @@ private struct TabItemView: View, Equatable {
                 number: pullRequest.number,
                 label: pullRequest.label,
                 url: pullRequest.url,
-                status: pullRequest.status
+                status: pullRequest.status,
+                checks: pullRequest.checks
             )
         }
     }
@@ -11639,7 +11762,10 @@ private struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
+    private func pullRequestStatusLabel(
+        _ status: SidebarPullRequestStatus,
+        checks _: SidebarPullRequestChecksStatus?
+    ) -> String {
         switch status {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")

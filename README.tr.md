@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo videosu</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo videosu</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Özellikler
@@ -121,7 +121,7 @@ Bir milyon geliştiriciye birleştirilebilir ilkel yapılar verin, en verimli i�
 
 ## Dokümantasyon
 
-cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [dokümantasyonumuza gidin](https://cmux.dev/docs/getting-started?utm_source=readme).
+cmux'u nasıl yapılandıracağınız hakkında daha fazla bilgi için, [dokümantasyonumuza gidin](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Klavye Kısayolları
 

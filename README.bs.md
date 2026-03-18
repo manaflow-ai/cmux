@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Funkcije
@@ -121,7 +121,7 @@ Dajte milion programera kompozabilne primitive i oni će kolektivno pronaći naj
 
 ## Dokumentacija
 
-Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https://cmux.dev/docs/getting-started?utm_source=readme).
+Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Prečice na Tastaturi
 

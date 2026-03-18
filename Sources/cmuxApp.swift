@@ -87,6 +87,43 @@ enum WorkspaceButtonFadeSettings {
     }
 }
 
+enum UITestLaunchManifest {
+    static let argumentName = "-cmuxUITestLaunchManifest"
+
+    struct Payload: Decodable {
+        let environment: [String: String]
+    }
+
+    static func applyIfPresent(
+        arguments: [String] = CommandLine.arguments,
+        loadData: (String) -> Data? = { path in
+            try? Data(contentsOf: URL(fileURLWithPath: path))
+        },
+        applyEnvironment: (String, String) -> Void = { key, value in
+            setenv(key, value, 1)
+        }
+    ) {
+        guard let path = manifestPath(from: arguments),
+              let data = loadData(path),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data) else {
+            return
+        }
+
+        for (key, value) in payload.environment {
+            applyEnvironment(key, value)
+        }
+    }
+
+    static func manifestPath(from arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: argumentName) else { return nil }
+        let valueIndex = arguments.index(after: index)
+        guard valueIndex < arguments.endIndex else { return nil }
+
+        let rawPath = arguments[valueIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        return rawPath.isEmpty ? nil : rawPath
+    }
+}
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -128,6 +165,8 @@ struct cmuxApp: App {
     }
 
     init() {
+        UITestLaunchManifest.applyIfPresent()
+
         if SocketControlSettings.shouldBlockUntaggedDebugLaunch() {
             Self.terminateForMissingLaunchTag()
         }
@@ -576,9 +615,10 @@ struct cmuxApp: App {
                 Divider()
 
                 // Terminal semantics:
-                // Cmd+W closes the focused tab/surface (with confirmation if needed). When that
-                // was the last surface in the workspace, cmux removes the workspace and closes
-                // the window if it was also the last workspace.
+                // Cmd+W closes the focused tab/surface (with confirmation if needed). By
+                // default, closing the last surface also closes the workspace and the window
+                // if it was also the last workspace. Users can opt into keeping the workspace
+                // open instead.
                 Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
                     closePanelOrWindow()
                 }
@@ -711,7 +751,7 @@ struct cmuxApp: App {
                     BrowserHistoryStore.shared.clearHistory()
                 }
 
-                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…")) {
+                Button(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…")) {
                     // Defer modal presentation until after AppKit finishes menu tracking.
                     DispatchQueue.main.async {
                         BrowserDataImportCoordinator.shared.presentImportDialog()
@@ -2250,7 +2290,7 @@ private struct BrowserProfilePopoverDebugView: View {
             Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
                 .font(.system(size: 12))
 
-            Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"))
+            Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
                 .font(.system(size: 12))
         }
         .padding(.horizontal, BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(horizontalPaddingRaw))
@@ -2730,7 +2770,7 @@ private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
     private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://cmux.dev/docs")
+    private let docsURL = URL(string: "https://cmux.com/docs")
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -3767,6 +3807,8 @@ struct SettingsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(LastSurfaceCloseShortcutSettings.key)
+    private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -3833,6 +3875,30 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.minimalMode.subtitleOff",
             defaultValue: "Use the standard workspace title bar and controls."
+        )
+    }
+
+    private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
+        !closeWorkspaceOnLastSurfaceShortcut
+    }
+
+    private var keepWorkspaceOpenOnLastSurfaceShortcutBinding: Binding<Bool> {
+        Binding(
+            get: { keepWorkspaceOpenOnLastSurfaceShortcut },
+            set: { closeWorkspaceOnLastSurfaceShortcut = !$0 }
+        )
+    }
+
+    private var closeWorkspaceOnLastSurfaceShortcutSubtitle: String {
+        if keepWorkspaceOpenOnLastSurfaceShortcut {
+            return String(
+                localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOn",
+                defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly."
+            )
+        }
+        return String(
+            localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
+            defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace."
         )
     }
 
@@ -4290,6 +4356,17 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut", defaultValue: "Keep Workspace Open When Closing Last Surface"),
+                            subtitle: closeWorkspaceOnLastSurfaceShortcutSubtitle
+                        ) {
+                            Toggle("", isOn: keepWorkspaceOpenOnLastSurfaceShortcutBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
@@ -5098,7 +5175,7 @@ struct SettingsView: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(String(localized: "settings.browser.import", defaultValue: "Import From Browser"))
+                                Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
                                     .font(.system(size: 13, weight: .semibold))
 
                                 VStack(alignment: .leading, spacing: 6) {
@@ -5452,6 +5529,7 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.modeKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyTitlebarControlsVisibilityModeKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
+        closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

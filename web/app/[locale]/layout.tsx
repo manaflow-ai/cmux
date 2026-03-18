@@ -31,7 +31,7 @@ export async function generateMetadata({
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
   const url =
-    locale === "en" ? "https://cmux.dev" : `https://cmux.dev/${locale}`;
+    locale === "en" ? "https://cmux.com" : `https://cmux.com/${locale}`;
   return {
     title: t("title"),
     description: t("description"),
@@ -61,7 +61,7 @@ export async function generateMetadata({
       title: t("title"),
       description: t("ogDescription"),
     },
-    metadataBase: new URL("https://cmux.dev"),
+    metadataBase: new URL("https://cmux.com"),
   };
 }
 
@@ -94,7 +94,7 @@ export default async function LocaleLayout({
     name: "cmux",
     operatingSystem: "macOS",
     applicationCategory: "DeveloperApplication",
-    url: "https://cmux.dev",
+    url: "https://cmux.com",
     downloadUrl:
       "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
     description:

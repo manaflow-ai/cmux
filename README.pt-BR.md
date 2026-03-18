@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Vídeo de demonstração</a> · <a href="https://cmux.dev/blog/zen-of-cmux">O Zen do cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Vídeo de demonstração</a> · <a href="https://cmux.com/blog/zen-of-cmux">O Zen do cmux</a>
 </p>
 
 ## Recursos
@@ -121,7 +121,7 @@ Dê a um milhão de desenvolvedores primitivas combináveis e eles coletivamente
 
 ## Documentação
 
-Para mais informações sobre como configurar o cmux, [acesse nossa documentação](https://cmux.dev/docs/getting-started?utm_source=readme).
+Para mais informações sobre como configurar o cmux, [acesse nossa documentação](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Atalhos de Teclado
 

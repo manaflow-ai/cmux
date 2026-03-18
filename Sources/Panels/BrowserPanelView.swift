@@ -965,7 +965,7 @@ struct BrowserPanelView: View {
             Button {
                 presentImportDialogFromProfileMenu()
             } label: {
-                Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import From Browser…"))
+                Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
                     .font(.system(size: 12))
             }
             .buttonStyle(.plain)
