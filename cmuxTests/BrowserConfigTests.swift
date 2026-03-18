@@ -2737,43 +2737,6 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
     }
 }
 
-#if compiler(>=6.2)
-@available(macOS 26.0, *)
-private struct DragConfigurationOperationsSnapshot: Equatable {
-    let allowCopy: Bool
-    let allowMove: Bool
-    let allowDelete: Bool
-    let allowAlias: Bool
-}
-
-@available(macOS 26.0, *)
-private enum DragConfigurationSnapshotError: Error {
-    case missingBoolField(primary: String, fallback: String?)
-}
-
-@available(macOS 26.0, *)
-private func dragConfigurationOperationsSnapshot<T>(from operations: T) throws -> DragConfigurationOperationsSnapshot {
-    let mirror = Mirror(reflecting: operations)
-
-    func readBool(_ primary: String, fallback: String? = nil) throws -> Bool {
-        if let value = mirror.descendant(primary) as? Bool {
-            return value
-        }
-        if let fallback, let value = mirror.descendant(fallback) as? Bool {
-            return value
-        }
-        throw DragConfigurationSnapshotError.missingBoolField(primary: primary, fallback: fallback)
-    }
-
-    return try DragConfigurationOperationsSnapshot(
-        allowCopy: readBool("allowCopy", fallback: "_allowCopy"),
-        allowMove: readBool("allowMove", fallback: "_allowMove"),
-        allowDelete: readBool("allowDelete", fallback: "_allowDelete"),
-        allowAlias: readBool("allowAlias", fallback: "_allowAlias")
-    )
-}
-
-
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!

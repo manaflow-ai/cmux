@@ -6,7 +6,7 @@ import XCTest
 @testable import cmux
 #endif
 
-private let lastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
+private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
@@ -725,13 +725,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let defaults = UserDefaults.standard
-        let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
-        defaults.set(false, forKey: lastSurfaceCloseShortcutDefaultsKey)
+        let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
+        defaults.set(false, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
         defer {
             if let originalSetting {
-                defaults.set(originalSetting, forKey: lastSurfaceCloseShortcutDefaultsKey)
+                defaults.set(originalSetting, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
             } else {
-                defaults.removeObject(forKey: lastSurfaceCloseShortcutDefaultsKey)
+                defaults.removeObject(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
             }
         }
 
