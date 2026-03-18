@@ -1569,7 +1569,6 @@ struct ContentView: View {
 
     private struct CommandPaletteCommandsContext {
         let snapshot: CommandPaletteContextSnapshot
-        let cliInstalledInPATH: Bool
     }
 
     private enum CommandPaletteContextKeys {
@@ -1594,6 +1593,7 @@ struct ContentView: View {
         static let panelHasUnread = "panel.hasUnread"
 
         static let updateHasAvailable = "update.hasAvailable"
+        static let cliInstalledInPATH = "cli.installedInPATH"
 
         static func terminalOpenTargetAvailable(_ target: TerminalDirectoryOpenTarget) -> String {
             "terminal.openTarget.\(target.rawValue).available"
@@ -4298,10 +4298,7 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
-        var hasher = Hasher()
-        hasher.combine(commandsContext.snapshot.fingerprint())
-        hasher.combine(commandsContext.cliInstalledInPATH)
-        return hasher.finalize()
+        commandsContext.snapshot.fingerprint()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
@@ -4672,9 +4669,11 @@ struct ContentView: View {
     private func commandPaletteCommandsContext(
         terminalOpenTargets: Set<TerminalDirectoryOpenTarget>
     ) -> CommandPaletteCommandsContext {
-        CommandPaletteCommandsContext(
-            snapshot: commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets),
-            cliInstalledInPATH: AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
+        let cliInstalledInPATH = AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false
+        var snapshot = commandPaletteContextSnapshot(terminalOpenTargets: terminalOpenTargets)
+        snapshot.setBool(CommandPaletteContextKeys.cliInstalledInPATH, cliInstalledInPATH)
+        return CommandPaletteCommandsContext(
+            snapshot: snapshot
         )
     }
 
@@ -4946,7 +4945,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.installCLI.title", defaultValue: "Shell Command: Install 'cmux' in PATH")),
                 subtitle: constant(String(localized: "command.installCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["install", "cli", "path", "shell", "command", "symlink"],
-                when: { _ in !(AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false) }
+                when: { !$0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
             )
         )
         contributions.append(
@@ -4955,7 +4954,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.uninstallCLI.title", defaultValue: "Shell Command: Uninstall 'cmux' from PATH")),
                 subtitle: constant(String(localized: "command.uninstallCLI.subtitle", defaultValue: "CLI")),
                 keywords: ["uninstall", "remove", "cli", "path", "shell", "command", "symlink"],
-                when: { _ in AppDelegate.shared?.isCmuxCLIInstalledInPATH() ?? false }
+                when: { $0.bool(CommandPaletteContextKeys.cliInstalledInPATH) }
             )
         )
         contributions.append(
