@@ -7825,6 +7825,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Hide all Bonsplit chrome (split pane dividers, tab bars, etc.) for this workspace.
+    /// Called before the workspace is unmounted to prevent visual artifacts from the
+    /// retiring workspace's split layout from appearing over the newly selected workspace.
+    func hideAllBonsplitChrome() {
+        // Hide the Bonsplit controller's chrome by setting a transparent background.
+        // This removes the visual split dividers and tab bars while keeping the workspace
+        // mounted for the handoff transition.
+        bonsplitController.configuration.appearance.chromeColors.backgroundHex = nil
+
+        // Force a layout update to apply the hidden chrome immediately
+        bonsplitController.setNeedsLayout()
+        bonsplitController.layoutIfNeeded()
+    }
+
     // MARK: - Utility
 
     /// Create a new terminal panel (used when replacing the last panel)

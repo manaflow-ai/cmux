@@ -3157,9 +3157,12 @@ struct ContentView: View {
         // the workspace — but dismantleNSView intentionally doesn't hide portal views
         // during transient rebuilds. Hiding here prevents stale terminal/browser
         // portals from covering the newly selected workspace.
+        // Also hide Bonsplit chrome (split pane dividers, tab bars) to prevent visual
+        // artifacts from the retiring workspace's split layout (issue #1634).
         if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
             workspace.hideAllTerminalPortalViews()
             workspace.hideAllBrowserPortalViews()
+            workspace.hideAllBonsplitChrome()
         }
 
         retiringWorkspaceId = nil
