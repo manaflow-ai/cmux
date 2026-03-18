@@ -2151,6 +2151,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsTransitionTargetVisible: Bool?
     private var pendingDeveloperToolsTransitionTargetVisible: Bool?
     private var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
+    private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
     private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
     private var developerToolsLastAttachedHostAt: Date?
@@ -3591,6 +3592,8 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsRestoreRetryWorkItem = nil
         developerToolsTransitionSettleWorkItem?.cancel()
         developerToolsTransitionSettleWorkItem = nil
+        developerToolsVisibilityLossCheckWorkItem?.cancel()
+        developerToolsVisibilityLossCheckWorkItem = nil
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
@@ -4216,8 +4219,28 @@ extension BrowserPanel {
     }
 
     func noteDeveloperToolsHostAttached() {
+        cancelPendingDeveloperToolsVisibilityLossCheck()
         developerToolsLastAttachedHostAt = Date()
         developerToolsLastKnownVisibleAt = isDeveloperToolsVisible() ? Date() : nil
+    }
+
+    func scheduleDeveloperToolsVisibilityLossCheck() {
+        developerToolsVisibilityLossCheckWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.developerToolsVisibilityLossCheckWorkItem = nil
+            _ = self.consumeAttachedDeveloperToolsManualCloseIfNeeded()
+        }
+        developerToolsVisibilityLossCheckWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + developerToolsTransitionSettleDelay,
+            execute: workItem
+        )
+    }
+
+    func cancelPendingDeveloperToolsVisibilityLossCheck() {
+        developerToolsVisibilityLossCheckWorkItem?.cancel()
+        developerToolsVisibilityLossCheckWorkItem = nil
     }
 
     @discardableResult

@@ -514,12 +514,14 @@ struct BrowserPanelView: View {
             }
         }
         .onChange(of: isVisibleInUI) { visibleInUI in
-            guard !visibleInUI else { return }
-            // The attached WebKit inspector close button can hide DevTools without
-            // touching BrowserPanel's persisted intent. Capture the actual inspector
-            // visibility before the surface detaches so switching away and back
-            // does not resurrect a manually closed inspector.
-            panel.syncDeveloperToolsPreferenceFromInspector()
+            if visibleInUI {
+                panel.cancelPendingDeveloperToolsVisibilityLossCheck()
+                return
+            }
+            // Pane/workspace churn can briefly mark the browser hidden before the
+            // final host settles. Only treat a stable hide as a signal to consume
+            // an attached-inspector X-close.
+            panel.scheduleDeveloperToolsVisibilityLossCheck()
         }
         .onChange(of: isFocused) { focused in
 #if DEBUG
@@ -537,11 +539,10 @@ struct BrowserPanelView: View {
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "panelFocus.onChange.unfocused")
                 // Surface switches in split layouts can keep the browser visible, so
-                // `isVisibleInUI` never flips to false. Sample the real inspector
-                // state when focus leaves the panel as well, otherwise an X-close can
-                // leave the persisted DevTools intent stale until the next reattach.
+                // `isVisibleInUI` never flips to false. Check for an attached-inspector
+                // X-close when focus leaves as well so the persisted intent stays in sync.
                 DispatchQueue.main.async {
-                    panel.syncDeveloperToolsPreferenceFromInspector()
+                    _ = panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
                 }
             }
             syncWebViewResponderPolicyWithViewState(
