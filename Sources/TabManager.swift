@@ -3345,7 +3345,7 @@ class TabManager: ObservableObject {
         case .pane:
             return 1
         case .split(let splitNode):
-            if splitNode.orientation == direction {
+            if splitNode.orientation.lowercased() == direction.lowercased() {
                 return weightForDirection(splitNode.first, direction: direction)
                      + weightForDirection(splitNode.second, direction: direction)
             } else {
