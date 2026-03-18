@@ -208,54 +208,13 @@ jobs:
           DISPLAY_ENV_PREFIX=()
 
           if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
-            PREFIX="/tmp/cmux-display-churn-${{ github.run_id }}-${{ github.run_attempt }}"
-            READY_PATH="${PREFIX}.ready"
-            DISPLAY_ID_PATH="${PREFIX}.id"
-            START_PATH="${PREFIX}.start"
-            DONE_PATH="${PREFIX}.done"
-            LOG_PATH="${PREFIX}.log"
-            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
-
-            rm -f "$READY_PATH" "$DISPLAY_ID_PATH" "$START_PATH" "$DONE_PATH" "$LOG_PATH" "$MANIFEST_PATH"
+            HELPER_PATH="/tmp/create-virtual-display"
 
             clang -framework Foundation -framework CoreGraphics \
-              -o /tmp/create-virtual-display scripts/create-virtual-display.m
-
-            /tmp/create-virtual-display \
-              --modes 1920x1080,1728x1117,1600x900,1440x810 \
-              --ready-path "$READY_PATH" \
-              --display-id-path "$DISPLAY_ID_PATH" \
-              --start-path "$START_PATH" \
-              --done-path "$DONE_PATH" \
-              --iterations 40 \
-              --interval-ms 40 \
-              >"$LOG_PATH" 2>&1 &
-            DISPLAY_VDISPLAY_PID=$!
-            trap 'kill "${DISPLAY_VDISPLAY_PID:-}" >/dev/null 2>&1 || true; rm -f "$MANIFEST_PATH"' EXIT
-
-            for _ in {1..120}; do
-              [ -f "$READY_PATH" ] && break
-              sleep 0.25
-            done
-            [ -f "$READY_PATH" ] || {
-              echo "Display harness failed to start" >&2
-              cat "$LOG_PATH" >&2 || true
-              exit 1
-            }
-
-            cat >"$MANIFEST_PATH" <<EOF
-          {"readyPath":"$READY_PATH","displayIDPath":"$DISPLAY_ID_PATH","startPath":"$START_PATH","donePath":"$DONE_PATH","logPath":"$LOG_PATH"}
-          EOF
-            echo "Display harness manifest: $MANIFEST_PATH"
-            cat "$MANIFEST_PATH"
+              -o "$HELPER_PATH" scripts/create-virtual-display.m
 
             DISPLAY_ENV_PREFIX=(
-              CMUX_UI_TEST_DISPLAY_READY_PATH="$READY_PATH"
-              CMUX_UI_TEST_DISPLAY_ID_PATH="$DISPLAY_ID_PATH"
-              CMUX_UI_TEST_DISPLAY_START_PATH="$START_PATH"
-              CMUX_UI_TEST_DISPLAY_DONE_PATH="$DONE_PATH"
-              CMUX_UI_TEST_DISPLAY_LOG_PATH="$LOG_PATH"
-              CMUX_UI_TEST_DISPLAY_HARNESS_MANIFEST_PATH="$MANIFEST_PATH"
+              CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH="$HELPER_PATH"
             )
           fi
 

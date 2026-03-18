@@ -19,14 +19,17 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         continueAfterFailure = false
 
         let token = UUID().uuidString
+        let tempPrefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-display-\(token)")
+            .path
         launchTag = "ui-tests-display-resolution-\(token.prefix(8))"
         diagnosticsPath = "/tmp/cmux-ui-test-display-churn-\(token).json"
-        displayReadyPath = "/tmp/cmux-ui-test-display-ready-\(token)"
-        displayIDPath = "/tmp/cmux-ui-test-display-id-\(token)"
-        displayStartPath = "/tmp/cmux-ui-test-display-start-\(token)"
-        displayDonePath = "/tmp/cmux-ui-test-display-done-\(token)"
-        helperBinaryPath = "/tmp/cmux-ui-test-display-helper-\(token)"
-        helperLogPath = "/tmp/cmux-ui-test-display-helper-\(token).log"
+        displayReadyPath = "\(tempPrefix).ready"
+        displayIDPath = "\(tempPrefix).id"
+        displayStartPath = "\(tempPrefix).start"
+        displayDonePath = "\(tempPrefix).done"
+        helperBinaryPath = "\(tempPrefix)-helper"
+        helperLogPath = "\(tempPrefix)-helper.log"
 
         removeTestArtifacts()
     }
@@ -118,6 +121,11 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
     private func prepareDisplayHarnessIfNeeded() throws {
         let env = ProcessInfo.processInfo.environment
+        if let helperBinaryPath = loadPrebuiltHelperBinaryPath(env) {
+            self.helperBinaryPath = helperBinaryPath
+            try launchDisplayHelper()
+            return
+        }
         if let externalHarness = loadExternalHarnessFromEnvironment(env) ?? loadExternalHarnessFromManifest(env) {
             displayReadyPath = externalHarness.readyPath
             displayIDPath = externalHarness.displayIDPath
@@ -131,6 +139,14 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
         try buildDisplayHelper()
         try launchDisplayHelper()
+    }
+
+    private func loadPrebuiltHelperBinaryPath(_ env: [String: String]) -> String? {
+        guard let helperBinaryPath = env["CMUX_UI_TEST_DISPLAY_HELPER_BINARY_PATH"],
+              !helperBinaryPath.isEmpty else {
+            return nil
+        }
+        return helperBinaryPath
     }
 
     private func loadExternalHarnessFromEnvironment(_ env: [String: String]) -> ExternalDisplayHarness? {
