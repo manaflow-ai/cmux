@@ -4817,7 +4817,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Check if this event matches a Ghostty keybinding.
         let bindingFlags: ghostty_binding_flags_e? = {
             var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = event.characters ?? ""
+            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
             var flags = ghostty_binding_flags_e(0)
             let isBinding = text.withCString { ptr in
                 keyEvent.text = ptr
@@ -5204,6 +5204,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
 #endif
                 } else {
+                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5249,6 +5250,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
 #endif
                 } else {
+                    keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                     keyEvent.text = nil
                     #if DEBUG
                     let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5264,6 +5266,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     #endif
                 }
             } else {
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
                 keyEvent.text = nil
                 #if DEBUG
                 let ghosttySendStart = ProcessInfo.processInfo.systemUptime
@@ -5417,7 +5420,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
             // If we have a single control character, return the character without
             // the control modifier so Ghostty's KeyEncoder can handle it.
-            if scalar.value < 0x20 {
+            if isControlCharacterScalar(scalar) {
                 if flags.contains(.control) {
                     return event.characters(byApplyingModifiers: event.modifierFlags.subtracting(.control))
                 }
@@ -5454,9 +5457,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return scalar.value
     }
 
+    private func isControlCharacterScalar(_ scalar: UnicodeScalar) -> Bool {
+        scalar.value < 0x20 || scalar.value == 0x7F
+    }
+
     private func shouldSendText(_ text: String) -> Bool {
-        guard let first = text.utf8.first else { return false }
-        return first >= 0x20
+        guard !text.isEmpty else { return false }
+        if text.count == 1, let scalar = text.unicodeScalars.first {
+            return !isControlCharacterScalar(scalar)
+        }
+        return true
     }
 
     /// If AppKit consumed Shift+Space for IME/input-source switching, interpretKeyEvents
