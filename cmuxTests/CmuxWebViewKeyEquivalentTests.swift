@@ -1159,6 +1159,74 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertTrue(app.tabManager === manager)
     }
 
+    func testFocusedWindowBeatsStaleActiveManagerWhenSuppressingNotification() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+        let store = TerminalNotificationStore.shared
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        let originalNotificationStore = app.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        var deliveredNotifications: [TerminalNotification] = []
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            app.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            windowA.close()
+            windowB.close()
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotifications.append(notification)
+        }
+        app.notificationStore = store
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        windowA.makeKeyAndOrderFront(nil)
+        app.tabManager = managerB
+        AppFocusState.overrideIsFocused = true
+
+        store.addNotification(
+            tabId: managerA.tabs[0].id,
+            surfaceId: nil,
+            title: "Window A",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertTrue(store.notifications.isEmpty)
+        XCTAssertTrue(deliveredNotifications.isEmpty)
+
+        store.addNotification(
+            tabId: managerB.tabs[0].id,
+            surfaceId: nil,
+            title: "Window B",
+            subtitle: "",
+            body: ""
+        )
+        XCTAssertEqual(store.notifications.map(\.title), ["Window B"])
+        XCTAssertEqual(deliveredNotifications.map(\.title), ["Window B"])
+    }
+
     func testAddWorkspaceWithoutBringToFrontPreservesActiveWindowAndSelection() {
         _ = NSApplication.shared
         let app = AppDelegate()
@@ -5457,6 +5525,83 @@ final class WorkspaceNotificationReorderTests: XCTestCase {
         )
 
         XCTAssertEqual(manager.tabs.map(\.id), expectedOrder)
+    }
+
+    func testFocusedWorkspaceSuppressesNotificationForUnfocusedSurface() {
+        _ = NSApplication.shared
+        let appDelegate = AppDelegate()
+        let manager = TabManager()
+        let notificationStore = TerminalNotificationStore.shared
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAutoReorderSetting = UserDefaults.standard.object(forKey: WorkspaceAutoReorderSettings.key)
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        var deliveredNotifications: [TerminalNotification] = []
+
+        notificationStore.replaceNotificationsForTesting([])
+        notificationStore.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotifications.append(notification)
+        }
+        appDelegate.notificationStore = notificationStore
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.tabManager = manager
+        AppFocusState.overrideIsFocused = true
+        window.makeKeyAndOrderFront(nil)
+
+        defer {
+            notificationStore.replaceNotificationsForTesting([])
+            notificationStore.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalAutoReorderSetting {
+                UserDefaults.standard.set(originalAutoReorderSetting, forKey: WorkspaceAutoReorderSettings.key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: WorkspaceAutoReorderSettings.key)
+            }
+            window.close()
+        }
+
+        UserDefaults.standard.set(false, forKey: WorkspaceAutoReorderSettings.key)
+
+        guard let workspace = manager.selectedWorkspace,
+              let initialPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial selected workspace and focused panel")
+            return
+        }
+
+        _ = manager.newSplit(tabId: workspace.id, surfaceId: initialPanelId, direction: .right)
+        guard let focusedPanelId = workspace.focusedPanelId,
+              let unfocusedPanelId = workspace.panels.keys.first(where: { $0 != focusedPanelId }) else {
+            XCTFail("Expected split workspace with an unfocused panel")
+            return
+        }
+
+        notificationStore.addNotification(
+            tabId: workspace.id,
+            surfaceId: unfocusedPanelId,
+            title: "Build finished",
+            subtitle: "",
+            body: "Visible workspace notifications should be suppressed"
+        )
+
+        XCTAssertTrue(notificationStore.notifications.isEmpty)
+        XCTAssertTrue(deliveredNotifications.isEmpty)
     }
 }
 

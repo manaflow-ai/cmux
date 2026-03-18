@@ -4827,6 +4827,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts[ObjectIdentifier(window)]
     }
 
+    private func focusedMainWindowContextForNotificationSuppression() -> MainWindowContext? {
+        if let context = contextForMainWindow(NSApp.keyWindow) {
+            return context
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context
+        }
+        return nil
+    }
+
+    /// Notification suppression is scoped to the currently focused main terminal window
+    /// and its selected workspace, not whichever tab manager last became globally active.
+    func shouldSuppressNotification(forTabId tabId: UUID) -> Bool {
+        if let overrideIsFocused = AppFocusState.overrideIsFocused {
+            guard overrideIsFocused else { return false }
+            if let context = focusedMainWindowContextForNotificationSuppression() {
+                return context.tabManager.selectedTabId == tabId
+            }
+            if let owner = tabManagerFor(tabId: tabId) {
+                return owner.selectedTabId == tabId
+            }
+            return tabManager?.selectedTabId == tabId
+        }
+
+        guard NSApp.isActive else { return false }
+        guard let context = focusedMainWindowContextForNotificationSuppression() else { return false }
+        return context.tabManager.selectedTabId == tabId
+    }
+
 #if DEBUG
     private func debugManagerToken(_ manager: TabManager?) -> String {
         guard let manager else { return "nil" }
@@ -10357,11 +10386,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        if let tabId = notificationWorkspaceId(from: notification.request.content.userInfo),
+           shouldSuppressNotification(forTabId: tabId) {
+            completionHandler([])
+            return
+        }
+
         var options: UNNotificationPresentationOptions = [.banner, .list]
         if notification.request.content.sound != nil {
             options.insert(.sound)
         }
         completionHandler(options)
+    }
+
+    private func notificationWorkspaceId(from userInfo: [AnyHashable: Any]) -> UUID? {
+        if let tabIdString = userInfo["tabId"] as? String,
+           let tabId = UUID(uuidString: tabIdString) {
+            return tabId
+        }
+
+        if let surfaceIdString = userInfo["surfaceId"] as? String,
+           let surfaceId = UUID(uuidString: surfaceIdString),
+           let located = locateSurface(surfaceId: surfaceId) {
+            return located.workspaceId
+        }
+
+        if let surfaceIdString = userInfo["surface"] as? String,
+           let surfaceId = UUID(uuidString: surfaceIdString),
+           let located = locateSurface(surfaceId: surfaceId) {
+            return located.workspaceId
+        }
+
+        return nil
     }
 
     private func handleNotificationResponse(_ response: UNNotificationResponse) {
