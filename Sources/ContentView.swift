@@ -1391,6 +1391,9 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     overlay.translatesAutoresizingMaskIntoConstraints = false
     overlay.onDrop = { [weak tabManager] urls in
         guard let tabManager else { return false }
+        // Note: sidebarSelectionState.selection == .notifications is never set in
+        // production; all notification UI uses NSPopover via toggleNotificationsPopover.
+        // No sidebar page switch is needed after a successful drop.
         return MainActor.assumeIsolated {
             tabManager.handleSidebarFolderDrop(urls)
         }
