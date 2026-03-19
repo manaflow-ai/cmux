@@ -3594,6 +3594,9 @@ class TerminalController {
         }
 
         let color = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard WorkspaceTabColorSettings.normalizedHex(color) != nil else {
+            return .err(code: "invalid_params", message: "Invalid hex color \"\(color)\" (expected #RRGGBB)", data: nil)
+        }
         var applied = false
         v2MainSync {
             guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }

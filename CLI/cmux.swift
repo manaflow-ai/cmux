@@ -1948,10 +1948,16 @@ struct CMUXCLI {
         case "set-workspace-color":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let colorArgs = rem0.dropFirst(rem0.first == "--" ? 1 : 0)
-            let color = colorArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !color.isEmpty else {
-                throw CLIError(message: "set-workspace-color requires a hex color (e.g. \"#C0392B\")")
+            let trailing = Array(rem0.dropFirst(rem0.first == "--" ? 1 : 0))
+            guard trailing.count == 1 else {
+                throw CLIError(message: trailing.isEmpty
+                    ? "set-workspace-color requires a hex color (e.g. \"#C0392B\")"
+                    : "set-workspace-color: unexpected arguments: \(trailing.dropFirst().joined(separator: " "))")
+            }
+            let color = trailing[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = color.hasPrefix("#") ? String(color.dropFirst()) : color
+            guard body.count == 6 || body.count == 8, UInt64(body.prefix(8), radix: 16) != nil else {
+                throw CLIError(message: "set-workspace-color: invalid hex color \"\(color)\" (expected #RRGGBB or #RRGGBBAA)")
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["workspace_id": wsId, "color": color]
@@ -1961,6 +1967,10 @@ struct CMUXCLI {
         case "clear-workspace-color":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let trailing = rem0.filter { $0 != "--" }
+            guard trailing.isEmpty else {
+                throw CLIError(message: "clear-workspace-color: unexpected arguments: \(trailing.joined(separator: " "))")
+            }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["workspace_id": wsId]
             let payload = try client.sendV2(method: "workspace.clear_color", params: params)
@@ -11113,8 +11123,8 @@ struct CMUXCLI {
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
-          set-workspace-color [--workspace <id|ref>] <hex>
-          clear-workspace-color [--workspace <id|ref>]
+          set-workspace-color [--workspace <id|ref|index>] <hex>
+          clear-workspace-color [--workspace <id|ref|index>]
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
