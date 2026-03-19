@@ -1138,11 +1138,16 @@ class TabManager: ObservableObject {
     /// - If an existing workspace has the same working directory, selects it and adds a new terminal split.
     /// - Otherwise, creates a new workspace rooted at the dropped folder.
     ///
-    /// Only the first directory URL is acted upon; non-directory URLs are ignored.
+    /// Only the first plain-directory URL is acted upon. Non-directory URLs and filesystem
+    /// packages (.app, .xcworkspace, .playground, etc.) are silently ignored.
     @discardableResult
     func handleSidebarFolderDrop(_ urls: [URL]) -> Bool {
         let folderURLs = urls.filter { url in
-            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            // Accept only plain directories; exclude filesystem packages (.app, .xcworkspace,
+            // .playground, etc.) which report isDirectory=true but should be ignored like files.
+            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+            else { return false }
+            return values.isDirectory == true && values.isPackage != true
         }
         let directories = FinderServicePathResolver.orderedUniqueDirectories(
             from: folderURLs.filter { $0.isFileURL }

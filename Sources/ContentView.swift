@@ -709,14 +709,18 @@ final class FileDropOverlayView: NSView {
 #endif
         guard shouldCapture else { return [] }
         // Only advertise the copy affordance when the payload contains at least one
-        // directory URL. This avoids showing the copy cursor for plain-file drags
-        // that will be silently ignored at performDragOperation time.
-        // hasDirectoryPath is a pure URL-structure check with no I/O cost.
+        // plain directory URL. Filesystem packages (.app, .xcworkspace, etc.) have
+        // hasDirectoryPath==true but isPackage==true and must be excluded to keep
+        // the cursor consistent with performDragOperation/handleSidebarFolderDrop.
         let urls = sender.draggingPasteboard.readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
         ) as? [URL] ?? []
-        let hasFolder = hasTerminalTarget || urls.contains(where: \.hasDirectoryPath)
+        let hasFolder = hasTerminalTarget || urls.contains { url in
+            guard url.hasDirectoryPath else { return false }
+            let values = try? url.resourceValues(forKeys: [.isPackageKey])
+            return values?.isPackage != true
+        }
         guard hasFolder else { return [] }
         return .copy
     }
