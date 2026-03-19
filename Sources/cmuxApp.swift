@@ -87,6 +87,15 @@ enum WorkspaceButtonFadeSettings {
     }
 }
 
+enum PaneFirstClickFocusSettings {
+    static let enabledKey = "paneFirstClickFocus.enabled"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
@@ -3809,6 +3818,8 @@ struct SettingsView: View {
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
+    @AppStorage(PaneFirstClickFocusSettings.enabledKey)
+    private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -3899,6 +3910,19 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.closeWorkspaceOnLastSurfaceShortcut.subtitleOff",
             defaultValue: "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace."
+        )
+    }
+
+    private var paneFirstClickFocusSubtitle: String {
+        if paneFirstClickFocusEnabled {
+            return String(
+                localized: "settings.app.paneFirstClickFocus.subtitleOn",
+                defaultValue: "When cmux is inactive, clicking a pane activates the window and focuses that pane in one click."
+            )
+        }
+        return String(
+            localized: "settings.app.paneFirstClickFocus.subtitleOff",
+            defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
         )
     }
 
@@ -4367,6 +4391,20 @@ struct SettingsView: View {
                             Toggle("", isOn: keepWorkspaceOpenOnLastSurfaceShortcutBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"),
+                            subtitle: paneFirstClickFocusSubtitle
+                        ) {
+                            Toggle("", isOn: $paneFirstClickFocusEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -5530,6 +5568,7 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyTitlebarControlsVisibilityModeKey)
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
+        paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

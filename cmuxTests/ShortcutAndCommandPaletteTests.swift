@@ -927,6 +927,29 @@ final class UpdateSettingsTests: XCTestCase {
     }
 }
 
+final class UpdateViewModelPresentationTests: XCTestCase {
+    func testDetectedBackgroundUpdateShowsPillWhileIdle() {
+        let viewModel = UpdateViewModel()
+
+        viewModel.detectedUpdateVersion = "9.9.9"
+
+        XCTAssertTrue(viewModel.showsPill)
+        XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
+        XCTAssertEqual(viewModel.text, "Update Available: 9.9.9")
+        XCTAssertEqual(viewModel.iconName, "shippingbox.fill")
+    }
+
+    func testActiveUpdateStateTakesPrecedenceOverDetectedBackgroundVersion() {
+        let viewModel = UpdateViewModel()
+
+        viewModel.detectedUpdateVersion = "9.9.9"
+        viewModel.state = .checking(.init(cancel: {}))
+
+        XCTAssertTrue(viewModel.showsPill)
+        XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
+        XCTAssertEqual(viewModel.text, "Checking for Updates…")
+    }
+}
 
 @MainActor
 final class CommandPaletteOverlayPromotionPolicyTests: XCTestCase {

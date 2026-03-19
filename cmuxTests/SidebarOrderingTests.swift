@@ -238,6 +238,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                 fifth: "/repo/e"
             ],
             defaultDirectory: "/repo/default",
+            homeDirectoryForTildeExpansion: nil,
             fallbackBranch: SidebarGitBranchState(branch: "fallback", isDirty: false)
         )
 
@@ -264,6 +265,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
                 second: "/repo/two"
             ],
             defaultDirectory: "/repo/default",
+            homeDirectoryForTildeExpansion: nil,
             fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: true)
         )
 
@@ -282,12 +284,44 @@ final class SidebarBranchOrderingTests: XCTestCase {
             panelBranches: [:],
             panelDirectories: [:],
             defaultDirectory: "/repo/default",
+            homeDirectoryForTildeExpansion: nil,
             fallbackBranch: SidebarGitBranchState(branch: "main", isDirty: false)
         )
 
         XCTAssertEqual(
             rows,
             [SidebarBranchOrdering.BranchDirectoryEntry(branch: "main", isDirty: false, directory: "/repo/default")]
+        )
+    }
+
+    func testOrderedUniqueBranchDirectoryEntriesKeepsAbsoluteDirectoryWhenLaterEntryUsesTildeAlias() {
+        let first = UUID()
+        let second = UUID()
+
+        let rows = SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+            orderedPanelIds: [first, second],
+            panelBranches: [
+                first: SidebarGitBranchState(branch: "main", isDirty: false),
+                second: SidebarGitBranchState(branch: "feature", isDirty: true)
+            ],
+            panelDirectories: [
+                first: "/home/remoteuser/project",
+                second: "~/project"
+            ],
+            defaultDirectory: nil,
+            homeDirectoryForTildeExpansion: "/home/remoteuser",
+            fallbackBranch: nil
+        )
+
+        XCTAssertEqual(
+            rows,
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: "feature",
+                    isDirty: true,
+                    directory: "/home/remoteuser/project"
+                )
+            ]
         )
     }
 

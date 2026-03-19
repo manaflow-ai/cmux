@@ -15,6 +15,14 @@ class UpdateViewModel: ObservableObject {
         overrideState ?? state
     }
 
+    var showsDetectedBackgroundUpdate: Bool {
+        effectiveState.isIdle && detectedUpdateVersion != nil
+    }
+
+    var showsPill: Bool {
+        !effectiveState.isIdle || showsDetectedBackgroundUpdate
+    }
+
     func recordDetectedUpdate(_ item: SUAppcastItem) {
         detectedUpdateVersion = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
     }
@@ -27,6 +35,9 @@ class UpdateViewModel: ObservableObject {
         #if DEBUG
         if let debugOverrideText { return debugOverrideText }
         #endif
+        if let detectedText = detectedUpdateText {
+            return detectedText
+        }
         switch effectiveState {
         case .idle:
             return ""
@@ -60,6 +71,9 @@ class UpdateViewModel: ObservableObject {
     }
 
     var maxWidthText: String {
+        if let detectedText = detectedUpdateText {
+            return detectedText
+        }
         switch effectiveState {
         case .downloading:
             return "Downloading: 100%"
@@ -71,6 +85,9 @@ class UpdateViewModel: ObservableObject {
     }
 
     var iconName: String? {
+        if showsDetectedBackgroundUpdate {
+            return "shippingbox.fill"
+        }
         switch effectiveState {
         case .idle:
             return nil
@@ -135,6 +152,9 @@ class UpdateViewModel: ObservableObject {
     }
 
     var iconColor: Color {
+        if showsDetectedBackgroundUpdate {
+            return cmuxAccentColor()
+        }
         switch effectiveState {
         case .idle:
             return .secondary
@@ -154,6 +174,9 @@ class UpdateViewModel: ObservableObject {
     }
 
     var backgroundColor: Color {
+        if showsDetectedBackgroundUpdate {
+            return cmuxAccentColor()
+        }
         switch effectiveState {
         case .permissionRequest:
             return Color(nsColor: NSColor.systemBlue.blended(withFraction: 0.3, of: .black) ?? .systemBlue)
@@ -169,6 +192,9 @@ class UpdateViewModel: ObservableObject {
     }
 
     var foregroundColor: Color {
+        if showsDetectedBackgroundUpdate {
+            return .white
+        }
         switch effectiveState {
         case .permissionRequest:
             return .white
@@ -347,6 +373,11 @@ class UpdateViewModel: ObservableObject {
     static func normalizedDetectedUpdateVersion(from version: String) -> String? {
         let trimmed = version.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var detectedUpdateText: String? {
+        guard showsDetectedBackgroundUpdate, let version = detectedUpdateVersion else { return nil }
+        return String(localized: "update.available.withVersion", defaultValue: "Update Available: \(version)")
     }
 }
 

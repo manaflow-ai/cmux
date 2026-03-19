@@ -307,6 +307,7 @@ private struct MarkdownPointerObserver: NSViewRepresentable {
 final class MarkdownPanelPointerObserverView: NSView {
     var onPointerDown: (() -> Void)?
     private var eventMonitor: Any?
+    private weak var forwardedMouseTarget: NSView?
 
     override var mouseDownCanMoveWindow: Bool { false }
 
@@ -326,7 +327,29 @@ final class MarkdownPanelPointerObserverView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard PaneFirstClickFocusSettings.isEnabled(),
+              window?.isKeyWindow != true,
+              bounds.contains(point) else { return nil }
+        return self
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+        forwardedMouseTarget = forwardedTarget(for: event)
+        forwardedMouseTarget?.mouseDown(with: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        forwardedMouseTarget?.mouseDragged(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        forwardedMouseTarget?.mouseUp(with: event)
+        forwardedMouseTarget = nil
     }
 
     func shouldHandle(_ event: NSEvent) -> Bool {
@@ -334,6 +357,9 @@ final class MarkdownPanelPointerObserverView: NSView {
               let window,
               event.window === window,
               !isHiddenOrHasHiddenAncestor else { return false }
+        if PaneFirstClickFocusSettings.isEnabled(), window.isKeyWindow != true {
+            return false
+        }
         let point = convert(event.locationInWindow, from: nil)
         return bounds.contains(point)
     }
@@ -351,5 +377,25 @@ final class MarkdownPanelPointerObserverView: NSView {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
             self?.handleEventIfNeeded(event) ?? event
         }
+    }
+
+    private func forwardedTarget(for event: NSEvent) -> NSView? {
+        guard let window else {
+#if DEBUG
+            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=0 contentView=0")
+#endif
+            return nil
+        }
+        guard let contentView = window.contentView else {
+#if DEBUG
+            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=1 contentView=0")
+#endif
+            return nil
+        }
+        isHidden = true
+        defer { isHidden = false }
+        let point = contentView.convert(event.locationInWindow, from: nil)
+        let target = contentView.hitTest(point)
+        return target === self ? nil : target
     }
 }
