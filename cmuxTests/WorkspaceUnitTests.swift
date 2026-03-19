@@ -1629,6 +1629,59 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(branches.map(\.isDirty), [true, false, false])
     }
 
+    func testSidebarBranchDirectoryEntriesStayStableAcrossFocusedSplitChanges() {
+        let workspace = Workspace()
+        let leftLiveDirectory = "/repo/left/live"
+        let rightFocusedDirectory = "/repo/right/focused"
+        let leftFocusedDirectory = "/repo/left/focused"
+        let rightRequestedDirectory = "/repo/right/requested"
+
+        guard let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: leftPanelId, directory: leftLiveDirectory)
+
+        guard let rightSplitPanel = workspace.newTerminalSplit(
+            from: leftPanelId,
+            orientation: .horizontal,
+            focus: false
+        ),
+        let rightPaneId = workspace.paneId(forPanelId: rightSplitPanel.id),
+        let rightRequestedPanel = workspace.newTerminalSurface(
+            inPane: rightPaneId,
+            focus: false,
+            workingDirectory: rightRequestedDirectory
+        ) else {
+            XCTFail("Expected right split panes for sidebar directory ordering test")
+            return
+        }
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [leftPanelId, rightSplitPanel.id, rightRequestedPanel.id])
+
+        workspace.currentDirectory = rightFocusedDirectory
+        let entriesWhenRightLooksFocused = workspace.sidebarBranchDirectoryEntriesInDisplayOrder(
+            orderedPanelIds: orderedPanelIds
+        )
+
+        workspace.currentDirectory = leftFocusedDirectory
+        let entriesWhenLeftLooksFocused = workspace.sidebarBranchDirectoryEntriesInDisplayOrder(
+            orderedPanelIds: orderedPanelIds
+        )
+
+        XCTAssertEqual(
+            entriesWhenRightLooksFocused,
+            entriesWhenLeftLooksFocused,
+            "Expected sidebar directory ordering to ignore focused-workspace cwd churn when panel-specific directories are available"
+        )
+        XCTAssertEqual(
+            entriesWhenRightLooksFocused.map(\.directory),
+            [leftLiveDirectory, rightRequestedDirectory]
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
