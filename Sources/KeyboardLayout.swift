@@ -2,6 +2,26 @@ import AppKit
 import Carbon
 
 class KeyboardLayout {
+    /// Map physical ANSI number-row keys to decimal digits regardless of the active layout.
+    /// This keeps Cmd/Ctrl+digit shortcuts working on layouts like Slovak where the top row
+    /// can emit localized symbols or letters instead of ASCII digits.
+    static func ansiNumberRowDigit(forKeyCode keyCode: UInt16) -> Int? {
+        switch keyCode {
+        case 18: return 1 // kVK_ANSI_1
+        case 19: return 2 // kVK_ANSI_2
+        case 20: return 3 // kVK_ANSI_3
+        case 21: return 4 // kVK_ANSI_4
+        case 23: return 5 // kVK_ANSI_5
+        case 22: return 6 // kVK_ANSI_6
+        case 26: return 7 // kVK_ANSI_7
+        case 28: return 8 // kVK_ANSI_8
+        case 25: return 9 // kVK_ANSI_9
+        case 29: return 0 // kVK_ANSI_0
+        default:
+            return nil
+        }
+    }
+
     /// Return a string ID of the current keyboard input source.
     static var id: String? {
         if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),

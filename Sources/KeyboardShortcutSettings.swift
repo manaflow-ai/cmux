@@ -396,6 +396,10 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     private static func storedKey(from event: NSEvent) -> String? {
+        if let digit = KeyboardLayout.ansiNumberRowDigit(forKeyCode: event.keyCode) {
+            return String(digit)
+        }
+
         // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
         switch event.keyCode {
         case 123: return "←" // left arrow

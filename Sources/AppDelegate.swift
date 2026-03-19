@@ -9470,7 +9470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
         if flags == [.command],
            let manager = tabManager,
-           let num = Int(chars),
+           let num = shortcutDigit(for: event),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
 #if DEBUG
             dlog(
@@ -9483,7 +9483,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
         if flags == [.control] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
+            if let num = shortcutDigit(for: event), num >= 1 && num <= 9 {
                 if num == 9 {
                     tabManager?.selectLastSurface()
                 } else {
@@ -10507,6 +10507,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event.keyCode == expectedKeyCode
         }
         return false
+    }
+
+    private func shortcutDigit(for event: NSEvent) -> Int? {
+        if let digit = KeyboardLayout.ansiNumberRowDigit(forKeyCode: event.keyCode) {
+            return digit
+        }
+        guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else {
+            return nil
+        }
+        return Int(chars)
     }
 
     private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
