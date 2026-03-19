@@ -1664,6 +1664,170 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testCmdDigitShortcutUsesANSINumberRowDigitOnSlovakLayout() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        _ = manager.addTab(select: true)
+        guard manager.tabs.count >= 2 else {
+            XCTFail("Expected second workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        manager.selectTab(at: 0)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let expectedTabId = manager.tabs[1].id
+        XCTAssertNotEqual(manager.selectedTabId, expectedTabId, "Precondition: second workspace should not already be selected")
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "ľ",
+            charactersIgnoringModifiers: "ľ",
+            isARepeat: false,
+            keyCode: 19 // kVK_ANSI_2
+        ) else {
+            XCTFail("Failed to construct Slovak Cmd+2 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(manager.selectedTabId, expectedTabId, "Cmd+ľ on ANSI 2 should select workspace 2")
+    }
+
+    func testCtrlDigitShortcutUsesANSINumberRowDigitOnSlovakLayout() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window, manager, and workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        manager.newSurface()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        manager.newSurface()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let expectedLastSurfaceId = workspace.focusedPanelId else {
+            XCTFail("Expected focused surface after creating additional surfaces")
+            return
+        }
+
+        workspace.selectSurface(at: 0)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertNotEqual(
+            workspace.focusedPanelId,
+            expectedLastSurfaceId,
+            "Precondition: last surface should not already be focused"
+        )
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "í",
+            charactersIgnoringModifiers: "í",
+            isARepeat: false,
+            keyCode: 25 // kVK_ANSI_9
+        ) else {
+            XCTFail("Failed to construct Slovak Ctrl+9 event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(workspace.focusedPanelId, expectedLastSurfaceId, "Ctrl+í on ANSI 9 should select the last surface")
+    }
+
+    func testCmdNonDigitSymbolFromNonNumberRowDoesNotTriggerBuiltInWorkspaceDigitShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and manager")
+            return
+        }
+
+        _ = manager.addTab(select: true)
+        guard let firstTabId = manager.tabs.first?.id else {
+            XCTFail("Expected at least one workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        manager.selectTab(at: 0)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "*",
+            charactersIgnoringModifiers: "*",
+            isARepeat: false,
+            keyCode: 30 // kVK_ANSI_RightBracket
+        ) else {
+            XCTFail("Failed to construct Cmd+* event from non-number-row key")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertEqual(manager.selectedTabId, firstTabId, "Cmd+* on RightBracket must not be treated as a workspace digit shortcut")
+    }
+
     func testCmdShiftNonDigitKeySymbolDoesNotMatchShiftedDigitShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

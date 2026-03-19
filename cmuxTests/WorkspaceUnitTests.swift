@@ -211,6 +211,33 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
     }
 }
 
+final class StoredShortcutRecordingTests: XCTestCase {
+    func testStoredShortcutFromEventUsesANSINumberRowDigitsOnLocalizedLayouts() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "ľ",
+            charactersIgnoringModifiers: "ľ",
+            isARepeat: false,
+            keyCode: 19 // kVK_ANSI_2
+        ) else {
+            XCTFail("Failed to construct localized ANSI 2 event")
+            return
+        }
+
+        let shortcut = StoredShortcut.from(event: event)
+        XCTAssertEqual(shortcut?.key, "2")
+        XCTAssertEqual(shortcut?.command, true)
+        XCTAssertEqual(shortcut?.shift, false)
+        XCTAssertEqual(shortcut?.option, false)
+        XCTAssertEqual(shortcut?.control, false)
+    }
+}
+
 
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
