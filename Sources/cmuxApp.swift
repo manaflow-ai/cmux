@@ -2887,6 +2887,7 @@ private struct SidebarDebugView: View {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
 
     private var selectedSidebarIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
@@ -2896,6 +2897,21 @@ private struct SidebarDebugView: View {
         Binding(
             get: { selectedSidebarIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var selectionColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return cmuxAccentColor()
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarSelectionColorHex = nsColor.hexString()
+            }
         )
     }
 
@@ -3006,6 +3022,15 @@ private struct SidebarDebugView: View {
                                 Text(style.displayName).tag(style.rawValue)
                             }
                         }
+
+                        ColorPicker("Selection Color", selection: selectionColorBinding, supportsOpacity: false)
+
+                        if sidebarSelectionColorHex != nil {
+                            Button("Reset to Default") {
+                                sidebarSelectionColorHex = nil
+                            }
+                            .font(.caption)
+                        }
                     }
                     .padding(.top, 2)
                 }
@@ -3041,6 +3066,7 @@ private struct SidebarDebugView: View {
                     }
                     Button("Reset Active Indicator") {
                         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+                        sidebarSelectionColorHex = nil
                     }
                 }
 
@@ -3828,6 +3854,7 @@ struct SettingsView: View {
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+    @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -3934,6 +3961,21 @@ struct SettingsView: View {
         Binding(
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
+        )
+    }
+
+    private var selectionColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = sidebarSelectionColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return cmuxAccentColor()
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                sidebarSelectionColorHex = nsColor.hexString()
+            }
         )
     }
 
@@ -4777,6 +4819,28 @@ struct SettingsView: View {
                         ) {
                             ForEach(SidebarActiveTabIndicatorStyle.allCases) { style in
                                 Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"),
+                            subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar.")
+                        ) {
+                            HStack(spacing: 8) {
+                                ColorPicker(
+                                    "",
+                                    selection: selectionColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(sidebarSelectionColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
                             }
                         }
 

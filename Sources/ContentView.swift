@@ -113,7 +113,11 @@ enum SidebarRemoteErrorCopySupport {
 }
 
 func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> NSColor {
-    cmuxAccentNSColor(for: colorScheme)
+    if let hex = UserDefaults.standard.string(forKey: "sidebarSelectionColorHex"),
+       let parsed = NSColor(hex: hex) {
+        return parsed
+    }
+    return cmuxAccentNSColor(for: colorScheme)
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
