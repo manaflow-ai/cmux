@@ -1179,17 +1179,7 @@ class TabManager: ObservableObject {
                 ?? existing.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
                 ?? existing.panels.values.first?.id
             if let panelId {
-                let isBrowserSource = existing.panels[panelId] is BrowserPanel
                 let newPanel = existing.newTerminalSplit(from: panelId, orientation: .horizontal)
-                // When splitting from a non-terminal panel (e.g. browser-only workspace),
-                // newTerminalSplit's reparent-focus suppression doesn't apply because
-                // focusedTerminalPanel is nil. Re-establish focus on the next run loop pass
-                // so it lands after SwiftUI layout completes.
-                if isBrowserSource, let newPanel {
-                    DispatchQueue.main.async {
-                        existing.focusPanel(newPanel.id)
-                    }
-                }
 #if DEBUG
                 if newPanel == nil {
                     dlog("sidebar.folderDrop.splitFailed panelId=\(panelId.uuidString.prefix(5))")
