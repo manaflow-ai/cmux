@@ -1133,6 +1133,47 @@ class TabManager: ObservableObject {
         return newWorkspace
     }
 
+    /// Handles a folder drag-and-drop onto the sidebar or non-terminal window area.
+    ///
+    /// - If an existing workspace has the same working directory, selects it and adds a new terminal split.
+    /// - Otherwise, creates a new workspace rooted at the dropped folder.
+    ///
+    /// Only the first directory URL is acted upon; non-directory URLs are ignored.
+    @discardableResult
+    func handleSidebarFolderDrop(_ urls: [URL]) -> Bool {
+        let folderURLs = urls.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        }
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: folderURLs.filter { $0.isFileURL }
+        )
+        guard let path = directories.first else { return false }
+
+#if DEBUG
+        dlog("sidebar.folderDrop path=\(path) tabCount=\(tabs.count)")
+#endif
+
+        if let existing = tabs.first(where: {
+            $0.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) == path
+        }) {
+            selectedTabId = existing.id
+            let panelId = existing.focusedPanelId
+                ?? existing.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
+            if let panelId {
+                existing.newTerminalSplit(from: panelId, orientation: .horizontal)
+            }
+#if DEBUG
+            dlog("sidebar.folderDrop.existing workspaceId=\(existing.id.uuidString.prefix(5))")
+#endif
+        } else {
+            addWorkspace(workingDirectory: path, select: true)
+#if DEBUG
+            dlog("sidebar.folderDrop.new path=\(path)")
+#endif
+        }
+        return true
+    }
+
     @MainActor
     private func sendWelcomeWhenReady(to workspace: Workspace) {
         if let terminalPanel = workspace.focusedTerminalPanel,

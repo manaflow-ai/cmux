@@ -657,7 +657,15 @@ final class FileDropOverlayView: NSView {
         if let webView {
             return webView.performDragOperation(sender)
         }
-        guard let terminal else { return false }
+        guard let terminal else {
+            // No terminal under the drop point — delegate to the folder drop handler
+            // (e.g. sidebar or non-terminal window area).
+            let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
+            return onDrop?(urls) ?? false
+        }
         return terminal.performDragOperation(sender)
     }
 
@@ -694,7 +702,7 @@ final class FileDropOverlayView: NSView {
             hasTerminalTarget: hasTerminalTarget
         )
 #endif
-        guard shouldCapture, hasTerminalTarget else { return [] }
+        guard shouldCapture else { return [] }
         return .copy
     }
 
@@ -1363,9 +1371,9 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     let overlay = FileDropOverlayView(frame: contentView.frame)
     overlay.translatesAutoresizingMaskIntoConstraints = false
     overlay.onDrop = { [weak tabManager] urls in
-        MainActor.assumeIsolated {
-            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
-            return terminal.hostedView.handleDroppedURLs(urls)
+        guard let tabManager else { return false }
+        return MainActor.assumeIsolated {
+            tabManager.handleSidebarFolderDrop(urls)
         }
     }
 
