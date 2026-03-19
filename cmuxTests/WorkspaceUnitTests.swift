@@ -1682,6 +1682,53 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testRemoteSidebarDirectoryCanonicalizationDedupesTildeAndAbsoluteHomePaths() {
+        let workspace = Workspace()
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64007,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        let liveDirectory = "/home/remoteuser/project"
+        let requestedDirectory = "~/project"
+
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let requestedPanel = workspace.newTerminalSurface(
+                  inPane: paneId,
+                  focus: false,
+                  workingDirectory: requestedDirectory
+              ) else {
+            XCTFail("Expected remote panels for sidebar directory canonicalization test")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: liveDirectory)
+
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        XCTAssertEqual(orderedPanelIds, [firstPanelId, requestedPanel.id])
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+            [liveDirectory]
+        )
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.directory),
+            [liveDirectory]
+        )
+    }
+
     func testSidebarDerivedCollectionsMatchWhenUsingPrecomputedPanelOrder() {
         let workspace = Workspace()
         guard let leftFirstPanelId = workspace.focusedPanelId,
