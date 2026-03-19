@@ -30,6 +30,14 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
         XCTAssertTrue(view.acceptsFirstMouse(for: nil))
     }
 
+    func testTerminalViewRejectsFirstMouseWhenSettingDisabled() {
+        UserDefaults.standard.set(false, forKey: settingsKey)
+
+        let view = GhosttyNSView(frame: .zero)
+
+        XCTAssertFalse(view.acceptsFirstMouse(for: nil))
+    }
+
     func testBrowserViewAcceptsFirstMouseWhenSettingEnabled() {
         UserDefaults.standard.set(true, forKey: settingsKey)
 
@@ -38,11 +46,27 @@ final class InactivePaneFirstClickFocusTests: XCTestCase {
         XCTAssertTrue(view.acceptsFirstMouse(for: nil))
     }
 
+    func testBrowserViewRejectsFirstMouseWhenSettingDisabled() {
+        UserDefaults.standard.set(false, forKey: settingsKey)
+
+        let view = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        XCTAssertFalse(view.acceptsFirstMouse(for: nil))
+    }
+
     func testMarkdownPointerObserverAcceptsFirstMouseWhenSettingEnabled() {
         UserDefaults.standard.set(true, forKey: settingsKey)
 
         let view = MarkdownPanelPointerObserverView(frame: .zero)
 
         XCTAssertTrue(view.acceptsFirstMouse(for: nil))
+    }
+
+    func testMarkdownPointerObserverRejectsFirstMouseWhenSettingDisabled() {
+        UserDefaults.standard.set(false, forKey: settingsKey)
+
+        let view = MarkdownPanelPointerObserverView(frame: .zero)
+
+        XCTAssertFalse(view.acceptsFirstMouse(for: nil))
     }
 }

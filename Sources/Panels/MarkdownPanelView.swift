@@ -380,8 +380,18 @@ final class MarkdownPanelPointerObserverView: NSView {
     }
 
     private func forwardedTarget(for event: NSEvent) -> NSView? {
-        guard let window,
-              let contentView = window.contentView else { return nil }
+        guard let window else {
+#if DEBUG
+            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=0 contentView=0")
+#endif
+            return nil
+        }
+        guard let contentView = window.contentView else {
+#if DEBUG
+            NSLog("MarkdownPanelPointerObserverView.forwardedTarget skipped, window=1 contentView=0")
+#endif
+            return nil
+        }
         isHidden = true
         defer { isHidden = false }
         let point = contentView.convert(event.locationInWindow, from: nil)
