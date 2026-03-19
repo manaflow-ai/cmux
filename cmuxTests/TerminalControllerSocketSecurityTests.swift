@@ -150,9 +150,9 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
     func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
-        let manager = TabManager()
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = appDelegate.tabManager ?? TabManager()
 
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
@@ -162,15 +162,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
 
+        let workspace = manager.addWorkspace(select: true)
         defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
         }
 
-        guard let workspace = manager.selectedWorkspace,
-              let focusedPanelId = workspace.focusedPanelId else {
+        guard let focusedPanelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with a focused panel")
             return
         }
@@ -206,7 +209,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             }
         }
 
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
         XCTAssertEqual(result["surface_id"] as? String, targetPanel.id.uuidString)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: targetPanel.id))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
