@@ -676,13 +676,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
-    func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() throws {
-        // Closing the last Ghostty surface tears down the PTY/shell process, which
-        // blocks indefinitely on headless CI runners. Run via E2E instead.
-        if ProcessInfo.processInfo.environment["CI"] != nil {
-            throw XCTSkip("Skipped on CI: last-surface close blocks on headless shell teardown")
-        }
-
+    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
+    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
+    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
+    // so XCTSkip can't detect CI from inside the test.
+    func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
