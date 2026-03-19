@@ -8756,6 +8756,8 @@ extension GhosttyNSView: NSTextInputClient {
         default:
             break
         }
+        // selectedRange.location is the cursor position between characters.
+        // The renderer draws a bar cursor at the LEFT edge of this codepoint index.
         markedTextCursorOffset = selectedRange.location
 
         // If we're not in a keyDown event, sync preedit immediately.
@@ -8809,8 +8811,13 @@ extension GhosttyNSView: NSTextInputClient {
             let len = str.utf8CString.count
             if len > 0 {
                 str.withCString { ptr in
-                    // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(target, ptr, UInt(len - 1))
+                    // Subtract 1 for the null terminator.
+                    // Pass cursor offset so the renderer draws a double
+                    // underline at the IME cursor position.
+                    ghostty_surface_preedit_with_cursor(
+                        target, ptr, UInt(len - 1),
+                        UInt(markedTextCursorOffset)
+                    )
                 }
             }
         } else if clearIfNeeded {
