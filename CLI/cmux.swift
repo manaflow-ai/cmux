@@ -1945,6 +1945,27 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
+        case "set-workspace-color":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let colorArgs = rem0.dropFirst(rem0.first == "--" ? 1 : 0)
+            let color = colorArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !color.isEmpty else {
+                throw CLIError(message: "set-workspace-color requires a hex color (e.g. \"#C0392B\")")
+            }
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let params: [String: Any] = ["workspace_id": wsId, "color": color]
+            let payload = try client.sendV2(method: "workspace.set_color", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "clear-workspace-color":
+            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let params: [String: Any] = ["workspace_id": wsId]
+            let payload = try client.sendV2(method: "workspace.clear_color", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
         case "current-workspace":
             let response = try sendV1Command("current_workspace", client: client)
             if jsonOutput {
@@ -6453,6 +6474,32 @@ struct CMUXCLI {
             Example:
               cmux rename-workspace "backend logs"
               cmux rename-window --workspace workspace:2 "agent run"
+            """
+        case "set-workspace-color":
+            return """
+            Usage: cmux set-workspace-color [--workspace <id|ref|index>] <hex>
+
+            Set the tab color for a workspace. Defaults to the current workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to color (default: current/$CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-workspace-color "#C0392B"
+              cmux set-workspace-color --workspace workspace:2 "#2D1B69"
+            """
+        case "clear-workspace-color":
+            return """
+            Usage: cmux clear-workspace-color [--workspace <id|ref|index>]
+
+            Remove the custom tab color from a workspace.
+
+            Flags:
+              --workspace <id|ref|index>   Workspace to clear color from (default: current/$CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux clear-workspace-color
+              cmux clear-workspace-color --workspace workspace:2
             """
         case "current-workspace":
             return """
@@ -11066,6 +11113,8 @@ struct CMUXCLI {
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
           rename-window [--workspace <id|ref>] <title>
+          set-workspace-color [--workspace <id|ref>] <hex>
+          clear-workspace-color [--workspace <id|ref>]
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>

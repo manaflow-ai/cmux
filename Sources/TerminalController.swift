@@ -2065,6 +2065,10 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceReorder(params: params))
         case "workspace.rename":
             return v2Result(id: id, self.v2WorkspaceRename(params: params))
+        case "workspace.set_color":
+            return v2Result(id: id, self.v2WorkspaceSetColor(params: params))
+        case "workspace.clear_color":
+            return v2Result(id: id, self.v2WorkspaceClearColor(params: params))
         case "workspace.action":
             return v2Result(id: id, self.v2WorkspaceAction(params: params))
         case "workspace.next":
@@ -2441,6 +2445,8 @@ class TerminalController {
             "workspace.move_to_window",
             "workspace.reorder",
             "workspace.rename",
+            "workspace.set_color",
+            "workspace.clear_color",
             "workspace.action",
             "workspace.next",
             "workspace.previous",
@@ -3575,6 +3581,74 @@ class TerminalController {
             "title": title
         ])
     }
+    private func v2WorkspaceSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let colorRaw = v2String(params, "color"),
+              !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
+        }
+
+        let color = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var applied = false
+        v2MainSync {
+            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            tabManager.setTabColor(tabId: workspaceId, color: color)
+            applied = true
+        }
+
+        guard applied else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+            ])
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "color": color
+        ])
+    }
+
+    private func v2WorkspaceClearColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+
+        var cleared = false
+        v2MainSync {
+            guard tabManager.tabs.contains(where: { $0.id == workspaceId }) else { return }
+            tabManager.setTabColor(tabId: workspaceId, color: nil)
+            cleared = true
+        }
+
+        guard cleared else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+            ])
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+        ])
+    }
+
     private func v2WorkspaceNext(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
