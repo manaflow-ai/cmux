@@ -123,6 +123,12 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
+		AA3001000000000000000001 /* Writer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3001000000000000000011 /* Writer.swift */; };
+		AA3002000000000000000002 /* T3CodeSidecarManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3002000000000000000012 /* T3CodeSidecarManager.swift */; };
+		AA3003000000000000000003 /* WriterSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3003000000000000000013 /* WriterSidebarView.swift */; };
+		AA3004000000000000000004 /* ChatPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3004000000000000000014 /* ChatPanel.swift */; };
+		AA3005000000000000000005 /* ChatPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3005000000000000000015 /* ChatPanelView.swift */; };
+		AA3006000000000000000006 /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA3006000000000000000016 /* Project.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -292,6 +298,12 @@
 				EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		AA3001000000000000000011 /* Writer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Writer.swift; sourceTree = "<group>"; };
+		AA3002000000000000000012 /* T3CodeSidecarManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = T3CodeSidecarManager.swift; sourceTree = "<group>"; };
+		AA3003000000000000000013 /* WriterSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WriterSidebarView.swift; sourceTree = "<group>"; };
+		AA3004000000000000000014 /* ChatPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChatPanel.swift; sourceTree = "<group>"; };
+		AA3005000000000000000015 /* ChatPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ChatPanelView.swift; sourceTree = "<group>"; };
+		AA3006000000000000000016 /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -458,6 +470,12 @@
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
+				AA3001000000000000000011 /* Writer.swift */,
+				AA3002000000000000000012 /* T3CodeSidecarManager.swift */,
+				AA3003000000000000000013 /* WriterSidebarView.swift */,
+				AA3004000000000000000014 /* ChatPanel.swift */,
+				AA3005000000000000000015 /* ChatPanelView.swift */,
+				AA3006000000000000000016 /* Project.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -753,6 +771,12 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
+				AA3001000000000000000001 /* Writer.swift in Sources */,
+				AA3002000000000000000002 /* T3CodeSidecarManager.swift in Sources */,
+				AA3003000000000000000003 /* WriterSidebarView.swift in Sources */,
+				AA3004000000000000000004 /* ChatPanel.swift in Sources */,
+				AA3005000000000000000005 /* ChatPanelView.swift in Sources */,
+				AA3006000000000000000006 /* Project.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

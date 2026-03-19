@@ -2444,7 +2444,20 @@ struct ContentView: View {
                 )
             },
             onNewTab: { tabManager.addTab() },
-            visibilityMode: .alwaysVisible
+            visibilityMode: .alwaysVisible,
+            onNewProject: { [weak tabManager] in
+                guard let tabManager else { return }
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.prompt = String(localized: "fullscreen.newProject.panelPrompt", defaultValue: "Choose Project Directory")
+                panel.message = String(localized: "fullscreen.newProject.panelMessage", defaultValue: "Select the root directory for your project")
+                if panel.runModal() == .OK, let url = panel.url {
+                    let projectName = url.lastPathComponent
+                    tabManager.addProject(name: projectName, directory: url.path)
+                }
+            }
         )
     }
 
@@ -4994,6 +5007,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .chat:
+            return String(localized: "commandPalette.kind.chat", defaultValue: "Chat")
         }
     }
 
@@ -5005,6 +5020,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .chat:
+            return ["chat", "ai", "agent", "t3code"]
         }
     }
 
@@ -5296,6 +5313,14 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
                 keywords: ["create", "new", "window"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newProject",
+                title: constant(String(localized: "command.newProject.title", defaultValue: "New Project…")),
+                subtitle: constant(String(localized: "command.newProject.subtitle", defaultValue: "Project")),
+                keywords: ["create", "new", "project", "folder", "directory"]
             )
         )
         contributions.append(
@@ -5966,6 +5991,21 @@ struct ContentView: View {
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newWorkspace") {
             tabManager.addWorkspace()
+        }
+        registry.register(commandId: "palette.newProject") {
+            // Defer so the command palette dismisses before the modal sheet appears.
+            DispatchQueue.main.async {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.prompt = String(localized: "panel.newProject.prompt", defaultValue: "Choose Project Directory")
+                panel.message = String(localized: "panel.newProject.message", defaultValue: "Select the root directory for your project")
+                if panel.runModal() == .OK, let url = panel.url {
+                    let projectName = url.lastPathComponent
+                    tabManager.addProject(name: projectName, directory: url.path)
+                }
+            }
         }
         registry.register(commandId: "palette.openFolder") {
             // Defer so the command palette dismisses before the modal sheet appears.
@@ -8481,50 +8521,60 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
+                            // Project sections — each project is a collapsible
+                            // group containing its task-workspaces.
+                            ForEach(tabManager.projects) { project in
+                                SidebarProjectSection(project: project)
+                            }
+
+                            // Standalone workspaces not owned by any project
+                            // are shown below projects as regular TabItemViews.
+                            let ownedIds = tabManager.projectOwnedWorkspaceIds
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
-                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                                if !ownedIds.contains(tab.id) {
+                                    let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
+                                    let contextTargetIds = tabManager.tabs.compactMap { workspace in
+                                        selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                                    }
+                                    let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
+                                        contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
+                                    }
+                                    TabItemView(
+                                        tabManager: tabManager,
+                                        notificationStore: notificationStore,
+                                        tab: tab,
+                                        index: index,
+                                        isActive: tabManager.selectedTabId == tab.id,
+                                        workspaceShortcutDigit: WorkspaceShortcutMapper.commandDigitForWorkspace(
+                                            at: index,
+                                            workspaceCount: workspaceCount
+                                        ),
+                                        canCloseWorkspace: canCloseWorkspace,
+                                        accessibilityWorkspaceCount: workspaceCount,
+                                        unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                                        latestNotificationText: {
+                                            guard showsSidebarNotificationMessage,
+                                                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                                                return nil
+                                            }
+                                            let text = notification.body.isEmpty ? notification.title : notification.body
+                                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                            return trimmed.isEmpty ? nil : trimmed
+                                        }(),
+                                        rowSpacing: tabRowSpacing,
+                                        setSelectionToTabs: { selection = .tabs },
+                                        selectedTabIds: $selectedTabIds,
+                                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                        showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                        dragAutoScrollController: dragAutoScrollController,
+                                        draggedTabId: $draggedTabId,
+                                        dropIndicator: $dropIndicator,
+                                        remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
+                                        allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
+                                        allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+                                    )
+                                    .equatable()
                                 }
-                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
-                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
-                                }
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
-                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
-                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-                                )
-                                .equatable()
                             }
                         }
                         .padding(.vertical, 8)
@@ -10755,36 +10805,88 @@ private struct SidebarEmptyArea: View {
     @Binding var dropIndicator: SidebarDropIndicator?
 
     var body: some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onTapGesture(count: 2) {
-                tabManager.addWorkspace(placementOverride: .end)
-                if let selectedId = tabManager.selectedTabId {
-                    selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        ZStack {
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onTapGesture(count: 2) {
+                    tabManager.addWorkspace(placementOverride: .end)
+                    if let selectedId = tabManager.selectedTabId {
+                        selectedTabIds = [selectedId]
+                        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                    }
+                    selection = .tabs
                 }
-                selection = .tabs
-            }
-            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
-                targetTabId: nil,
-                tabManager: tabManager,
-                draggedTabId: $draggedTabId,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                targetRowHeight: nil,
-                dragAutoScrollController: dragAutoScrollController,
-                dropIndicator: $dropIndicator
-            ))
-            .overlay(alignment: .top) {
-                if shouldShowTopDropIndicator {
-                    Rectangle()
-                        .fill(cmuxAccentColor())
-                        .frame(height: 2)
-                        .padding(.horizontal, 8)
-                        .offset(y: -(rowSpacing / 2))
+                .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarTabDropDelegate(
+                    targetTabId: nil,
+                    tabManager: tabManager,
+                    draggedTabId: $draggedTabId,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                    targetRowHeight: nil,
+                    dragAutoScrollController: dragAutoScrollController,
+                    dropIndicator: $dropIndicator
+                ))
+                .overlay(alignment: .top) {
+                    if shouldShowTopDropIndicator {
+                        Rectangle()
+                            .fill(cmuxAccentColor())
+                            .frame(height: 2)
+                            .padding(.horizontal, 8)
+                            .offset(y: -(rowSpacing / 2))
+                    }
                 }
+                .contextMenu {
+                    Button(String(localized: "sidebar.contextMenu.newWorkspace", defaultValue: "New Workspace")) {
+                        tabManager.addWorkspace(placementOverride: .end)
+                        if let selectedId = tabManager.selectedTabId {
+                            selectedTabIds = [selectedId]
+                            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+                        }
+                        selection = .tabs
+                    }
+                    Button(String(localized: "sidebar.contextMenu.newProject", defaultValue: "New Project…")) {
+                        showNewProjectDialog()
+                    }
+                }
+
+            // Prominent "Create a Project" prompt when there are no projects
+            if tabManager.projects.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 24))
+                        .foregroundColor(.secondary.opacity(0.5))
+                    Text(String(localized: "sidebar.emptyState.title", defaultValue: "No projects yet"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                    Button(action: {
+                        showNewProjectDialog()
+                    }) {
+                        Text(String(localized: "sidebar.emptyState.createButton", defaultValue: "Create a Project"))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                }
+                .padding(.top, 20)
+                .allowsHitTesting(true)
             }
+        }
+    }
+
+    private func showNewProjectDialog() {
+        DispatchQueue.main.async {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = String(localized: "sidebar.newProject.panelPrompt", defaultValue: "Choose Project Directory")
+            panel.message = String(localized: "sidebar.newProject.panelMessage", defaultValue: "Select the root directory for your project")
+            if panel.runModal() == .OK, let url = panel.url {
+                let projectName = url.lastPathComponent
+                tabManager.addProject(name: projectName, directory: url.path)
+            }
+        }
     }
 
     private var shouldShowTopDropIndicator: Bool {
@@ -11853,6 +11955,7 @@ private struct TabItemView: View, Equatable {
 
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
+
         if wasSelected, !isCommand, !isShift {
             tabManager.dismissNotificationOnDirectInteraction(
                 tabId: tab.id,

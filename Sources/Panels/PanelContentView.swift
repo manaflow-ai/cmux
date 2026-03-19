@@ -55,6 +55,17 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .chat:
+            if let chatPanel = panel as? ChatPanel {
+                ChatPanelView(
+                    panel: chatPanel,
+                    paneId: paneId,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 }

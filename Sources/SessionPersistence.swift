@@ -240,6 +240,15 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+/// Snapshot of a single writer (task/topic) within a workspace.
+struct SessionWriterSnapshot: Codable, Sendable {
+    let id: UUID
+    var name: String
+    var t3codeThreadId: String?
+    var chatPanelId: UUID?
+    var layout: SessionWorkspaceLayoutSnapshot?
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -251,6 +260,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
     var listeningPorts: [Int]
     var ttyName: String?
+    var t3codeThreadId: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
@@ -328,6 +338,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    var id: UUID?
     var processTitle: String
     var customTitle: String?
     var customColor: String?
@@ -340,11 +351,22 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    var writers: [SessionWriterSnapshot]?
+    var activeWriterId: UUID?
+}
+
+struct SessionProjectSnapshot: Codable, Sendable {
+    var id: UUID
+    var name: String
+    var directory: String
+    var workspaceIds: [UUID]
+    var isExpanded: Bool
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var projects: [SessionProjectSnapshot]?
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

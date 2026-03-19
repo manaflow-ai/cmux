@@ -236,7 +236,22 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
 
+        let writerSnapshots: [SessionWriterSnapshot] = writers.map { writer in
+            let panelThreadId = writer.chatPanelId
+                .flatMap { panels[$0] as? ChatPanel }
+                .flatMap { ChatPanel.normalizedThreadId($0.t3codeThreadId) }
+            let writerThreadId = ChatPanel.normalizedThreadId(writer.t3codeThreadId)
+            return SessionWriterSnapshot(
+                id: writer.id,
+                name: writer.name,
+                t3codeThreadId: panelThreadId ?? writerThreadId,
+                chatPanelId: writer.chatPanelId,
+                layout: nil
+            )
+        }
+
         return SessionWorkspaceSnapshot(
+            id: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customColor: customColor,
@@ -248,7 +263,9 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            writers: writerSnapshots.isEmpty ? nil : writerSnapshots,
+            activeWriterId: activeWriterId
         )
     }
 
@@ -307,6 +324,32 @@ extension Workspace {
             focusPanel(fallbackFocusedPanelId)
         } else {
             scheduleFocusReconcile()
+        }
+
+        // Restore writers
+        if let writerSnapshots = snapshot.writers {
+            self.writers = writerSnapshots.map { ws in
+                // Remap chatPanelId through the old-to-new panel ID mapping
+                let remappedChatPanelId = ws.chatPanelId.flatMap { oldToNewPanelIds[$0] }
+                let panelThreadId = remappedChatPanelId
+                    .flatMap { panels[$0] as? ChatPanel }
+                    .flatMap { ChatPanel.normalizedThreadId($0.t3codeThreadId) }
+                let restoredThreadId = panelThreadId ?? ChatPanel.normalizedThreadId(ws.t3codeThreadId)
+                return Writer(
+                    id: ws.id,
+                    name: ws.name,
+                    t3codeThreadId: restoredThreadId,
+                    chatPanelId: remappedChatPanelId
+                )
+            }
+            self.activeWriterId = snapshot.activeWriterId ?? writerSnapshots.first?.id
+            self.isWritersExpanded = true
+        } else {
+            // Legacy terminal-first workspaces may not have any writers.
+            // Preserve that state rather than retrofitting a chat task on restore.
+            self.writers = []
+            self.activeWriterId = nil
+            self.isWritersExpanded = false
         }
     }
 
@@ -385,6 +428,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let chatThreadSnapshot: String?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -408,6 +452,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            chatThreadSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -422,11 +467,19 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            chatThreadSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            chatThreadSnapshot = nil
+        case .chat:
+            guard let chatPanel = panel as? ChatPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            chatThreadSnapshot = ChatPanel.normalizedThreadId(chatPanel.t3codeThreadId)
         }
 
         return SessionPanelSnapshot(
@@ -440,6 +493,7 @@ extension Workspace {
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
+            t3codeThreadId: chatThreadSnapshot,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: markdownSnapshot
@@ -618,6 +672,16 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .chat:
+            guard let chatPanel = newChatSurface(
+                inPane: paneId,
+                threadId: ChatPanel.normalizedThreadId(snapshot.t3codeThreadId),
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: chatPanel.id)
+            return chatPanel.id
         }
     }
 
@@ -5153,6 +5217,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
 
+    /// The t3code sidecar manager for this workspace. Set by AppDelegate.
+    var t3codeSidecarManager: T3CodeSidecarManager?
+
     /// Mapping from bonsplit TabID to our Panel instances
     @Published private(set) var panels: [UUID: any Panel] = [:]
 
@@ -5262,6 +5329,17 @@ final class Workspace: Identifiable, ObservableObject {
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
+    // MARK: - Writer Management Properties
+
+    /// All writers in this workspace.
+    @Published var writers: [Writer] = []
+
+    /// The currently active writer.
+    @Published var activeWriterId: UUID?
+
+    /// Whether the writer list is expanded in the sidebar.
+    @Published var isWritersExpanded: Bool = true
+
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()
         return lowered.contains("remote proxy")
@@ -5293,6 +5371,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let chat = "chat"
     }
 
     enum PanelShellActivityState: String {
@@ -5401,12 +5480,14 @@ final class Workspace: Identifiable, ObservableObject {
     init(
         title: String = "Terminal",
         workingDirectory: String? = nil,
+        workspaceId: UUID? = nil,
         portOrdinal: Int = 0,
         configTemplate: ghostty_surface_config_s? = nil,
         initialTerminalCommand: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:]
+        initialTerminalEnvironment: [String: String] = [:],
+        skipInitialTerminal: Bool = false
     ) {
-        self.id = UUID()
+        self.id = workspaceId ?? UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title
@@ -5443,32 +5524,35 @@ final class Workspace: Identifiable, ObservableObject {
         // Remove the default "Welcome" tab that bonsplit creates
         let welcomeTabIds = bonsplitController.allTabIds
 
-        // Create initial terminal panel
-        let terminalPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_TAB,
-            configTemplate: configTemplate,
-            workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
-            portOrdinal: portOrdinal,
-            initialCommand: initialTerminalCommand,
-            initialEnvironmentOverrides: initialTerminalEnvironment
-        )
-        configureTerminalPanel(terminalPanel)
-        panels[terminalPanel.id] = terminalPanel
-        panelTitles[terminalPanel.id] = terminalPanel.displayTitle
-        seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
-
-        // Create initial tab in bonsplit and store the mapping
         var initialTabId: TabID?
-        if let tabId = bonsplitController.createTab(
-            title: title,
-            icon: "terminal.fill",
-            kind: SurfaceKind.terminal,
-            isDirty: false,
-            isPinned: false
-        ) {
-            surfaceIdToPanelId[tabId] = terminalPanel.id
-            initialTabId = tabId
+
+        if !skipInitialTerminal {
+            // Create initial terminal panel
+            let terminalPanel = TerminalPanel(
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_TAB,
+                configTemplate: configTemplate,
+                workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
+                portOrdinal: portOrdinal,
+                initialCommand: initialTerminalCommand,
+                initialEnvironmentOverrides: initialTerminalEnvironment
+            )
+            configureTerminalPanel(terminalPanel)
+            panels[terminalPanel.id] = terminalPanel
+            panelTitles[terminalPanel.id] = terminalPanel.displayTitle
+            seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
+
+            // Create initial tab in bonsplit and store the mapping
+            if let tabId = bonsplitController.createTab(
+                title: title,
+                icon: "terminal.fill",
+                kind: SurfaceKind.terminal,
+                isDirty: false,
+                isPinned: false
+            ) {
+                surfaceIdToPanelId[tabId] = terminalPanel.id
+                initialTabId = tabId
+            }
         }
 
         // Close the default Welcome tab(s)
@@ -5518,6 +5602,88 @@ final class Workspace: Identifiable, ObservableObject {
         guard configuration.appearance.splitButtonTooltips != tooltips else { return }
         configuration.appearance.splitButtonTooltips = tooltips
         bonsplitController.configuration = configuration
+    }
+
+    // MARK: - Writer Management
+
+    static func defaultDraftThreadId(for writerId: UUID) -> String {
+        writerId.uuidString.lowercased()
+    }
+
+    /// Create a new writer with a default name and a chat panel.
+    @discardableResult
+    func createWriter(name: String? = nil) -> Writer {
+        let writerName = name ?? "New task \(writers.count + 1)"
+        let writer = Writer(name: writerName)
+        writer.t3codeThreadId = Self.defaultDraftThreadId(for: writer.id)
+        writers.append(writer)
+        activeWriterId = writer.id
+
+        // Create a chat panel for this writer
+        if let rootPaneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first {
+            if let chatPanel = newChatSurface(
+                inPane: rootPaneId,
+                threadId: writer.t3codeThreadId,
+                serverPort: t3codeSidecarManager?.port
+            ) {
+                writer.chatPanelId = chatPanel.id
+            }
+        }
+
+        return writer
+    }
+
+    /// Select a writer and focus its chat panel.
+    func selectWriter(_ writerId: UUID) {
+        activeWriterId = writerId
+        if let writer = writers.first(where: { $0.id == writerId }),
+           let chatPanelId = writer.chatPanelId,
+           let tabId = surfaceIdFromPanelId(chatPanelId) {
+            bonsplitController.selectTab(tabId)
+        }
+    }
+
+    /// Delete a writer and clean up its resources.
+    func deleteWriter(_ writer: Writer) {
+        // Close the writer's chat panel before removing
+        if let chatPanelId = writer.chatPanelId {
+            _ = closePanel(chatPanelId, force: true)
+        }
+
+        writers.removeAll { $0.id == writer.id }
+        if activeWriterId == writer.id {
+            activeWriterId = writers.first?.id
+            // Focus the new active writer's chat panel
+            if let newActiveId = activeWriterId {
+                selectWriter(newActiveId)
+            }
+        }
+    }
+
+    /// Rename a writer.
+    func renameWriter(_ writer: Writer, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        writer.name = trimmed
+
+        // Project tasks currently model a single writer per workspace.
+        // Keep the workspace title path in sync so sidebar rows, workspace tabs,
+        // and restored task names all stay aligned.
+        if writers.count == 1, writers.first?.id == writer.id {
+            setCustomTitle(trimmed)
+        }
+    }
+
+    func updateWriterThreadId(_ threadId: String?, forChatPanelId chatPanelId: UUID) {
+        guard let writer = writers.first(where: { $0.chatPanelId == chatPanelId }) else { return }
+        let normalizedThreadId = ChatPanel.normalizedThreadId(threadId)
+        guard writer.t3codeThreadId != normalizedThreadId else { return }
+        writer.t3codeThreadId = normalizedThreadId
+    }
+
+    /// Move a writer from one index to another (reorder).
+    func moveWriter(from source: IndexSet, to destination: Int) {
+        writers.move(fromOffsets: source, toOffset: destination)
     }
 
     // MARK: - Surface ID to Panel ID Mapping
@@ -5773,6 +5939,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .chat:
+            return SurfaceKind.chat
         }
     }
 
@@ -6010,6 +6178,17 @@ final class Workspace: Identifiable, ObservableObject {
 
     static func shouldShowUnreadIndicator(hasUnreadNotification: Bool, isManuallyUnread: Bool) -> Bool {
         hasUnreadNotification || isManuallyUnread
+    }
+
+    // MARK: - T3Code Sidecar
+
+    /// Called when the t3code sidecar becomes ready. Updates all chat panels with the port.
+    func notifyChatPanelsOfPort(_ port: Int) {
+        for (_, panel) in panels {
+            if let chatPanel = panel as? ChatPanel {
+                chatPanel.loadT3CodeUI(port: port)
+            }
+        }
     }
 
     // MARK: - Title Management
@@ -7451,6 +7630,54 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    func newChatSurface(
+        inPane paneId: PaneID,
+        threadId: String? = nil,
+        serverPort: Int? = nil,
+        focus: Bool? = nil
+    ) -> ChatPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let chatPanel = ChatPanel(workspaceId: id, threadId: threadId, serverPort: serverPort)
+        chatPanel.onThreadIdChange = { [weak self, panelId = chatPanel.id] nextThreadId in
+            self?.updateWriterThreadId(nextThreadId, forChatPanelId: panelId)
+        }
+        panels[chatPanel.id] = chatPanel
+        panelTitles[chatPanel.id] = chatPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: chatPanel.displayTitle,
+            icon: chatPanel.displayIcon,
+            kind: SurfaceKind.chat,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: chatPanel.id)
+            panelTitles.removeValue(forKey: chatPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = chatPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            chatPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: chatPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        return chatPanel
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
@@ -9739,6 +9966,15 @@ extension Workspace: BonsplitDelegate {
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            NSSound.beep()
+            return false
+        }
+
+        // Chat panels can't be closed directly — delete the writer instead.
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let panel = panels[panelId],
+           panel.panelType == .chat {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             NSSound.beep()
             return false

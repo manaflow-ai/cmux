@@ -2130,6 +2130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    /// Active t3code sidecar managers, keyed by workspace ID.
+    private var sidecarManagers: [UUID: T3CodeSidecarManager] = [:]
+
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
     private var startupSessionSnapshot: AppSessionSnapshot?
@@ -2651,6 +2654,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
+
+        // Shut down all t3code sidecars
+        for (_, manager) in sidecarManagers {
+            manager.shutdown()
+        }
+        sidecarManagers.removeAll()
+
         TerminalController.shared.stop()
         VSCodeServeWebController.shared.stop()
         BrowserProfileStore.shared.flushPendingSaves()
@@ -2915,6 +2925,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         context.tabManager.restoreSessionSnapshot(snapshot.tabManager)
+
+        // Start t3code sidecars for all restored workspaces in this window.
+        for workspace in context.tabManager.tabs {
+            startSidecar(for: workspace)
+        }
+
         context.sidebarState.isVisible = snapshot.sidebar.isVisible
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
@@ -4331,6 +4347,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             select: shouldBringToFront
         )
         return workspace.id
+    }
+
+    /// Start a t3code sidecar for the given workspace. Called from TabManager.addTask and session restore.
+    func startSidecarForWorkspace(_ workspace: Workspace) {
+        startSidecar(for: workspace)
+    }
+
+    /// Start a t3code sidecar for the given workspace.
+    private func startSidecar(for workspace: Workspace) {
+        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !directory.isEmpty else { return }
+        let directoryURL = URL(fileURLWithPath: directory)
+
+        let manager = T3CodeSidecarManager(projectDirectory: directoryURL)
+
+        manager.onReady = { [weak workspace] port in
+            workspace?.notifyChatPanelsOfPort(port)
+        }
+
+        manager.onCrash = { [weak self, weak workspace] in
+            guard let self = self, let workspace = workspace else { return }
+            self.sidecarManagers[workspace.id]?.restart()
+        }
+
+        sidecarManagers[workspace.id] = manager
+        workspace.t3codeSidecarManager = manager
+        manager.start()
     }
 
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {
@@ -5772,6 +5815,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
+
+            // Start t3code sidecars for all restored workspaces in this window.
+            for workspace in tabManager.tabs {
+                startSidecar(for: workspace)
+            }
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width

@@ -690,6 +690,8 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
+    /// Projects group workspaces (tasks) under a shared project directory.
+    @Published var projects: [Project] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -1060,7 +1062,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        skipInitialTerminal: Bool = false
     ) -> Workspace {
         // Snapshot current published state once so workspace creation doesn't repeatedly
         // bounce through Combine-backed accessors while we're preparing the new workspace.
@@ -1078,7 +1081,8 @@ class TabManager: ObservableObject {
             portOrdinal: ordinal,
             configTemplate: inheritedConfig,
             initialTerminalCommand: initialTerminalCommand,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            skipInitialTerminal: skipInitialTerminal
         )
         newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
@@ -1131,6 +1135,10 @@ class TabManager: ObservableObject {
                 sendWelcomeWhenReady(to: newWorkspace)
             }
         }
+
+        // NOTE: Writers (with chat panels) are only created for task workspaces
+        // via addTask(). Standalone workspaces remain pure terminals.
+
         return newWorkspace
     }
 
@@ -2225,6 +2233,10 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
+        // Remove from any project that owns this workspace.
+        for project in projects {
+            project.workspaceIds.removeAll { $0 == workspace.id }
+        }
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
@@ -2289,6 +2301,90 @@ class TabManager: ObservableObject {
     // Keep closeTab as convenience alias
     func closeTab(_ tab: Workspace) { closeWorkspace(tab) }
     func closeCurrentTabWithConfirmation() { closeCurrentWorkspaceWithConfirmation() }
+
+    // MARK: - Project / Task Management
+
+    /// Find the project that contains a given workspace.
+    func project(for workspaceId: UUID) -> Project? {
+        projects.first { $0.workspaceIds.contains(workspaceId) }
+    }
+
+    /// Create a new project with the given name and directory, then create its first task.
+    @discardableResult
+    func addProject(name: String, directory: String) -> Project {
+        let project = Project(name: name, directory: directory)
+        projects.append(project)
+        // Create the first task in the project
+        addTask(to: project, name: String(
+            localized: "project.firstTask.defaultName",
+            defaultValue: "Task 1"
+        ))
+        return project
+    }
+
+    /// Delete a project and close all its task workspaces.
+    func deleteProject(_ project: Project) {
+        // Close all task workspaces belonging to this project
+        let workspaceIdsToClose = project.workspaceIds
+        for wsId in workspaceIdsToClose {
+            if let workspace = tabs.first(where: { $0.id == wsId }) {
+                // Only close if there are other workspaces remaining
+                if tabs.count > 1 {
+                    closeWorkspace(workspace)
+                }
+            }
+        }
+        projects.removeAll { $0.id == project.id }
+    }
+
+    /// Create a new task (workspace) within a project.
+    /// The workspace starts with a chat panel only (no terminal).
+    @discardableResult
+    func addTask(to project: Project, name: String? = nil) -> Workspace {
+        let workspace = addWorkspace(
+            workingDirectory: project.directory,
+            select: true,
+            autoWelcomeIfNeeded: false,
+            skipInitialTerminal: true
+        )
+        let resolvedName = name ?? String(
+            localized: "project.newTask.defaultName",
+            defaultValue: "Task \(project.workspaceIds.count + 1)"
+        )
+        workspace.setCustomTitle(resolvedName)
+        project.workspaceIds.append(workspace.id)
+
+        // Create a chat panel as the sole content for this task workspace.
+        // Since we skipped the initial terminal, the workspace is empty — create
+        // a writer which will also create the chat panel.
+        if workspace.writers.isEmpty {
+            workspace.createWriter(name: workspace.customTitle ?? project.name)
+        }
+
+        // Start the t3code sidecar for this new task workspace.
+        AppDelegate.shared?.startSidecarForWorkspace(workspace)
+
+        return workspace
+    }
+
+    /// Remove a task from its project (and close the workspace).
+    func removeTask(workspaceId: UUID, from project: Project) {
+        project.workspaceIds.removeAll { $0 == workspaceId }
+        if let workspace = tabs.first(where: { $0.id == workspaceId }) {
+            closeWorkspace(workspace)
+        }
+    }
+
+    /// All workspace IDs that belong to any project.
+    var projectOwnedWorkspaceIds: Set<UUID> {
+        Set(projects.flatMap(\.workspaceIds))
+    }
+
+    /// Workspaces not owned by any project (standalone).
+    var standaloneWorkspaces: [Workspace] {
+        let owned = projectOwnedWorkspaceIds
+        return tabs.filter { !owned.contains($0.id) }
+    }
 
     func closeCurrentWorkspace() {
         guard let selectedId = selectedTabId,
@@ -5039,9 +5135,19 @@ extension TabManager {
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
+        let projectSnapshots = projects.map { project in
+            SessionProjectSnapshot(
+                id: project.id,
+                name: project.name,
+                directory: project.directory,
+                workspaceIds: project.workspaceIds,
+                isExpanded: project.isExpanded
+            )
+        }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            projects: projectSnapshots.isEmpty ? nil : projectSnapshots
         )
     }
 
@@ -5072,6 +5178,7 @@ extension TabManager {
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
+        var legacyRestoredWorkspaceIds: Set<UUID> = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
@@ -5080,8 +5187,12 @@ extension TabManager {
             let workspace = Workspace(
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
+                workspaceId: workspaceSnapshot.id,
                 portOrdinal: ordinal
             )
+            if workspaceSnapshot.id == nil {
+                legacyRestoredWorkspaceIds.insert(workspace.id)
+            }
             workspace.owningTabManager = self
             workspace.restoreSessionSnapshot(workspaceSnapshot)
             wireClosedBrowserTracking(for: workspace)
@@ -5106,9 +5217,29 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
+        // Restore projects from snapshot.
+        var restoredProjects: [Project] = []
+        if let projectSnapshots = snapshot.projects {
+            let newTabIds = Set(newTabs.map(\.id))
+            for ps in projectSnapshots {
+                let project = Project(id: ps.id, name: ps.name, directory: ps.directory)
+                // Only keep workspace IDs that still exist in the restored tabs.
+                project.workspaceIds = ps.workspaceIds.filter { newTabIds.contains($0) }
+                project.isExpanded = ps.isExpanded
+                restoredProjects.append(project)
+            }
+            reattachLegacyProjectTaskWorkspaces(
+                projects: &restoredProjects,
+                workspaces: newTabs,
+                legacyWorkspaceIds: legacyRestoredWorkspaceIds
+            )
+        }
+
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        projects = restoredProjects
+        normalizeChatThreadAssignments()
         selectedTabId = newSelectedId
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
@@ -5131,6 +5262,66 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
+    }
+
+    private func normalizeChatThreadAssignments() {
+        var usedThreadIds = Set<String>()
+
+        for workspace in tabs {
+            for writer in workspace.writers {
+                let currentThreadId = ChatPanel.normalizedThreadId(writer.t3codeThreadId)
+                var resolvedThreadId: String
+
+                if let currentThreadId, !usedThreadIds.contains(currentThreadId) {
+                    resolvedThreadId = currentThreadId
+                } else {
+                    resolvedThreadId = Workspace.defaultDraftThreadId(for: writer.id)
+                    while usedThreadIds.contains(resolvedThreadId) {
+                        resolvedThreadId = UUID().uuidString.lowercased()
+                    }
+                }
+
+                usedThreadIds.insert(resolvedThreadId)
+                guard writer.t3codeThreadId != resolvedThreadId else { continue }
+                writer.t3codeThreadId = resolvedThreadId
+
+                if let chatPanelId = writer.chatPanelId,
+                   let chatPanel = workspace.panels[chatPanelId] as? ChatPanel {
+                    chatPanel.setThreadId(resolvedThreadId)
+                }
+            }
+        }
+    }
+
+    private func reattachLegacyProjectTaskWorkspaces(
+        projects: inout [Project],
+        workspaces: [Workspace],
+        legacyWorkspaceIds: Set<UUID>
+    ) {
+        guard !projects.isEmpty, !legacyWorkspaceIds.isEmpty else { return }
+
+        var claimedWorkspaceIds = Set(projects.flatMap(\.workspaceIds))
+
+        for project in projects {
+            let normalizedProjectDirectory = normalizedWorkingDirectory(project.directory)
+            let matchingWorkspaceIds = workspaces.compactMap { workspace -> UUID? in
+                guard legacyWorkspaceIds.contains(workspace.id) else { return nil }
+                guard !claimedWorkspaceIds.contains(workspace.id) else { return nil }
+                guard isLegacyProjectTaskWorkspace(workspace) else { return nil }
+                guard normalizedWorkingDirectory(workspace.currentDirectory) == normalizedProjectDirectory else { return nil }
+                return workspace.id
+            }
+
+            guard !matchingWorkspaceIds.isEmpty else { continue }
+            project.workspaceIds.append(contentsOf: matchingWorkspaceIds)
+            claimedWorkspaceIds.formUnion(matchingWorkspaceIds)
+        }
+    }
+
+    private func isLegacyProjectTaskWorkspace(_ workspace: Workspace) -> Bool {
+        guard !workspace.writers.isEmpty else { return false }
+        guard !workspace.panels.values.contains(where: { $0 is TerminalPanel }) else { return false }
+        return workspace.panels.values.contains(where: { $0 is ChatPanel })
     }
 }
 

@@ -158,5 +158,7 @@
 	<false/>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_KEY)</string>
+	<key>CMUXSourceRoot</key>
+	<string>$(SRCROOT)</string>
 </dict>
 </plist>

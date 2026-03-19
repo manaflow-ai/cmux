@@ -257,6 +257,7 @@ struct TitlebarControlsView: View {
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
+    let onNewProject: () -> Void
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
@@ -396,14 +397,28 @@ struct TitlebarControlsView: View {
             .accessibilityLabel(String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"))
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(config: config, action: {
-                #if DEBUG
-                dlog("titlebar.newTab")
-                #endif
-                onNewTab()
-            }) {
+            Menu {
+                Button(String(localized: "titlebar.newMenu.newWorkspace", defaultValue: "New Workspace")) {
+                    #if DEBUG
+                    dlog("titlebar.newTab")
+                    #endif
+                    onNewTab()
+                }
+                .keyboardShortcut("n", modifiers: .command)
+                Button(String(localized: "titlebar.newMenu.newProject", defaultValue: "New Project…")) {
+                    #if DEBUG
+                    dlog("titlebar.newProject")
+                    #endif
+                    onNewProject()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+            } label: {
                 iconLabel(systemName: "plus", config: config)
+                    .frame(width: config.buttonSize, height: config.buttonSize)
+                    .contentShape(Rectangle())
             }
+            .menuStyle(.borderlessButton)
+            .frame(width: config.buttonSize, height: config.buttonSize)
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
@@ -566,7 +581,19 @@ struct HiddenTitlebarSidebarControlsView: View {
                 )
             },
             onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
-            visibilityMode: .onHover
+            visibilityMode: .onHover,
+            onNewProject: {
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = false
+                panel.canChooseDirectories = true
+                panel.allowsMultipleSelection = false
+                panel.prompt = String(localized: "titlebar.newProject.panelPrompt", defaultValue: "Choose Project Directory")
+                panel.message = String(localized: "titlebar.newProject.panelMessage", defaultValue: "Select the root directory for your project")
+                if panel.runModal() == .OK, let url = panel.url {
+                    let projectName = url.lastPathComponent
+                    AppDelegate.shared?.tabManager?.addProject(name: projectName, directory: url.path)
+                }
+            }
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
     }
@@ -790,6 +817,18 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
         let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
+        let newProject = {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.prompt = String(localized: "titlebar.newProject.panelPrompt", defaultValue: "Choose Project Directory")
+            panel.message = String(localized: "titlebar.newProject.panelMessage", defaultValue: "Select the root directory for your project")
+            if panel.runModal() == .OK, let url = panel.url {
+                let projectName = url.lastPathComponent
+                AppDelegate.shared?.tabManager?.addProject(name: projectName, directory: url.path)
+            }
+        }
 
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
@@ -798,7 +837,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
                 onNewTab: newTab,
-                visibilityMode: .alwaysVisible
+                visibilityMode: .alwaysVisible,
+                onNewProject: newProject
             )
         )
 

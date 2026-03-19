@@ -183,6 +183,7 @@ _cmux_tmux_sync_cmux_environment() {
         _cmux_tmux_publish_cmux_environment
     fi
 }
+typeset -g _CMUX_LAST_PROMPT_WRAPPED=0
 
 _cmux_ensure_ghostty_preexec_strips_both_marks() {
     local fn_name="$1"
@@ -237,6 +238,7 @@ _cmux_patch_ghostty_semantic_redraw
 _cmux_prompt_wrap_guard() {
     local cmd_start="$1"
     local pwd="$2"
+    _CMUX_LAST_PROMPT_WRAPPED=0
     [[ -n "$cmd_start" && "$cmd_start" != 0 ]] || return 0
 
     local cols="${COLUMNS:-0}"
@@ -248,6 +250,7 @@ _cmux_prompt_wrap_guard() {
 
     # Keep a spacer line between command output and a wrapped prompt so
     # resize-driven prompt redraw cannot overwrite the command tail.
+    _CMUX_LAST_PROMPT_WRAPPED=1
     builtin print -r -- ""
 }
 
@@ -265,6 +268,7 @@ _cmux_install_winch_guard() {
     TRAPWINCH() {
         [[ -n "$CMUX_TAB_ID" ]] || return 0
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        (( _CMUX_LAST_PROMPT_WRAPPED )) || return 0
 
         # Ghostty already marks prompt redraws on SIGWINCH. Writing to the PTY
         # here grows the screen and makes resize look like a fresh prompt.
@@ -645,6 +649,7 @@ _cmux_start_git_head_watch() {
 
 _cmux_preexec() {
     _cmux_tmux_sync_cmux_environment
+    _CMUX_LAST_PROMPT_WRAPPED=0
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
