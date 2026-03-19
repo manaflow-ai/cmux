@@ -2202,11 +2202,25 @@ struct CMUXCLI {
         case "set-workspace-color":
             let (colorFlag, r1) = parseOption(commandArgs, name: "--color")
             let (wsFlag, r2) = parseOption(r1, name: "--workspace")
+            let clearRequested = r2.contains("--clear")
+
+            // Reject dangling flags (e.g. --color with no value consumed by parseOption)
+            if r2.contains("--color") {
+                throw CLIError(message: "set-workspace-color: --color requires a value")
+            }
+            if r2.contains("--workspace") {
+                throw CLIError(message: "set-workspace-color: --workspace requires a value")
+            }
+            if let unknown = r2.first(where: { $0.hasPrefix("--") && $0 != "--clear" && $0 != "--" }) {
+                throw CLIError(message: "set-workspace-color: unknown flag '\(unknown)'")
+            }
 
             let color: String
-            if let colorFlag {
+            if let colorFlag, !clearRequested {
                 color = colorFlag
-            } else if let positional = r2.first(where: { $0 != "--clear" && !$0.hasPrefix("--") }) {
+            } else if clearRequested {
+                color = "clear"
+            } else if let positional = r2.first(where: { !$0.hasPrefix("--") }) {
                 color = positional
             } else {
                 color = "clear"
