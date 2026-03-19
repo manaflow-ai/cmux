@@ -633,6 +633,8 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    /// Commits the drop: routes to the active WKWebView, a terminal under the cursor,
+    /// or the folder-drop handler when no terminal is present (e.g. sidebar area).
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
@@ -657,10 +659,21 @@ final class FileDropOverlayView: NSView {
         if let webView {
             return webView.performDragOperation(sender)
         }
-        guard let terminal else { return false }
+        guard let terminal else {
+            // No terminal under the drop point — delegate to the folder drop handler
+            // (e.g. sidebar or non-terminal window area).
+            let urls = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL] ?? []
+            return onDrop?(urls) ?? false
+        }
         return terminal.performDragOperation(sender)
     }
 
+    /// Updates the drag target and returns the proposed drag operation.
+    /// Returns `.copy` only when capture is enabled and the payload contains at least one
+    /// directory URL, so plain-file drops do not show a misleading copy cursor.
     private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
         let hasLocalDraggingSource = sender.draggingSource != nil
@@ -694,7 +707,21 @@ final class FileDropOverlayView: NSView {
             hasTerminalTarget: hasTerminalTarget
         )
 #endif
-        guard shouldCapture, hasTerminalTarget else { return [] }
+        guard shouldCapture else { return [] }
+        // Only advertise the copy affordance when the payload contains at least one
+        // plain directory URL. Filesystem packages (.app, .xcworkspace, etc.) have
+        // hasDirectoryPath==true but isPackage==true and must be excluded to keep
+        // the cursor consistent with performDragOperation/handleSidebarFolderDrop.
+        let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+        let hasFolder = hasTerminalTarget || urls.contains { url in
+            guard url.hasDirectoryPath else { return false }
+            guard let values = try? url.resourceValues(forKeys: [.isPackageKey]) else { return false }
+            return values.isPackage != true
+        }
+        guard hasFolder else { return [] }
         return .copy
     }
 
@@ -1363,9 +1390,12 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
     let overlay = FileDropOverlayView(frame: contentView.frame)
     overlay.translatesAutoresizingMaskIntoConstraints = false
     overlay.onDrop = { [weak tabManager] urls in
-        MainActor.assumeIsolated {
-            guard let tabManager, let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return false }
-            return terminal.hostedView.handleDroppedURLs(urls)
+        guard let tabManager else { return false }
+        // Note: sidebarSelectionState.selection == .notifications is never set in
+        // production; all notification UI uses NSPopover via toggleNotificationsPopover.
+        // No sidebar page switch is needed after a successful drop.
+        return MainActor.assumeIsolated {
+            tabManager.handleSidebarFolderDrop(urls)
         }
     }
 
