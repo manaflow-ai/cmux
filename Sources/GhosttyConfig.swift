@@ -39,6 +39,9 @@ struct GhosttyConfig {
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
 
+    // Mouse behavior
+    var mouseHideWhileTyping: Bool = false
+
     var unfocusedSplitOverlayOpacity: Double {
         let clamped = min(1.0, max(0.15, unfocusedSplitOpacity))
         return min(1.0, max(0.0, 1.0 - clamped))
@@ -304,6 +307,9 @@ struct GhosttyConfig {
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
                     }
+                case "mouse-hide-while-typing":
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    mouseHideWhileTyping = (trimmed == "true" || trimmed == "1" || trimmed == "yes" || trimmed == "on")
                 default:
                     break
                 }
