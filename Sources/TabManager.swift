@@ -1135,9 +1135,9 @@ class TabManager: ObservableObject {
 
     /// Handles a folder drag-and-drop onto the sidebar or non-terminal window area.
     ///
-    /// - If an existing workspace has the same working directory, selects it and adds a new terminal split.
-    ///   If the matched workspace has no TerminalPanel (e.g. browser-only), falls back to creating
-    ///   a new terminal workspace instead.
+    /// - If an existing workspace has the same working directory, selects it and adds a new
+    ///   terminal split. If the workspace contains only non-terminal panels (e.g. browser-only),
+    ///   the terminal split is anchored beside the existing panel rather than creating a new workspace.
     /// - Otherwise, creates a new workspace rooted at the dropped folder.
     ///
     /// Only the first plain-directory URL is acted upon. Non-directory URLs and filesystem
@@ -1160,31 +1160,40 @@ class TabManager: ObservableObject {
         dlog("sidebar.folderDrop path=\(path) tabCount=\(tabs.count)")
 #endif
 
-        if let existing = tabs.first(where: { workspace in
-            // Note: resolvingSymlinksInPath is intentionally not applied here.
-            // orderedUniqueDirectories already uses standardizedFileURL which resolves /tmp → /private/tmp
-            // on macOS. Adding resolvingSymlinksInPath to both sides would be equivalent but adds
-            // unnecessary cost; /tmp symlink matching already passes without it.
+        // Note: resolvingSymlinksInPath is intentionally not applied here.
+        // orderedUniqueDirectories already uses standardizedFileURL which resolves /tmp → /private/tmp
+        // on macOS. Adding resolvingSymlinksInPath to both sides would be equivalent but adds
+        // unnecessary cost; /tmp symlink matching already passes without it.
+        let existing = tabs.first { workspace in
             var cd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             while cd.count > 1 && cd.hasSuffix("/") { cd.removeLast() }
             return cd == path
-        }) {
+        }
+
+        if let existing {
             selectedTabId = existing.id
+            // Prefer a focused or existing TerminalPanel as the split source.
+            // If the workspace has only non-terminal panels (e.g. browser-only), use any panel
+            // so a new terminal appears as a split beside it rather than creating a new workspace.
             let panelId = existing.focusedPanelId
                 ?? existing.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
+                ?? existing.panels.values.first?.id
             if let panelId {
+                let isBrowserSource = existing.panels[panelId] is BrowserPanel
                 let newPanel = existing.newTerminalSplit(from: panelId, orientation: .horizontal)
+                // When splitting from a non-terminal panel (e.g. browser-only workspace),
+                // newTerminalSplit's reparent-focus suppression doesn't apply because
+                // focusedTerminalPanel is nil. Re-establish focus on the next run loop pass
+                // so it lands after SwiftUI layout completes.
+                if isBrowserSource, let newPanel {
+                    DispatchQueue.main.async {
+                        existing.focusPanel(newPanel.id)
+                    }
+                }
 #if DEBUG
                 if newPanel == nil {
                     dlog("sidebar.folderDrop.splitFailed panelId=\(panelId.uuidString.prefix(5))")
                 }
-#endif
-            } else {
-                // The matching workspace has no TerminalPanel (e.g. browser-only workspace).
-                // Creating a new terminal workspace is more useful than selecting a non-terminal one.
-                addWorkspace(workingDirectory: path, select: true)
-#if DEBUG
-                dlog("sidebar.folderDrop.noTerminal fallback to new workspace path=\(path)")
 #endif
             }
 #if DEBUG
