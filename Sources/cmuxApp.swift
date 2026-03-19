@@ -3789,6 +3789,7 @@ struct SettingsView: View {
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @AppStorage(BrowserHomepageSettings.homepageURLKey) private var browserHomepageURL = ""
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
@@ -5059,6 +5060,20 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.browser.homepage", defaultValue: "Homepage"),
+                            subtitle: String(localized: "settings.browser.homepage.subtitle", defaultValue: "URL to open in new browser tabs. Leave empty for blank page."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            TextField(
+                                String(localized: "settings.browser.homepage.placeholder", defaultValue: "https://example.com"),
+                                text: $browserHomepageURL
+                            )
+                            .textFieldStyle(.roundedBorder)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
                             subtitle: selectedBrowserThemeMode == .system
@@ -5534,6 +5549,7 @@ struct SettingsView: View {
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        browserHomepageURL = ""
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs

@@ -153,6 +153,20 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserHomepageSettings {
+    static let homepageURLKey = "browserHomepageURL"
+
+    static func currentHomepageURL(defaults: UserDefaults = .standard) -> URL? {
+        guard let raw = defaults.string(forKey: homepageURLKey),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
+            return nil
+        }
+        return url
+    }
+}
+
 enum BrowserThemeMode: String, CaseIterable, Identifiable {
     case system
     case light
@@ -2665,8 +2679,9 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
 
-        // Navigate to initial URL if provided
-        if let url = initialURL {
+        // Navigate to initial URL if provided, otherwise to homepage if configured
+        let effectiveURL = initialURL ?? BrowserHomepageSettings.currentHomepageURL()
+        if let url = effectiveURL {
             shouldRenderWebView = true
             navigate(to: url)
         }
