@@ -1153,14 +1153,21 @@ class TabManager: ObservableObject {
         dlog("sidebar.folderDrop path=\(path) tabCount=\(tabs.count)")
 #endif
 
-        if let existing = tabs.first(where: {
-            $0.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines) == path
+        if let existing = tabs.first(where: { workspace in
+            var cd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            while cd.count > 1 && cd.hasSuffix("/") { cd.removeLast() }
+            return cd == path
         }) {
             selectedTabId = existing.id
             let panelId = existing.focusedPanelId
                 ?? existing.panels.values.compactMap { $0 as? TerminalPanel }.first?.id
             if let panelId {
-                existing.newTerminalSplit(from: panelId, orientation: .horizontal)
+                let newPanel = existing.newTerminalSplit(from: panelId, orientation: .horizontal)
+#if DEBUG
+                if newPanel == nil {
+                    dlog("sidebar.folderDrop.splitFailed panelId=\(panelId.uuidString.prefix(5))")
+                }
+#endif
             }
 #if DEBUG
             dlog("sidebar.folderDrop.existing workspaceId=\(existing.id.uuidString.prefix(5))")

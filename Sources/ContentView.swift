@@ -633,6 +633,8 @@ final class FileDropOverlayView: NSView {
         }
     }
 
+    /// Commits the drop: routes to the active WKWebView, a terminal under the cursor,
+    /// or the folder-drop handler when no terminal is present (e.g. sidebar area).
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let hasLocalDraggingSource = sender.draggingSource != nil
         let types = sender.draggingPasteboard.types
@@ -669,6 +671,9 @@ final class FileDropOverlayView: NSView {
         return terminal.performDragOperation(sender)
     }
 
+    /// Updates the drag target and returns the proposed drag operation.
+    /// Returns `.copy` only when capture is enabled and the payload contains at least one
+    /// directory URL, so plain-file drops do not show a misleading copy cursor.
     private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
         let loc = sender.draggingLocation
         let hasLocalDraggingSource = sender.draggingSource != nil
@@ -703,6 +708,16 @@ final class FileDropOverlayView: NSView {
         )
 #endif
         guard shouldCapture else { return [] }
+        // Only advertise the copy affordance when the payload contains at least one
+        // directory URL. This avoids showing the copy cursor for plain-file drags
+        // that will be silently ignored at performDragOperation time.
+        // hasDirectoryPath is a pure URL-structure check with no I/O cost.
+        let urls = sender.draggingPasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] ?? []
+        let hasFolder = hasTerminalTarget || urls.contains(where: \.hasDirectoryPath)
+        guard hasFolder else { return [] }
         return .copy
     }
 
