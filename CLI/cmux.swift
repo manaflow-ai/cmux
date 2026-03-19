@@ -3552,16 +3552,29 @@ struct CMUXCLI {
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript
         )
-        let initialSSHStartupCommand = try buildSSHStartupCommand(
-            sshCommand: initialSSHCommand,
-            shellFeatures: "",
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
-        let remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
-            sshCommand: remoteTerminalSSHCommand,
-            shellFeatures: shellFeaturesValue,
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
+        let initialSSHStartupCommand: String
+        let remoteTerminalSSHStartupCommand: String
+        if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
+            let bootstrapSSHStartupCommand = try buildBootstrapSSHStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+            initialSSHStartupCommand = bootstrapSSHStartupCommand
+            remoteTerminalSSHStartupCommand = bootstrapSSHStartupCommand
+        } else {
+            initialSSHStartupCommand = try buildSSHStartupCommand(
+                sshCommand: initialSSHCommand,
+                shellFeatures: "",
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+            remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
+                sshCommand: remoteTerminalSSHCommand,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+        }
         let remoteSSHOptions = effectiveSSHOptions(
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
@@ -3792,6 +3805,68 @@ struct CMUXCLI {
         return parts.map(shellQuote).joined(separator: " ")
     }
 
+    func buildBootstrapSSHStartupCommand(
+        options: SSHCommandOptions,
+        remoteBootstrapScript: String,
+        shellFeatures: String,
+        remoteRelayPort: Int
+    ) throws -> String {
+        let commandSnippet = buildSSHBootstrapCommandSnippet(
+            options: options,
+            remoteBootstrapScript: remoteBootstrapScript
+        )
+        return try buildSSHStartupCommand(
+            sshCommand: commandSnippet,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: true
+        )
+    }
+
+    private func buildSSHBootstrapCommandSnippet(
+        options: SSHCommandOptions,
+        remoteBootstrapScript: String
+    ) -> String {
+        let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
+        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let remoteCommandBase64Placeholder = "__CMUX_REMOTE_BOOTSTRAP_B64_RUNTIME__"
+        let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
+            runtimeEncodedRemoteBootstrapCommandShell(
+                base64Placeholder: remoteCommandBase64Placeholder
+            )
+        )
+        var lines: [String] = [
+            "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
+            "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
+            "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
+            "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
+            "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
+            "cmux_remote_bootstrap_b64_runtime=\"$(printf '%s' \"$cmux_remote_bootstrap\" | base64 | tr -d '\\n')\"",
+            "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
+            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s|\(remoteCommandBase64Placeholder)|$cmux_remote_bootstrap_b64_runtime|g\")\"",
+        ]
+
+        var sshInvocation = "command \(sshPrefix) -o \"RemoteCommand=$cmux_remote_command\""
+        if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
+            sshInvocation += " -tt"
+        }
+        sshInvocation += " " + shellQuote(options.destination)
+        lines.append(sshInvocation)
+        return lines.joined(separator: "\n")
+    }
+
+    private func runtimeEncodedRemoteBootstrapCommandShell(base64Placeholder: String) -> String {
+        return [
+            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
+            "(printf %s '\(base64Placeholder)' | base64 -d 2>/dev/null || printf %s '\(base64Placeholder)' | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
+            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
+            "/bin/sh \"$cmux_tmp\"",
+            "cmux_status=$?",
+            "rm -f \"$cmux_tmp\"",
+            "exit $cmux_status",
+        ].joined(separator: "; ")
+    }
+
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
@@ -3807,16 +3882,23 @@ struct CMUXCLI {
     ) -> String {
         let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
+        let remoteCallerExportLines = [
+            "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'; fi",
+            "if [ -n '__CMUX_SURFACE_ID__' ]; then export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; fi",
+        ]
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
         let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
-        let commonShellLines = remoteTerminalLines
-            + remoteEnvExportLines
-            + ["export PATH=\"$HOME/.cmux/bin:$PATH\""]
-            + (relaySocket.map { ["export CMUX_SOCKET_PATH=\($0)"] } ?? [])
-            + [
-                "hash -r >/dev/null 2>&1 || true",
-                "rehash >/dev/null 2>&1 || true",
-            ]
+        var commonShellLines = remoteTerminalLines
+        commonShellLines.append(contentsOf: remoteEnvExportLines)
+        commonShellLines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
+        if let relaySocket {
+            commonShellLines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
+        }
+        commonShellLines.append(contentsOf: remoteCallerExportLines)
+        commonShellLines.append(contentsOf: [
+            "hash -r >/dev/null 2>&1 || true",
+            "rehash >/dev/null 2>&1 || true",
+        ])
         let zshEnvLines = [
             "[ -f \"$CMUX_REAL_ZDOTDIR/.zshenv\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshenv\"",
             "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
@@ -4064,7 +4146,8 @@ struct CMUXCLI {
     func buildSSHStartupCommand(
         sshCommand: String,
         shellFeatures: String,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        isShellSnippet: Bool = false
     ) throws -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
@@ -4080,7 +4163,11 @@ struct CMUXCLI {
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
             "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
         ]
-        scriptLines.append("command \(sshCommand)")
+        if isShellSnippet {
+            scriptLines.append(sshCommand)
+        } else {
+            scriptLines.append("command \(sshCommand)")
+        }
         scriptLines += [
             "cmux_ssh_status=$?",
             "trap - EXIT HUP INT TERM",
