@@ -3257,7 +3257,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        _ = appDelegate.handleBrowserSurfaceKeyEquivalent(event)
+        XCTAssertFalse(
+            appDelegate.handleBrowserSurfaceKeyEquivalent(event),
+            "Cmd+P should not be consumed when layout translation resolves to a different letter"
+        )
         wait(for: [switcherExpectation], timeout: 0.15)
     }
 
