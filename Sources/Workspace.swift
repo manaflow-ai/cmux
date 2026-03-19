@@ -4739,7 +4739,7 @@ enum SidebarBranchOrdering {
         for panelId in orderedPanelIds {
             let panelBranch = normalized(panelBranches[panelId]?.branch)
             let branch = panelBranch ?? defaultBranchForPanels
-            let directory = normalized(panelDirectories[panelId] ?? defaultDirectory)
+            let directory = normalized(panelDirectories[panelId])
             guard branch != nil || directory != nil else { continue }
 
             let panelDirty = panelBranch != nil
@@ -5933,6 +5933,67 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
+        guard let directory else { return nil }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func canonicalSidebarDirectoryKey(_ directory: String?) -> String? {
+        guard let directory = normalizedSidebarDirectory(directory) else { return nil }
+        let expanded = NSString(string: directory).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
+        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
+            return directory
+        }
+        if let requestedDirectory = normalizedSidebarDirectory(
+            terminalPanel(for: panelId)?.requestedWorkingDirectory
+        ) {
+            return requestedDirectory
+        }
+        guard panelId == focusedPanelId else { return nil }
+        return normalizedSidebarDirectory(currentDirectory)
+    }
+
+    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
+        var resolved: [UUID: String] = [:]
+        for panelId in orderedPanelIds {
+            if let directory = sidebarResolvedDirectory(for: panelId) {
+                resolved[panelId] = directory
+            }
+        }
+        return resolved
+    }
+
+    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        for panelId in orderedPanelIds {
+            guard let directory = resolvedDirectories[panelId],
+                  let key = canonicalSidebarDirectoryKey(directory) else { continue }
+            if seen.insert(key).inserted {
+                ordered.append(directory)
+            }
+        }
+
+        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+            return [fallbackDirectory]
+        }
+
+        return ordered
+    }
+
+    func sidebarDirectoriesInDisplayOrder() -> [String] {
+        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
         SidebarBranchOrdering
             .orderedUniqueBranches(
@@ -5953,8 +6014,8 @@ final class Workspace: Identifiable, ObservableObject {
         SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
-            panelDirectories: panelDirectories,
-            defaultDirectory: currentDirectory,
+            panelDirectories: sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds),
+            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
             fallbackBranch: gitBranch
         )
     }
