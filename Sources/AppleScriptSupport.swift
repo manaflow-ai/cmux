@@ -81,7 +81,13 @@ private extension Workspace {
 @MainActor
 extension NSApplication {
     var isAppleScriptEnabled: Bool {
-        GhosttyApp.shared.appleScriptAutomationEnabled()
+        // cmux always enables AppleScript — the underlying Ghostty fork
+        // doesn't have the macos-applescript config key yet (added in
+        // upstream ghostty commit 25fa58143, 2026-03-06), so
+        // appleScriptAutomationEnabled() always returns false.
+        // Once the fork is updated, this can revert to:
+        //   GhosttyApp.shared.appleScriptAutomationEnabled()
+        return true
     }
 
     @discardableResult
