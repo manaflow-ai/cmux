@@ -2199,6 +2199,24 @@ struct CMUXCLI {
                 throw error
             }
 
+        case "set-workspace-color":
+            let (colorFlag, r1) = parseOption(commandArgs, name: "--color")
+            let (wsFlag, r2) = parseOption(r1, name: "--workspace")
+
+            let color: String
+            if let colorFlag {
+                color = colorFlag
+            } else if let positional = r2.first(where: { $0 != "--clear" && !$0.hasPrefix("--") }) {
+                color = positional
+            } else {
+                color = "clear"
+            }
+
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let socketCmd = "set_workspace_color \(socketQuote(color)) --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
             let response = try sendV1Command("set_app_focus \(value)", client: client)
@@ -6815,6 +6833,24 @@ struct CMUXCLI {
             Example:
               cmux clear-progress
             """
+        case "set-workspace-color":
+            return """
+            Usage: cmux set-workspace-color [flags] [<#hex|clear>]
+
+            Set or clear the workspace tab color. This is the same visual effect
+            as right-click > Workspace Color in the UI.
+
+            Flags:
+              --color <#hex>         Hex color (e.g. "#007AFF", "#ff9500")
+              --clear                Clear the custom color
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux set-workspace-color --color "#007AFF"
+              cmux set-workspace-color "#ff9500" --workspace workspace:2
+              cmux set-workspace-color --clear
+              cmux set-workspace-color clear
+            """
         case "log":
             return """
             Usage: cmux log [flags] [--] <message>
@@ -11076,6 +11112,7 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          set-workspace-color [--color <#hex> | --clear] [--workspace <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

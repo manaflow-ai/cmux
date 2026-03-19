@@ -1731,6 +1731,9 @@ class TerminalController {
         case "set_status":
             return setStatus(args)
 
+        case "set_workspace_color":
+            return setWorkspaceColor(args)
+
         case "report_meta":
             return reportMeta(args)
 
@@ -14252,6 +14255,36 @@ class TerminalController {
             args,
             missingError: "ERROR: Missing status key or value — usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X]"
         )
+    }
+
+    /// Set or clear the workspace tab color.
+    /// Usage: set_workspace_color <#hex|clear|none> [--tab=X]
+    private func setWorkspaceColor(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let colorArg = parsed.positional.first else {
+            return "ERROR: Missing color argument — usage: set_workspace_color <#hex|clear|none> [--tab=X]"
+        }
+
+        let color: String?
+        let lowered = colorArg.lowercased()
+        if lowered == "clear" || lowered == "none" {
+            color = nil
+        } else {
+            guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorArg) else {
+                return "ERROR: Invalid hex color: \(colorArg)"
+            }
+            color = normalized
+        }
+
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            tab.setCustomColor(color)
+        }
+        return "OK"
     }
 
     private func reportMeta(_ args: String) -> String {
