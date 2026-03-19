@@ -1136,6 +1136,8 @@ class TabManager: ObservableObject {
     /// Handles a folder drag-and-drop onto the sidebar or non-terminal window area.
     ///
     /// - If an existing workspace has the same working directory, selects it and adds a new terminal split.
+    ///   If the matched workspace has no TerminalPanel (e.g. browser-only), falls back to creating
+    ///   a new terminal workspace instead.
     /// - Otherwise, creates a new workspace rooted at the dropped folder.
     ///
     /// Only the first plain-directory URL is acted upon. Non-directory URLs and filesystem
@@ -1159,6 +1161,10 @@ class TabManager: ObservableObject {
 #endif
 
         if let existing = tabs.first(where: { workspace in
+            // Note: resolvingSymlinksInPath is intentionally not applied here.
+            // orderedUniqueDirectories already uses standardizedFileURL which resolves /tmp → /private/tmp
+            // on macOS. Adding resolvingSymlinksInPath to both sides would be equivalent but adds
+            // unnecessary cost; /tmp symlink matching already passes without it.
             var cd = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             while cd.count > 1 && cd.hasSuffix("/") { cd.removeLast() }
             return cd == path
@@ -1172,6 +1178,13 @@ class TabManager: ObservableObject {
                 if newPanel == nil {
                     dlog("sidebar.folderDrop.splitFailed panelId=\(panelId.uuidString.prefix(5))")
                 }
+#endif
+            } else {
+                // The matching workspace has no TerminalPanel (e.g. browser-only workspace).
+                // Creating a new terminal workspace is more useful than selecting a non-terminal one.
+                addWorkspace(workingDirectory: path, select: true)
+#if DEBUG
+                dlog("sidebar.folderDrop.noTerminal fallback to new workspace path=\(path)")
 #endif
             }
 #if DEBUG

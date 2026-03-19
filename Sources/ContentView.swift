@@ -660,8 +660,11 @@ final class FileDropOverlayView: NSView {
             return webView.performDragOperation(sender)
         }
         guard let terminal else {
-            // No terminal under the drop point — delegate to the folder drop handler
-            // (e.g. sidebar or non-terminal window area).
+            // No terminal under the drop point — delegate to the folder drop handler.
+            // In practice the only non-terminal, non-browser area visible to this overlay
+            // is the sidebar: this overlay is anchored to contentView.topAnchor, so the
+            // title-bar strip above it is never reachable, and all other areas are filled
+            // by terminal or browser panels. No title-bar / non-sidebar guard is needed.
             let urls = sender.draggingPasteboard.readObjects(
                 forClasses: [NSURL.self],
                 options: [.urlReadingFileURLsOnly: true]
