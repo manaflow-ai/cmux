@@ -6304,6 +6304,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
+        if let paneState = activeTmuxPane {
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(paneState.surface, point.x, paneState.view.bounds.height - point.y, modsFromEvent(event))
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
