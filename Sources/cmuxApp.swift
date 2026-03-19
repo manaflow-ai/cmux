@@ -3789,6 +3789,7 @@ struct SettingsView: View {
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+    @State private var customSearchEngines: [CustomSearchEngine] = CustomSearchEngineSettings.currentEngines()
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
@@ -5059,6 +5060,10 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        CustomSearchEnginesSettingsSection(engines: $customSearchEngines)
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             String(localized: "settings.browser.theme", defaultValue: "Browser Theme"),
                             subtitle: selectedBrowserThemeMode == .system
@@ -5534,6 +5539,8 @@ struct SettingsView: View {
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
+        customSearchEngines = []
+        CustomSearchEngineSettings.save([])
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
@@ -6165,5 +6172,87 @@ private struct SettingsRootView: View {
 
     private func applyCurrentSettingsWindowStyle(to window: NSWindow) {
         SettingsAboutTitlebarDebugStore.shared.applyCurrentOptions(to: window, for: .settings)
+    }
+}
+
+// MARK: - Custom Search Engines Settings Section
+
+private struct CustomSearchEnginesSettingsSection: View {
+    @Binding var engines: [CustomSearchEngine]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader
+            enginesList
+            addButton
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var sectionHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(String(localized: "settings.browser.customEngines", defaultValue: "Keyword Search Engines"))
+                .font(.system(size: 13, weight: .medium))
+            Text(String(localized: "settings.browser.customEngines.subtitle", defaultValue: "Type \u{201c}keyword query\u{201d} in the address bar to search with a custom engine. URL template uses %s as placeholder."))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var enginesList: some View {
+        ForEach(engines) { engine in
+            CustomSearchEngineRow(engine: engine) {
+                engines.removeAll { $0.id == engine.id }
+                CustomSearchEngineSettings.save(engines)
+            }
+        }
+    }
+
+    private var addButton: some View {
+        Button {
+            let engine = CustomSearchEngine(
+                id: UUID(),
+                keyword: "",
+                name: "",
+                urlTemplate: "https://example.com/search?q=%s"
+            )
+            engines.append(engine)
+            CustomSearchEngineSettings.save(engines)
+        } label: {
+            Label(
+                String(localized: "settings.browser.customEngines.add", defaultValue: "Add Engine"),
+                systemImage: "plus"
+            )
+            .font(.system(size: 12))
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.accentColor)
+    }
+}
+
+private struct CustomSearchEngineRow: View {
+    let engine: CustomSearchEngine
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(engine.keyword)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .frame(width: 60, alignment: .leading)
+            Text(engine.name)
+                .font(.system(size: 12))
+                .frame(width: 100, alignment: .leading)
+            Text(engine.urlTemplate)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            Button(role: .destructive, action: onDelete) {
+                Image(systemName: "minus.circle")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
     }
 }

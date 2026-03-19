@@ -129,6 +129,53 @@ enum BrowserSearchEngine: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Custom Keyword Search Engines
+
+struct CustomSearchEngine: Codable, Identifiable, Hashable {
+    var id: UUID
+    var keyword: String
+    var name: String
+    var urlTemplate: String  // contains %s as placeholder
+
+    func searchURL(query: String) -> URL? {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, urlTemplate.contains("%s") else { return nil }
+        // For path-position %s (before ?) don't encode slashes
+        let isInQuery = urlTemplate.contains("?") && urlTemplate.range(of: "%s")!.lowerBound > urlTemplate.range(of: "?")!.lowerBound
+        let encoded = isInQuery
+            ? trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
+            : trimmed
+        let resolved = urlTemplate.replacingOccurrences(of: "%s", with: encoded)
+        return URL(string: resolved)
+    }
+}
+
+enum CustomSearchEngineSettings {
+    static let enginesKey = "browserCustomSearchEngines"
+
+    static func currentEngines(defaults: UserDefaults = .standard) -> [CustomSearchEngine] {
+        guard let data = defaults.data(forKey: enginesKey) else { return [] }
+        return (try? JSONDecoder().decode([CustomSearchEngine].self, from: data)) ?? []
+    }
+
+    static func save(_ engines: [CustomSearchEngine], defaults: UserDefaults = .standard) {
+        guard let data = try? JSONEncoder().encode(engines) else { return }
+        defaults.set(data, forKey: enginesKey)
+    }
+
+    /// Match keyword prefix in input. Returns (engine, query) or nil.
+    static func match(input: String, defaults: UserDefaults = .standard) -> (engine: CustomSearchEngine, query: String)? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let spaceIndex = trimmed.firstIndex(of: " ") else { return nil }
+        let keyword = String(trimmed[trimmed.startIndex..<spaceIndex])
+        let query = String(trimmed[trimmed.index(after: spaceIndex)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty, !query.isEmpty else { return nil }
+        let engines = currentEngines(defaults: defaults)
+        guard let engine = engines.first(where: { $0.keyword.lowercased() == keyword.lowercased() }) else { return nil }
+        return (engine, query)
+    }
+}
+
 enum BrowserSearchSettings {
     static let searchEngineKey = "browserSearchEngine"
     static let searchSuggestionsEnabledKey = "browserSearchSuggestionsEnabled"
@@ -3595,6 +3642,13 @@ final class BrowserPanel: Panel, ObservableObject {
         guard !trimmed.isEmpty else { return }
 
         if let url = resolveNavigableURL(from: trimmed) {
+            navigate(to: url, recordTypedNavigation: true)
+            return
+        }
+
+        // Custom keyword search engines (e.g. "gh anthropics/claude-code")
+        if let (customEngine, query) = CustomSearchEngineSettings.match(input: trimmed),
+           let url = customEngine.searchURL(query: query) {
             navigate(to: url, recordTypedNavigation: true)
             return
         }

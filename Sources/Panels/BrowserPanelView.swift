@@ -2386,6 +2386,8 @@ func buildOmnibarSuggestions(
 
     func suggestionPriority(for kind: OmnibarSuggestion.Kind) -> Int {
         switch kind {
+        case .customSearch:
+            return 0  // high-score already guarantees top position
         case .search:
             return 300
         case .remote:
@@ -2445,6 +2447,20 @@ func buildOmnibarSuggestions(
         } else {
             bestByCompletion[key] = ranked
         }
+    }
+
+    // Custom keyword search engines — highest priority when keyword matches
+    if let (customEngine, customQuery) = CustomSearchEngineSettings.match(input: trimmedQuery),
+       let customURL = customEngine.searchURL(query: customQuery) {
+        insert(
+            OmnibarSuggestion(kind: .customSearch(
+                engineName: customEngine.name,
+                keyword: customEngine.keyword,
+                query: customQuery,
+                url: customURL.absoluteString
+            )),
+            score: 1_100  // above all other suggestions
+        )
     }
 
     if !(isSingleCharacterQuery && shouldSuppressSingleCharacterSearchResult) {
@@ -3016,6 +3032,7 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
 struct OmnibarSuggestion: Identifiable, Hashable {
     enum Kind: Hashable {
         case search(engineName: String, query: String)
+        case customSearch(engineName: String, keyword: String, query: String, url: String)
         case navigate(url: String)
         case history(url: String, title: String?)
         case switchToTab(tabId: UUID, panelId: UUID, url: String, title: String?)
@@ -3029,6 +3046,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         switch kind {
         case .search(let engineName, let query):
             return "search|\(engineName.lowercased())|\(query.lowercased())"
+        case .customSearch(_, let keyword, let query, _):
+            return "custom-search|\(keyword.lowercased())|\(query.lowercased())"
         case .navigate(let url):
             return "navigate|\(url.lowercased())"
         case .history(let url, _):
@@ -3043,6 +3062,7 @@ struct OmnibarSuggestion: Identifiable, Hashable {
     var completion: String {
         switch kind {
         case .search(_, let q): return q
+        case .customSearch(_, _, _, let url): return url
         case .navigate(let url): return url
         case .history(let url, _): return url
         case .switchToTab(_, _, let url, _): return url
@@ -3054,6 +3074,8 @@ struct OmnibarSuggestion: Identifiable, Hashable {
         switch kind {
         case .search(let engineName, let q):
             return "Search \(engineName) for \"\(q)\""
+        case .customSearch(let engineName, let keyword, let q, _):
+            return "\(keyword): \(q) — \(engineName)"
         case .navigate(let url):
             return Self.displayURLText(for: url)
         case .history(let url, let title):

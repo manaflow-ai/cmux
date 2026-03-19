@@ -2594,6 +2594,120 @@ final class BrowserZoomShortcutRoutingPolicyTests: XCTestCase {
 }
 
 
+final class CustomSearchEngineTests: XCTestCase {
+    func testSearchURLReplacesPlaceholder() throws {
+        let engine = CustomSearchEngine(id: UUID(), keyword: "gh", name: "GitHub", urlTemplate: "https://github.com/%s")
+        let url = try XCTUnwrap(engine.searchURL(query: "anthropics/claude-code"))
+        XCTAssertEqual(url.absoluteString, "https://github.com/anthropics/claude-code")
+    }
+
+    func testSearchURLEncodesQueryParams() throws {
+        let engine = CustomSearchEngine(id: UUID(), keyword: "ciu", name: "Can I Use", urlTemplate: "https://caniuse.com/?search=%s")
+        let url = try XCTUnwrap(engine.searchURL(query: "flex box"))
+        XCTAssertTrue(url.absoluteString.contains("search=flex"))
+    }
+
+    func testSearchURLReturnsNilForEmptyQuery() {
+        let engine = CustomSearchEngine(id: UUID(), keyword: "gh", name: "GitHub", urlTemplate: "https://github.com/%s")
+        XCTAssertNil(engine.searchURL(query: ""))
+        XCTAssertNil(engine.searchURL(query: "   "))
+    }
+
+    func testSearchURLReturnsNilWithoutPlaceholder() {
+        let engine = CustomSearchEngine(id: UUID(), keyword: "x", name: "X", urlTemplate: "https://example.com")
+        XCTAssertNil(engine.searchURL(query: "test"))
+    }
+}
+
+final class CustomSearchEngineSettingsTests: XCTestCase {
+    func testSaveAndLoad() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let engines = [
+            CustomSearchEngine(id: UUID(), keyword: "gh", name: "GitHub", urlTemplate: "https://github.com/%s"),
+            CustomSearchEngine(id: UUID(), keyword: "mdn", name: "MDN", urlTemplate: "https://developer.mozilla.org/en-US/search?q=%s"),
+        ]
+        CustomSearchEngineSettings.save(engines, defaults: defaults)
+        let loaded = CustomSearchEngineSettings.currentEngines(defaults: defaults)
+        XCTAssertEqual(loaded.count, 2)
+        XCTAssertEqual(loaded[0].keyword, "gh")
+        XCTAssertEqual(loaded[1].keyword, "mdn")
+    }
+
+    func testReturnsEmptyWhenUnset() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(CustomSearchEngineSettings.currentEngines(defaults: defaults).count, 0)
+    }
+
+    func testMatchFindsKeyword() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let engines = [CustomSearchEngine(id: UUID(), keyword: "gh", name: "GitHub", urlTemplate: "https://github.com/%s")]
+        CustomSearchEngineSettings.save(engines, defaults: defaults)
+
+        let result = CustomSearchEngineSettings.match(input: "gh anthropics/claude-code", defaults: defaults)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.engine.keyword, "gh")
+        XCTAssertEqual(result?.query, "anthropics/claude-code")
+    }
+
+    func testMatchReturnsNilForUnknownKeyword() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertNil(CustomSearchEngineSettings.match(input: "unknown query", defaults: defaults))
+    }
+
+    func testMatchReturnsNilWithoutSpace() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let engines = [CustomSearchEngine(id: UUID(), keyword: "gh", name: "GitHub", urlTemplate: "https://github.com/%s")]
+        CustomSearchEngineSettings.save(engines, defaults: defaults)
+
+        XCTAssertNil(CustomSearchEngineSettings.match(input: "ghrepo", defaults: defaults))
+    }
+
+    func testMatchIsCaseInsensitive() {
+        let suiteName = "CustomSearchEngineSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let engines = [CustomSearchEngine(id: UUID(), keyword: "GH", name: "GitHub", urlTemplate: "https://github.com/%s")]
+        CustomSearchEngineSettings.save(engines, defaults: defaults)
+
+        let result = CustomSearchEngineSettings.match(input: "gh test", defaults: defaults)
+        XCTAssertNotNil(result)
+    }
+}
+
 final class BrowserSearchEngineTests: XCTestCase {
     func testGoogleSearchURL() throws {
         let url = try XCTUnwrap(BrowserSearchEngine.google.searchURL(query: "hello world"))
