@@ -41,7 +41,7 @@ private func CGSSetWindowBackgroundBlurRadius(
 @_silgen_name("CGSDefaultConnectionForThread")
 private func CGSDefaultConnectionForThread() -> OpaquePointer
 
-func cmuxApplyBackgroundBlur(to window: NSWindow, radius: Int) {
+private func cmuxApplyBackgroundBlur(to window: NSWindow, radius: Int) {
     let connection = CGSDefaultConnectionForThread()
     let windowNumber = window.windowNumber
     _ = CGSSetWindowBackgroundBlurRadius(connection, windowNumber, Int32(radius))
@@ -2446,11 +2446,12 @@ class GhosttyApp {
             }
         }
 
-        // Apply background blur if opacity < 1.0 and blur radius is configured
+        // Apply or clear background blur. CGS blur is window-stateful, so we must
+        // explicitly set radius to 0 when blur should be disabled.
         let blurConfig = GhosttyConfig.load()
-        if blurConfig.backgroundBlurRadius > 0, defaultBackgroundOpacity < 1.0 {
-            cmuxApplyBackgroundBlur(to: window, radius: blurConfig.backgroundBlurRadius)
-        }
+        let effectiveBlurRadius = (blurConfig.backgroundBlurRadius > 0 && defaultBackgroundOpacity < 1.0)
+            ? blurConfig.backgroundBlurRadius : 0
+        cmuxApplyBackgroundBlur(to: window, radius: effectiveBlurRadius)
     }
 
     private func activeMainWindow() -> NSWindow? {
@@ -3918,11 +3919,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             window.isOpaque = color.alphaComponent >= 1.0
         }
 
-        // Apply background blur if configured
-        let blurConfig2 = GhosttyConfig.load()
-        if blurConfig2.backgroundBlurRadius > 0, color.alphaComponent < 1.0 {
-            cmuxApplyBackgroundBlur(to: window, radius: blurConfig2.backgroundBlurRadius)
-        }
+        // Apply or clear background blur. CGS blur is window-stateful, so we must
+        // explicitly set radius to 0 when blur should be disabled.
+        let blurConfig = GhosttyConfig.load()
+        let effectiveBlur = (blurConfig.backgroundBlurRadius > 0 && color.alphaComponent < 1.0)
+            ? blurConfig.backgroundBlurRadius : 0
+        cmuxApplyBackgroundBlur(to: window, radius: effectiveBlur)
 
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(cmuxShouldUseClearWindowBackground(for: color.alphaComponent) ? "transparent" : color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
