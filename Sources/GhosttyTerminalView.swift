@@ -4188,6 +4188,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    /// Returns the surface that should receive keyboard/IME input.
+    /// In tmux control mode, returns the first pane surface; otherwise the host surface.
+    private var inputSurface: ghostty_surface_t? {
+        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
+            return paneState.surface
+        }
+        return surface
+    }
+
     private func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
@@ -4663,6 +4672,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    /// Cursor position within the IME preedit text (from setMarkedText selectedRange).
+    private var markedTextCursorOffset: Int = 0
     private var lastPerformKeyEvent: TimeInterval?
     private struct SelectionSnapshot {
         let range: NSRange
@@ -5059,12 +5070,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // We capture in both composing and non-composing states so that
+        // switching input methods during composition can commit the preedit.
+        let keyboardIdBefore: String? = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -5082,16 +5090,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // If the keyboard layout changed, an input method grabbed the event.
-        // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+        if let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            if markedTextBefore && markedText.length > 0 {
+                // Switching input methods mid-composition: commit the current
+                // preedit text as literal input so the user's typing isn't lost.
+                let commitText = markedText.string
+                markedText.mutableString.setString("")
+                syncPreedit(clearIfNeeded: true)
+                if !commitText.isEmpty {
+                    keyTextAccumulator?.append(commitText)
+                }
+                // Fall through to send the accumulated text via ghostty_surface_key
+            } else {
+                // No composition was active — sync preedit and return.
 #if DEBUG
-            let syncPreeditStart = ProcessInfo.processInfo.systemUptime
+                let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
-            syncPreedit(clearIfNeeded: markedTextBefore)
+                syncPreedit(clearIfNeeded: markedTextBefore)
 #if DEBUG
-            syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
+                syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
-            return
+                return
+            }
         }
 
         // Sync the preedit state with Ghostty so it can render the IME
@@ -8736,6 +8756,7 @@ extension GhosttyNSView: NSTextInputClient {
         default:
             break
         }
+        markedTextCursorOffset = selectedRange.location
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -8779,7 +8800,9 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
-        guard let surface = surface else { return }
+        // Use inputSurface so IME preedit renders on the pane surface
+        // when in tmux control mode.
+        guard let target = inputSurface else { return }
 
         if markedText.length > 0 {
             let str = markedText.string
@@ -8787,13 +8810,13 @@ extension GhosttyNSView: NSTextInputClient {
             if len > 0 {
                 str.withCString { ptr in
                     // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                    ghostty_surface_preedit(target, ptr, UInt(len - 1))
                 }
             }
         } else if clearIfNeeded {
             // If we had marked text before but don't now, we're no longer
             // in a preedit state so we can clear it.
-            ghostty_surface_preedit(surface, nil, 0)
+            ghostty_surface_preedit(target, nil, 0)
         }
     }
 
@@ -8833,8 +8856,8 @@ extension GhosttyNSView: NSTextInputClient {
             y = override.y
             w = override.width
             h = override.height
-        } else if let surface = surface {
-            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        } else if let target = inputSurface {
+            ghostty_surface_ime_point(target, &x, &y, &w, &h)
         }
 #else
         if range.length > 0,
@@ -8842,8 +8865,8 @@ extension GhosttyNSView: NSTextInputClient {
            let snapshot = readSelectionSnapshot() {
             x = snapshot.topLeft.x - 2
             y = snapshot.topLeft.y + 2
-        } else if let surface = surface {
-            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        } else if let target = inputSurface {
+            ghostty_surface_ime_point(target, &x, &y, &w, &h)
         }
 #endif
 
@@ -8853,13 +8876,21 @@ extension GhosttyNSView: NSTextInputClient {
         }
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
+        // When in tmux mode, the coordinates are relative to the pane view,
+        // so we must convert through the pane view's coordinate space.
+        let sourceView: NSView
+        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
+            sourceView = paneState.view
+        } else {
+            sourceView = self
+        }
         let viewRect = NSRect(
             x: x,
-            y: frame.size.height - y,
+            y: sourceView.frame.size.height - y,
             width: w,
             height: max(h, cellSize.height)
         )
-        let winRect = convert(viewRect, to: nil)
+        let winRect = sourceView.convert(viewRect, to: nil)
         return window.convertToScreen(winRect)
     }
 
