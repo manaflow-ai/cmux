@@ -43335,6 +43335,57 @@
         }
       }
     },
+    "settings.app.paneFirstClickFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Pane on First Click"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初のクリックでペインにフォーカス"
+          }
+        }
+      }
+    },
+    "settings.app.paneFirstClickFocus.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが非アクティブのとき、最初のクリックはウインドウをアクティブにするだけです。ペインにフォーカスするにはもう一度クリックします。"
+          }
+        }
+      }
+    },
+    "settings.app.paneFirstClickFocus.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux is inactive, clicking a pane activates the window and focuses that pane in one click."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmuxが非アクティブのとき、ペインをクリックすると1回でウインドウをアクティブにしてそのペインへフォーカスします。"
+          }
+        }
+      }
+    },
     "settings.app.openSidebarPRLinks": {
       "extractionState": "manual",
       "localizations": {

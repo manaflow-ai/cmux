@@ -4639,6 +4639,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = inputContext.perform(updateSelectionSelector)
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
