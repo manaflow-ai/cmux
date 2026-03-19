@@ -682,6 +682,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop on CI.
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
