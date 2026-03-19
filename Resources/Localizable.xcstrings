@@ -8914,13 +8914,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading\u2026"
+            "value": "Loading…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "\u8aad\u307f\u8fbc\u307f\u4e2d\u2026"
+            "value": "読み込み中…"
           }
         }
       }
@@ -77511,6 +77511,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "Varsayılan"
+          }
+        }
+      }
+    },
+    "settings.browser.homepage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Homepage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホームページ"
+          }
+        }
+      }
+    },
+    "settings.browser.homepage.subtitle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL to open in new browser tabs. Leave empty for blank page."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザタブで開くURL。空白ページの場合は空のままにしてください。"
+          }
+        }
+      }
+    },
+    "settings.browser.homepage.placeholder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "https://example.com"
           }
         }
       }

@@ -2679,6 +2679,30 @@ final class BrowserHomepageSettingsTests: XCTestCase {
         let url = try XCTUnwrap(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
         XCTAssertEqual(url.absoluteString, "https://example.com")
     }
+
+    func testRejectsURLWithoutScheme() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("example.com", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+
+    func testRejectsNonHTTPScheme() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("ftp://example.com", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
 }
 
 final class BrowserSearchSettingsTests: XCTestCase {
