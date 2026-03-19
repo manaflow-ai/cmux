@@ -676,11 +676,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
 
+    // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
+    // the last Ghostty surface tears down the PTY/shell, which blocks indefinitely
+    // on headless runners. The xcodebuild test host doesn't inherit CI env vars,
+    // so XCTSkip can't detect CI from inside the test.
     func testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
+
+        // Auto-confirm window close to avoid a modal dialog that blocks the RunLoop.
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
 
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
