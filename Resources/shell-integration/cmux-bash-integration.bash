@@ -516,8 +516,10 @@ unset -f _cmux_fix_path
 tmux() {
     # Opt-out
     [[ "${CMUX_TMUX_AUTO_CC:-1}" == "0" ]] && { command tmux "$@"; return $?; }
-    # Don't rewrite inside tmux or in non-interactive/non-tty contexts
-    [[ -n "$TMUX" ]] && { command tmux "$@"; return $?; }
+    # Inside cmux, $TMUX may be inherited from the launcher env but
+    # this terminal is NOT really inside tmux — ignore it.
+    # Outside cmux (no CMUX_SOCKET_PATH), respect $TMUX as usual.
+    [[ -z "$CMUX_SOCKET_PATH" && -n "$TMUX" ]] && { command tmux "$@"; return $?; }
     [[ "$-" == *i* ]] || { command tmux "$@"; return $?; }
     [[ -t 1 ]] || { command tmux "$@"; return $?; }
     # Already has -CC or -C

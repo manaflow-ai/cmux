@@ -2015,6 +2015,17 @@ class GhosttyApp {
         let callbackTabId = callbackContext?.tabId
         let callbackSurfaceId = callbackContext?.surfaceId
 
+        #if DEBUG
+        // Trace tmux-related actions to debug control mode activation
+        if action.tag == GHOSTTY_ACTION_TMUX_STATE ||
+           action.tag == GHOSTTY_ACTION_TMUX_WINDOWS_CHANGED ||
+           action.tag == GHOSTTY_ACTION_TMUX_PANE_UNREGISTERED {
+            let ctxOk = callbackContext != nil
+            let svOk = callbackContext?.surfaceView != nil
+            dlog("tmux.action tag=\(action.tag.rawValue) ctxOk=\(ctxOk) svOk=\(svOk) tabId=\(callbackTabId?.uuidString.prefix(5) ?? "nil")")
+        }
+        #endif
+
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
             // The child (shell) exited. Ghostty will fall back to printing
             // "Process exited. Press any key..." into the terminal unless the host
@@ -4188,11 +4199,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    /// Returns the active tmux pane state, or nil if not in tmux mode.
+    /// Currently returns the first pane (MVP single-pane). When multi-pane
+    /// support is added, this should return the pane under the mouse or
+    /// the last-focused pane.
+    private var activeTmuxPane: TmuxPaneState? {
+        guard tmuxControlMode else { return nil }
+        return tmuxPaneSurfaces.values.first
+    }
+
     /// Returns the surface that should receive keyboard/IME input.
-    /// In tmux control mode, returns the first pane surface; otherwise the host surface.
+    /// In tmux control mode, returns the active pane surface; otherwise the host surface.
     private var inputSurface: ghostty_surface_t? {
-        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
-            return paneState.surface
+        if let pane = activeTmuxPane {
+            return pane.surface
         }
         return surface
     }
@@ -4235,9 +4255,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        // In tmux mode, route binding actions (paste, copy, etc.) to the
+        // pane surface so they operate on the pane's terminal content.
+        guard let target = inputSurface ?? surface else { return false }
         return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+            ghostty_surface_binding_action(target, cString, UInt(strlen(cString)))
         }
     }
 
@@ -4456,6 +4478,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
+        // In tmux mode, Ghostty's async clipboard flow would send the result
+        // back to the host surface (shared userdata). Instead, read the
+        // clipboard directly and route through the pane's send-keys path.
+        if let paneState = activeTmuxPane {
+            guard let str = NSPasteboard.general.string(forType: .string),
+                  !str.isEmpty else { return }
+            let hostSurface = paneState.writeContext.pointee.hostSurface
+            let paneId = paneState.writeContext.pointee.paneId
+            // Split by newlines to avoid raw newlines breaking the tmux
+            // command stream. Each line is sent as literal text, with
+            // explicit Enter key events between lines.
+            let lines = str.components(separatedBy: .newlines)
+            for (i, line) in lines.enumerated() {
+                if !line.isEmpty, let data = line.data(using: .utf8) {
+                    data.withUnsafeBytes { rawBuf in
+                        let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                        ghostty_surface_tmux_send_keys(hostSurface, paneId, ptr, data.count, 0)
+                    }
+                }
+                // Send Enter between lines (not after the last line)
+                if i < lines.count - 1 {
+                    "Enter".withCString { cstr in
+                        ghostty_surface_tmux_send_keys(
+                            hostSurface, paneId,
+                            UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                            strlen(cstr), 1  // key_type=1 (key name)
+                        )
+                    }
+                }
+            }
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -4898,7 +4952,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // In tmux control mode, redirect keyboard input to the pane surface.
         // This preserves the full keyDown flow (IME, interpretKeyEvents, etc.)
         // while routing the encoded key bytes to the pane's Manual I/O backend.
-        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
+        // If tmux mode is active but pane surfaces aren't ready yet, drop the
+        // key event to avoid sending it to the host surface (which would eat it).
+        if tmuxControlMode && tmuxPaneSurfaces.isEmpty {
+            return
+        }
+        if let paneState = activeTmuxPane {
             surface = paneState.surface
         }
 #if DEBUG
@@ -5543,13 +5602,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard let surface = surface else { return }
 
-        // tmux control mode: Ghostty's native link detection fails because
-        // the render state is empty. Intercept cmd+click and use the tmux
-        // pane text query API to find file paths at the click position.
-        if tmuxControlMode && event.modifierFlags.contains(.command) {
-            if handleTmuxCmdClick(surface: surface, event: event) {
-                return
-            }
+        // In tmux mode, route mouse events to the pane surface so Ghostty's
+        // native link detection works on the pane's real Terminal content.
+        #if DEBUG
+        dlog("tmux.mouseDown check tmuxControlMode=\(tmuxControlMode) paneCount=\(tmuxPaneSurfaces.count)")
+        #endif
+        if let paneState = activeTmuxPane {
+            let paneSurface = paneState.surface
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            let y = paneState.view.bounds.height - point.y
+            #if DEBUG
+            dlog("tmux.mouseDown routed to pane regId=\(paneState.regId) point=(\(String(format: "%.0f", point.x)),\(String(format: "%.0f", y))) cmd=\(event.modifierFlags.contains(.command))")
+            #endif
+            ghostty_surface_mouse_pos(paneSurface, point.x, y, modsFromEvent(event))
+            _ = ghostty_surface_mouse_button(paneSurface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+            return
         }
 
         let point = convert(event.locationInWindow, from: nil)
@@ -5793,6 +5860,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             config.io_mode = GHOSTTY_IO_MODE_MANUAL
 
+            // Share the host surface's callback context so actions dispatched
+            // from the pane surface (e.g. OPEN_URL on cmd+click) are routed
+            // to the host's GhosttyNSView action handler.
+            config.userdata = ghostty_surface_userdata(hostSurface)
+
             // Set up write callback context (C function + opaque pointer)
             let writeCtx = UnsafeMutablePointer<TmuxPaneWriteContext>.allocate(capacity: 1)
             writeCtx.initialize(to: TmuxPaneWriteContext(hostSurface: hostSurface, paneId: paneInfo.pane_id))
@@ -5803,6 +5875,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 let bytes = UnsafeBufferPointer(start: data, count: len)
                 let first = bytes[0]
 
+                #if DEBUG
+                let hexStr = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+                dlog("tmux.input write_cb len=\(len) first=0x\(String(format: "%02x", first)) hex=[\(hexStr)]")
+                #endif
+
+                // Space via send-keys key name to avoid quoting issues
+                // in tmux control mode command parsing
+                if first == 0x20 && len == 1 {
+                    "Space".withCString { cstr in
+                        ghostty_surface_tmux_send_keys(
+                            ctx.hostSurface, ctx.paneId,
+                            UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                            strlen(cstr), 1  // key_type=1 (key name)
+                        )
+                    }
+                    return
+                }
                 if first == 0x1B && len > 1 {
                     // Escape sequence → map to tmux key name
                     if let keyName = GhosttyNSView.tmuxMapEscapeSequence(bytes) {
@@ -5956,7 +6045,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Map escape sequences to tmux key names.
     static func tmuxMapEscapeSequence(_ bytes: UnsafeBufferPointer<UInt8>) -> String? {
-        if bytes.count == 3 && bytes[1] == 0x5B { // ESC[
+        // Handle both CSI (ESC [) and SS3/application mode (ESC O) arrow keys
+        if bytes.count == 3 && (bytes[1] == 0x5B || bytes[1] == 0x4F) { // ESC[ or ESCO
             switch bytes[2] {
             case 0x41: return "Up"
             case 0x42: return "Down"
@@ -6027,6 +6117,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
+        if let paneState = activeTmuxPane {
+            _ = ghostty_surface_mouse_button(paneState.surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+            return
+        }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
@@ -6164,6 +6258,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
+        // Route to pane surface in tmux mode for link hover detection
+        if let paneState = activeTmuxPane {
+            let paneSurface = paneState.surface
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(paneSurface, point.x, paneState.view.bounds.height - point.y, modsFromEvent(event))
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
@@ -8886,7 +8987,7 @@ extension GhosttyNSView: NSTextInputClient {
         // When in tmux mode, the coordinates are relative to the pane view,
         // so we must convert through the pane view's coordinate space.
         let sourceView: NSView
-        if tmuxControlMode, let paneState = tmuxPaneSurfaces.values.first {
+        if let paneState = activeTmuxPane {
             sourceView = paneState.view
         } else {
             sourceView = self

@@ -351,6 +351,9 @@ OPEN_CLEAN_ENV=(
   -u CMUX_DEBUG_LOG
   -u CMUX_BUNDLE_ID
   -u CMUX_SHELL_INTEGRATION
+  # Don't leak tmux env into cmux — the app's terminals are not inside tmux.
+  -u TMUX
+  -u TMUX_PANE
   -u GHOSTTY_BIN_DIR
   -u GHOSTTY_RESOURCES_DIR
   -u GHOSTTY_SHELL_FEATURES
