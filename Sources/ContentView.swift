@@ -718,8 +718,8 @@ final class FileDropOverlayView: NSView {
         ) as? [URL] ?? []
         let hasFolder = hasTerminalTarget || urls.contains { url in
             guard url.hasDirectoryPath else { return false }
-            let values = try? url.resourceValues(forKeys: [.isPackageKey])
-            return values?.isPackage != true
+            guard let values = try? url.resourceValues(forKeys: [.isPackageKey]) else { return false }
+            return values.isPackage != true
         }
         guard hasFolder else { return [] }
         return .copy
