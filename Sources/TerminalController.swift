@@ -3593,9 +3593,9 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
         }
 
-        let color = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard WorkspaceTabColorSettings.normalizedHex(color) != nil else {
-            return .err(code: "invalid_params", message: "Invalid hex color \"\(color)\" (expected #RRGGBB)", data: nil)
+        let trimmed = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let color = WorkspaceTabColorSettings.normalizedHex(trimmed) else {
+            return .err(code: "invalid_params", message: "Invalid hex color \"\(trimmed)\" (expected #RRGGBB)", data: nil)
         }
         var applied = false
         v2MainSync {
