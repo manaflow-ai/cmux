@@ -35,7 +35,7 @@
 코딩 에이전트가 입력을 기다리면 패널에 파란색 링이 뜨고 탭이 강조돼요
 </td>
 <td width="60%">
-<img src="./docs/assets/notification-rings.png" alt="알림 링" width="100%" />
+<img src="./docs/assets/ko/notification-rings.png" alt="알림 링" width="100%" />
 </td>
 </tr>
 <tr>
@@ -44,7 +44,7 @@
 대기 중인 알림을 한곳에서 확인하고, 가장 최근 읽지 않은 알림으로 바로 이동할 수 있어요
 </td>
 <td width="60%">
-<img src="./docs/assets/sidebar-notification-badge.png" alt="사이드바 알림 배지" width="100%" />
+<img src="./docs/assets/ko/sidebar-notification-badge.png" alt="사이드바 알림 배지" width="100%" />
 </td>
 </tr>
 <tr>
@@ -53,7 +53,7 @@
 <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>에서 포팅된 스크립팅 API를 갖춘 브라우저를 터미널 옆에 띄울 수 있어요
 </td>
 <td width="60%">
-<img src="./docs/assets/built-in-browser.png" alt="내장 브라우저" width="100%" />
+<img src="./docs/assets/ko/built-in-browser.png" alt="내장 브라우저" width="100%" />
 </td>
 </tr>
 <tr>
