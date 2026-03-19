@@ -4555,6 +4555,154 @@ enum SidebarBranchOrdering {
         let directory: String?
     }
 
+    fileprivate static func normalizedDirectory(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func relativePathFromTilde(_ directory: String) -> String? {
+        let normalized = normalizedDirectory(directory)
+        switch normalized {
+        case "~":
+            return ""
+        case let path? where path.hasPrefix("~/"):
+            return String(path.dropFirst(2))
+        default:
+            return nil
+        }
+    }
+
+    private static func commonHomeDirectoryPrefix(from absoluteDirectory: String) -> String? {
+        guard let normalized = normalizedDirectory(absoluteDirectory) else { return nil }
+        let standardized = NSString(string: normalized).standardizingPath
+        if standardized == "/root" || standardized.hasPrefix("/root/") {
+            return "/root"
+        }
+
+        let components = NSString(string: standardized).pathComponents
+        if components.count >= 3, components[0] == "/", components[1] == "Users" {
+            return NSString.path(withComponents: Array(components.prefix(3)))
+        }
+        if components.count >= 3, components[0] == "/", components[1] == "home" {
+            return NSString.path(withComponents: Array(components.prefix(3)))
+        }
+        if components.count >= 4, components[0] == "/", components[1] == "var", components[2] == "home" {
+            return NSString.path(withComponents: Array(components.prefix(4)))
+        }
+
+        return nil
+    }
+
+    private static func inferredHomeDirectory(
+        matchingTildeDirectory tildeDirectory: String,
+        absoluteDirectory: String
+    ) -> String? {
+        guard let relativePath = relativePathFromTilde(tildeDirectory),
+              let normalizedAbsolute = normalizedDirectory(absoluteDirectory) else { return nil }
+        let standardizedAbsolute = NSString(string: normalizedAbsolute).standardizingPath
+        let homeDirectory: String
+        if relativePath.isEmpty {
+            homeDirectory = standardizedAbsolute
+        } else {
+            let suffix = "/" + relativePath
+            guard standardizedAbsolute.hasSuffix(suffix) else { return nil }
+            homeDirectory = String(standardizedAbsolute.dropLast(suffix.count))
+        }
+
+        guard commonHomeDirectoryPrefix(from: homeDirectory) == homeDirectory else { return nil }
+        return homeDirectory
+    }
+
+    fileprivate static func inferredRemoteHomeDirectory(
+        from directories: [String],
+        fallbackDirectory: String?
+    ) -> String? {
+        let candidates = directories + [fallbackDirectory].compactMap { $0 }
+        let tildeDirectories = candidates.compactMap { directory -> String? in
+            guard let normalized = normalizedDirectory(directory),
+                  relativePathFromTilde(normalized) != nil else { return nil }
+            return normalized
+        }
+        let absoluteDirectories = candidates.compactMap { directory -> String? in
+            guard let normalized = normalizedDirectory(directory), normalized.hasPrefix("/") else { return nil }
+            return NSString(string: normalized).standardizingPath
+        }
+
+        let inferredHomes = Set(
+            tildeDirectories.flatMap { tildeDirectory in
+                absoluteDirectories.compactMap { absoluteDirectory in
+                    inferredHomeDirectory(
+                        matchingTildeDirectory: tildeDirectory,
+                        absoluteDirectory: absoluteDirectory
+                    )
+                }
+            }
+        )
+
+        if inferredHomes.count == 1 {
+            return inferredHomes.first
+        }
+        if !inferredHomes.isEmpty {
+            return nil
+        }
+
+        return absoluteDirectories.lazy.compactMap(commonHomeDirectoryPrefix(from:)).first
+    }
+
+    private static func expandedTildePath(
+        _ directory: String,
+        homeDirectoryForTildeExpansion: String?
+    ) -> String {
+        guard let relativePath = relativePathFromTilde(directory),
+              let homeDirectory = normalizedDirectory(homeDirectoryForTildeExpansion) else {
+            return directory
+        }
+        if relativePath.isEmpty {
+            return homeDirectory
+        }
+        return NSString(string: homeDirectory).appendingPathComponent(relativePath)
+    }
+
+    fileprivate static func canonicalDirectoryKey(
+        _ directory: String?,
+        homeDirectoryForTildeExpansion: String?
+    ) -> String? {
+        guard let directory = normalizedDirectory(directory) else { return nil }
+        let expanded = expandedTildePath(
+            directory,
+            homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+        )
+        let standardized = NSString(string: expanded).standardizingPath
+        let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func preferredDisplayedDirectory(
+        existing: String?,
+        replacement: String?,
+        homeDirectoryForTildeExpansion: String?
+    ) -> String? {
+        guard let replacement = normalizedDirectory(replacement) else { return existing }
+        guard let existing = normalizedDirectory(existing) else { return replacement }
+
+        let existingUsesTilde = relativePathFromTilde(existing) != nil
+        let replacementUsesTilde = relativePathFromTilde(replacement) != nil
+        if existingUsesTilde != replacementUsesTilde {
+            return replacementUsesTilde ? existing : replacement
+        }
+
+        if canonicalDirectoryKey(existing, homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion)
+            == canonicalDirectoryKey(
+                replacement,
+                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+            ) {
+            return existing
+        }
+
+        return replacement
+    }
+
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
         switch tree {
         case .pane(let pane):
@@ -4699,6 +4847,7 @@ enum SidebarBranchOrdering {
         panelBranches: [UUID: SidebarGitBranchState],
         panelDirectories: [UUID: String],
         defaultDirectory: String?,
+        homeDirectoryForTildeExpansion: String?,
         fallbackBranch: SidebarGitBranchState?
     ) -> [BranchDirectoryEntry] {
         struct EntryKey: Hashable {
@@ -4712,20 +4861,7 @@ enum SidebarBranchOrdering {
             var directory: String?
         }
 
-        func normalized(_ text: String?) -> String? {
-            guard let text else { return nil }
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-
-        func canonicalDirectoryKey(_ directory: String?) -> String? {
-            guard let directory = normalized(directory) else { return nil }
-            let expanded = NSString(string: directory).expandingTildeInPath
-            let standardized = NSString(string: expanded).standardizingPath
-            let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
-            return cleaned.isEmpty ? nil : cleaned
-        }
-
+        let normalized = normalizedDirectory
         let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
         let shouldUseFallbackBranchPerPanel = !orderedPanelIds.contains {
             normalized(panelBranches[$0]?.branch) != nil
@@ -4747,7 +4883,10 @@ enum SidebarBranchOrdering {
                 : defaultBranchDirty
 
             let key: EntryKey
-            if let directoryKey = canonicalDirectoryKey(directory) {
+            if let directoryKey = canonicalDirectoryKey(
+                directory,
+                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+            ) {
                 // Keep one line per directory and allow the latest branch state to overwrite.
                 key = EntryKey(directory: directoryKey, branch: nil)
             } else {
@@ -4764,9 +4903,11 @@ enum SidebarBranchOrdering {
                     } else if existing.branch == nil {
                         existing.isDirty = panelDirty
                     }
-                    if let directory {
-                        existing.directory = directory
-                    }
+                    existing.directory = preferredDisplayedDirectory(
+                        existing: existing.directory,
+                        replacement: directory,
+                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+                    )
                     entries[key] = existing
                 } else if panelDirty {
                     existing.isDirty = true
@@ -5939,12 +6080,16 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func canonicalSidebarDirectoryKey(_ directory: String?) -> String? {
-        guard let directory = normalizedSidebarDirectory(directory) else { return nil }
-        let expanded = NSString(string: directory).expandingTildeInPath
-        let standardized = NSString(string: expanded).standardizingPath
-        let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? nil : cleaned
+    private func sidebarHomeDirectoryForCanonicalization(
+        resolvedPanelDirectories: [UUID: String]
+    ) -> String? {
+        if isRemoteWorkspace {
+            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
+                from: Array(resolvedPanelDirectories.values),
+                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
+            )
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
     }
 
     private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
@@ -5972,12 +6117,18 @@ final class Workspace: Identifiable, ObservableObject {
 
     func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
         let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedDirectories
+        )
         var ordered: [String] = []
         var seen: Set<String> = []
 
         for panelId in orderedPanelIds {
             guard let directory = resolvedDirectories[panelId],
-                  let key = canonicalSidebarDirectoryKey(directory) else { continue }
+                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
+                      directory,
+                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
+                  ) else { continue }
             if seen.insert(key).inserted {
                 ordered.append(directory)
             }
@@ -6011,11 +6162,15 @@ final class Workspace: Identifiable, ObservableObject {
     func sidebarBranchDirectoryEntriesInDisplayOrder(
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
-            panelDirectories: sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds),
+            panelDirectories: resolvedDirectories,
             defaultDirectory: normalizedSidebarDirectory(currentDirectory),
+            homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
+                resolvedPanelDirectories: resolvedDirectories
+            ),
             fallbackBranch: gitBranch
         )
     }
