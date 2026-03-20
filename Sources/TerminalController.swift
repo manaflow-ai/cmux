@@ -4065,12 +4065,25 @@ class TerminalController {
                     result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
                     return
                 }
-                tabManager.setTabColor(tabId: workspace.id, color: colorRaw)
-                finish(["color": colorRaw])
+                // Resolve named color to hex via palette lookup
+                let resolved: String
+                if colorRaw.hasPrefix("#") {
+                    resolved = colorRaw
+                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+                    $0.name.lowercased() == colorRaw.lowercased()
+                }) {
+                    resolved = entry.hex
+                } else {
+                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
+                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: resolved)
+                finish(["color": resolved])
 
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
-                finish([:])
+                finish(["color": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
