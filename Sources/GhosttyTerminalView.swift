@@ -6094,6 +6094,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             #if DEBUG
             dlog("tmux.pane create pane=\(paneInfo.pane_id) regId=\(regId) viewFrame=\(paneView.frame) wpx=\(wpx) hpx=\(hpx) scale=\(scaleFactor)")
             #endif
+
+            // Initial sync: capture the tmux pane's visible content and feed
+            // it to the pane surface so the user sees the prompt immediately
+            // instead of a blank screen.
+            let capturedPaneId = paneInfo.pane_id
+            tmuxInitialSync(paneSurface: paneSurface, paneId: capturedPaneId)
         }
 
         // Update layout for existing panes
@@ -6246,6 +6252,57 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         tmuxPrefixState = .idle
         tmuxPrefixConfig = TmuxPrefixConfig()
         tmuxActivePaneId = nil
+    }
+
+    /// Capture the tmux pane's visible content and feed it to the pane surface.
+    /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content, then sends
+    /// it via ghostty_surface_process_output so the pane surface renders it.
+    private func tmuxInitialSync(paneSurface: ghostty_surface_t, paneId: UInt) {
+        // Capture regId for lifetime safety — verify pane is still alive
+        // after the async query returns.
+        guard let regId = tmuxPaneSurfaces[paneId]?.regId else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Raw query: don't trim, capture-pane content has meaningful whitespace
+            let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
+            guard !output.isEmpty else { return }
+            // Convert \n to \r\n for terminal emulator, prepend cursor-home
+            var fullOutput = "\u{1B}[H"
+            for (i, line) in output.components(separatedBy: "\n").enumerated() {
+                if i > 0 { fullOutput += "\r\n" }
+                fullOutput += line
+            }
+            guard let bytes = fullOutput.data(using: .utf8) else { return }
+
+            DispatchQueue.main.async {
+                // Verify pane is still alive with same regId
+                guard let self = self,
+                      let state = self.tmuxPaneSurfaces[paneId],
+                      state.regId == regId else { return }
+                bytes.withUnsafeBytes { rawBuf in
+                    let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    ghostty_surface_process_output(state.surface, ptr, bytes.count)
+                }
+            }
+        }
+    }
+
+    /// Run a tmux command and return raw stdout bytes (no trimming).
+    private static func tmuxQueryRaw(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            return ""
+        }
     }
 
     /// Send a raw tmux command through the control mode channel.
