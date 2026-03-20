@@ -61,6 +61,57 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    private func writeShellFile(at url: URL, lines: [String]) throws {
+        try lines.joined(separator: "\n")
+            .appending("\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func runRelayZshHistfile(
+        configureUserHome: (URL) throws -> URL
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-zsh-\(UUID().uuidString)")
+        let relayDir = home.appendingPathComponent(".cmux/relay/64011.shell")
+
+        try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let effectiveUserZdotdir = try configureUserHome(home)
+        let bootstrap = RemoteRelayZshBootstrap(shellStateDir: relayDir.path)
+
+        try writeShellFile(at: relayDir.appendingPathComponent(".zshenv"), lines: bootstrap.zshEnvLines)
+        try writeShellFile(at: relayDir.appendingPathComponent(".zprofile"), lines: bootstrap.zshProfileLines)
+        try writeShellFile(at: relayDir.appendingPathComponent(".zshrc"), lines: bootstrap.zshRCLines(commonShellLines: []))
+        try writeShellFile(at: relayDir.appendingPathComponent(".zlogin"), lines: bootstrap.zshLoginLines)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "TERM=xterm-256color",
+                "SHELL=/bin/zsh",
+                "USER=\(NSUserName())",
+                "CMUX_REAL_ZDOTDIR=\(home.path)",
+                "ZDOTDIR=\(relayDir.path)",
+                "/bin/zsh",
+                "-ilc",
+                "print -r -- \"$HISTFILE\"",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let histfile = result.stdout
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last(where: { !$0.isEmpty })
+        XCTAssertEqual(histfile, effectiveUserZdotdir.appendingPathComponent(".zsh_history").path)
+        return histfile ?? ""
+    }
+
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")
@@ -123,6 +174,32 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+    }
+
+    func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
+        let histfile = try runRelayZshHistfile { home in
+            try ":\n".write(to: home.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+            try ":\n".write(to: home.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+            return home
+        }
+
+        XCTAssertTrue(histfile.hasSuffix("/.zsh_history"))
+    }
+
+    func testRelayZshBootstrapUsesUserUpdatedZdotdirHistory() throws {
+        let histfile = try runRelayZshHistfile { home in
+            let altZdotdir = home.appendingPathComponent("dotfiles")
+            try FileManager.default.createDirectory(at: altZdotdir, withIntermediateDirectories: true)
+            try "export ZDOTDIR=\"$HOME/dotfiles\"\n".write(
+                to: home.appendingPathComponent(".zshenv"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try ":\n".write(to: altZdotdir.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+            return altZdotdir
+        }
+
+        XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
     }
 
     func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
