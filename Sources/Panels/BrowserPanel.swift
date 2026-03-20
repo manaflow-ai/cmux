@@ -982,6 +982,9 @@ final class BrowserHistoryStore: ObservableObject {
         do {
             data = try Data(contentsOf: fileURL)
         } catch {
+#if DEBUG
+            dlog("browser.history.load.readError path=\(fileURL.path) error=\(error)")
+#endif
             return
         }
 
@@ -989,6 +992,9 @@ final class BrowserHistoryStore: ObservableObject {
         do {
             decoded = try JSONDecoder().decode([Entry].self, from: data)
         } catch {
+#if DEBUG
+            dlog("browser.history.load.decodeError path=\(fileURL.path) error=\(error)")
+#endif
             return
         }
 
@@ -1288,6 +1294,9 @@ final class BrowserHistoryStore: ObservableObject {
             do {
                 try Self.persistSnapshot(snapshot, to: fileURL)
             } catch {
+#if DEBUG
+                dlog("browser.history.save.persistError path=\(fileURL.path) error=\(error)")
+#endif
                 return
             }
         }
@@ -1307,6 +1316,9 @@ final class BrowserHistoryStore: ObservableObject {
             try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
             try fm.copyItem(at: legacyURL, to: targetURL)
         } catch {
+#if DEBUG
+            dlog("browser.history.migrate.error from=\(legacyURL.path) to=\(targetURL.path) error=\(error)")
+#endif
             return
         }
     }
@@ -1627,6 +1639,9 @@ actor BrowserSearchSuggestionService {
         do {
             (data, response) = try await URLSession.shared.data(for: req)
         } catch {
+#if DEBUG
+            dlog("browser.suggestions.fetchError url=\(url.absoluteString) error=\(error)")
+#endif
             return []
         }
 
