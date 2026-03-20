@@ -409,20 +409,20 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "emptyPane.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPane.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
                 emptyPaneActionButton(
-                    title: "Browser",
+                    title: String(localized: "emptyPane.action.browser", defaultValue: "Browser"),
                     systemImage: "globe",
                     shortcut: openBrowserShortcut,
                     action: createBrowser
