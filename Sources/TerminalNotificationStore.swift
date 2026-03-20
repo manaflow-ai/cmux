@@ -1046,15 +1046,19 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
+    private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        return notification.title.isEmpty ? appName : notification.title
+    }
+
     private func scheduleUserNotification(_ notification: TerminalNotification) {
         ensureAuthorization(origin: .notificationDelivery) { [weak self] authorized in
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-                ?? "cmux"
-            content.title = notification.title.isEmpty ? appName : notification.title
+            content.title = self.resolvedNotificationTitle(for: notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
             content.sound = NotificationSoundSettings.sound()
@@ -1088,8 +1092,12 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func playSuppressedNotificationFeedback(for notification: TerminalNotification) {
-        _ = notification
         NotificationSoundSettings.playSelectedSound()
+        NotificationSoundSettings.runCustomCommand(
+            title: resolvedNotificationTitle(for: notification),
+            subtitle: notification.subtitle,
+            body: notification.body
+        )
     }
 
     private func ensureAuthorization(
