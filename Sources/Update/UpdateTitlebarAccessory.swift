@@ -881,9 +881,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         contentSize = cachedFittingSize ?? .zero
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        let titlebarHeight = view.window.map { window in
-            window.frame.height - window.contentLayoutRect.height
-        } ?? contentSize.height
+        // Use the traffic-light close button's superview height as the true
+        // titlebar height. This excludes the tab bar so the icons align with
+        // the traffic-light buttons (like Slack does) instead of centering in
+        // the full non-content area which includes the tab strip.
+        let titlebarHeight: CGFloat = {
+            if let window = view.window,
+               let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.frame.height > 0 {
+                return titlebarView.frame.height
+            }
+            // Fallback: derive from the window geometry.
+            return view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        }()
         let containerHeight = max(contentSize.height, titlebarHeight)
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
