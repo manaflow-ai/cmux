@@ -3933,7 +3933,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4058,6 +4059,35 @@ class TerminalController {
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
                 finish()
+
+            case "set_color":
+                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
+                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                    return
+                }
+                // Resolve named color to hex via palette lookup
+                let resolved: String
+                if colorRaw.hasPrefix("#") {
+                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
+                        return
+                    }
+                    resolved = normalized
+                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+                    $0.name.lowercased() == colorRaw.lowercased()
+                }) {
+                    resolved = entry.hex
+                } else {
+                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
+                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: resolved)
+                finish(["color": resolved])
+
+            case "clear_color":
+                tabManager.setTabColor(tabId: workspace.id, color: nil)
+                finish(["color": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
