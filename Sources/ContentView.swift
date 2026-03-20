@@ -11071,11 +11071,22 @@ private struct TabItemView: View, Equatable {
 
             // Ports row
             if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
-                Text(tab.listeningPorts.map { ":\($0)" }.joined(separator: ", "))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(activeSecondaryColor(0.75))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 4) {
+                    ForEach(tab.listeningPorts, id: \.self) { port in
+                        Button(action: {
+                            openPortLink(port)
+                        }) {
+                            Text(":\(port)")
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(port)"))
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(activeSecondaryColor(0.75))
+                .lineLimit(1)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
@@ -11779,6 +11790,19 @@ private struct TabItemView: View, Equatable {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    private func openPortLink(_ port: Int) {
+        guard let url = URL(string: "http://localhost:\(port)") else { return }
+        updateSelection()
+        if tabManager.openBrowser(
+            inWorkspace: tab.id,
+            url: url,
+            preferSplitRight: true,
+            insertAtEnd: true
+        ) == nil {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     private func pullRequestStatusLabel(
