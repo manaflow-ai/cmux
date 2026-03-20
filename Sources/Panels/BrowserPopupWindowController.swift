@@ -298,7 +298,6 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             #endif
             return nil
         }
-        openerPanel?.configurePasskeyAuthorizationBridge(on: configuration)
         let child = BrowserPopupWindowController(
             configuration: configuration,
             windowFeatures: windowFeatures,

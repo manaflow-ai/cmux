@@ -1755,6 +1755,7 @@ private struct BrowserPasskeyAuthorizationReply {
     }
 }
 
+@available(macOS 15.0, *)
 @MainActor
 private final class BrowserPasskeyAuthorizationCoordinator: NSObject, WKScriptMessageHandlerWithReply {
     weak var panel: BrowserPanel?
@@ -1972,6 +1973,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
+    @available(macOS 15.0, *)
     private lazy var passkeyAuthorizationCoordinator = BrowserPasskeyAuthorizationCoordinator(panel: self)
 
     static let telemetryHookBootstrapScriptSource = """
@@ -2935,6 +2937,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func configurePasskeyAuthorizationBridge(on configuration: WKWebViewConfiguration) {
+        guard #available(macOS 15.0, *) else { return }
         let userContentController = configuration.userContentController
         if !userContentController.userScripts.contains(where: { $0.source == Self.passkeyAuthorizationBootstrapScriptSource }) {
             userContentController.addUserScript(
