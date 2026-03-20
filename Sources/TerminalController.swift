@@ -7158,9 +7158,18 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
 
+            let directionStr = v2String(params, "direction") ?? "right"
+            guard let direction = parseSplitDirection(directionStr) else {
+                result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
+                return
+            }
+            let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+            let insertFirst = (direction == .left || direction == .up)
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
-                orientation: .horizontal,
+                orientation: orientation,
+                insertFirst: insertFirst,
                 filePath: filePath,
                 focus: v2FocusAllowed()
             )

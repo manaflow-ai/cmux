@@ -2358,7 +2358,8 @@ struct CMUXCLI {
         let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
         let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
-        args = argsAfterSurface
+        let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
+        args = argsAfterDirection
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -2373,7 +2374,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -2391,20 +2392,21 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
             )
         }
 
         let absolutePath = resolvePath(rawPath)
 
         // Build params
-        var params: [String: Any] = ["path": absolutePath]
+        let direction = directionOpt ?? "right"
+        var params: [String: Any] = ["path": absolutePath, "direction": direction]
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -7101,11 +7103,13 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
               --window <id|ref|index>      Target window
+              --direction <left|right|up|down>  Split direction (default: right)
 
             Examples:
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
+              cmux markdown open plan.md --direction down
             """
         default:
             return nil
