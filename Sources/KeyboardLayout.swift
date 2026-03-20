@@ -15,12 +15,31 @@ class KeyboardLayout {
 
     /// Translate a physical keyCode to the character AppKit would use for shortcut matching,
     /// preserving command-aware layouts such as "Dvorak - QWERTY Command".
+    /// CJK input sources (Korean, Chinese, Japanese) lack kTISPropertyUnicodeKeyLayoutData,
+    /// so we fall back to TISCopyCurrentASCIICapableKeyboardInputSource() in that case.
     static func character(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
-              let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+        if let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+           let result = characterFromInputSource(source, forKeyCode: keyCode, modifierFlags: modifierFlags) {
+            return result
+        }
+        // Current input source has no Unicode layout data (e.g. Korean, Chinese, Japanese IME).
+        // Fall back to the ASCII-capable source so shortcut matching still works.
+        if let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue(),
+           let result = characterFromInputSource(asciiSource, forKeyCode: keyCode, modifierFlags: modifierFlags) {
+            return result
+        }
+        return nil
+    }
+
+    private static func characterFromInputSource(
+        _ source: TISInputSource,
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> String? {
+        guard let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
         }
 
