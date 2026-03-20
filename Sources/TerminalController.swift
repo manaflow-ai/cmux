@@ -3933,7 +3933,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4058,6 +4059,18 @@ class TerminalController {
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
                 finish()
+
+            case "set_color":
+                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
+                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: colorRaw)
+                finish(["color": colorRaw])
+
+            case "clear_color":
+                tabManager.setTabColor(tabId: workspace.id, color: nil)
+                finish([:])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
