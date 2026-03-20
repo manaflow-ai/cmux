@@ -11076,7 +11076,7 @@ private struct TabItemView: View, Equatable {
                         Button(action: {
                             openPortLink(port)
                         }) {
-                            Text(":\(port)")
+                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(port)"))
                                 .underline()
                         }
                         .buttonStyle(.plain)
@@ -11795,14 +11795,18 @@ private struct TabItemView: View, Equatable {
     private func openPortLink(_ port: Int) {
         guard let url = URL(string: "http://localhost:\(port)") else { return }
         updateSelection()
-        if tabManager.openBrowser(
-            inWorkspace: tab.id,
-            url: url,
-            preferSplitRight: true,
-            insertAtEnd: true
-        ) == nil {
-            NSWorkspace.shared.open(url)
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            if tabManager.openBrowser(
+                inWorkspace: tab.id,
+                url: url,
+                preferSplitRight: true,
+                insertAtEnd: true
+            ) == nil {
+                NSWorkspace.shared.open(url)
+            }
+            return
         }
+        NSWorkspace.shared.open(url)
     }
 
     private func pullRequestStatusLabel(
