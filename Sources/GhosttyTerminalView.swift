@@ -1287,9 +1287,6 @@ class GhosttyApp {
             if lower.hasPrefix("ja") {
                 font = "Hiragino Sans"
                 langRanges = japaneseRanges
-            } else if lower.hasPrefix("ko") {
-                font = "Apple SD Gothic Neo"
-                langRanges = koreanRanges
             } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
                 font = "PingFang TC"
             } else if lower.hasPrefix("zh") {
