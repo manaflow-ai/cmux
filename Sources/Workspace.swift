@@ -151,6 +151,9 @@ extension Workspace {
     }
 
     func sessionSnapshot(includeScrollback: Bool) -> SessionWorkspaceSnapshot {
+        // tmux workspaces skip scrollback — tmux re-sends content on reconnect
+        let effectiveIncludeScrollback = tmuxControllerId == nil && includeScrollback
+
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
 
@@ -166,7 +169,7 @@ extension Workspace {
 
         let panelSnapshots = allPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
-            .compactMap { sessionPanelSnapshot(panelId: $0, includeScrollback: includeScrollback) }
+            .compactMap { sessionPanelSnapshot(panelId: $0, includeScrollback: effectiveIncludeScrollback) }
 
         let statusSnapshots = statusEntries.values
             .sorted { lhs, rhs in lhs.key < rhs.key }
@@ -195,6 +198,18 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
 
+        // Build tmux session info if this workspace is managed by a tmux controller
+        let tmuxInfo: TmuxSessionInfo? = tmuxControllerId.flatMap { controllerId in
+            guard let controller = TmuxController.controller(forId: controllerId),
+                  !controller.sessionName.isEmpty else {
+                return nil
+            }
+            return TmuxSessionInfo(
+                sessionName: controller.sessionName,
+                connectionCommand: "tmux -CC attach -t \(controller.sessionName)"
+            )
+        }
+
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
             customTitle: customTitle,
@@ -207,7 +222,8 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            tmuxSession: tmuxInfo
         )
     }
 
@@ -4963,6 +4979,15 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customTitle: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+
+    /// When true, this workspace is a tmux gateway and hidden from the sidebar.
+    /// Set by TmuxController on enter, cleared on detach/exit.
+    @Published var isBuriedGateway: Bool = false
+
+    /// If this workspace is managed by a tmux controller, holds the controller's ID.
+    /// Used during session persistence to identify tmux workspaces and capture
+    /// reconnection metadata. Set by TmuxController when creating workspaces.
+    var tmuxControllerId: UUID?
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 

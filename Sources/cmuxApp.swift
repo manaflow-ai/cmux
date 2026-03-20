@@ -444,6 +444,14 @@ struct cmuxApp: App {
                 .disabled(!snapshot.hasNotifications)
             }
 
+            CommandMenu(String(localized: "menu.tmux.title", defaultValue: "tmux")) {
+                Button(String(localized: "menu.tmux.detach", defaultValue: "Detach")) {
+                    TmuxController.detachAll()
+                }
+                .keyboardShortcut("d", modifiers: [.control, .command])
+                .disabled(!TmuxController.hasActiveConnection)
+            }
+
 #if DEBUG
             CommandMenu("Debug") {
                 Button("New Tab With Lorem Search Text") {

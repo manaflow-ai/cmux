@@ -23,6 +23,12 @@
 		A5001501 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001511 /* UITestRecorder.swift */; };
 		A5001226 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlSettings.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
+		TM000001 /* TmuxTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000011 /* TmuxTypes.swift */; };
+		TM000002 /* TmuxGateway.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000012 /* TmuxGateway.swift */; };
+		TM000003 /* TmuxController.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000013 /* TmuxController.swift */; };
+		TM000004 /* TmuxPaneClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000014 /* TmuxPaneClient.swift */; };
+		TM000005 /* TmuxLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000015 /* TmuxLayoutEngine.swift */; };
+		TM000006 /* TmuxKeyEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000016 /* TmuxKeyEncoder.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
@@ -91,6 +97,7 @@
 					F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 					F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */; };
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */; };
+					TM000020A1B2C3D4E5F60718 /* TmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = TM000021A1B2C3D4E5F60718 /* TmuxTests.swift */; };
 					FA100000A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA100001A1B2C3D4E5F60718 /* BrowserImportMappingTests.swift */; };
 					F6000000A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6000001A1B2C3D4E5F60718 /* AppDelegateShortcutRoutingTests.swift */; };
 					F6100000A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6100001A1B2C3D4E5F60718 /* WorkspaceRemoteConnectionTests.swift */; };
@@ -174,6 +181,7 @@
 		/* Begin PBXFileReference section */
 			A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 			F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		TM000021A1B2C3D4E5F60718 /* TmuxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxTests.swift; sourceTree = "<group>"; };
 			7E7E6EF344A568AC7FEE3715 /* cmuxUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = cmuxUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 			A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
 			A5001012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -190,6 +198,12 @@
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
+		TM000011 /* TmuxTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxTypes.swift; sourceTree = "<group>"; };
+		TM000012 /* TmuxGateway.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxGateway.swift; sourceTree = "<group>"; };
+		TM000013 /* TmuxController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxController.swift; sourceTree = "<group>"; };
+		TM000014 /* TmuxPaneClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxPaneClient.swift; sourceTree = "<group>"; };
+		TM000015 /* TmuxLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxLayoutEngine.swift; sourceTree = "<group>"; };
+		TM000016 /* TmuxKeyEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tmux/TmuxKeyEncoder.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 			A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
 			A5001511 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
@@ -448,6 +462,12 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				TM000011 /* TmuxTypes.swift */,
+				TM000012 /* TmuxGateway.swift */,
+				TM000013 /* TmuxController.swift */,
+				TM000014 /* TmuxPaneClient.swift */,
+				TM000015 /* TmuxLayoutEngine.swift */,
+				TM000016 /* TmuxKeyEncoder.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -537,6 +557,7 @@
 					EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */,
 					491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 					10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
+					TM000021A1B2C3D4E5F60718 /* TmuxTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -740,6 +761,12 @@
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
+				TM000001 /* TmuxTypes.swift in Sources */,
+				TM000002 /* TmuxGateway.swift in Sources */,
+				TM000003 /* TmuxController.swift in Sources */,
+				TM000004 /* TmuxPaneClient.swift in Sources */,
+				TM000005 /* TmuxLayoutEngine.swift in Sources */,
+				TM000006 /* TmuxKeyEncoder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -797,6 +824,7 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */,
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
+					TM000020A1B2C3D4E5F60718 /* TmuxTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};

@@ -38,12 +38,17 @@ final class TerminalPanel: Panel, ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
 
+    /// Whether this panel is a tmux virtual client (Manual I/O mode).
+    var isTmuxClient: Bool {
+        surface.manualIOConfig != nil
+    }
+
     var displayTitle: String {
         title.isEmpty ? "Terminal" : title
     }
 
     var displayIcon: String? {
-        "terminal.fill"
+        isTmuxClient ? "rectangle.split.3x1" : "terminal.fill"
     }
 
     var isDirty: Bool {

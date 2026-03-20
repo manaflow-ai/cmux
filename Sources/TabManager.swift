@@ -2210,6 +2210,25 @@ class TabManager: ObservableObject {
     }
 
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) {
+        // Tmux workspaces should detach rather than close directly
+        if let controllerId = workspace.tmuxControllerId,
+           let controller = TmuxController.controller(forId: controllerId),
+           controller.connectionState == .connected {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "dialog.tmuxClose.title", defaultValue: "Detach from tmux session?")
+            alert.informativeText = String(
+                localized: "dialog.tmuxClose.message",
+                defaultValue: "This workspace is part of a tmux session. Detaching will disconnect from the session but keep it running on the server."
+            )
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: String(localized: "dialog.tmuxClose.detach", defaultValue: "Detach"))
+            alert.addButton(withTitle: String(localized: "dialog.tmuxClose.cancel", defaultValue: "Cancel"))
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                controller.detach()
+            }
+            return
+        }
         closeWorkspaceIfRunningProcess(workspace)
     }
 
@@ -4888,8 +4907,21 @@ extension TabManager {
     }
 
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
+        // Filter out remote workspaces and buried gateway workspaces.
+        // For tmux workspaces, only save one representative per controller
+        // (the first window) — the tmux server is the source of truth and will
+        // re-establish all windows on reconnect.
+        var seenTmuxControllers: Set<UUID> = []
         let restorableTabs = tabs
-            .filter { !$0.isRemoteWorkspace }
+            .filter { tab in
+                if tab.isRemoteWorkspace { return false }
+                if tab.isBuriedGateway { return false }
+                if let controllerId = tab.tmuxControllerId {
+                    // Only keep the first workspace per tmux controller
+                    return seenTmuxControllers.insert(controllerId).inserted
+                }
+                return true
+            }
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         let workspaceSnapshots = restorableTabs
             .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
@@ -4929,9 +4961,19 @@ extension TabManager {
         // emissions (empty tabs, nil selectedTabId) that can leave SwiftUI's
         // mountedWorkspaceIds empty and cause a frozen blank launch state (#399).
         var newTabs: [Workspace] = []
+        var tmuxReconnectCommands: [String] = []
         let workspaceSnapshots = snapshot.workspaces
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
         for workspaceSnapshot in workspaceSnapshots {
+            // Tmux workspaces are not restored individually. Instead, collect
+            // the reconnect commands and create a single gateway workspace below.
+            if let tmuxInfo = workspaceSnapshot.tmuxSession {
+                if !tmuxReconnectCommands.contains(tmuxInfo.connectionCommand) {
+                    tmuxReconnectCommands.append(tmuxInfo.connectionCommand)
+                }
+                continue
+            }
+
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let workspace = Workspace(
@@ -4941,6 +4983,23 @@ extension TabManager {
             )
             workspace.owningTabManager = self
             workspace.restoreSessionSnapshot(workspaceSnapshot)
+            wireClosedBrowserTracking(for: workspace)
+            newTabs.append(workspace)
+        }
+
+        // Create gateway workspaces that auto-reconnect to tmux sessions.
+        // Each runs `tmux -CC attach -t <name>` which triggers control mode
+        // and the TmuxController takes over from there.
+        for command in tmuxReconnectCommands {
+            let ordinal = Self.nextPortOrdinal
+            Self.nextPortOrdinal += 1
+            let workspace = Workspace(
+                title: "tmux",
+                workingDirectory: nil,
+                portOrdinal: ordinal,
+                initialTerminalCommand: command
+            )
+            workspace.owningTabManager = self
             wireClosedBrowserTracking(for: workspace)
             newTabs.append(workspace)
         }

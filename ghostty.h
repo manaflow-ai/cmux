@@ -437,6 +437,13 @@ typedef enum {
   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
 } ghostty_surface_context_e;
 
+typedef enum {
+  GHOSTTY_SURFACE_IO_EXEC = 0,
+  GHOSTTY_SURFACE_IO_MANUAL = 1,
+} ghostty_surface_io_mode_e;
+
+typedef void (*ghostty_io_write_cb)(void*, const char*, uintptr_t);
+
 typedef struct {
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
@@ -450,6 +457,9 @@ typedef struct {
   const char* initial_input;
   bool wait_after_command;
   ghostty_surface_context_e context;
+  ghostty_surface_io_mode_e io_mode;
+  ghostty_io_write_cb io_write_cb;
+  void* io_write_userdata;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -463,7 +473,7 @@ typedef struct {
 
 // Config types
 
-// config.Path
+// config.Path (cmux fork addition)
 typedef struct {
   const char* path;
   bool optional;
@@ -514,6 +524,15 @@ typedef struct {
   ghostty_quick_terminal_size_s primary;
   ghostty_quick_terminal_size_s secondary;
 } ghostty_config_quick_terminal_size_s;
+
+// config.Fullscreen
+typedef enum {
+  GHOSTTY_CONFIG_FULLSCREEN_FALSE,
+  GHOSTTY_CONFIG_FULLSCREEN_TRUE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
+  GHOSTTY_CONFIG_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
+} ghostty_config_fullscreen_e;
 
 // apprt.Target.Key
 typedef enum {
@@ -583,9 +602,9 @@ typedef enum {
 // apprt.action.Fullscreen
 typedef enum {
   GHOSTTY_FULLSCREEN_NATIVE,
-  GHOSTTY_FULLSCREEN_NON_NATIVE,
-  GHOSTTY_FULLSCREEN_NON_NATIVE_VISIBLE_MENU,
-  GHOSTTY_FULLSCREEN_NON_NATIVE_PADDED_NOTCH,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_VISIBLE_MENU,
+  GHOSTTY_FULLSCREEN_MACOS_NON_NATIVE_PADDED_NOTCH,
 } ghostty_action_fullscreen_e;
 
 // apprt.action.FloatWindow
@@ -715,7 +734,7 @@ typedef struct {
 
 // renderer.Health
 typedef enum {
-  GHOSTTY_RENDERER_HEALTH_OK,
+  GHOSTTY_RENDERER_HEALTH_HEALTHY,
   GHOSTTY_RENDERER_HEALTH_UNHEALTHY,
 } ghostty_action_renderer_health_e;
 
@@ -845,6 +864,28 @@ typedef struct {
   uint64_t len;
 } ghostty_action_scrollbar_s;
 
+// apprt.action.TmuxControl.Event
+typedef enum {
+  GHOSTTY_TMUX_ENTER = 0,
+  GHOSTTY_TMUX_EXIT = 1,
+  GHOSTTY_TMUX_WINDOWS_CHANGED = 2,
+  GHOSTTY_TMUX_PANE_OUTPUT = 3,
+  GHOSTTY_TMUX_LAYOUT_CHANGE = 4,
+  GHOSTTY_TMUX_WINDOW_ADD = 5,
+  GHOSTTY_TMUX_WINDOW_CLOSE = 6,
+  GHOSTTY_TMUX_WINDOW_RENAMED = 7,
+  GHOSTTY_TMUX_SESSION_CHANGED = 8,
+  GHOSTTY_TMUX_SESSION_RENAMED = 9,
+} ghostty_tmux_event_e;
+
+// apprt.action.TmuxControl.C
+typedef struct {
+  ghostty_tmux_event_e event;
+  uint32_t id;
+  const uint8_t *data;
+  uintptr_t data_len;
+} ghostty_action_tmux_control_s;
+
 // apprt.Action.Key
 typedef enum {
   GHOSTTY_ACTION_QUIT,
@@ -910,6 +951,8 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
+  GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_TMUX_CONTROL,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -950,6 +993,7 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_tmux_control_s tmux_control;
 } ghostty_action_u;
 
 typedef struct {
@@ -1085,6 +1129,7 @@ bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                     ghostty_binding_flags_e*);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
+void ghostty_surface_process_output(ghostty_surface_t, const char*, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
 bool ghostty_surface_mouse_button(ghostty_surface_t,
                                   ghostty_input_mouse_state_e,
@@ -1114,8 +1159,6 @@ void ghostty_surface_complete_clipboard_request(ghostty_surface_t,
                                                 void*,
                                                 bool);
 bool ghostty_surface_has_selection(ghostty_surface_t);
-bool ghostty_surface_select_cursor_cell(ghostty_surface_t);
-bool ghostty_surface_clear_selection(ghostty_surface_t);
 bool ghostty_surface_read_selection(ghostty_surface_t, ghostty_text_s*);
 bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
@@ -1153,6 +1196,10 @@ bool ghostty_inspector_metal_init(ghostty_inspector_t, void*);
 void ghostty_inspector_metal_render(ghostty_inspector_t, void*, void*);
 bool ghostty_inspector_metal_shutdown(ghostty_inspector_t);
 #endif
+
+// cmux fork additions: selection API
+bool ghostty_surface_select_cursor_cell(ghostty_surface_t);
+bool ghostty_surface_clear_selection(ghostty_surface_t);
 
 // APIs I'd like to get rid of eventually but are still needed for now.
 // Don't use these unless you know what you're doing.

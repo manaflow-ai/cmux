@@ -340,6 +340,11 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+
+    /// If this workspace was part of a tmux control mode session, this field
+    /// holds the reconnection metadata. On restore, a single gateway workspace
+    /// is created to auto-reconnect instead of restoring individual tmux panes.
+    var tmuxSession: TmuxSessionInfo?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {

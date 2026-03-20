@@ -2401,6 +2401,13 @@ class GhosttyApp {
                     }
                 }
             }
+        case GHOSTTY_ACTION_TMUX_CONTROL:
+            guard let surface = callbackContext?.terminalSurface else { return false }
+            let tmuxAction = action.action.tmux_control
+            return performOnMain {
+                TmuxGateway.handleGlobalAction(tmuxAction, surface: surface)
+                return true
+            }
         default:
             return false
         }
@@ -2546,6 +2553,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let val = UserDefaults.standard.integer(forKey: "cmuxPortRange")
         return val > 0 ? val : 10
     }()
+    /// Configuration for Manual I/O mode (used by tmux virtual surfaces).
+    /// When set, the surface is created without a PTY; keystrokes are routed
+    /// through the write callback instead of a child process.
+    struct ManualIOConfig {
+        let writeCallback: ghostty_io_write_cb
+        let userdata: UnsafeMutableRawPointer
+    }
+
+    /// Set before surface creation to enable Manual I/O mode.
+    var manualIOConfig: ManualIOConfig?
+
+    /// Whether this surface is in Manual I/O mode (tmux virtual pane).
+    var isManualIOMode: Bool { manualIOConfig != nil }
+
     private let surfaceContext: ghostty_surface_context_e
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
@@ -3127,6 +3148,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+
+        // Manual I/O mode for tmux virtual surfaces
+        if let manualIO = manualIOConfig {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = manualIO.writeCallback
+            surfaceConfig.io_write_userdata = manualIO.userdata
+        }
+
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         dlog(
