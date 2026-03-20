@@ -86,7 +86,7 @@ touch the same stale-frame mitigation path and tend to conflict in the same file
   - Avoids inserting an explicit continuation marker after Pure's hidden carriage return, because Ghostty already tracks the newline as prompt continuation and the extra marker duplicates the preprompt row.
   - Restores that prompt-marker behavior on top of the current Ghostty `main` base after the older redraw fix drifted out during later submodule updates.
 
-The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
+The fork branch HEAD was the section 6 zsh redraw follow-up commit.
 
 ### 7) cmux theme picker helper hooks
 
