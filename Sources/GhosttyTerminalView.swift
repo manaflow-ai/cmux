@@ -3675,6 +3675,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tmuxStatusBarTimer: Timer?
     /// Pane IDs awaiting unregister ack before surface can be freed.
     var tmuxPendingUnregister: [UInt: UInt32] = [:]
+    /// Last tmux client size we requested via refresh-client -C.
+    var tmuxRequestedClientSize: (cols: Int, rows: Int)?
 
     // MARK: - Tmux Prefix Layer
 
@@ -5960,6 +5962,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             tmuxStartStatusBarTimer(barView: barView, paneId: firstPaneId)
         }
 
+        let paneSlice = panes[0..<Int(written)]
+        let desiredClientSize = tmuxDesiredClientSize()
+        let currentClientSize = tmuxCurrentClientSize(paneSlice)
+
+        // Tell tmux the correct client size based on the pane container
+        // dimensions. Initial sync must wait until tmux reports geometry
+        // that matches the pane surface rows/cols; otherwise capture-pane
+        // will return a different number of rows and replay will scroll.
+        if let desired = desiredClientSize,
+           !(currentClientSize.map { $0.cols == desired.cols && $0.rows == desired.rows } ?? false) {
+            #if DEBUG
+            dlog("tmux.refreshClient desired=\(desired.cols)x\(desired.rows) current=\(currentClientSize?.cols ?? -1)x\(currentClientSize?.rows ?? -1)")
+            #endif
+            if tmuxRequestedClientSize?.cols != desired.cols || tmuxRequestedClientSize?.rows != desired.rows {
+                tmuxRequestedClientSize = desired
+                tmuxSendCommand("refresh-client -C \(desired.cols)x\(desired.rows)")
+            }
+        } else if let desired = desiredClientSize {
+            tmuxRequestedClientSize = desired
+        }
+
         // Create surfaces for new panes
         for i in 0..<Int(written) {
             let paneInfo = panes[i]
@@ -6098,8 +6121,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Initial sync: capture the tmux pane's visible content and feed
             // it to the pane surface so the user sees the prompt immediately
             // instead of a blank screen.
+            let paneRows = max(Int(ghostty_surface_size(paneSurface).rows), 1)
             let capturedPaneId = paneInfo.pane_id
-            tmuxInitialSync(paneSurface: paneSurface, paneId: capturedPaneId)
+            tmuxInitialSync(paneSurface: paneSurface, paneId: capturedPaneId, expectedRows: paneRows)
         }
 
         // Update layout for existing panes
@@ -6109,6 +6133,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 state.view.frame = tmuxPaneFrame(paneInfo)
             }
         }
+
     }
 
     /// Convert tmux pane cell coordinates to NSView frame.
@@ -6143,6 +6168,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             width: min(w, containerBounds.width - min(x, containerBounds.width)),
             height: min(h, availH - min(y, availH))
         )
+    }
+
+    private func tmuxDesiredClientSize() -> (cols: Int, rows: Int)? {
+        let cw = max(cellSize.width, 1)
+        let ch = max(cellSize.height, 1)
+        let containerH = tmuxPaneContainer?.bounds.height ?? bounds.height
+        let containerW = tmuxPaneContainer?.bounds.width ?? bounds.width
+        let barH = tmuxStatusBar?.superview?.frame.height ?? 0
+        let cols = Int(containerW / cw)
+        let rows = Int((containerH - barH) / ch)
+        guard cols > 0, rows > 0 else { return nil }
+        return (cols, rows)
+    }
+
+    private func tmuxCurrentClientSize(_ panes: ArraySlice<ghostty_tmux_pane_info_s>) -> (cols: Int, rows: Int)? {
+        guard !panes.isEmpty else { return nil }
+        var cols = 0
+        var rows = 0
+        for pane in panes {
+            cols = max(cols, Int(pane.x + pane.width))
+            rows = max(rows, Int(pane.y + pane.height))
+        }
+        guard cols > 0, rows > 0 else { return nil }
+        return (cols, rows)
     }
 
     /// Handle ack from I/O thread that a pane surface is unregistered.
@@ -6186,6 +6235,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         tmuxStatusBar = nil
         tmuxPaneContainer?.removeFromSuperview()
         tmuxPaneContainer = nil
+        tmuxRequestedClientSize = nil
     }
 
     /// Query tmux for session/window info and update the status bar.
@@ -6257,20 +6307,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Capture the tmux pane's visible content and feed it to the pane surface.
     /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content, then sends
     /// it via ghostty_surface_process_output so the pane surface renders it.
-    private func tmuxInitialSync(paneSurface: ghostty_surface_t, paneId: UInt) {
+    private func tmuxInitialSync(paneSurface: ghostty_surface_t, paneId: UInt, expectedRows: Int) {
         // Capture regId for lifetime safety — verify pane is still alive
         // after the async query returns.
         guard let regId = tmuxPaneSurfaces[paneId]?.regId else { return }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Raw query: don't trim, capture-pane content has meaningful whitespace
+            // Capture visible content and cursor position
             let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
             guard !output.isEmpty else { return }
-            // Convert \n to \r\n for terminal emulator, prepend cursor-home
-            var fullOutput = "\u{1B}[H"
-            for (i, line) in output.components(separatedBy: "\n").enumerated() {
+            let cursorInfo = Self.tmuxQueryArray([
+                "display-message", "-t", "%\(paneId)", "-p", "#{cursor_y};#{cursor_x}"
+            ])
+            var captureLines = output.components(separatedBy: "\n")
+            let targetRows = max(expectedRows, 1)
+            // capture-pane commonly ends with a final newline, which would
+            // otherwise create an extra empty line and immediately scroll
+            // a full pane replay by one row.
+            if captureLines.count > targetRows, captureLines.last == "" {
+                captureLines.removeLast()
+            }
+            // If tmux is still on an older geometry (for example 80x24) but
+            // the pane surface is already smaller, keep the bottom-most rows
+            // so the prompt/cursor stay visible instead of replaying a larger
+            // viewport and immediately scrolling.
+            let droppedTopRows = max(captureLines.count - targetRows, 0)
+            if droppedTopRows > 0 {
+                captureLines = Array(captureLines.suffix(targetRows))
+            }
+            // Render all lines (including empty ones) to preserve viewport layout
+            var fullOutput = "\u{1B}[H"  // cursor home
+            for (i, line) in captureLines.enumerated() {
                 if i > 0 { fullOutput += "\r\n" }
                 fullOutput += line
+            }
+            // Restore cursor to correct position (1-based for ANSI)
+            let parts = cursorInfo.components(separatedBy: ";")
+            if parts.count == 2,
+               let rawRow = Int(parts[0]),
+               let col = Int(parts[1]) {
+                let row = max(0, rawRow - droppedTopRows)
+                fullOutput += "\u{1B}[\(row + 1);\(col + 1)H"
             }
             guard let bytes = fullOutput.data(using: .utf8) else { return }
 
