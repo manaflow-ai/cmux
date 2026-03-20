@@ -3668,6 +3668,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tmuxPaneSurfaces: [UInt: TmuxPaneState] = [:]
     var tmuxRegIdCounter: UInt32 = 0
     var tmuxPaneContainer: NSView?
+    var tmuxStatusBar: NSTextField?
+    var tmuxStatusBarTimer: Timer?
     /// Pane IDs awaiting unregister ack before surface can be freed.
     var tmuxPendingUnregister: [UInt: UInt32] = [:]
     var onFocus: (() -> Void)?
@@ -5826,6 +5828,63 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
             tmuxPaneContainer = container
+
+            // Create tmux status bar at the bottom of the container.
+            // Matches tmux's default green status bar appearance.
+            let barHeight: CGFloat = max(cellSize.height, 18)
+            let barView = NSView(frame: NSRect(
+                x: 0, y: 0,
+                width: container.bounds.width,
+                height: barHeight
+            ))
+            barView.wantsLayer = true
+            barView.layer?.backgroundColor = NSColor(red: 0.0, green: 0.67, blue: 0.0, alpha: 1.0).cgColor
+            barView.autoresizingMask = [.width, .maxYMargin]
+
+            // Left-aligned label: [session] window:name
+            let leftLabel = NSTextField(frame: NSRect(
+                x: 0, y: 0,
+                width: container.bounds.width * 0.5,
+                height: barHeight
+            ))
+            leftLabel.isEditable = false
+            leftLabel.isSelectable = false
+            leftLabel.isBordered = false
+            leftLabel.drawsBackground = false
+            leftLabel.textColor = NSColor.black
+            leftLabel.font = NSFont.monospacedSystemFont(ofSize: min(cellSize.height * 0.65, 13), weight: .regular)
+            leftLabel.lineBreakMode = .byTruncatingTail
+            leftLabel.autoresizingMask = [.width, .maxYMargin]
+            leftLabel.tag = 1
+            barView.addSubview(leftLabel)
+
+            // Right-aligned label: time/date
+            let rightLabel = NSTextField(frame: NSRect(
+                x: container.bounds.width * 0.5, y: 0,
+                width: container.bounds.width * 0.5,
+                height: barHeight
+            ))
+            rightLabel.isEditable = false
+            rightLabel.isSelectable = false
+            rightLabel.isBordered = false
+            rightLabel.drawsBackground = false
+            rightLabel.textColor = NSColor.black
+            rightLabel.font = leftLabel.font
+            rightLabel.alignment = .right
+            rightLabel.lineBreakMode = .byTruncatingHead
+            rightLabel.autoresizingMask = [.width, .maxYMargin, .minXMargin]
+            rightLabel.tag = 2
+            barView.addSubview(rightLabel)
+
+            container.addSubview(barView)
+            tmuxStatusBar = leftLabel  // keep ref for updates
+
+            // Query tmux for session info using the first pane's ID
+            let firstPaneId = panes[0].pane_id
+            tmuxUpdateStatusBar(barView: barView, paneId: firstPaneId)
+
+            // Refresh status bar every 15 seconds
+            tmuxStartStatusBarTimer(barView: barView, paneId: firstPaneId)
         }
 
         // Create surfaces for new panes
@@ -5993,13 +6052,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let w = CGFloat(pane.width) * cw
         let h = CGFloat(pane.height) * ch
 
-        // Clamp to container bounds. The container is already sized to
-        // exclude the status bar row, so no additional offset needed.
+        // Reserve space for the status bar at the bottom (AppKit y=0).
+        // tmuxStatusBar points to the left label inside the barView.
+        let barHeight = tmuxStatusBar?.superview?.frame.height ?? 0
+        let availH = containerBounds.height - barHeight
+
+        // Clamp to available area (above status bar)
         return NSRect(
             x: min(x, containerBounds.width),
-            y: min(y, containerBounds.height),
+            y: min(y + barHeight, containerBounds.height),
             width: min(w, containerBounds.width - min(x, containerBounds.width)),
-            height: min(h, containerBounds.height - min(y, containerBounds.height))
+            height: min(h, availH - min(y, availH))
         )
     }
 
@@ -6038,8 +6101,69 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         tmuxPaneSurfaces.removeAll()
         tmuxPendingUnregister.removeAll()
+        tmuxStatusBarTimer?.invalidate()
+        tmuxStatusBarTimer = nil
+        tmuxStatusBar?.superview?.removeFromSuperview()  // remove barView
+        tmuxStatusBar = nil
         tmuxPaneContainer?.removeFromSuperview()
         tmuxPaneContainer = nil
+    }
+
+    /// Query tmux for session/window info and update the status bar.
+    /// Uses tmux's actual status-left and status-right format strings,
+    /// targeting the specific pane so we get the correct session context.
+    private func tmuxUpdateStatusBar(barView: NSView, paneId: UInt) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak barView] in
+            let target = "%\(paneId)"
+            // Use tmux's own status format evaluation
+            let leftText = Self.tmuxQuery(
+                "display-message", "-t", target, "-p",
+                "#{T:status-left}#{W:#{E:window-status-current-format} ,#{E:window-status-format} }"
+            )
+            let rightText = Self.tmuxQuery(
+                "display-message", "-t", target, "-p", "#{T:status-right}"
+            )
+
+            DispatchQueue.main.async {
+                guard let barView = barView else { return }
+                if let left = barView.viewWithTag(1) as? NSTextField {
+                    left.stringValue = leftText.isEmpty ? "" : leftText
+                }
+                if let right = barView.viewWithTag(2) as? NSTextField {
+                    right.stringValue = rightText.isEmpty ? "" : rightText
+                }
+            }
+        }
+    }
+
+    /// Run a tmux command and return trimmed stdout.
+    private func tmuxStartStatusBarTimer(barView: NSView, paneId: UInt) {
+        tmuxStatusBarTimer?.invalidate()
+        tmuxStatusBarTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self, weak barView] _ in
+            guard let barView = barView else {
+                self?.tmuxStatusBarTimer?.invalidate()
+                return
+            }
+            self?.tmuxUpdateStatusBar(barView: barView, paneId: paneId)
+        }
+    }
+
+    private static func tmuxQuery(_ args: String...) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            return ""
+        }
     }
 
     /// Map escape sequences to tmux key names.
