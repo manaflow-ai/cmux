@@ -100,10 +100,11 @@ The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
   - Lets `+list-themes` switch into a cmux-managed mode via env vars, writing the cmux theme override file and posting the existing cmux reload notification for live app-wide preview.
   - Fixes the helper-only `app-runtime=none` stdout path so the Ghostty CLI binary builds with the current Zig toolchain.
 
-The fork branch HEAD is now the section 7 cmux theme picker helper commit.
+The fork branch HEAD is now the section 8 BiDi / RTL text rendering commit.
 
 ### 8) BiDi / RTL text rendering
 
+- Commits: `42db2607b` (feat: add RTL/BiDi text rendering support), `b54f07d50` (fix: increase BiDi buffer to 4096 columns)
 - Files:
   - `src/text/bidi.zig` (new file)
   - `src/renderer/generic.zig`
