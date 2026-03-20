@@ -3259,11 +3259,108 @@ class TabManager: ObservableObject {
         return true
     }
 
-    /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
+    /// Resize the split containing `surfaceId` by moving the nearest divider in `direction`.
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
-        // Bonsplit handles resize through its own divider dragging
-        // This is a no-op for now as bonsplit manages divider positions internally
-        return false
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+
+        let controller = tab.bonsplitController
+        let tree = controller.treeSnapshot()
+
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = resizeSplitCollectCandidates(
+            node: tree,
+            targetPaneId: surfaceId.uuidString,
+            candidates: &candidates
+        )
+        guard trace.containsTarget else { return false }
+
+        let targetOrientation: String
+        switch direction {
+        case .left, .right: targetOrientation = "horizontal"
+        case .up, .down: targetOrientation = "vertical"
+        }
+
+        let requiresFirstChild: Bool
+        switch direction {
+        case .right, .down: requiresFirstChild = true
+        case .left, .up: requiresFirstChild = false
+        }
+
+        let orientationMatches = candidates.filter { $0.orientation == targetOrientation }
+        guard let candidate = orientationMatches.first(where: { $0.paneInFirstChild == requiresFirstChild }) else {
+            return false
+        }
+
+        let sign: CGFloat = requiresFirstChild ? 1 : -1
+        let delta = CGFloat(amount) / candidate.axisPixels
+        let requested = candidate.dividerPosition + (sign * delta)
+        let clamped = min(max(requested, 0.1), 0.9)
+
+        return controller.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+    }
+
+    // MARK: - Resize split helpers
+
+    private struct ResizeSplitCandidate {
+        let splitId: UUID
+        let orientation: String
+        let paneInFirstChild: Bool
+        let dividerPosition: CGFloat
+        let axisPixels: CGFloat
+    }
+
+    private struct ResizeSplitTrace {
+        let containsTarget: Bool
+        let bounds: CGRect
+    }
+
+    private func resizeSplitCollectCandidates(
+        node: ExternalTreeNode,
+        targetPaneId: String,
+        candidates: inout [ResizeSplitCandidate]
+    ) -> ResizeSplitTrace {
+        switch node {
+        case .pane(let pane):
+            let bounds = CGRect(
+                x: pane.frame.x,
+                y: pane.frame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            return ResizeSplitTrace(containsTarget: pane.id == targetPaneId, bounds: bounds)
+
+        case .split(let split):
+            let first = resizeSplitCollectCandidates(
+                node: split.first,
+                targetPaneId: targetPaneId,
+                candidates: &candidates
+            )
+            let second = resizeSplitCollectCandidates(
+                node: split.second,
+                targetPaneId: targetPaneId,
+                candidates: &candidates
+            )
+
+            let combinedBounds = first.bounds.union(second.bounds)
+            let containsTarget = first.containsTarget || second.containsTarget
+
+            if containsTarget,
+               let splitUUID = UUID(uuidString: split.id) {
+                let orientation = split.orientation.lowercased()
+                let axisPixels: CGFloat = orientation == "horizontal"
+                    ? combinedBounds.width
+                    : combinedBounds.height
+                candidates.append(ResizeSplitCandidate(
+                    splitId: splitUUID,
+                    orientation: orientation,
+                    paneInFirstChild: first.containsTarget,
+                    dividerPosition: CGFloat(split.dividerPosition),
+                    axisPixels: max(axisPixels, 1)
+                ))
+            }
+
+            return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
+        }
     }
 
     /// Equalize splits - not directly supported by bonsplit
