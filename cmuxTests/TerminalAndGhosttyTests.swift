@@ -275,6 +275,52 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(urls, [fileURL])
     }
 
+    func testLazyPastePlanSkipsTargetResolutionForPlainText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-lazy-text-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("hello from clipboard", forType: .string)
+
+        var targetResolutionCount = 0
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            resolveTarget: {
+                targetResolutionCount += 1
+                return .remote(.workspaceRemote)
+            }
+        )
+
+        XCTAssertEqual(plan, .insertText("hello from clipboard"))
+        XCTAssertEqual(targetResolutionCount, 0)
+    }
+
+    func testLazyPastePlanResolvesTargetForFileURLPaste() throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-image-\(UUID().uuidString).png")
+        try make1x1PNG(color: .systemTeal).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-lazy-file-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
+
+        var targetResolutionCount = 0
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            resolveTarget: {
+                targetResolutionCount += 1
+                return .remote(.workspaceRemote)
+            }
+        )
+
+        guard case .uploadFiles(let urls, .workspaceRemote) = plan else {
+            return XCTFail("expected workspace upload plan, got \(plan)")
+        }
+
+        XCTAssertEqual(urls, [fileURL])
+        XCTAssertEqual(targetResolutionCount, 1)
+    }
+
     func testLocalImagePastePlanInsertsEscapedLocalPath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-local-paste-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -307,13 +353,74 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         TerminalImageTransferPlanner.executeForTesting(
             plan: .uploadFiles([url], .workspaceRemote),
-            uploadWorkspaceRemote: { _, finish in finish(.success(["/tmp/cmux-drop-123.png"])) },
-            uploadDetectedSSH: { _, _, finish in finish(.failure(NSError(domain: "unused", code: 0))) },
+            uploadWorkspaceRemote: { _, _, finish in finish(.success(["/tmp/cmux-drop-123.png"])) },
+            uploadDetectedSSH: { _, _, _, finish in finish(.failure(NSError(domain: "unused", code: 0))) },
             insertText: { completedText = $0 },
-            onFailure: { XCTFail("unexpected failure") }
+            onFailure: { _ in XCTFail("unexpected failure") }
         )
 
         XCTAssertEqual(completedText, "/tmp/cmux-drop-123.png")
+    }
+
+    func testCancelledRemoteImagePasteExecutionSuppressesCompletionHandlers() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-cancel-test.png")
+        try make1x1PNG(color: .brown).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let operation = TerminalImageTransferOperation()
+        var completion: ((Result<[String], Error>) -> Void)?
+        var cancellationHandlerCalls = 0
+        var insertedTexts: [String] = []
+        var failureCount = 0
+
+        let returnedOperation = TerminalImageTransferPlanner.executeForTesting(
+            plan: .uploadFiles([url], .workspaceRemote),
+            operation: operation,
+            uploadWorkspaceRemote: { _, operation, finish in
+                operation.installCancellationHandler {
+                    cancellationHandlerCalls += 1
+                }
+                completion = finish
+            },
+            uploadDetectedSSH: { _, _, _, finish in
+                finish(.failure(NSError(domain: "unused", code: 0)))
+            },
+            insertText: { insertedTexts.append($0) },
+            onFailure: { _ in failureCount += 1 }
+        )
+
+        XCTAssertTrue(returnedOperation === operation)
+        XCTAssertTrue(operation.cancel())
+        completion?(.success(["/tmp/cmux-drop-cancelled.png"]))
+
+        XCTAssertEqual(cancellationHandlerCalls, 1)
+        XCTAssertTrue(insertedTexts.isEmpty)
+        XCTAssertEqual(failureCount, 0)
+    }
+
+    func testCancelledOperationSuppressesLateLocalInsert() {
+        let operation = TerminalImageTransferOperation()
+        var insertedTexts: [String] = []
+        var failureCount = 0
+
+        XCTAssertTrue(operation.cancel())
+
+        let returnedOperation = TerminalImageTransferPlanner.executeForTesting(
+            plan: .insertText("/tmp/cmux-drop-local.png"),
+            operation: operation,
+            uploadWorkspaceRemote: { _, _, finish in
+                finish(.failure(NSError(domain: "unused", code: 0)))
+            },
+            uploadDetectedSSH: { _, _, _, finish in
+                finish(.failure(NSError(domain: "unused", code: 0)))
+            },
+            insertText: { insertedTexts.append($0) },
+            onFailure: { _ in failureCount += 1 }
+        )
+
+        XCTAssertTrue(returnedOperation === operation)
+        XCTAssertTrue(insertedTexts.isEmpty)
+        XCTAssertEqual(failureCount, 0)
     }
 
     func testRemoteUploadResultEscapesSpacesBeforePaste() {

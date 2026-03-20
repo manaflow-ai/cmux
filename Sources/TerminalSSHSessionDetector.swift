@@ -16,21 +16,37 @@ struct DetectedSSHSession: Equatable {
 
     func uploadDroppedFiles(
         _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation,
         completion: @escaping (Result<[String], Error>) -> Void
     ) {
         let session = self
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try session.uploadDroppedFilesSync(fileURLs) }
+            let result = Result { try session.uploadDroppedFilesSync(fileURLs, operation: operation) }
             DispatchQueue.main.async {
                 completion(result)
             }
         }
     }
 
-    private func uploadDroppedFilesSync(_ fileURLs: [URL]) throws -> [String] {
+    func uploadDroppedFiles(
+        _ fileURLs: [URL],
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        uploadDroppedFiles(
+            fileURLs,
+            operation: TerminalImageTransferOperation(),
+            completion: completion
+        )
+    }
+
+    private func uploadDroppedFilesSync(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation
+    ) throws -> [String] {
         guard !fileURLs.isEmpty else { return [] }
 
         return try fileURLs.map { localURL in
+            try operation.throwIfCancelled()
             let normalizedLocalURL = localURL.standardizedFileURL
             guard normalizedLocalURL.isFileURL else {
                 throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
@@ -42,7 +58,8 @@ struct DetectedSSHSession: Equatable {
             let result = try Self.runProcess(
                 executable: "/usr/bin/scp",
                 arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
-                timeout: 45
+                timeout: 45,
+                operation: operation
             )
             guard result.status == 0 else {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
@@ -112,7 +129,8 @@ struct DetectedSSHSession: Equatable {
     private static func runProcess(
         executable: String,
         arguments: [String],
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
         let process = Process()
         let stdoutPipe = Pipe()
@@ -123,7 +141,14 @@ struct DetectedSSHSession: Equatable {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        try operation?.throwIfCancelled()
         try process.run()
+        operation?.installCancellationHandler {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        defer { operation?.clearCancellationHandler() }
 
         let exitSignal = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .userInitiated).async {
@@ -132,6 +157,9 @@ struct DetectedSSHSession: Equatable {
         }
 
         if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
+            if operation?.isCancelled == true {
+                throw TerminalImageTransferExecutionError.cancelled
+            }
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
             throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
@@ -147,6 +175,9 @@ struct DetectedSSHSession: Equatable {
             data: stderrPipe.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
+        if operation?.isCancelled == true {
+            throw TerminalImageTransferExecutionError.cancelled
+        }
         return CommandResult(status: process.terminationStatus, stdout: stdout, stderr: stderr)
     }
 
