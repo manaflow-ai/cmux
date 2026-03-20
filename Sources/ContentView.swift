@@ -10602,6 +10602,9 @@ private struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
+    @State private var isEditingWorkspaceName = false
+    @State private var editingWorkspaceName = ""
+    @FocusState private var isWorkspaceNameFieldFocused: Bool
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
@@ -10869,11 +10872,32 @@ private struct TabItemView: View, Equatable {
                         .foregroundColor(activeSecondaryColor(0.8))
                 }
 
-                Text(tab.title)
+                if isEditingWorkspaceName {
+                    TextField("", text: $editingWorkspaceName, onCommit: {
+                        tabManager.setCustomTitle(tabId: tab.id, title: editingWorkspaceName)
+                        isEditingWorkspaceName = false
+                    })
+                    .focused($isWorkspaceNameFieldFocused)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .textFieldStyle(.plain)
+                    .onExitCommand {
+                        isEditingWorkspaceName = false
+                    }
+                    .onAppear {
+                        isWorkspaceNameFieldFocused = true
+                    }
+                } else {
+                    Text(tab.title)
+                        .font(.system(size: 12.5, weight: titleFontWeight))
+                        .foregroundColor(activePrimaryTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .onTapGesture(count: 2) {
+                            editingWorkspaceName = tab.customTitle ?? tab.title
+                            isEditingWorkspaceName = true
+                        }
+                }
 
                 Spacer()
 
