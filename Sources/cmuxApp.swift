@@ -3102,6 +3102,10 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserHostWhitelistKey) private var browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
+    @AppStorage(BrowserLinkOpenSettings.openRelativeFilePathsExternallyKey)
+    private var openRelativeFilePathsExternally = BrowserLinkOpenSettings.defaultOpenRelativeFilePathsExternally
+    @AppStorage(BrowserLinkOpenSettings.externalFileEditorPathKey)
+    private var externalFileEditorPath = BrowserLinkOpenSettings.defaultExternalFileEditorPath
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
     @AppStorage(NotificationSoundSettings.customFilePathKey)
@@ -4232,6 +4236,36 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
 
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.browser.openRelativeFilePaths", defaultValue: "Open Relative File Paths Externally"),
+                            subtitle: String(localized: "settings.browser.openRelativeFilePaths.subtitle", defaultValue: "When enabled, cmd+clicking relative file paths (like those in git status) opens them in your external editor instead of treating them as URLs.")
+                        ) {
+                            Toggle("", isOn: $openRelativeFilePathsExternally)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        if openRelativeFilePathsExternally {
+                            SettingsCardDivider()
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                SettingsCardRow(
+                                    String(localized: "settings.browser.externalFileEditor", defaultValue: "External File Editor"),
+                                    subtitle: String(localized: "settings.browser.externalFileEditor.subtitle", defaultValue: "Path to application for opening files (e.g., /Applications/Emacs.app). Leave empty to use system default.")
+                                ) {
+                                    EmptyView()
+                                }
+
+                                TextField("", text: $externalFileEditorPath)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 12)
+                            }
+                        }
+
                         if openTerminalLinksInCmuxBrowser || interceptTerminalOpenCommandInCmuxBrowser {
                             SettingsCardDivider()
 
@@ -4605,6 +4639,8 @@ struct SettingsView: View {
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
+        openRelativeFilePathsExternally = BrowserLinkOpenSettings.defaultOpenRelativeFilePathsExternally
+        externalFileEditorPath = BrowserLinkOpenSettings.defaultExternalFileEditorPath
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationSound = NotificationSoundSettings.defaultValue
