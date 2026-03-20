@@ -85,6 +85,47 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
+### GitHub Copilot CLI
+
+Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
+
+```json
+{
+  "hooks": {
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "command -v cmux &>/dev/null && cmux clear-notifications && cmux set-status copilot_cli Running --icon=bolt.fill --color=#4C8DFF || true",
+        "timeoutSec": 3
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "command -v cmux &>/dev/null && cmux notify --title 'Copilot CLI' --body 'Done' && cmux set-status copilot_cli Idle --icon=pause.circle.fill --color=#8E8E93 || osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "command -v cmux &>/dev/null && cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.error.message // \"An error occurred\"' 2>/dev/null | head -c 100)\" && cmux set-status copilot_cli Error --icon=exclamationmark.triangle.fill --color=#FF3B30 || osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "command -v cmux &>/dev/null && cmux clear-status copilot_cli || true",
+        "timeoutSec": 3
+      }
+    ]
+  }
+}
+```
+
+Or for repo-level hooks, create `.github/hooks/notify.json` with the same `hooks` object wrapped in `{ "version": 1, "hooks": { ... } }`.
+
 ### OpenAI Codex
 
 Add to `~/.codex/config.toml`:
