@@ -19,7 +19,7 @@ class KeyboardLayout {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags = []
     ) -> String? {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
             return nil
         }

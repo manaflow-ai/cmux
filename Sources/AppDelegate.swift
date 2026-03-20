@@ -10446,6 +10446,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    /// Whether every character in the string is in the Basic Latin range (U+0020–U+007E).
+    /// Returns `false` for CJK characters, Korean jamo, etc. so that non-Latin
+    /// `charactersIgnoringModifiers` from an active IME are treated as absent.
+    private func isBasicLatinCharacters(_ string: String) -> Bool {
+        string.unicodeScalars.allSatisfy { $0.value >= 0x0020 && $0.value <= 0x007E }
+    }
+
     /// Match a shortcut against an event, handling normal keys.
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
@@ -10472,7 +10479,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        let hasEventChars = {
+            guard let chars = eventCharsIgnoringModifiers, !chars.isEmpty else { return false }
+            return isBasicLatinCharacters(chars)
+        }()
         if hasEventChars,
            flags.contains(.command),
            !flags.contains(.control),

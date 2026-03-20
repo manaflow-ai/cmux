@@ -3153,6 +3153,178 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             defaults.removeObject(forKey: key)
         }
     }
+
+    // MARK: - Korean (CJK) IME shortcut routing
+
+    func testCmdPMatchesViaLayoutFallbackWhenCharactersAreKoreanJamo() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Simulate Korean IME: layout provider returns the correct Latin letter
+        // for the underlying QWERTY layout.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 35 ? "p" : nil // kVK_ANSI_P
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        let switcherExpectation = expectation(
+            description: "Cmd+P with Korean jamo characters should match via layout fallback"
+        )
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        // Korean jamo "ㅔ" in charactersIgnoringModifiers (as Korean IME would produce for P key)
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "ㅔ",
+            charactersIgnoringModifiers: "ㅔ",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Cmd+P event with Korean jamo characters")
+            return
+        }
+
+        XCTAssertTrue(appDelegate.handleBrowserSurfaceKeyEquivalent(event))
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
+
+    func testKoreanIMERespectUnderlyingLayoutNotJustKeyCode() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Simulate Korean IME over a non-QWERTY layout (e.g. QWERTZ) where
+        // keyCode 35 maps to a different letter than "p".
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 35 ? "z" : nil // QWERTZ: physical P key produces "z"
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        let switcherExpectation = expectation(
+            description: "Cmd+P should NOT fire when underlying layout maps keyCode to a different letter"
+        )
+        switcherExpectation.isInverted = true
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "ㅔ",
+            charactersIgnoringModifiers: "ㅔ",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Cmd+P event with Korean jamo characters")
+            return
+        }
+
+        XCTAssertFalse(
+            appDelegate.handleBrowserSurfaceKeyEquivalent(event),
+            "Cmd+P should not be consumed when layout translation resolves to a different letter"
+        )
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
+
+    func testLatinCharactersTrustedOverLayoutTranslation() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Layout provider returns a different letter, but AppKit gives valid Latin "p".
+        // The Latin character should be trusted (no regression for normal keyboard layouts).
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 35 ? "z" : nil
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        let switcherExpectation = expectation(
+            description: "Cmd+P with Latin characters should fire even if layout returns a different letter"
+        )
+        let token = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { _ in
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "p",
+            charactersIgnoringModifiers: "p",
+            isARepeat: false,
+            keyCode: 35 // kVK_ANSI_P
+        ) else {
+            XCTFail("Failed to construct Cmd+P event with Latin characters")
+            return
+        }
+
+        XCTAssertTrue(appDelegate.handleBrowserSurfaceKeyEquivalent(event))
+        wait(for: [switcherExpectation], timeout: 0.15)
+    }
 }
 
 private final class CommandPaletteMarkedTextFieldEditor: NSTextView {
