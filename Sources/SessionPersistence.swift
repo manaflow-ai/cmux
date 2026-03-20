@@ -331,6 +331,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
     var customDescription: String?
+    var tag: String?
     var customColor: String?
     var isPinned: Bool
     var terminalScrollBarHidden: Bool?

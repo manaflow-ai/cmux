@@ -1457,6 +1457,40 @@ final class WorkspaceCustomDescriptionTests: XCTestCase {
         XCTAssertFalse(workspace.hasCustomDescription)
     }
 }
+
+
+@MainActor
+final class WorkspaceTagDisplayTitleTests: XCTestCase {
+    private func withSavedDefault(key: String, _ body: () -> Void) {
+        let defaults = UserDefaults.standard
+        let original = defaults.object(forKey: key)
+        defer {
+            if let original {
+                defaults.set(original, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        body()
+    }
+
+    func testDisplayTitleShowsStoredTagOnlyWhenWorkspaceTagsDisplayIsEnabled() {
+        withSavedDefault(key: LeaderKeySettings.workspaceTagsEnabledKey) {
+            let workspace = Workspace(title: "Project")
+            workspace.setTag("api")
+
+            UserDefaults.standard.set(false, forKey: LeaderKeySettings.workspaceTagsEnabledKey)
+            XCTAssertEqual(workspace.displayTitle, "Project")
+
+            UserDefaults.standard.set(true, forKey: LeaderKeySettings.workspaceTagsEnabledKey)
+            let expected = String(format: String(localized: "workspace.displayTitle.tagged", defaultValue: "[%@] %@"), "api", "Project")
+            XCTAssertEqual(workspace.displayTitle, expected)
+        }
+    }
+}
+
+
+
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"

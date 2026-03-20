@@ -296,6 +296,7 @@ extension Workspace {
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
+            tag: tag,
             customColor: customColor,
             isPinned: isPinned,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
@@ -337,6 +338,7 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
+        setTag(snapshot.tag)
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
         setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
@@ -6490,6 +6492,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var title: String
     @Published var customTitle: String?
     @Published var customDescription: String?
+    @Published var tag: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
@@ -7579,6 +7582,29 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
         customDescription = normalizedDescription
+    }
+
+    func setTag(_ newTag: String?) {
+        let normalized = newTag?
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ") ?? ""
+        let capped = String(normalized.prefix(20))
+        tag = capped.isEmpty ? nil : capped
+    }
+
+    /// Title with tag prefix for sidebar display, respecting customTitle when set.
+    var displayTitle: String {
+        let custom = customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let base: String
+        if !custom.isEmpty {
+            base = custom
+        } else {
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            base = t.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : t
+        }
+        guard LeaderKeySettings.workspaceTagsEnabled, let tag, !tag.isEmpty else { return base }
+        return String(format: String(localized: "workspace.displayTitle.tagged", defaultValue: "[%@] %@"), tag, base)
     }
 
     // MARK: - Directory Updates
@@ -10154,6 +10180,65 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
 
+    }
+
+    /// Shared helper: unfocus current panel, focus the target pane, and reconcile tab selection.
+    private func switchFocusToPane(_ targetPaneId: PaneID) {
+        if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
+            prev.unfocus()
+        }
+        bonsplitController.focusPane(targetPaneId)
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
+    /// Pane IDs in visual (layout) order derived from the split tree.
+    /// Falls back to `allPaneIds` if the tree snapshot yields no panes.
+    private func visuallyOrderedPaneIds() -> [PaneID] {
+        let allPaneIds = bonsplitController.allPaneIds
+        let tree = bonsplitController.treeSnapshot()
+        let orderedStrings = SidebarBranchOrdering.orderedPaneIds(tree: tree)
+        let byId = Dictionary(uniqueKeysWithValues: allPaneIds.map { ($0.id.uuidString, $0) })
+        let mapped = orderedStrings.compactMap { byId[$0] }
+        return mapped.count == allPaneIds.count ? mapped : allPaneIds
+    }
+
+    /// Cycle focus to the previous pane.
+    func focusPreviousPane() {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.cyclePrev count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard paneIds.count > 1 else { return }
+        let currentId = bonsplitController.focusedPaneId ?? paneIds[0]
+        if let idx = paneIds.firstIndex(of: currentId) {
+            switchFocusToPane(paneIds[(idx - 1 + paneIds.count) % paneIds.count])
+        }
+    }
+
+    /// Cycle focus to the next pane (tmux prefix+o behavior).
+    func focusNextPane() {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.cycleNext count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard paneIds.count > 1 else { return }
+        let currentId = bonsplitController.focusedPaneId ?? paneIds[0]
+        if let idx = paneIds.firstIndex(of: currentId) {
+            switchFocusToPane(paneIds[(idx + 1) % paneIds.count])
+        }
+    }
+
+    /// Focus a pane by its index in the ordered pane list.
+    func focusPaneByIndex(_ index: Int) {
+        let paneIds = visuallyOrderedPaneIds()
+#if DEBUG
+        dlog("pane.focusByIndex index=\(index) count=\(paneIds.count) focusedId=\(bonsplitController.focusedPaneId.map { "\($0)" } ?? "nil")")
+#endif
+        guard index >= 0, index < paneIds.count else { return }
+        switchFocusToPane(paneIds[index])
     }
 
     // MARK: - Surface Navigation

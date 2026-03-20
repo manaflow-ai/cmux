@@ -1052,6 +1052,48 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
             .exit
         )
     }
+
+    func testReturnAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 36, // kVK_Return
+                charactersIgnoringModifiers: "\r",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 36,
+                charactersIgnoringModifiers: "\r",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .exit
+        )
+    }
+
+    func testKeypadEnterAlwaysExits() {
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 76, // kVK_ANSI_KeypadEnter
+                charactersIgnoringModifiers: "\u{3}",
+                modifierFlags: [],
+                hasSelection: false
+            ),
+            .exit
+        )
+        XCTAssertEqual(
+            terminalKeyboardCopyModeAction(
+                keyCode: 76,
+                charactersIgnoringModifiers: "\u{3}",
+                modifierFlags: [],
+                hasSelection: true
+            ),
+            .exit
+        )
+    }
 }
 
 
@@ -1134,6 +1176,63 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
         var state = TerminalKeyboardCopyModeInputState()
         XCTAssertEqual(resolve(18, chars: "2", hasSelection: false, state: &state), .consume)
         XCTAssertEqual(resolve(7, chars: "x", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testReturnExitsFromCleanState() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(36, chars: "\r", hasSelection: false, state: &state),
+            .perform(.exit, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testReturnExitsWithSelection() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(36, chars: "\r", hasSelection: true, state: &state),
+            .perform(.exit, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testReturnClearsCountPrefix() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(20, chars: "3", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(
+            resolve(36, chars: "\r", hasSelection: false, state: &state),
+            .perform(.exit, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testReturnClearsPendingYankLine() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(16, chars: "y", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(
+            resolve(36, chars: "\r", hasSelection: false, state: &state),
+            .perform(.exit, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testReturnClearsPendingG() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(resolve(5, chars: "g", hasSelection: false, state: &state), .consume)
+        XCTAssertEqual(
+            resolve(36, chars: "\r", hasSelection: false, state: &state),
+            .perform(.exit, count: 1)
+        )
+        XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
+    }
+
+    func testKeypadEnterExits() {
+        var state = TerminalKeyboardCopyModeInputState()
+        XCTAssertEqual(
+            resolve(76, chars: "\u{3}", hasSelection: false, state: &state),
+            .perform(.exit, count: 1)
+        )
         XCTAssertEqual(state, TerminalKeyboardCopyModeInputState())
     }
 

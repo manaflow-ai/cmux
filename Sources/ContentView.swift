@@ -7665,12 +7665,7 @@ struct ContentView: View {
     }
 
     private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
-        let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !custom.isEmpty {
-            return custom
-        }
-        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+        workspace.displayTitle
     }
 
     private func workspaceDisplayName(_ workspace: Workspace) -> String {
@@ -8711,7 +8706,13 @@ struct ContentView: View {
         }
         let target = CommandPaletteRenameTarget(
             kind: .workspace(workspaceId: workspace.id),
-            currentName: workspaceDisplayName(workspace)
+            currentName: {
+                if let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !custom.isEmpty {
+                    return custom
+                }
+                return workspace.title
+            }()
         )
         startRenameFlow(target)
     }
@@ -10148,6 +10149,21 @@ struct VerticalTabsSidebar: View {
             selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
 
         VStack(spacing: 0) {
+            // Leader key mode indicator — pinned above the scroll area
+            if tabManager.isLeaderModeActive {
+                HStack {
+                    Spacer()
+                    Text(String(localized: "leader.mode.indicator", defaultValue: "LEADER"))
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.2))
+                        .cornerRadius(3)
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -12971,7 +12987,7 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(tab.title)
+                Text(tab.displayTitle)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
@@ -13684,7 +13700,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var accessibilityTitle: String {
-        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.title), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
+        String(localized: "accessibility.workspacePosition", defaultValue: "\(tab.displayTitle), workspace \(index + 1) of \(accessibilityWorkspaceCount)")
     }
 
     private func moveBy(_ delta: Int) {

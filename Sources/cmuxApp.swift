@@ -4464,6 +4464,7 @@ struct SettingsView: View {
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
+    @State private var leaderKeyResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
     @State private var settingsTitleLeadingInset: CGFloat = 92
@@ -6244,6 +6245,9 @@ struct SettingsView: View {
 
                     GlobalHotkeySection()
 
+                    LeaderKeySettingsSection()
+                        .id(leaderKeyResetToken)
+
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                         .id(SettingsNavigationTarget.keyboardShortcuts)
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
@@ -6599,6 +6603,8 @@ struct SettingsView: View {
         refreshDetectedImportBrowsers()
         SystemWideHotkeySettings.reset()
         KeyboardShortcutSettings.resetAll()
+        LeaderKeySettings.resetAll()
+        leaderKeyResetToken = UUID()
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
         shortcutResetToken = UUID()
@@ -7313,6 +7319,281 @@ private struct GlobalHotkeySection: View {
         if latestShortcut != shortcut {
             shortcut = latestShortcut
         }
+    }
+}
+
+private struct LeaderKeySettingsSection: View {
+    @AppStorage(LeaderKeySettings.enabledKey) private var leaderKeyEnabled = LeaderKeySettings.enabledDefault
+    @AppStorage(LeaderKeySettings.timeoutKey) private var leaderKeyTimeout = LeaderKeySettings.timeoutDefault
+    @AppStorage(LeaderKeySettings.workspaceTagsEnabledKey) private var workspaceTagsEnabled = LeaderKeySettings.workspaceTagsEnabledDefault
+
+    var body: some View {
+        SettingsSectionHeader(title: String(localized: "settings.section.leaderKey", defaultValue: "Leader Key"))
+            .accessibilityIdentifier("SettingsLeaderKeySection")
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.leaderKey.enabled", defaultValue: "Enable Leader Key"),
+                subtitle: leaderKeyEnabled
+                    ? String(localized: "settings.leaderKey.enabled.subtitleOn", defaultValue: "Press the leader key prefix, then a sub-key to trigger an action.")
+                    : String(localized: "settings.leaderKey.enabled.subtitleOff", defaultValue: "Leader key is disabled. The prefix key will pass through to the terminal.")
+            ) {
+                Toggle("", isOn: $leaderKeyEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        String(localized: "settings.leaderKey.enabled", defaultValue: "Enable Leader Key")
+                    )
+            }
+
+            if leaderKeyEnabled {
+                SettingsCardDivider()
+
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "settings.leaderKey.timeout", defaultValue: "Timeout"),
+                    subtitle: String(localized: "settings.leaderKey.timeout.subtitle", defaultValue: "Seconds to wait for the sub-key before cancelling leader mode.")
+                ) {
+                    HStack(spacing: 8) {
+                        Slider(value: $leaderKeyTimeout, in: 0.2...3.0, step: 0.1)
+                            .frame(width: 120)
+                        Text(String(format: String(localized: "settings.leaderKey.timeout.value", defaultValue: "%.1fs"), leaderKeyTimeout))
+                            .font(.system(.body, design: .monospaced))
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+
+                SettingsCardDivider()
+
+                let actions = LeaderKeySettings.configurableActions
+                ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
+                    LeaderBindingRow(action: action)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                    if index < actions.count - 1 {
+                        SettingsCardDivider()
+                    }
+                }
+            }
+        }
+
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.app.workspaceTags", defaultValue: "Workspace Tags"),
+                subtitle: workspaceTagsEnabled
+                    ? String(localized: "settings.app.workspaceTags.subtitleOn", defaultValue: "Workspace tags are shown as [tag] prefix in the workspace switcher and tab bar.")
+                    : String(localized: "settings.app.workspaceTags.subtitleOff", defaultValue: "Workspace tag display and assignment are disabled.")
+            ) {
+                Toggle("", isOn: $workspaceTagsEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        String(localized: "settings.app.workspaceTags", defaultValue: "Workspace Tags")
+                    )
+            }
+        }
+    }
+}
+
+private struct LeaderBindingRow: View {
+    let action: LeaderKeySettings.LeaderAction
+    @State private var currentKey: String
+
+    init(action: LeaderKeySettings.LeaderAction) {
+        self.action = action
+        _currentKey = State(initialValue: LeaderKeySettings.key(for: action))
+    }
+
+    var body: some View {
+        HStack {
+            Text(action.label)
+            Spacer()
+            LeaderKeyRecorderButton(key: $currentKey, actionLabel: action.label)
+                .frame(width: 120)
+        }
+        .onChange(of: currentKey) { newValue in
+            LeaderKeySettings.setKey(newValue, for: action)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            let latest = LeaderKeySettings.key(for: action)
+            if latest != currentKey {
+                currentKey = latest
+            }
+        }
+    }
+}
+
+private struct LeaderKeyRecorderButton: NSViewRepresentable {
+    @Binding var key: String
+    let actionLabel: String
+
+    func makeNSView(context: Context) -> LeaderKeyRecorderNSButton {
+        let button = LeaderKeyRecorderNSButton()
+        button.currentKey = key
+        button.accessibilityContextLabel = actionLabel
+        button.onKeyRecorded = { newKey in
+            key = newKey
+        }
+        button.refreshAccessibility()
+        return button
+    }
+
+    func updateNSView(_ nsView: LeaderKeyRecorderNSButton, context: Context) {
+        nsView.currentKey = key
+        nsView.accessibilityContextLabel = actionLabel
+        nsView.updateTitle()
+    }
+}
+
+private class LeaderKeyRecorderNSButton: NSButton {
+    var currentKey: String = ""
+    var onKeyRecorded: ((String) -> Void)?
+    var accessibilityContextLabel: String = ""
+    private var isRecording = false
+    private var eventMonitor: Any?
+    private static weak var activeRecorder: LeaderKeyRecorderNSButton?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(buttonClicked)
+        updateTitle()
+    }
+
+    func updateTitle() {
+        if isRecording {
+            title = String(localized: "leaderKey.recorder.press", defaultValue: "Press key…")
+        } else {
+            title = displayString(for: currentKey)
+        }
+        refreshAccessibility()
+    }
+
+    func refreshAccessibility() {
+        setAccessibilityRole(.button)
+        setAccessibilityLabel(accessibilityContextLabel)
+        setAccessibilityValue(displayString(for: currentKey))
+    }
+
+    private func displayString(for key: String) -> String {
+        switch key {
+        case "\"": return "\""
+        case ",": return ","
+        case "[": return "["
+        case "%": return "%"
+        default: return key.uppercased()
+        }
+    }
+
+    @objc private func buttonClicked() {
+        if isRecording {
+            stopRecording()
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        // Cancel any other active recorder first
+        if let other = Self.activeRecorder, other !== self {
+            other.stopRecording()
+        }
+        Self.activeRecorder = self
+        isRecording = true
+        updateTitle()
+
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self = self else { return event }
+
+            if event.keyCode == 53 { // Escape — cancel
+                self.stopRecording()
+                return nil
+            }
+
+            // Reject Command/Control/Option/fn chords so e.g. Cmd+B doesn't
+            // collapse to "b". Shift is still allowed for shifted symbols.
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let unsupported: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+            guard modifiers.intersection(unsupported).isEmpty else {
+                return nil
+            }
+
+            // For shifted symbols, use the produced character; for letters/digits, use unshifted
+            let shifted = event.characters ?? ""
+            let unshifted = event.charactersIgnoringModifiers ?? ""
+
+            // Prefer the shifted output for symbols (e.g. Shift+5 → "%"), unshifted for alphanumerics
+            let recorded: String
+            if !shifted.isEmpty,
+               shifted != unshifted,
+               let shiftedFirst = shifted.first,
+               !(shiftedFirst.isLetter || shiftedFirst.isNumber) {
+                recorded = shifted
+            } else if let first = unshifted.first, first.isLetter || first.isNumber {
+                recorded = unshifted.lowercased()
+            } else if !shifted.isEmpty {
+                recorded = shifted
+            } else {
+                recorded = unshifted
+            }
+
+            guard !recorded.isEmpty else {
+                return nil
+            }
+            // Reject non-printable, whitespace, and multi-character sequences
+            guard recorded.count == 1,
+                  let char = recorded.first,
+                  !char.isWhitespace,
+                  !char.unicodeScalars.allSatisfy({ CharacterSet.controlCharacters.contains($0) })
+            else {
+                return nil
+            }
+
+            self.currentKey = recorded
+            self.onKeyRecorded?(recorded)
+            self.stopRecording()
+            return nil
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowResigned),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        if Self.activeRecorder === self {
+            Self.activeRecorder = nil
+        }
+        updateTitle()
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+    }
+
+    @objc private func windowResigned() {
+        stopRecording()
+    }
+
+    deinit {
+        stopRecording()
     }
 }
 

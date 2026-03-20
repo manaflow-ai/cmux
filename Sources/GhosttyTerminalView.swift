@@ -1153,6 +1153,10 @@ func terminalKeyboardCopyModeAction(
         return .exit
     }
 
+    if keyCode == 36 || keyCode == 76 { // Return or keypad Enter
+        return .exit
+    }
+
     switch keyCode {
     case 126: // Up
         return hasSelection ? .adjustSelection(.up) : .scrollLines(-1)
@@ -1253,6 +1257,11 @@ func terminalKeyboardCopyModeResolve(
     let chars = terminalKeyboardCopyModeChars(charactersIgnoringModifiers)
 
     if keyCode == 53 { // Escape
+        state.reset()
+        return .perform(.exit, count: 1)
+    }
+
+    if keyCode == 36 || keyCode == 76 { // Return or keypad Enter
         state.reset()
         return .perform(.exit, count: 1)
     }
@@ -5940,14 +5949,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeActive = active
         if active, let surface {
-            keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
+            // Capture the current viewport top row BEFORE any selection work
+            // so we can restore it afterward. This matches tmux's
+            // freeze-in-place behavior: entering copy mode must never move
+            // the view, even if new output is streaming or the user has
+            // scrolled up into scrollback. Defense-in-depth against drift
+            // from either the Ghostty pin or the NSScrollView wrapper.
+            let savedScrollRow = scrollbar.map { Int($0.offset) }
+
+            // Clear any stale selection from a prior mouse drag.
             _ = ghostty_surface_clear_selection_compat(surface)
-            if keyboardCopyModeViewportRow == nil {
+
+            // Create a 1-cell selection as the visible cursor indicator.
+            // Ghostty's selectCursorCell falls back to getTopLeft(.viewport)
+            // when the write-cursor is outside the visible viewport, so the
+            // indicator is guaranteed to land inside the visible bounds.
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
+
+            // Restore the viewport to where the user was before we entered
+            // copy mode. No-op if nothing moved.
+            if let savedScrollRow {
+                _ = performBindingAction("scroll_to_row:\(savedScrollRow)")
+            }
+
+            // Derive the viewport row for line-yank bookkeeping, relative to
+            // the restored viewport.
+            var text = ghostty_text_s()
+            if ghostty_surface_read_selection(surface, &text) {
+                defer { ghostty_surface_free_text(surface, &text) }
+                let size = ghostty_surface_size(surface)
+                let cols = max(Int(size.columns), 1)
+                let rows = max(Int(size.rows), 1)
+                let rawRow = Int(text.offset_start) / cols
+                keyboardCopyModeViewportRow = max(0, min(rows - 1, rawRow))
+            } else {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
-            // Create a 1-cell selection at the terminal cursor to serve as a
-            // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell_compat(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
