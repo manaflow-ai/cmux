@@ -8424,6 +8424,7 @@ enum ShortcutHintDebugSettings {
     static let paneHintYKey = "shortcutHintPaneTabYOffset"
     static let alwaysShowHintsKey = "shortcutHintAlwaysShow"
     static let showHintsOnCommandHoldKey = "shortcutHintShowOnCommandHold"
+    static let swapNumberShortcutModifiersKey = "swapNumberShortcutModifiers"
 
     static let defaultSidebarHintX = 0.0
     static let defaultSidebarHintY = 0.0
@@ -8433,6 +8434,7 @@ enum ShortcutHintDebugSettings {
     static let defaultPaneHintY = 0.0
     static let defaultAlwaysShowHints = false
     static let defaultShowHintsOnCommandHold = true
+    static let defaultSwapNumberShortcutModifiers = false
 
     static let offsetRange: ClosedRange<Double> = -20...20
 
@@ -8447,9 +8449,34 @@ enum ShortcutHintDebugSettings {
         return defaults.bool(forKey: showHintsOnCommandHoldKey)
     }
 
+    static func swapNumberShortcutModifiersEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: swapNumberShortcutModifiersKey)
+    }
+
+    /// Returns the modifier flag to use for workspace (sidebar) number shortcuts.
+    static func workspaceNumberModifier(defaults: UserDefaults = .standard) -> NSEvent.ModifierFlags {
+        swapNumberShortcutModifiersEnabled(defaults: defaults) ? [.control] : [.command]
+    }
+
+    /// Returns the modifier flag to use for surface (pane tab) number shortcuts.
+    static func surfaceNumberModifier(defaults: UserDefaults = .standard) -> NSEvent.ModifierFlags {
+        swapNumberShortcutModifiersEnabled(defaults: defaults) ? [.command] : [.control]
+    }
+
+    /// Returns the symbol string for workspace number shortcuts ("⌘" or "⌃").
+    static var workspaceNumberModifierSymbol: String {
+        swapNumberShortcutModifiersEnabled() ? "⌃" : "⌘"
+    }
+
+    /// Returns the symbol string for surface number shortcuts ("⌃" or "⌘").
+    static var surfaceNumberModifierSymbol: String {
+        swapNumberShortcutModifiersEnabled() ? "⌘" : "⌃"
+    }
+
     static func resetVisibilityDefaults(defaults: UserDefaults = .standard) {
         defaults.set(defaultAlwaysShowHints, forKey: alwaysShowHintsKey)
         defaults.set(defaultShowHintsOnCommandHold, forKey: showHintsOnCommandHoldKey)
+        defaults.set(defaultSwapNumberShortcutModifiers, forKey: swapNumberShortcutModifiersKey)
     }
 }
 
@@ -10772,7 +10799,7 @@ private struct TabItemView: View, Equatable {
 
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
-        return "⌘\(workspaceShortcutDigit)"
+        return "\(ShortcutHintDebugSettings.workspaceNumberModifierSymbol)\(workspaceShortcutDigit)"
     }
 
     private var showsWorkspaceShortcutHint: Bool {
