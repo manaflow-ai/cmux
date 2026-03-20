@@ -3023,10 +3023,10 @@ private struct SidebarDebugView: View {
                             }
                         }
 
-                        ColorPicker("Selection Color", selection: selectionColorBinding, supportsOpacity: false)
+                        ColorPicker(String(localized: "sidebar.debug.selectionColor", defaultValue: "Selection Color"), selection: selectionColorBinding, supportsOpacity: false)
 
                         if sidebarSelectionColorHex != nil {
-                            Button("Reset to Default") {
+                            Button(String(localized: "sidebar.debug.resetSelectionColor", defaultValue: "Reset to Default")) {
                                 sidebarSelectionColorHex = nil
                             }
                             .font(.caption)
@@ -4829,6 +4829,14 @@ struct SettingsView: View {
                             subtitle: String(localized: "settings.workspaceColors.selectionColor.subtitle", defaultValue: "Background color of the selected workspace in the sidebar.")
                         ) {
                             HStack(spacing: 8) {
+                                if sidebarSelectionColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.selectionColor.reset", defaultValue: "Reset")) {
+                                        sidebarSelectionColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
                                 ColorPicker(
                                     "",
                                     selection: selectionColorBinding,
@@ -5638,6 +5646,7 @@ struct SettingsView: View {
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
+        sidebarSelectionColorHex = nil
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
