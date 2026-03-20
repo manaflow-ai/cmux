@@ -693,6 +693,10 @@ final class TerminalNotificationStore: ObservableObject {
         notification in
         store.scheduleUserNotification(notification)
     }
+    private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
+        _,
+        _ in
+    }
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1260,6 +1264,16 @@ final class TerminalNotificationStore: ObservableObject {
         notificationDeliveryHandler = { store, notification in
             store.scheduleUserNotification(notification)
         }
+    }
+
+    func configureSuppressedNotificationFeedbackHandlerForTesting(
+        _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
+    ) {
+        suppressedNotificationFeedbackHandler = handler
+    }
+
+    func resetSuppressedNotificationFeedbackHandlerForTesting() {
+        suppressedNotificationFeedbackHandler = { _, _ in }
     }
 
     func promptToEnableNotificationsForTesting() {

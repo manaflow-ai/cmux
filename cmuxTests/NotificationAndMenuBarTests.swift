@@ -37,6 +37,8 @@ final class NotificationDockBadgeTests: XCTestCase {
     override func tearDown() {
         TerminalNotificationStore.shared.resetNotificationSettingsPromptHooksForTesting()
         TerminalNotificationStore.shared.replaceNotificationsForTesting([])
+        TerminalNotificationStore.shared.resetNotificationDeliveryHandlerForTesting()
+        TerminalNotificationStore.shared.resetSuppressedNotificationFeedbackHandlerForTesting()
         super.tearDown()
     }
 
@@ -397,6 +399,55 @@ final class NotificationDockBadgeTests: XCTestCase {
                 return
             }
         }
+    }
+
+    func testFocusedTerminalNotificationStillRunsLocalSoundFeedbackWhenExternalDeliveryIsSuppressed() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        var deliveredNotificationIDs: [UUID] = []
+        var localFeedbackNotificationIDs: [UUID] = []
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            deliveredNotificationIDs.append(notification.id)
+        }
+        store.configureSuppressedNotificationFeedbackHandlerForTesting { _, notification in
+            localFeedbackNotificationIDs.append(notification.id)
+        }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanel = workspace.focusedTerminalPanel else {
+            XCTFail("Expected selected workspace with a focused terminal panel")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: terminalPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: ""
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
+        XCTAssertTrue(deliveredNotificationIDs.isEmpty)
+        XCTAssertEqual(localFeedbackNotificationIDs.count, 1)
     }
 
     func testNotificationAuthorizationStateMappingCoversKnownUNAuthorizationStatuses() {
