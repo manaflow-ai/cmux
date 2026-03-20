@@ -8,8 +8,22 @@ export const contentType = "image/png";
 export const alt = "cmux — The terminal built for multitasking";
 
 export default async function Image() {
-  const logoData = await readFile(join(process.cwd(), "public", "logo.png"));
+  const [logoData, screenshotData, geistRegular, geistSemiBold] =
+    await Promise.all([
+      readFile(join(process.cwd(), "public", "logo.png")),
+      readFile(
+        join(process.cwd(), "app", "[locale]", "assets", "landing-image.png")
+      ),
+      fetch(
+        "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RnOM4nQ.ttf"
+      ).then((res) => res.arrayBuffer()),
+      fetch(
+        "https://fonts.gstatic.com/s/geist/v4/gyBhhwUxId8gMGYQMKR3pzfaWI_RQuQ4nQ.ttf"
+      ).then((res) => res.arrayBuffer()),
+    ]);
+
   const logoSrc = `data:image/png;base64,${logoData.toString("base64")}`;
+  const screenshotSrc = `data:image/png;base64,${screenshotData.toString("base64")}`;
 
   return new ImageResponse(
     (
@@ -18,84 +32,90 @@ export default async function Image() {
           width: "100%",
           height: "100%",
           display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
           backgroundColor: "#0a0a0a",
+          fontFamily: "Geist",
         }}
       >
-        {/* Top accent line */}
+        {/* Left: text content */}
         <div
           style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 4,
-            background: "linear-gradient(90deg, #22d3ee, #3b82f6, #8b5cf6)",
-          }}
-        />
-
-        {/* Logo */}
-        <img
-          src={logoSrc}
-          width={88}
-          height={88}
-          style={{ borderRadius: 20 }}
-        />
-
-        {/* Title */}
-        <div
-          style={{
-            fontSize: 56,
-            fontWeight: 700,
-            color: "#ededed",
-            marginTop: 24,
-            letterSpacing: "-0.02em",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "60px 48px",
+            width: "460px",
+            flexShrink: 0,
           }}
         >
-          cmux
+          <img
+            src={logoSrc}
+            width={56}
+            height={56}
+            style={{ borderRadius: 14 }}
+          />
+          <div
+            style={{
+              fontSize: 42,
+              fontWeight: 600,
+              color: "#ededed",
+              marginTop: 20,
+              letterSpacing: "-0.02em",
+            }}
+          >
+            cmux
+          </div>
+          <div
+            style={{
+              fontSize: 20,
+              fontWeight: 400,
+              color: "#a3a3a3",
+              marginTop: 8,
+              lineHeight: 1.4,
+            }}
+          >
+            The terminal built for multitasking
+          </div>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 400,
+              color: "#525252",
+              marginTop: 20,
+              lineHeight: 1.5,
+            }}
+          >
+            cmux.com
+          </div>
         </div>
 
-        {/* Tagline */}
+        {/* Right: app screenshot */}
         <div
           style={{
-            fontSize: 28,
-            color: "#a3a3a3",
-            marginTop: 8,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: 1,
+            padding: "32px 32px 32px 0",
           }}
         >
-          The terminal built for multitasking
-        </div>
-
-        {/* Description */}
-        <div
-          style={{
-            fontSize: 18,
-            color: "#636363",
-            marginTop: 28,
-            textAlign: "center",
-            maxWidth: 700,
-            lineHeight: 1.5,
-          }}
-        >
-          Native macOS terminal for AI coding agents. Works with Claude Code,
-          Codex, OpenCode, Gemini CLI, Kiro, Aider, and more.
-        </div>
-
-        {/* URL */}
-        <div
-          style={{
-            position: "absolute",
-            bottom: 36,
-            fontSize: 16,
-            color: "#525252",
-          }}
-        >
-          cmux.com
+          <img
+            src={screenshotSrc}
+            style={{
+              borderRadius: 12,
+              objectFit: "cover",
+              width: "100%",
+              height: "100%",
+            }}
+          />
         </div>
       </div>
     ),
-    { ...size }
+    {
+      ...size,
+      fonts: [
+        { name: "Geist", data: geistRegular, weight: 400, style: "normal" },
+        { name: "Geist", data: geistSemiBold, weight: 600, style: "normal" },
+      ],
+    }
   );
 }
