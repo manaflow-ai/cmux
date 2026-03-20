@@ -5803,7 +5803,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // not hidden behind the host terminal's Metal rendering layer.
         if tmuxPaneContainer == nil {
             let container = NSView(frame: bounds)
-            container.wantsLayer = true
             container.autoresizingMask = [.width, .height]
             // Walk up: GhosttyNSView → documentView → clipView → scrollView → GhosttySurfaceScrollView
             if let parentView = enclosingScrollView?.superview {
@@ -5813,7 +5812,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 dlog("tmux.container added to parentView=\(type(of: parentView)) frame=\(parentView.bounds)")
                 #endif
             } else {
-                // Fallback: add to window content view
                 if let contentView = window?.contentView {
                     contentView.addSubview(container, positioned: .above, relativeTo: nil)
                     container.frame = contentView.bounds
@@ -5995,7 +5993,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let w = CGFloat(pane.width) * cw
         let h = CGFloat(pane.height) * ch
 
-        // Clamp to container bounds
+        // Clamp to container bounds. The container is already sized to
+        // exclude the status bar row, so no additional offset needed.
         return NSRect(
             x: min(x, containerBounds.width),
             y: min(y, containerBounds.height),
