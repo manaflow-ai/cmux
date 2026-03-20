@@ -6283,6 +6283,7 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let explicitSurfaceId = v2UUID(params, "surface_id")
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
@@ -6293,7 +6294,15 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = ws.focusedPanelId
+            if let explicitSurfaceId, ws.panels[explicitSurfaceId] == nil {
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: ["surface_id": explicitSurfaceId.uuidString]
+                )
+                return
+            }
+            let surfaceId = explicitSurfaceId ?? ws.focusedPanelId
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
