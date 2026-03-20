@@ -4088,7 +4088,7 @@ class TerminalController {
 
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
-                finish()
+                finish(["color": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
