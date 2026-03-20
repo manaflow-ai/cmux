@@ -15,6 +15,17 @@ import UserNotifications
 
 @MainActor
 final class GhosttyPasteboardHelperTests: XCTestCase {
+    private func make1x1PNG(color: NSColor) throws -> Data {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
     func testHTMLOnlyPasteboardExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -167,6 +178,113 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 
         XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello")
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
+    }
+
+    func testImageOnlyPasteboardProducesTempFileURL() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-drop-image-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .red), forType: .png)
+
+        let fileURL = try XCTUnwrap(cmuxPasteboardImageFileURLForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        XCTAssertEqual(fileURL.pathExtension, "png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    func testRemoteImageDropPlanUploadsMaterializedFile() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .green), forType: .png)
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote upload plan, got \(plan)")
+        }
+        defer { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertEqual(urls[0].pathExtension, "png")
+    }
+
+    func testLocalImageDropPlanInsertsEscapedLocalPath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-local-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .orange), forType: .png)
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local insert plan, got \(plan)")
+        }
+
+        let localPath = text.replacingOccurrences(of: "\\", with: "")
+        defer { try? FileManager.default.removeItem(atPath: localPath) }
+
+        XCTAssertTrue(text.contains("clipboard-"))
+        XCTAssertTrue(text.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: localPath))
+    }
+
+    func testRemoteImageDropHandlerUploadsAndSendsRemotePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .purple), forType: .png)
+
+        var uploadedURLs: [URL] = []
+        var sentText: [String] = []
+        var failureCount = 0
+
+        let handled = GhosttyNSView.handleDropForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true,
+            uploadRemote: { urls, finish in
+                uploadedURLs = urls
+                finish(.success(["/tmp/cmux-drop-abc123.png"]))
+            },
+            sendText: { sentText.append($0) },
+            onFailure: { failureCount += 1 }
+        )
+        defer { uploadedURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(uploadedURLs.count, 1)
+        XCTAssertEqual(sentText, ["/tmp/cmux-drop-abc123.png"])
+        XCTAssertEqual(failureCount, 0)
+    }
+
+    func testRemoteDropUploadFailureTriggersFailureHandler() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-fail-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .black), forType: .png)
+
+        var uploadedURLs: [URL] = []
+        var sentText: [String] = []
+        var failureCount = 0
+
+        let handled = GhosttyNSView.handleDropForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true,
+            uploadRemote: { urls, finish in
+                uploadedURLs = urls
+                finish(.failure(NSError(domain: "test", code: 1)))
+            },
+            sendText: { sentText.append($0) },
+            onFailure: { failureCount += 1 }
+        )
+        defer { uploadedURLs.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(uploadedURLs.count, 1)
+        XCTAssertTrue(sentText.isEmpty)
+        XCTAssertEqual(failureCount, 1)
     }
 }
 

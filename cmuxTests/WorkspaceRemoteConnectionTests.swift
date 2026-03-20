@@ -146,6 +146,40 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteTerminalSurfaceLookupTracksOnlyActiveSSHSurfaces() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+    }
+
+    func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() {
+        let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
+        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+
+        let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
+
+        XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+    }
+
+    @MainActor
     func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(

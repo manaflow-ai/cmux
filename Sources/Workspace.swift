@@ -107,6 +107,10 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+private enum RemoteDropUploadError: Error {
+    case unavailable
+}
+
 struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     struct Entry: Decodable, Equatable {
         let goOS: String
@@ -2945,6 +2949,31 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    func uploadDroppedFiles(
+        _ fileURLs: [URL],
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async {
+                    completion(.failure(RemoteDropUploadError.unavailable))
+                }
+                return
+            }
+
+            do {
+                let remotePaths = try self.uploadDroppedFilesLocked(fileURLs)
+                DispatchQueue.main.async {
+                    completion(.success(remotePaths))
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
     private func stopAllLocked() {
         debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
@@ -4003,6 +4032,54 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
             ])
         }
+    }
+
+    private func uploadDroppedFilesLocked(_ fileURLs: [URL]) throws -> [String] {
+        guard !fileURLs.isEmpty else { return [] }
+
+        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        return try fileURLs.map { localURL in
+            let normalizedLocalURL = localURL.standardizedFileURL
+            guard normalizedLocalURL.isFileURL else {
+                throw NSError(domain: "cmux.remote.drop", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                ])
+            }
+
+            let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
+            var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+            if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+            }
+            if let port = configuration.port {
+                scpArgs += ["-P", String(port)]
+            }
+            if let identityFile = configuration.identityFile,
+               !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                scpArgs += ["-i", identityFile]
+            }
+            for option in scpSSHOptions {
+                scpArgs += ["-o", option]
+            }
+            scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+
+            let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
+            guard scpResult.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
+                    "scp exited \(scpResult.status)"
+                throw NSError(domain: "cmux.remote.drop", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
+                ])
+            }
+
+            return remotePath
+        }
+    }
+
+    static func remoteDropPath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        let extensionSuffix = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedSuffix = extensionSuffix.isEmpty ? "" : ".\(extensionSuffix.lowercased())"
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
     }
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
@@ -6217,12 +6294,29 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
+    @MainActor
+    func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId)
+    }
+
     var remoteDisplayTarget: String? {
         remoteConfiguration?.displayTarget
     }
 
     var hasActiveRemoteTerminalSessions: Bool {
         activeRemoteTerminalSessionCount > 0
+    }
+
+    @MainActor
+    func uploadDroppedFilesForRemoteTerminal(
+        _ fileURLs: [URL],
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        guard let controller = remoteSessionController else {
+            completion(.failure(RemoteDropUploadError.unavailable))
+            return
+        }
+        controller.uploadDroppedFiles(fileURLs, completion: completion)
     }
 
     func remoteStatusPayload() -> [String: Any] {

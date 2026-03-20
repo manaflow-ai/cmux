@@ -1921,7 +1921,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
-    static var shared: AppDelegate?
+    nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
@@ -11017,6 +11017,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
         contextContainingTabId(tabId)?.tabManager
+    }
+
+    private func workspaceForMainActor(tabId: UUID) -> Workspace? {
+        contextContainingTabId(tabId)?.tabManager.tabs.first(where: { $0.id == tabId })
+    }
+
+    /// Returns the `Workspace` that owns `tabId`, if any.
+    nonisolated func workspaceFor(tabId: UUID) -> Workspace? {
+        if Thread.isMainThread {
+            return MainActor.assumeIsolated {
+                workspaceForMainActor(tabId: tabId)
+            }
+        }
+
+        return DispatchQueue.main.sync {
+            MainActor.assumeIsolated {
+                workspaceForMainActor(tabId: tabId)
+            }
+        }
     }
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {

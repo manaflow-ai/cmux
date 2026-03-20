@@ -295,11 +295,11 @@ private enum GhosttyPasteboardHelper {
 
     /// When the clipboard contains only image data (or rich text that resolves to
     /// an attachment-only image), saves it as a temporary image file and returns the
-    /// shell-escaped file path. Returns nil if the clipboard contains text or no image.
-    static func saveClipboardImageIfNeeded(
+    /// file URL. Returns nil if the clipboard contains text or no image.
+    static func saveImageFileURLIfNeeded(
         from pasteboard: NSPasteboard = .general,
         assumeNoText: Bool = false
-    ) -> String? {
+    ) -> URL? {
         if !assumeNoText && stringContents(from: pasteboard) != nil { return nil }
 
         let imageData: Data
@@ -333,10 +333,10 @@ private enum GhosttyPasteboardHelper {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let timestamp = formatter.string(from: Date())
         let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
-        let path = (NSTemporaryDirectory() as NSString).appendingPathComponent(filename)
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         do {
-            try imageData.write(to: URL(fileURLWithPath: path))
+            try imageData.write(to: fileURL)
         } catch {
 #if DEBUG
             dlog("terminal.paste.image.writeFailed error=\(error.localizedDescription)")
@@ -344,13 +344,28 @@ private enum GhosttyPasteboardHelper {
             return nil
         }
 
-        return escapeForShell(path)
+        return fileURL
+    }
+
+    /// When the clipboard contains only image data (or rich text that resolves to
+    /// an attachment-only image), saves it as a temporary image file and returns the
+    /// shell-escaped file path. Returns nil if the clipboard contains text or no image.
+    static func saveClipboardImageIfNeeded(
+        from pasteboard: NSPasteboard = .general,
+        assumeNoText: Bool = false
+    ) -> String? {
+        saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: assumeNoText)
+            .map { escapeForShell($0.path) }
     }
 }
 
 #if DEBUG
 func cmuxPasteboardStringContentsForTesting(_ pasteboard: NSPasteboard) -> String? {
     GhosttyPasteboardHelper.stringContents(from: pasteboard)
+}
+
+func cmuxPasteboardImageFileURLForTesting(_ pasteboard: NSPasteboard) -> URL? {
+    GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard)
 }
 
 func cmuxPasteboardImagePathForTesting(_ pasteboard: NSPasteboard) -> String? {
@@ -3730,6 +3745,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 }
 
+extension TerminalSurface {
+    func owningWorkspace() -> Workspace? {
+        AppDelegate.shared?.workspaceFor(tabId: tabId)
+    }
+}
+
 // MARK: - Ghostty Surface View
 
 class GhosttyNSView: NSView, NSUserInterfaceValidations {
@@ -3739,10 +3760,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
+    internal enum DropPlan: Equatable {
+        case insertText(String)
+        case uploadFiles([URL])
+        case reject
+    }
+
     private static let dropTypes: Set<NSPasteboard.PasteboardType> = [
         .string,
         .fileURL,
-        .URL
+        .URL,
+        .png,
+        .tiff,
+        NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+        NSPasteboard.PasteboardType(UTType.gif.identifier),
+        NSPasteboard.PasteboardType(UTType.heic.identifier),
+        NSPasteboard.PasteboardType(UTType.heif.identifier)
     ]
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
@@ -5974,32 +6007,156 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return result
     }
 
-    private func droppedContent(from pasteboard: NSPasteboard) -> String? {
+    private static func droppedLocalFileURLs(from pasteboard: NSPasteboard) -> [URL] {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
             return urls
+        }
+        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
+            return [imageURL]
+        }
+        return []
+    }
+
+    static func dropPlanForTesting(
+        pasteboard: NSPasteboard,
+        isRemoteTerminalSurface: Bool
+    ) -> DropPlan {
+        let fileURLs = droppedLocalFileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
+            if isRemoteTerminalSurface {
+                return .uploadFiles(fileURLs)
+            }
+
+            let content = fileURLs
                 .map { Self.escapeDropForShell($0.path) }
                 .joined(separator: " ")
+            return .insertText(content)
         }
 
         if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty {
-            return Self.escapeDropForShell(rawURL)
+            return .insertText(Self.escapeDropForShell(rawURL))
         }
 
         if let str = pasteboard.string(forType: .string), !str.isEmpty {
-            return str
+            return .insertText(str)
         }
 
-        return nil
+        return .reject
+    }
+
+    static func performRemoteDropUploadForTesting(
+        upload: (@escaping (Result<[String], Error>) -> Void) -> Void,
+        sendText: @escaping (String) -> Void,
+        onFailure: @escaping () -> Void
+    ) {
+        upload { result in
+            switch result {
+            case .success(let remotePaths):
+                let content = remotePaths
+                    .map { Self.escapeDropForShell($0) }
+                    .joined(separator: " ")
+                guard !content.isEmpty else {
+                    onFailure()
+                    return
+                }
+                sendText(content)
+            case .failure:
+                onFailure()
+            }
+        }
+    }
+
+    @discardableResult
+    static func handleDropForTesting(
+        pasteboard: NSPasteboard,
+        isRemoteTerminalSurface: Bool,
+        uploadRemote: ([URL], @escaping (Result<[String], Error>) -> Void) -> Void,
+        sendText: @escaping (String) -> Void,
+        onFailure: @escaping () -> Void
+    ) -> Bool {
+        switch dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: isRemoteTerminalSurface
+        ) {
+        case .insertText(let text):
+            sendText(text)
+            return true
+        case .uploadFiles(let fileURLs):
+            performRemoteDropUploadForTesting(
+                upload: { finish in uploadRemote(fileURLs, finish) },
+                sendText: sendText,
+                onFailure: onFailure
+            )
+            return true
+        case .reject:
+            return false
+        }
+    }
+
+    fileprivate func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        guard let workspace = terminalSurface?.owningWorkspace(),
+              let surfaceID = terminalSurface?.id,
+              workspace.isRemoteTerminalSurface(surfaceID) else {
+            let content = urls
+                .map { Self.escapeDropForShell($0.path) }
+                .joined(separator: " ")
+            terminalSurface?.sendText(content)
+            return true
+        }
+
+        workspace.uploadDroppedFilesForRemoteTerminal(urls) { [weak self] result in
+            Self.performRemoteDropUploadForTesting(
+                upload: { finish in finish(result) },
+                sendText: { [weak self] text in
+                    self?.terminalSurface?.sendText(text)
+                },
+                onFailure: { [weak self] in
+                    DispatchQueue.main.async {
+                        NSSound.beep()
+#if DEBUG
+                        dlog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+                    }
+                }
+            )
+        }
+        return true
     }
 
     @discardableResult
     fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
-        guard let content = droppedContent(from: pasteboard) else { return false }
-        // Use the text/paste path (ghostty_surface_text) instead of the key event
-        // path (ghostty_surface_key) so bracketed paste mode is triggered and the
-        // insertion is instant, matching upstream Ghostty behaviour.
-        terminalSurface?.sendText(content)
-        return true
+        let isRemoteTerminalSurface = {
+            guard let workspace = terminalSurface?.owningWorkspace(),
+                  let surfaceID = terminalSurface?.id else { return false }
+            return workspace.isRemoteTerminalSurface(surfaceID)
+        }()
+
+        return Self.handleDropForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: isRemoteTerminalSurface,
+            uploadRemote: { [weak self] fileURLs, finish in
+                guard let workspace = self?.terminalSurface?.owningWorkspace() else {
+                    finish(.failure(NSError(domain: "cmux.remote.drop", code: 3)))
+                    return
+                }
+                workspace.uploadDroppedFilesForRemoteTerminal(fileURLs, completion: finish)
+            },
+            sendText: { [weak self] text in
+                // Use the text/paste path (ghostty_surface_text) instead of the key event
+                // path (ghostty_surface_key) so bracketed paste mode is triggered and the
+                // insertion is instant, matching upstream Ghostty behaviour.
+                self?.terminalSurface?.sendText(text)
+            },
+            onFailure: { [weak self] in
+                DispatchQueue.main.async {
+                    NSSound.beep()
+#if DEBUG
+                    dlog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+#endif
+                }
+            }
+        )
     }
 
 #if DEBUG
@@ -7567,15 +7724,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
     func handleDroppedURLs(_ urls: [URL]) -> Bool {
-        guard !urls.isEmpty else { return false }
-        let content = urls
-            .map { GhosttyNSView.escapeDropForShell($0.path) }
-            .joined(separator: " ")
         #if DEBUG
         dlog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
-        surfaceView.terminalSurface?.sendText(content)
-        return true
+        return surfaceView.handleDroppedFileURLs(urls)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {
