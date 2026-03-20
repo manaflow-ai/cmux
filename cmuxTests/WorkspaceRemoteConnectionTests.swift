@@ -179,6 +179,60 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
     }
 
+    func testDetectsForegroundSSHSessionForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-o", "ControlMaster=auto",
+                    "-o", "ControlPath=/tmp/cmux-ssh-%C",
+                    "-o", "StrictHostKeyChecking=accept-new",
+                    "-p", "2200",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: 2200,
+                identityFile: "/Users/test/.ssh/id_ed25519",
+                configFile: nil,
+                jumpHost: nil,
+                sshProgram: nil,
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: [
+                    "ControlPath=/tmp/cmux-ssh-%C",
+                    "StrictHostKeyChecking=accept-new",
+                ]
+            )
+        )
+    }
+
+    func testIgnoresBackgroundSSHProcessForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 2145, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: ["ssh", "lawrence@example.com"],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
     @MainActor
     func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() {
         let workspace = Workspace()
