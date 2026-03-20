@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// A panel that renders a markdown file with live file-watching.
 /// When the file changes on disk, the content is automatically reloaded.
@@ -28,6 +29,27 @@ final class MarkdownPanel: Panel, ObservableObject {
 
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
+
+    /// Find-in-page state. Non-nil when the find bar is visible.
+    @Published var searchState: MarkdownSearchState? = nil {
+        didSet {
+            if let searchState {
+                preferredFocusIntent = .findField
+                // Note: search matching is handled by the WKWebView coordinator
+                // via BrowserFindJavaScript. The coordinator observes searchState.needle
+                // changes and updates total/selected from the JS results.
+                // We only need to cancel subscriptions when search is dismissed.
+                _ = searchState  // suppress unused warning
+            } else {
+                if preferredFocusIntent == .findField {
+                    preferredFocusIntent = .content
+                }
+            }
+        }
+    }
+
+    /// Panel-local focus target (not the protocol method — this backs preferredFocusIntentForActivation).
+    private(set) var preferredFocusIntent: MarkdownPanelFocusIntent = .content
 
     // MARK: - File watching
 
@@ -78,6 +100,68 @@ final class MarkdownPanel: Panel, ObservableObject {
     func triggerFlash() {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
+    }
+
+    // MARK: - Search
+
+    func startFind() {
+        preferredFocusIntent = .findField
+        if searchState == nil {
+            searchState = MarkdownSearchState()
+        }
+        NotificationCenter.default.post(name: .markdownSearchFocus, object: id)
+    }
+
+    func findNext() {
+        NotificationCenter.default.post(name: .markdownFindNext, object: id)
+    }
+
+    func findPrevious() {
+        NotificationCenter.default.post(name: .markdownFindPrevious, object: id)
+    }
+
+    func hideFind() {
+        searchState = nil
+    }
+
+    // MARK: - Focus Intent
+
+    func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .markdown(.findField)
+        }
+        return .panel
+    }
+
+    func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        if searchState != nil && preferredFocusIntent == .findField {
+            return .markdown(.findField)
+        }
+        return .panel
+    }
+
+    func prepareFocusIntentForActivation(_ intent: PanelFocusIntent) {
+        guard case .markdown(let target) = intent else { return }
+        switch target {
+        case .content:
+            preferredFocusIntent = .content
+        case .findField:
+            preferredFocusIntent = .findField
+        }
+    }
+
+    @discardableResult
+    func restoreFocusIntent(_ intent: PanelFocusIntent) -> Bool {
+        switch intent {
+        case .markdown(.findField):
+            startFind()
+            return true
+        case .panel:
+            focus()
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - File I/O

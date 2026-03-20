@@ -20,10 +20,16 @@ public enum BrowserPanelFocusIntent: Equatable {
     case findField
 }
 
+public enum MarkdownPanelFocusIntent: Equatable {
+    case content
+    case findField
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
+    case markdown(MarkdownPanelFocusIntent)
 }
 
 enum FocusFlashCurve: Equatable {

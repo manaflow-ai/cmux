@@ -1676,6 +1676,7 @@ struct ContentView: View {
         static let panelName = "panel.name"
         static let panelIsBrowser = "panel.isBrowser"
         static let panelIsTerminal = "panel.isTerminal"
+        static let panelIsMarkdown = "panel.isMarkdown"
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
@@ -4931,6 +4932,14 @@ struct ContentView: View {
             return "⌘⇧F"
         case "palette.terminalUseSelectionForFind":
             return "⌘E"
+        case "palette.markdownFind":
+            return "⌘F"
+        case "palette.markdownFindNext":
+            return "⌘G"
+        case "palette.markdownFindPrevious":
+            return "⌘⇧G"
+        case "palette.markdownHideFind":
+            return "⌘⇧F"
         case "palette.toggleFullScreen":
             return "\u{2303}\u{2318}F"
         default:
@@ -4985,6 +4994,7 @@ struct ContentView: View {
             )
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
             snapshot.setBool(CommandPaletteContextKeys.panelIsTerminal, panelIsTerminal)
+            snapshot.setBool(CommandPaletteContextKeys.panelIsMarkdown, panelContext.panel.panelType == .markdown)
             snapshot.setBool(CommandPaletteContextKeys.panelHasCustomName, workspace.panelCustomTitles[panelId] != nil)
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !workspace.isPanelPinned(panelId))
             let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
@@ -5656,6 +5666,47 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
+        let markdownPanelSubtitle = constant(String(localized: "command.markdownFind.subtitle", defaultValue: "Markdown"))
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markdownFind",
+                title: constant(String(localized: "command.markdownFind.title", defaultValue: "Find…")),
+                subtitle: markdownPanelSubtitle,
+                shortcutHint: "⌘F",
+                keywords: ["markdown", "find", "search"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markdownFindNext",
+                title: constant(String(localized: "command.markdownFindNext.title", defaultValue: "Find Next")),
+                subtitle: markdownPanelSubtitle,
+                shortcutHint: "⌘G",
+                keywords: ["markdown", "find", "next", "search"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markdownFindPrevious",
+                title: constant(String(localized: "command.markdownFindPrevious.title", defaultValue: "Find Previous")),
+                subtitle: markdownPanelSubtitle,
+                shortcutHint: "⌘⇧G",
+                keywords: ["markdown", "find", "previous", "search"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markdownHideFind",
+                title: constant(String(localized: "command.markdownHideFind.title", defaultValue: "Hide Find Bar")),
+                subtitle: markdownPanelSubtitle,
+                shortcutHint: "⌘⇧F",
+                keywords: ["markdown", "hide", "find", "search"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
+            )
+        )
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.terminalSplitRight",
@@ -6020,6 +6071,18 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.terminalUseSelectionForFind") {
             tabManager.searchSelection()
+        }
+        registry.register(commandId: "palette.markdownFind") {
+            tabManager.startSearch()
+        }
+        registry.register(commandId: "palette.markdownFindNext") {
+            tabManager.findNext()
+        }
+        registry.register(commandId: "palette.markdownFindPrevious") {
+            tabManager.findPrevious()
+        }
+        registry.register(commandId: "palette.markdownHideFind") {
+            tabManager.hideFind()
         }
         registry.register(commandId: "palette.terminalSplitRight") {
             tabManager.createSplit(direction: .right)
@@ -6780,6 +6843,10 @@ struct ContentView: View {
             return "browser.addressBar"
         case .browser(.findField):
             return "browser.findField"
+        case .markdown(.content):
+            return "markdown.content"
+        case .markdown(.findField):
+            return "markdown.findField"
         }
     }
 #endif

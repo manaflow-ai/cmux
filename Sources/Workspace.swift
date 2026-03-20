@@ -9347,9 +9347,9 @@ extension Workspace: BonsplitDelegate {
 
     private func shouldRestoreFocusIntentAfterActivation(_ intent: PanelFocusIntent) -> Bool {
         switch intent {
-        case .browser(.addressBar), .browser(.findField), .terminal(.findField):
+        case .browser(.addressBar), .browser(.findField), .terminal(.findField), .markdown(.findField):
             return true
-        case .panel, .browser(.webView), .terminal(.surface):
+        case .panel, .browser(.webView), .terminal(.surface), .markdown(.content):
             return false
         }
     }

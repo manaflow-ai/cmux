@@ -973,7 +973,7 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil || focusedMarkdownPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
@@ -1006,6 +1006,7 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.startFind()
+        focusedMarkdownPanel?.startFind()
     }
 
     func searchSelection() {
@@ -1025,6 +1026,7 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.findNext()
+        focusedMarkdownPanel?.findNext()
     }
 
     func findPrevious() {
@@ -1034,6 +1036,7 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.findPrevious()
+        focusedMarkdownPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1049,6 +1052,7 @@ class TabManager: ObservableObject {
         }
 
         focusedBrowserPanel?.hideFind()
+        focusedMarkdownPanel?.hideFind()
     }
 
     @discardableResult
@@ -2577,6 +2581,12 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return nil }
         return tab.panels[panelId] as? BrowserPanel
+    }
+
+    var focusedMarkdownPanel: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
     }
 
     @discardableResult

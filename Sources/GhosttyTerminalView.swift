@@ -6094,6 +6094,9 @@ extension Notification.Name {
     static let ghosttyConfigDidReload = Notification.Name("ghosttyConfigDidReload")
     static let ghosttyDefaultBackgroundDidChange = Notification.Name("ghosttyDefaultBackgroundDidChange")
     static let browserSearchFocus = Notification.Name("browserSearchFocus")
+    static let markdownSearchFocus = Notification.Name("markdownSearchFocus")
+    static let markdownFindNext = Notification.Name("markdownFindNext")
+    static let markdownFindPrevious = Notification.Name("markdownFindPrevious")
 }
 
 // MARK: - Scroll View Wrapper (Ghostty-style scrollbar)

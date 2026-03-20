@@ -9,6 +9,7 @@ enum BrowserFindJavaScript {
     // MARK: - Public API
 
     /// Returns JS that highlights all occurrences of `query` in the document body.
+    /// Supports matches that span across multiple DOM elements (e.g. plain text into `<code>` blocks).
     /// The script evaluates to a JSON string `{"total":N,"current":0}`.
     static func searchScript(query: String) -> String {
         let escaped = jsStringEscape(query)
@@ -35,56 +36,114 @@ enum BrowserFindJavaScript {
             }
             return true;
           };
+
+          // Phase 1: Collect all visible text nodes and build a concatenated text map.
           const walker = document.createTreeWalker(
             document.body,
             NodeFilter.SHOW_TEXT,
             { acceptNode(node) { return isVisible(node.parentElement) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; } }
           );
-          const matches = [];
           const textNodes = [];
-          while (walker.nextNode()) textNodes.push(walker.currentNode);
-
-          for (const node of textNodes) {
+          const nodeOffsets = [];  // cumulative offset for each text node in the concatenated string
+          let concatenated = '';
+          while (walker.nextNode()) {
+            const node = walker.currentNode;
             const text = node.textContent || '';
-            const lowerText = text.toLowerCase();
-            let startIndex = 0;
-            const parts = [];
-            let lastEnd = 0;
-            while (true) {
-              const idx = lowerText.indexOf(lowerQuery, startIndex);
-              if (idx === -1) break;
-              parts.push({ start: idx, end: idx + query.length });
-              startIndex = idx + query.length;
-            }
-            if (parts.length === 0) continue;
-
-            const parent = node.parentNode;
-            if (!parent) continue;
-            const frag = document.createDocumentFragment();
-            let pos = 0;
-            for (const part of parts) {
-              if (part.start > pos) {
-                frag.appendChild(document.createTextNode(text.substring(pos, part.start)));
-              }
-              const mark = document.createElement('mark');
-              mark.className = MARK_CLASS;
-              mark.textContent = text.substring(part.start, part.end);
-              frag.appendChild(mark);
-              matches.push(mark);
-              pos = part.end;
-            }
-            if (pos < text.length) {
-              frag.appendChild(document.createTextNode(text.substring(pos)));
-            }
-            parent.replaceChild(frag, node);
+            nodeOffsets.push(concatenated.length);
+            textNodes.push(node);
+            concatenated += text;
           }
 
-          window.__cmuxFindMatches = matches;
+          // Phase 2: Find all matches in the concatenated (cross-element) text.
+          const lowerConcat = concatenated.toLowerCase();
+          const matchPositions = [];
+          let searchFrom = 0;
+          while (true) {
+            const idx = lowerConcat.indexOf(lowerQuery, searchFrom);
+            if (idx === -1) break;
+            matchPositions.push({ start: idx, end: idx + query.length });
+            searchFrom = idx + 1;  // Allow overlapping matches
+          }
+          if (matchPositions.length === 0) return JSON.stringify({ total: 0, current: 0 });
+
+          // Phase 3: Resolve each match back to text node ranges and wrap with <mark>.
+          // A single match may span multiple text nodes; we track the first <mark> per match for navigation.
+          const matchGroups = [];  // Array of arrays of <mark> elements, one group per match
+
+          // Find which text node contains a given offset.
+          const findNodeIndex = (offset) => {
+            let lo = 0, hi = textNodes.length - 1;
+            while (lo < hi) {
+              const mid = (lo + hi + 1) >> 1;
+              if (nodeOffsets[mid] <= offset) lo = mid; else hi = mid - 1;
+            }
+            return lo;
+          };
+
+          // We must process matches in reverse document order to avoid invalidating
+          // earlier node references when we split text nodes.
+          for (let mi = matchPositions.length - 1; mi >= 0; mi--) {
+            const match = matchPositions[mi];
+            const startNodeIdx = findNodeIndex(match.start);
+            const endNodeIdx = findNodeIndex(match.end - 1);
+            const marks = [];
+
+            if (startNodeIdx === endNodeIdx) {
+              // Match is entirely within one text node.
+              const node = textNodes[startNodeIdx];
+              const localStart = match.start - nodeOffsets[startNodeIdx];
+              const localEnd = match.end - nodeOffsets[startNodeIdx];
+              const text = node.textContent || '';
+              const parent = node.parentNode;
+              if (!parent) continue;
+
+              const frag = document.createDocumentFragment();
+              if (localStart > 0) frag.appendChild(document.createTextNode(text.substring(0, localStart)));
+              const mark = document.createElement('mark');
+              mark.className = MARK_CLASS;
+              mark.textContent = text.substring(localStart, localEnd);
+              frag.appendChild(mark);
+              marks.push(mark);
+              if (localEnd < text.length) frag.appendChild(document.createTextNode(text.substring(localEnd)));
+              parent.replaceChild(frag, node);
+            } else {
+              // Match spans multiple text nodes. Wrap the relevant portion of each.
+              // Process in reverse to preserve node references.
+              for (let ni = endNodeIdx; ni >= startNodeIdx; ni--) {
+                const node = textNodes[ni];
+                const text = node.textContent || '';
+                const nodeStart = nodeOffsets[ni];
+                const parent = node.parentNode;
+                if (!parent) continue;
+
+                let localStart = 0;
+                let localEnd = text.length;
+                if (ni === startNodeIdx) localStart = match.start - nodeStart;
+                if (ni === endNodeIdx) localEnd = match.end - nodeStart;
+
+                const frag = document.createDocumentFragment();
+                if (localStart > 0) frag.appendChild(document.createTextNode(text.substring(0, localStart)));
+                const mark = document.createElement('mark');
+                mark.className = MARK_CLASS;
+                mark.textContent = text.substring(localStart, localEnd);
+                frag.appendChild(mark);
+                marks.unshift(mark);  // prepend so marks are in document order
+                if (localEnd < text.length) frag.appendChild(document.createTextNode(text.substring(localEnd)));
+                parent.replaceChild(frag, node);
+              }
+            }
+            matchGroups.unshift(marks);  // prepend so groups are in document order
+          }
+
+          // For navigation, use the first <mark> in each match group.
+          const navigationMarks = matchGroups.map(g => g[0]);
+          window.__cmuxFindMatches = navigationMarks;
+          window.__cmuxFindMatchGroups = matchGroups;
           window.__cmuxFindIndex = 0;
 
-          if (matches.length > 0) {
-            matches[0].classList.add(CURRENT_CLASS);
-            matches[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
+          if (navigationMarks.length > 0) {
+            matchGroups[0].forEach(m => m.classList.add(CURRENT_CLASS));
+            navigationMarks[0].scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
 
           // Inject highlight styles if not already present.
@@ -98,7 +157,7 @@ enum BrowserFindJavaScript {
             document.head.appendChild(style);
           }
 
-          return JSON.stringify({ total: matches.length, current: 0 });
+          return JSON.stringify({ total: navigationMarks.length, current: 0 });
         })()
         """
     }
@@ -108,21 +167,24 @@ enum BrowserFindJavaScript {
         """
         (() => {
           const matches = window.__cmuxFindMatches || [];
+          const groups = window.__cmuxFindMatchGroups || matches.map(m => [m]);
           if (matches.length === 0) return JSON.stringify({ total: 0, current: 0 });
           let idx = window.__cmuxFindIndex || 0;
           if (!matches[idx] || !matches[idx].isConnected) {
             window.__cmuxFindMatches = [];
+            window.__cmuxFindMatchGroups = [];
             window.__cmuxFindIndex = 0;
             return JSON.stringify({ total: 0, current: 0 });
           }
-          matches[idx].classList.remove('__cmux-find-current');
+          (groups[idx] || [matches[idx]]).forEach(m => m.classList.remove('__cmux-find-current'));
           idx = (idx + 1) % matches.length;
           if (!matches[idx] || !matches[idx].isConnected) {
             window.__cmuxFindMatches = [];
+            window.__cmuxFindMatchGroups = [];
             window.__cmuxFindIndex = 0;
             return JSON.stringify({ total: 0, current: 0 });
           }
-          matches[idx].classList.add('__cmux-find-current');
+          (groups[idx] || [matches[idx]]).forEach(m => m.classList.add('__cmux-find-current'));
           matches[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
           window.__cmuxFindIndex = idx;
           return JSON.stringify({ total: matches.length, current: idx });
@@ -135,21 +197,24 @@ enum BrowserFindJavaScript {
         """
         (() => {
           const matches = window.__cmuxFindMatches || [];
+          const groups = window.__cmuxFindMatchGroups || matches.map(m => [m]);
           if (matches.length === 0) return JSON.stringify({ total: 0, current: 0 });
           let idx = window.__cmuxFindIndex || 0;
           if (!matches[idx] || !matches[idx].isConnected) {
             window.__cmuxFindMatches = [];
+            window.__cmuxFindMatchGroups = [];
             window.__cmuxFindIndex = 0;
             return JSON.stringify({ total: 0, current: 0 });
           }
-          matches[idx].classList.remove('__cmux-find-current');
+          (groups[idx] || [matches[idx]]).forEach(m => m.classList.remove('__cmux-find-current'));
           idx = (idx - 1 + matches.length) % matches.length;
           if (!matches[idx] || !matches[idx].isConnected) {
             window.__cmuxFindMatches = [];
+            window.__cmuxFindMatchGroups = [];
             window.__cmuxFindIndex = 0;
             return JSON.stringify({ total: 0, current: 0 });
           }
-          matches[idx].classList.add('__cmux-find-current');
+          (groups[idx] || [matches[idx]]).forEach(m => m.classList.add('__cmux-find-current'));
           matches[idx].scrollIntoView({ block: 'center', behavior: 'smooth' });
           window.__cmuxFindIndex = idx;
           return JSON.stringify({ total: matches.length, current: idx });
@@ -163,6 +228,7 @@ enum BrowserFindJavaScript {
         (() => {
           \(clearBody)
           window.__cmuxFindMatches = [];
+          window.__cmuxFindMatchGroups = [];
           window.__cmuxFindIndex = 0;
           const style = document.getElementById('__cmux-find-style');
           if (style) style.remove();
