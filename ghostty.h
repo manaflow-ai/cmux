@@ -1175,6 +1175,11 @@ void ghostty_surface_tmux_unregister_pane(ghostty_surface_t host, uintptr_t pane
 void ghostty_surface_tmux_send_keys(ghostty_surface_t host, uintptr_t pane_id,
                                      const uint8_t* data, size_t len, int key_type);
 
+// Send a raw tmux command through the control mode channel.
+// The command string should NOT include a trailing newline.
+void ghostty_surface_tmux_command(ghostty_surface_t host,
+                                   const uint8_t* cmd, size_t len);
+
 // Feed raw terminal output to a surface (used for Manual I/O mode).
 void ghostty_surface_process_output(ghostty_surface_t, const uint8_t* data, size_t len);
 

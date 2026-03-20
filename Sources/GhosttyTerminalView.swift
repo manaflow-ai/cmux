@@ -2490,7 +2490,10 @@ class GhosttyApp {
             #endif
             return performOnMain {
                 surfaceView.tmuxControlMode = entered
-                if !entered {
+                if entered {
+                    surfaceView.tmuxLoadPrefixConfig()
+                } else {
+                    surfaceView.tmuxResetPrefixState()
                     surfaceView.tmuxCleanupAllPanes()
                 }
                 return true
@@ -3672,6 +3675,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var tmuxStatusBarTimer: Timer?
     /// Pane IDs awaiting unregister ack before surface can be freed.
     var tmuxPendingUnregister: [UInt: UInt32] = [:]
+
+    // MARK: - Tmux Prefix Layer
+
+    /// Configuration loaded from tmux: prefix keys and key bindings.
+    struct TmuxPrefixConfig {
+        /// Keys that activate prefix mode, e.g. ["C-b", "C-Space"]
+        var prefixKeys: Set<String> = []
+        /// Bindings: tmux key name → tmux command, e.g. "d" → "detach-client"
+        var bindings: [String: String] = [:]
+        var loaded: Bool = false
+    }
+
+    enum TmuxPrefixState {
+        case idle
+        case pending
+    }
+
+    private var tmuxPrefixConfig = TmuxPrefixConfig()
+    private var tmuxPrefixState: TmuxPrefixState = .idle
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -4201,12 +4223,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    /// The pane ID that was last clicked or focused. Updated on mouseDown.
+    private var tmuxActivePaneId: UInt?
+
     /// Returns the active tmux pane state, or nil if not in tmux mode.
-    /// Currently returns the first pane (MVP single-pane). When multi-pane
-    /// support is added, this should return the pane under the mouse or
-    /// the last-focused pane.
+    /// Returns the last-clicked pane, falling back to the first pane.
     private var activeTmuxPane: TmuxPaneState? {
         guard tmuxControlMode else { return nil }
+        if let id = tmuxActivePaneId, let state = tmuxPaneSurfaces[id] {
+            return state
+        }
+        // Fallback: first pane (single-pane case)
         return tmuxPaneSurfaces.values.first
     }
 
@@ -4715,6 +4742,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
+            // Cancel tmux prefix mode on focus loss
+            if tmuxPrefixState == .pending { tmuxPrefixState = .idle }
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -4959,6 +4988,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if tmuxControlMode && tmuxPaneSurfaces.isEmpty {
             return
         }
+
+        // Tmux prefix key state machine: intercept prefix keys before
+        // they reach Ghostty's key handler or the pane surface.
+        // Only active when not composing IME text (markedText).
+        if tmuxControlMode && tmuxPrefixConfig.loaded && !hasMarkedText() {
+            if let key = tmuxKeyName(for: event) {
+                switch tmuxPrefixState {
+                case .idle:
+                    if tmuxPrefixConfig.prefixKeys.contains(key) {
+                        tmuxPrefixState = .pending
+                        #if DEBUG
+                        dlog("tmux.prefix PENDING key=\(key)")
+                        #endif
+                        return
+                    }
+                case .pending:
+                    tmuxPrefixState = .idle
+                    if let command = tmuxPrefixConfig.bindings[key] {
+                        #if DEBUG
+                        dlog("tmux.prefix EXEC key=\(key) cmd=\(command)")
+                        #endif
+                        tmuxSendCommand(command)
+                    } else {
+                        #if DEBUG
+                        dlog("tmux.prefix UNKNOWN key=\(key), beep")
+                        #endif
+                        NSSound.beep()
+                    }
+                    return
+                }
+            } else if tmuxPrefixState == .pending {
+                // Unmappable key while in prefix mode → cancel
+                tmuxPrefixState = .idle
+                NSSound.beep()
+                return
+            }
+        }
+
         if let paneState = activeTmuxPane {
             surface = paneState.surface
         }
@@ -5616,6 +5683,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             #if DEBUG
             dlog("tmux.mouseDown routed to pane regId=\(paneState.regId) point=(\(String(format: "%.0f", point.x)),\(String(format: "%.0f", y))) cmd=\(event.modifierFlags.contains(.command))")
             #endif
+            // Track and sync active pane with tmux so prefix commands target the right pane
+            let paneId = paneState.writeContext.pointee.paneId
+            tmuxActivePaneId = paneId
+            tmuxSendCommand("select-pane -t %\(paneId)")
+            // Cancel prefix mode on click
+            if tmuxPrefixState == .pending { tmuxPrefixState = .idle }
             ghostty_surface_mouse_pos(paneSurface, point.x, y, modsFromEvent(event))
             _ = ghostty_surface_mouse_button(paneSurface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
             return
@@ -6149,6 +6222,169 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func tmuxQuery(_ args: String...) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    // MARK: - Tmux Prefix Layer Methods
+
+    /// Reset prefix state (called on tmux exit).
+    func tmuxResetPrefixState() {
+        tmuxPrefixState = .idle
+        tmuxPrefixConfig = TmuxPrefixConfig()
+        tmuxActivePaneId = nil
+    }
+
+    /// Send a raw tmux command through the control mode channel.
+    private func tmuxSendCommand(_ command: String) {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        command.withCString { cstr in
+            ghostty_surface_tmux_command(hostSurface, UnsafePointer<UInt8>(OpaquePointer(cstr)), strlen(cstr))
+        }
+    }
+
+    /// Normalize an NSEvent into a tmux key name (e.g. "C-b", "d", "Left", "Enter").
+    /// Returns nil if the event can't be mapped to a tmux key.
+    private func tmuxKeyName(for event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasCtrl = flags.contains(.control)
+        let hasMeta = flags.contains(.option)  // tmux calls Option "Meta"
+        let hasShift = flags.contains(.shift)
+
+        // Special keys by keyCode
+        let specialKey: String? = switch event.keyCode {
+        case 126: "Up"
+        case 125: "Down"
+        case 123: "Left"
+        case 124: "Right"
+        case 115: "Home"
+        case 119: "End"
+        case 116: "PPage"     // tmux uses PPage/NPage in list-keys -T prefix
+        case 121: "NPage"
+        case 117: "DC"        // Forward Delete
+        case 122: "F1"
+        case 120: "F2"
+        case 99:  "F3"
+        case 118: "F4"
+        case 96:  "F5"
+        case 97:  "F6"
+        case 98:  "F7"
+        case 100: "F8"
+        case 101: "F9"
+        case 109: "F10"
+        case 103: "F11"
+        case 111: "F12"
+        case 36:  "Enter"
+        case 48:  "Tab"
+        case 53:  "Escape"
+        case 49:  "Space"
+        case 51:  "BSpace"    // Backspace
+        default:  nil
+        }
+
+        var name: String
+        if let specialKey {
+            name = specialKey
+        } else if hasCtrl, let chars = event.charactersIgnoringModifiers?.lowercased(),
+                  let ch = chars.first, ch.isASCII, let av = ch.asciiValue, av >= 0x61, av <= 0x7A {
+            // Ctrl+letter: tmux uses "C-<letter>"
+            return "C-\(ch)"
+        } else if let chars = event.characters, !chars.isEmpty {
+            // Use .characters (not .charactersIgnoringModifiers) to get the
+            // actual typed character. This means Shift+5 → "%" not "S-5",
+            // matching how tmux names keys in list-keys output.
+            let ch = chars.first!
+            if ch == " " { name = "Space" }
+            else { name = String(ch) }
+        } else {
+            return nil
+        }
+
+        // For special keys (arrows, F-keys, etc.), add modifier prefixes.
+        // For printable characters, the character itself already encodes
+        // the shift state (e.g. "%" instead of "S-5"), so only add C-/M-.
+        var prefix = ""
+        if hasCtrl { prefix += "C-" }
+        if let _ = specialKey, hasShift { prefix += "S-" }
+        if hasMeta { prefix += "M-" }
+
+        if prefix.isEmpty {
+            return name
+        }
+        return "\(prefix)\(name)"
+    }
+
+    /// Load prefix configuration from tmux: prefix keys and key bindings.
+    /// Called asynchronously after entering tmux control mode.
+    func tmuxLoadPrefixConfig() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        // Capture pane ID for target
+        let paneId: UInt? = tmuxPaneSurfaces.values.first?.writeContext.pointee.paneId
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var config = TmuxPrefixConfig()
+
+            // Load prefix keys
+            let targetArgs: [String] = paneId.map { ["-t", "%\($0)"] } ?? []
+            let prefix1 = Self.tmuxQueryArray(["show", "-gv", "prefix"] + targetArgs)
+            let prefix2 = Self.tmuxQueryArray(["show", "-gv", "prefix2"] + targetArgs)
+            if !prefix1.isEmpty { config.prefixKeys.insert(prefix1) }
+            if !prefix2.isEmpty { config.prefixKeys.insert(prefix2) }
+
+            // Load bindings from prefix key table
+            let listKeysOutput = Self.tmuxQueryArray(["list-keys", "-T", "prefix"] + targetArgs)
+            // Parse lines like: bind-key    -T prefix d detach-client
+            // tmux escapes some key tokens with backslash: \%, \", \#, \$
+            for line in listKeysOutput.components(separatedBy: "\n") {
+                let parts = line.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: .whitespaces)
+                    .filter { !$0.isEmpty }
+                // Format: bind-key [-r] -T prefix <key> <command...>
+                guard parts.count >= 5,
+                      parts[0] == "bind-key" else { continue }
+                // Find the key and command after "-T prefix"
+                if let tIdx = parts.firstIndex(of: "-T"),
+                   tIdx + 2 < parts.count,
+                   parts[tIdx + 1] == "prefix" {
+                    let keyIdx = tIdx + 2
+                    // Unescape tmux key token: \% → %, \" → ", etc.
+                    var key = parts[keyIdx]
+                    if key.hasPrefix("\\") && key.count == 2 {
+                        key = String(key.dropFirst())
+                    }
+                    let command = parts[(keyIdx + 1)...].joined(separator: " ")
+                    if !command.isEmpty {
+                        config.bindings[key] = command
+                    }
+                }
+            }
+
+            config.loaded = true
+
+            #if DEBUG
+            dlog("tmux.prefix loaded: keys=\(config.prefixKeys) bindings=\(config.bindings.count) entries")
+            #endif
+
+            DispatchQueue.main.async {
+                self?.tmuxPrefixConfig = config
+            }
+        }
+    }
+
+    /// Helper: run tmux command and return full stdout.
+    private static func tmuxQueryArray(_ args: [String]) -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["tmux"] + args
