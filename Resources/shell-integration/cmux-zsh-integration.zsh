@@ -236,6 +236,9 @@ _cmux_report_git_branch_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
+    # Skip git operations if not in a git repository to avoid TCC prompts
+    git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1 || return 0
+
     local branch dirty_opt="" first
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -n "$branch" ]]; then

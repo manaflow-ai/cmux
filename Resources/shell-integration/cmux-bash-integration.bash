@@ -451,6 +451,8 @@ _cmux_prompt_command() {
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
         {
+            # Skip git operations if not in a git repository to avoid TCC prompts
+            git rev-parse --git-dir >/dev/null 2>&1 || return 0
             local branch dirty_opt=""
             branch=$(git branch --show-current 2>/dev/null)
             if [[ -n "$branch" ]]; then
