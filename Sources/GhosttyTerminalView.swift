@@ -2411,6 +2411,7 @@ class GhosttyApp {
         if cmuxShouldUseClearWindowBackground(for: defaultBackgroundOpacity) {
             window.backgroundColor = cmuxTransparentWindowBaseColor()
             window.isOpaque = false
+            applyWindowBlurIfNeeded(window)
             if backgroundLogEnabled {
                 logBackground("applied transparent window background opacity=\(String(format: "%.3f", defaultBackgroundOpacity))")
             }
@@ -2422,6 +2423,16 @@ class GhosttyApp {
                 logBackground("applied default window background color=\(color) opacity=\(String(format: "%.3f", color.alphaComponent))")
             }
         }
+    }
+
+    func applyWindowBlurIfNeeded(_ window: NSWindow) {
+        guard let app = self.app else { return }
+        // ghostty_set_window_background_blur reads background-blur and
+        // background-opacity from the app config internally and calls
+        // CGSSetWindowBackgroundBlurRadius — a compositor-level setter that is
+        // idempotent.  It is a no-op when opacity >= 1.0 or blur is disabled,
+        // so we can call it unconditionally whenever the window is transparent.
+        ghostty_set_window_background_blur(app, Unmanaged.passUnretained(window).toOpaque())
     }
 
     private func activeMainWindow() -> NSWindow? {
@@ -3849,6 +3860,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         setup()
     }
 
+    override func makeBackingLayer() -> CALayer {
+        let metalLayer = CAMetalLayer()
+        metalLayer.pixelFormat = .bgra8Unorm
+        metalLayer.isOpaque = false
+        // framebufferOnly=false lets the macOS compositor read the drawable
+        // when blending translucent or blurred window layers.  This matches
+        // standalone Ghostty's SurfaceView and is required for background-opacity
+        // and background-blur to render correctly.
+        metalLayer.framebufferOnly = false
+        return metalLayer
+    }
+
     private func setup() {
         // Only enable our instrumented CAMetalLayer in targeted debug/test scenarios.
         // The lock in GhosttyMetalLayer.nextDrawable() adds overhead we don't want in normal runs.
@@ -3931,6 +3954,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if cmuxShouldUseClearWindowBackground(for: color.alphaComponent) {
             window.backgroundColor = cmuxTransparentWindowBaseColor()
             window.isOpaque = false
+            GhosttyApp.shared.applyWindowBlurIfNeeded(window)
         } else {
             window.backgroundColor = color
             window.isOpaque = color.alphaComponent >= 1.0
