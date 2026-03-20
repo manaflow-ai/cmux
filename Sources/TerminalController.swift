@@ -4068,7 +4068,11 @@ class TerminalController {
                 // Resolve named color to hex via palette lookup
                 let resolved: String
                 if colorRaw.hasPrefix("#") {
-                    resolved = colorRaw
+                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
+                        return
+                    }
+                    resolved = normalized
                 } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
                     $0.name.lowercased() == colorRaw.lowercased()
                 }) {
