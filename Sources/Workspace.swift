@@ -6933,7 +6933,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        useHomepageFallback: Bool = true
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -6956,6 +6957,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            useHomepageFallback: useHomepageFallback,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -7020,7 +7022,8 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        useHomepageFallback: Bool = true
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
@@ -7034,6 +7037,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: sourcePanelId
             ),
             initialURL: url,
+            useHomepageFallback: useHomepageFallback,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,

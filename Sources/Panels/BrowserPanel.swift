@@ -153,6 +153,25 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserHomepageSettings {
+    static let homepageURLKey = "browserHomepageURL"
+
+    static func currentHomepageURL(defaults: UserDefaults = .standard) -> URL? {
+        guard let raw = defaults.string(forKey: homepageURLKey) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              components.host?.isEmpty == false,
+              let url = components.url
+        else {
+            return nil
+        }
+        return url
+    }
+}
+
 enum BrowserThemeMode: String, CaseIterable, Identifiable {
     case system
     case light
@@ -2545,6 +2564,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
+        useHomepageFallback: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2665,8 +2685,9 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
 
-        // Navigate to initial URL if provided
-        if let url = initialURL {
+        // Navigate to initial URL if provided, otherwise to homepage if configured
+        let effectiveURL = initialURL ?? (useHomepageFallback ? BrowserHomepageSettings.currentHomepageURL() : nil)
+        if let url = effectiveURL {
             shouldRenderWebView = true
             navigate(to: url)
         }

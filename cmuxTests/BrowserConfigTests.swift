@@ -2618,6 +2618,93 @@ final class BrowserSearchEngineTests: XCTestCase {
 }
 
 
+final class BrowserHomepageSettingsTests: XCTestCase {
+    func testReturnsNilWhenUnset() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+
+    func testReturnsNilForEmptyString() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+
+    func testReturnsNilForWhitespaceOnly() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("   ", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+
+    func testReturnsURLForValidString() throws {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("https://github.com", forKey: BrowserHomepageSettings.homepageURLKey)
+        let url = try XCTUnwrap(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+        XCTAssertEqual(url.absoluteString, "https://github.com")
+    }
+
+    func testTrimsWhitespace() throws {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("  https://example.com  ", forKey: BrowserHomepageSettings.homepageURLKey)
+        let url = try XCTUnwrap(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+        XCTAssertEqual(url.absoluteString, "https://example.com")
+    }
+
+    func testRejectsURLWithoutScheme() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("example.com", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+
+    func testRejectsNonHTTPScheme() {
+        let suiteName = "BrowserHomepageSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("ftp://example.com", forKey: BrowserHomepageSettings.homepageURLKey)
+        XCTAssertNil(BrowserHomepageSettings.currentHomepageURL(defaults: defaults))
+    }
+}
+
 final class BrowserSearchSettingsTests: XCTestCase {
     func testCurrentSearchSuggestionsEnabledDefaultsToTrueWhenUnset() {
         let suiteName = "BrowserSearchSettingsTests.\(UUID().uuidString)"

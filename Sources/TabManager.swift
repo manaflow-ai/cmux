@@ -3567,7 +3567,8 @@ class TabManager: ObservableObject {
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
-               preferredProfileID: snapshot.profileID
+               preferredProfileID: snapshot.profileID,
+               useHomepageFallback: false
            ) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
@@ -3586,7 +3587,8 @@ class TabManager: ObservableObject {
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
                url: snapshot.url,
-               preferredProfileID: snapshot.profileID
+               preferredProfileID: snapshot.profileID,
+               useHomepageFallback: false
            )?.id {
             return browserPanelId
         }
@@ -3598,7 +3600,8 @@ class TabManager: ObservableObject {
             inPane: focusedPane,
             url: snapshot.url,
             focus: true,
-            preferredProfileID: snapshot.profileID
+            preferredProfileID: snapshot.profileID,
+            useHomepageFallback: false
         )?.id
     }
 
