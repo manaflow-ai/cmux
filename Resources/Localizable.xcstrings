@@ -29616,6 +29616,23 @@
         }
       }
     },
+    "dialog.closeTab.messageNamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This will close \"%@\"."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を閉じます。"
+          }
+        }
+      }
+    },
     "dialog.closeTab.title": {
       "extractionState": "manual",
       "localizations": {
