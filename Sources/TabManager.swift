@@ -3296,7 +3296,16 @@ class TabManager: ObservableObject {
         let requested = candidate.dividerPosition + (sign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
 
-        return controller.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+        let result = controller.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
+#if DEBUG
+        dlog(
+            "split.resize workspace=\(tabId.uuidString.prefix(5)) surface=\(surfaceId.uuidString.prefix(5)) " +
+            "direction=\(direction) amount=\(amount) split=\(candidate.splitId.uuidString.prefix(5)) " +
+            "from=\(String(format: "%.3f", candidate.dividerPosition)) to=\(String(format: "%.3f", clamped)) " +
+            "success=\(result ? 1 : 0)"
+        )
+#endif
+        return result
     }
 
     // MARK: - Resize split helpers
