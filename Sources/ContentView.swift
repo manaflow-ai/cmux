@@ -10603,6 +10603,26 @@ enum SidebarWorkspaceShortcutHintMetrics {
     #endif
 }
 
+enum SidebarTrailingAccessoryWidthPolicy {
+    static let closeButtonWidth: CGFloat = 16
+
+    static func width(
+        canCloseWorkspace: Bool,
+        showsWorkspaceShortcutHint: Bool,
+        workspaceShortcutLabel: String?,
+        debugXOffset: Double
+    ) -> CGFloat {
+        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
+                label: workspaceShortcutLabel,
+                debugXOffset: debugXOffset
+            )
+        }
+
+        return canCloseWorkspace ? closeButtonWidth : 0
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -10759,9 +10779,11 @@ private struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private var workspaceHintSlotWidth: CGFloat {
-        SidebarWorkspaceShortcutHintMetrics.slotWidth(
-            label: workspaceShortcutLabel,
+    private var trailingAccessoryWidth: CGFloat {
+        SidebarTrailingAccessoryWidthPolicy.width(
+            canCloseWorkspace: canCloseWorkspace,
+            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
+            workspaceShortcutLabel: workspaceShortcutLabel,
             debugXOffset: sidebarShortcutHintXOffset
         )
     }
@@ -10927,8 +10949,9 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 ZStack(alignment: .trailing) {
                     Button(action: {
@@ -10943,7 +10966,7 @@ private struct TabItemView: View, Equatable {
                     }
                     .buttonStyle(.plain)
                     .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
@@ -10965,7 +10988,7 @@ private struct TabItemView: View, Equatable {
                     }
                 }
                 .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
-                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
             if let subtitle = effectiveSubtitle {
