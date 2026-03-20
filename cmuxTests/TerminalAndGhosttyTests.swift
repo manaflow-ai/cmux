@@ -253,6 +253,28 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(urls[0].pathExtension, "png")
     }
 
+    func testRemoteFileURLPastePlanUploadsReadableFile() throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-image-\(UUID().uuidString).png")
+        try make1x1PNG(color: .systemPink).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-file-url-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([fileURL as NSURL]))
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .remote(.workspaceRemote)
+        )
+
+        guard case .uploadFiles(let urls, .workspaceRemote) = plan else {
+            return XCTFail("expected workspace upload plan, got \(plan)")
+        }
+
+        XCTAssertEqual(urls, [fileURL])
+    }
+
     func testLocalImagePastePlanInsertsEscapedLocalPath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-local-paste-\(UUID().uuidString)"))
         pasteboard.clearContents()

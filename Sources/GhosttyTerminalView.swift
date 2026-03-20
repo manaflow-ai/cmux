@@ -70,7 +70,7 @@ private func cmuxScalarHex(_ value: String?) -> String {
 }
 #endif
 
-private enum GhosttyPasteboardHelper {
+enum GhosttyPasteboardHelper {
     private static let selectionPasteboard = NSPasteboard(
         name: NSPasteboard.Name("com.mitchellh.ghostty.selection")
     )
@@ -1061,25 +1061,59 @@ class GhosttyApp {
             return GhosttyApp.shared.handleAction(target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            // Read clipboard
-            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let surface = callbackContext.runtimeSurface else { return }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
 
-            let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location)
-            var value = pasteboard.flatMap { GhosttyPasteboardHelper.stringContents(from: $0) } ?? ""
+            DispatchQueue.main.async {
+                guard let surface = callbackContext.runtimeSurface else { return }
 
-            // When clipboard has only image data (e.g. screenshot), save as temp
-            // PNG and paste the file path so CLI tools can receive images.
-            if value.isEmpty,
-               let imagePath = pasteboard.flatMap({
-                   GhosttyPasteboardHelper.saveClipboardImageIfNeeded(from: $0, assumeNoText: true)
-               })
-            {
-                value = imagePath
-            }
+                func completeClipboardRequest(with text: String) {
+                    text.withCString { ptr in
+                        ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+                    }
+                }
 
-            value.withCString { ptr in
-                ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+                guard let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location) else {
+                    completeClipboardRequest(with: "")
+                    return
+                }
+
+                let target = MainActor.assumeIsolated {
+                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
+                }
+                let plan = TerminalImageTransferPlanner.plan(
+                    pasteboard: pasteboard,
+                    mode: .paste,
+                    target: target
+                )
+
+                guard plan != .reject else {
+                    completeClipboardRequest(with: "")
+                    return
+                }
+
+                TerminalImageTransferPlanner.execute(
+                    plan: plan,
+                    uploadWorkspaceRemote: { fileURLs, finish in
+                        guard let workspace = callbackContext.terminalSurface?.owningWorkspace() else {
+                            finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                            return
+                        }
+                        workspace.uploadDroppedFilesForRemoteTerminal(fileURLs, completion: finish)
+                    },
+                    uploadDetectedSSH: { session, fileURLs, finish in
+                        session.uploadDroppedFiles(fileURLs, completion: finish)
+                    },
+                    insertText: { text in
+                        completeClipboardRequest(with: text)
+                    },
+                    onFailure: {
+                        NSSound.beep()
+#if DEBUG
+                        dlog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                        completeClipboardRequest(with: "")
+                    }
+                )
             }
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
@@ -3779,7 +3813,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ]
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
-    private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
 
     fileprivate static func focusLog(_ message: String) {
         guard focusDebugEnabled else { return }
@@ -6000,48 +6033,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
-        var result = value
-        for char in shellEscapeCharacters {
-            result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
-        }
-        return result
-    }
-
-    private static func droppedLocalFileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL], !urls.isEmpty {
-            return urls
-        }
-        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
-            return [imageURL]
-        }
-        return []
+        TerminalImageTransferPlanner.escapeForShell(value)
     }
 
     static func dropPlanForTesting(
         pasteboard: NSPasteboard,
         isRemoteTerminalSurface: Bool
     ) -> DropPlan {
-        let fileURLs = droppedLocalFileURLs(from: pasteboard)
-        if !fileURLs.isEmpty {
-            if isRemoteTerminalSurface {
-                return .uploadFiles(fileURLs)
-            }
-
-            let content = fileURLs
-                .map { Self.escapeDropForShell($0.path) }
-                .joined(separator: " ")
-            return .insertText(content)
+        let target: TerminalImageTransferTarget = isRemoteTerminalSurface ? .remote(.workspaceRemote) : .local
+        switch TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .drop,
+            target: target
+        ) {
+        case .insertText(let text):
+            return .insertText(text)
+        case .uploadFiles(let fileURLs, _):
+            return .uploadFiles(fileURLs)
+        case .reject:
+            return .reject
         }
-
-        if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty {
-            return .insertText(Self.escapeDropForShell(rawURL))
-        }
-
-        if let str = pasteboard.string(forType: .string), !str.isEmpty {
-            return .insertText(str)
-        }
-
-        return .reject
     }
 
     static func performRemoteDropUploadForTesting(
@@ -6074,75 +6085,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         sendText: @escaping (String) -> Void,
         onFailure: @escaping () -> Void
     ) -> Bool {
-        switch dropPlanForTesting(
+        let target: TerminalImageTransferTarget = isRemoteTerminalSurface ? .remote(.workspaceRemote) : .local
+        let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
-            isRemoteTerminalSurface: isRemoteTerminalSurface
-        ) {
-        case .insertText(let text):
-            sendText(text)
-            return true
-        case .uploadFiles(let fileURLs):
-            performRemoteDropUploadForTesting(
-                upload: { finish in uploadRemote(fileURLs, finish) },
-                sendText: sendText,
-                onFailure: onFailure
-            )
-            return true
-        case .reject:
-            return false
-        }
-    }
+            mode: .drop,
+            target: target
+        )
+        guard plan != .reject else { return false }
 
-    fileprivate func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        guard !urls.isEmpty else { return false }
-        guard let workspace = terminalSurface?.owningWorkspace(),
-              let surfaceID = terminalSurface?.id,
-              workspace.isRemoteTerminalSurface(surfaceID) else {
-            let content = urls
-                .map { Self.escapeDropForShell($0.path) }
-                .joined(separator: " ")
-            terminalSurface?.sendText(content)
-            return true
-        }
-
-        workspace.uploadDroppedFilesForRemoteTerminal(urls) { [weak self] result in
-            Self.performRemoteDropUploadForTesting(
-                upload: { finish in finish(result) },
-                sendText: { [weak self] text in
-                    self?.terminalSurface?.sendText(text)
-                },
-                onFailure: { [weak self] in
-                    DispatchQueue.main.async {
-                        NSSound.beep()
-#if DEBUG
-                        dlog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
-#endif
-                    }
-                }
-            )
-        }
+        TerminalImageTransferPlanner.execute(
+            plan: plan,
+            uploadWorkspaceRemote: uploadRemote,
+            uploadDetectedSSH: { _, _, finish in
+                finish(.failure(NSError(domain: "cmux.remote.drop", code: 4)))
+            },
+            insertText: sendText,
+            onFailure: onFailure
+        )
         return true
     }
 
-    @discardableResult
-    fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
-        let isRemoteTerminalSurface = {
-            guard let workspace = terminalSurface?.owningWorkspace(),
-                  let surfaceID = terminalSurface?.id else { return false }
-            return workspace.isRemoteTerminalSurface(surfaceID)
-        }()
+    private func executeImageTransferPlan(_ plan: TerminalImageTransferPlan) -> Bool {
+        guard plan != .reject else { return false }
 
-        return Self.handleDropForTesting(
-            pasteboard: pasteboard,
-            isRemoteTerminalSurface: isRemoteTerminalSurface,
-            uploadRemote: { [weak self] fileURLs, finish in
+        TerminalImageTransferPlanner.execute(
+            plan: plan,
+            uploadWorkspaceRemote: { [weak self] fileURLs, finish in
                 guard let workspace = self?.terminalSurface?.owningWorkspace() else {
                     finish(.failure(NSError(domain: "cmux.remote.drop", code: 3)))
                     return
                 }
                 workspace.uploadDroppedFilesForRemoteTerminal(fileURLs, completion: finish)
             },
-            sendText: { [weak self] text in
+            uploadDetectedSSH: { session, fileURLs, finish in
+                session.uploadDroppedFiles(fileURLs, completion: finish)
+            },
+            insertText: { [weak self] text in
                 // Use the text/paste path (ghostty_surface_text) instead of the key event
                 // path (ghostty_surface_key) so bracketed paste mode is triggered and the
                 // insertion is instant, matching upstream Ghostty behaviour.
@@ -6157,6 +6135,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
         )
+        return true
+    }
+
+    private func resolvedImageTransferTarget() -> TerminalImageTransferTarget {
+        MainActor.assumeIsolated {
+            terminalSurface?.resolvedImageTransferTarget() ?? .local
+        }
+    }
+
+    fileprivate func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
+        let plan = TerminalImageTransferPlanner.plan(
+            fileURLs: urls,
+            target: resolvedImageTransferTarget()
+        )
+        return executeImageTransferPlan(plan)
+    }
+
+    @discardableResult
+    fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .drop,
+            target: resolvedImageTransferTarget()
+        )
+        return executeImageTransferPlan(plan)
     }
 
 #if DEBUG
