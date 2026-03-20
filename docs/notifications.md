@@ -95,28 +95,28 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copi
     "userPromptSubmitted": [
       {
         "type": "command",
-        "bash": "command -v cmux &>/dev/null && cmux clear-notifications && cmux set-status copilot_cli Running --icon=bolt.fill --color=#4C8DFF || true",
+        "bash": "if command -v cmux &>/dev/null; then cmux set-status copilot_cli Running; fi",
         "timeoutSec": 3
       }
     ],
     "agentStop": [
       {
         "type": "command",
-        "bash": "command -v cmux &>/dev/null && cmux notify --title 'Copilot CLI' --body 'Done' && cmux set-status copilot_cli Idle --icon=pause.circle.fill --color=#8E8E93 || osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; cmux set-status copilot_cli Idle; else osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'; fi",
         "timeoutSec": 5
       }
     ],
     "errorOccurred": [
       {
         "type": "command",
-        "bash": "command -v cmux &>/dev/null && cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.error.message // \"An error occurred\"' 2>/dev/null | head -c 100)\" && cmux set-status copilot_cli Error --icon=exclamationmark.triangle.fill --color=#FF3B30 || osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.errorMessage // \"An error occurred\"' 2>/dev/null | head -c 100)\"; cmux set-status copilot_cli Error; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
         "timeoutSec": 5
       }
     ],
     "sessionEnd": [
       {
         "type": "command",
-        "bash": "command -v cmux &>/dev/null && cmux clear-status copilot_cli || true",
+        "bash": "if command -v cmux &>/dev/null; then cmux clear-status copilot_cli; fi",
         "timeoutSec": 3
       }
     ]
@@ -124,7 +124,17 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copi
 }
 ```
 
-Or for repo-level hooks, create `.github/hooks/notify.json` with the same `hooks` object wrapped in `{ "version": 1, "hooks": { ... } }`.
+Or for repo-level hooks, create `.github/hooks/notify.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [ ... ],
+    "agentStop": [ ... ]
+  }
+}
+```
 
 ### OpenAI Codex
 
@@ -187,6 +197,8 @@ cmux sets these in child shells:
 cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
 cmux list-notifications
 cmux clear-notifications
+cmux set-status <key> <value>
+cmux clear-status <key>
 cmux ping
 ```
 
