@@ -2447,33 +2447,9 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
-        config.processPool = BrowserPanel.sharedProcessPool
-        config.mediaTypesRequiringUserActionForPlayback = []
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-
-        // Enable developer extras (DevTools)
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-
-        // Enable JavaScript
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
-        config.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.telemetryHookBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
-        )
-        // Track the last editable focused element continuously so omnibar exit can
-        // restore page input focus even if capture runs after first-responder handoff.
-        config.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.addressBarFocusTrackingBootstrapScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
+        configureWebViewConfiguration(
+            config,
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -2487,6 +2463,41 @@ final class BrowserPanel: Panel, ObservableObject {
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
+    }
+
+    static func configureWebViewConfiguration(
+        _ configuration: WKWebViewConfiguration,
+        websiteDataStore: WKWebsiteDataStore,
+        processPool: WKProcessPool = BrowserPanel.sharedProcessPool
+    ) {
+        configuration.processPool = processPool
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        // Ensure browser cookies/storage persist across navigations and launches.
+        // This reduces repeated consent/bot-challenge flows on sites like Google.
+        configuration.websiteDataStore = websiteDataStore
+
+        // Enable developer extras (DevTools)
+        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+
+        // Enable JavaScript
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
+        // Track the last editable focused element continuously so omnibar exit can
+        // restore page input focus even if capture runs after first-responder handoff.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.addressBarFocusTrackingBootstrapScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {

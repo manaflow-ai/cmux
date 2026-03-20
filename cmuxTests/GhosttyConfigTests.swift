@@ -1004,6 +1004,48 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserPanelPopupContextTests: XCTestCase {
+    func testFloatingPopupInheritsOpenerBrowserContext() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        let popupWebView = try XCTUnwrap(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        defer { popupWebView.window?.close() }
+
+        XCTAssertTrue(
+            popupWebView.configuration.processPool === panel.webView.configuration.processPool
+        )
+        XCTAssertTrue(
+            popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
+        )
+    }
+
+    func testFloatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let popupWebView = try XCTUnwrap(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        defer { popupWebView.window?.close() }
+
+        XCTAssertTrue(
+            popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
+        )
+        XCTAssertFalse(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+    }
+}
+
+@MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
