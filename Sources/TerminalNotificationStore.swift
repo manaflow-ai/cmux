@@ -42,12 +42,21 @@ enum NotificationSoundSettings {
     )
     private static let pendingCustomSoundPreparationLock = NSLock()
     private static var pendingCustomSoundPreparationPaths: Set<String> = []
+    private static let activePlaybackSoundsLock = NSLock()
+    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
+    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
     private static let notificationSoundSupportedExtensions: Set<String> = [
         "aif",
         "aiff",
         "caf",
         "wav",
     ]
+
+    private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
+        func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
+            NotificationSoundSettings.releaseActivePlaybackSound(sound)
+        }
+    }
 
     private struct CustomSoundSourceMetadata: Codable, Equatable {
         let sourcePath: String
@@ -260,7 +269,16 @@ enum NotificationSoundSettings {
         playSoundFile(at: url)
     }
 
+    static func playSelectedSound(defaults: UserDefaults = .standard) {
+        let value = defaults.string(forKey: key) ?? defaultValue
+        playSound(value: value, defaults: defaults)
+    }
+
     static func previewSound(value: String, defaults: UserDefaults = .standard) {
+        playSound(value: value, defaults: defaults)
+    }
+
+    private static func playSound(value: String, defaults: UserDefaults) {
         switch value {
         case "default":
             NSSound.beep()
@@ -331,8 +349,24 @@ enum NotificationSoundSettings {
                 NSLog("Notification custom sound failed to load from path: \(url.path)")
                 return
             }
-            sound.play()
+            retainActivePlaybackSound(sound)
+            sound.delegate = activePlaybackSoundDelegate
+            if !sound.play() {
+                releaseActivePlaybackSound(sound)
+            }
         }
+    }
+
+    private static func retainActivePlaybackSound(_ sound: NSSound) {
+        activePlaybackSoundsLock.lock()
+        activePlaybackSounds[ObjectIdentifier(sound)] = sound
+        activePlaybackSoundsLock.unlock()
+    }
+
+    private static func releaseActivePlaybackSound(_ sound: NSSound) {
+        activePlaybackSoundsLock.lock()
+        activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
+        activePlaybackSoundsLock.unlock()
     }
 
     private static func cleanupStaleStagedSoundFiles(
@@ -694,8 +728,9 @@ final class TerminalNotificationStore: ObservableObject {
         store.scheduleUserNotification(notification)
     }
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
-        _,
-        _ in
+        store,
+        notification in
+        store.playSuppressedNotificationFeedback(for: notification)
     }
     private var indexes = NotificationIndexes()
 
@@ -881,7 +916,9 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        if !shouldSuppressExternalDelivery {
+        if shouldSuppressExternalDelivery {
+            suppressedNotificationFeedbackHandler(self, notification)
+        } else {
             notificationDeliveryHandler(self, notification)
         }
     }
@@ -1048,6 +1085,11 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
+    }
+
+    private func playSuppressedNotificationFeedback(for notification: TerminalNotification) {
+        _ = notification
+        NotificationSoundSettings.playSelectedSound()
     }
 
     private func ensureAuthorization(
@@ -1273,7 +1315,9 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func resetSuppressedNotificationFeedbackHandlerForTesting() {
-        suppressedNotificationFeedbackHandler = { _, _ in }
+        suppressedNotificationFeedbackHandler = { store, notification in
+            store.playSuppressedNotificationFeedback(for: notification)
+        }
     }
 
     func promptToEnableNotificationsForTesting() {
