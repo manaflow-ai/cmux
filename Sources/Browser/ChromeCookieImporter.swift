@@ -311,8 +311,13 @@ final class ChromeCookieImporter: @unchecked Sendable {
             let isSecure = sqlite3_column_int(stmt, 4) != 0
             let isHttpOnly = sqlite3_column_int(stmt, 5) != 0
 
-            // Build domain: prefix with "." if not already prefixed
-            let domain = hostKey.hasPrefix(".") ? hostKey : ".\(hostKey)"
+            // Chrome stores domain cookies with a leading dot (".github.com") and
+            // host-only cookies without ("github.com"). Preserve this distinction:
+            // - Domain cookies: keep the leading dot so the cookie applies to subdomains.
+            // - Host-only cookies: use the bare host. __Host- prefixed cookies MUST NOT
+            //   have a Domain attribute at all per the cookie spec.
+            let isHostOnly = !hostKey.hasPrefix(".")
+            let domain = hostKey
 
             // Convert Chrome timestamp to Unix Date
             let expiresDate: Date?
@@ -324,12 +329,23 @@ final class ChromeCookieImporter: @unchecked Sendable {
             }
 
             var properties: [HTTPCookiePropertyKey: Any] = [
-                .domain: domain,
                 .path: path,
                 .name: name,
                 .value: value,
                 .secure: isSecure ? "TRUE" : "FALSE",
             ]
+
+            // __Host- cookies must not have a Domain attribute.
+            // For other host-only cookies, set .domain to the bare host.
+            // For domain cookies, keep the leading-dot domain.
+            if name.hasPrefix("__Host-") {
+                // HTTPCookie requires .domain; use the origin host without leading dot.
+                // Setting originURL instead lets the cookie be host-locked.
+                let scheme = isSecure ? "https" : "http"
+                properties[.originURL] = "\(scheme)://\(hostKey)"
+            } else {
+                properties[.domain] = domain
+            }
 
             if isHttpOnly {
                 // NSHTTPCookieHTTPOnly is not exposed as a public property key constant,
@@ -376,8 +392,10 @@ final class ChromeCookieImporter: @unchecked Sendable {
                 }
 
                 let password = try readChromeKeychainPassword()
+                NSLog("[ChromeCookieImporter] keychain access OK, deriving key")
                 let key = deriveKey(fromPassword: password)
                 let cookies = try readCookies(profile: targetProfile, key: key)
+                NSLog("[ChromeCookieImporter] read \(cookies.count) cookies from Chrome profile '\(targetProfile)'")
 
                 guard !cookies.isEmpty else {
                     DispatchQueue.main.async {
