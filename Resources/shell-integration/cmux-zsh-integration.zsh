@@ -36,6 +36,36 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+_cmux_resume_agent_on_first_prompt() {
+    # Remove ourselves immediately — this must only fire once.
+    add-zsh-hook -d precmd _cmux_resume_agent_on_first_prompt
+
+    local cmd="${CMUX_RESTORE_AGENT_COMMAND:-}"
+    [[ -n "$cmd" ]] || return 0
+    unset CMUX_RESTORE_AGENT_COMMAND
+
+    # Validate against an allowlist to prevent command injection from a
+    # tampered snapshot JSON file. Only known safe resume commands are accepted.
+    case "$cmd" in
+        "claude --continue"|"codex --resume"|"aider"|"goose session resume") ;;
+        *)
+            printf '\033[33mcmux:\033[0m Unknown agent resume command, skipping.\n'
+            return 0 ;;
+    esac
+
+    # Verify the binary is installed.
+    local bin="${cmd%% *}"
+    if ! command -v "$bin" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    printf '\033[33mcmux:\033[0m Resuming previous \033[1m%s\033[0m session...\n' "$bin"
+    printf '\033[33mcmux:\033[0m Running: \033[1m%s\033[0m\n' "$cmd"
+    printf '\n'
+
+    eval "$cmd"
+}
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
@@ -722,4 +752,5 @@ autoload -Uz add-zsh-hook
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
+add-zsh-hook precmd _cmux_resume_agent_on_first_prompt
 add-zsh-hook zshexit _cmux_zshexit

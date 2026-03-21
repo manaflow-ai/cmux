@@ -242,6 +242,7 @@ extension Workspace {
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        cachedAgentResumeCommandByPanelId.removeAll(keepingCapacity: false)
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -390,9 +391,25 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            let agentResumeCommand: String? = {
+                if includeScrollback {
+                    // Full save: detect the live process and cache it.
+                    let detected = AgentProcessDetector.detectAgentResumeCommand(ttyName: ttyName)
+                    if let detected {
+                        cachedAgentResumeCommandByPanelId[panelId] = detected
+                    } else {
+                        cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
+                    }
+                    return detected
+                }
+                // Lightweight autosave: reuse the cached value so we don't
+                // overwrite a previously detected agent with nil.
+                return cachedAgentResumeCommandByPanelId[panelId]
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                agentResumeCommand: agentResumeCommand
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -565,7 +582,8 @@ extension Workspace {
         case .terminal:
             let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: snapshot.terminal?.scrollback
+                for: snapshot.terminal?.scrollback,
+                agentResumeCommand: snapshot.terminal?.agentResumeCommand
             )
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
@@ -580,6 +598,11 @@ extension Workspace {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            if let agentCmd = snapshot.terminal?.agentResumeCommand {
+                cachedAgentResumeCommandByPanelId[terminalPanel.id] = agentCmd
+            } else {
+                cachedAgentResumeCommandByPanelId.removeValue(forKey: terminalPanel.id)
             }
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
@@ -5245,6 +5268,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+    private var cachedAgentResumeCommandByPanelId: [UUID: String] = [:]
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()
@@ -7410,6 +7434,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+        cachedAgentResumeCommandByPanelId.removeAll(keepingCapacity: false)
         terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontPoints = nil
@@ -9772,6 +9797,7 @@ extension Workspace: BonsplitDelegate {
         panelShellActivityStates.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -9921,6 +9947,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                cachedAgentResumeCommandByPanelId.removeValue(forKey: panelId)
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 

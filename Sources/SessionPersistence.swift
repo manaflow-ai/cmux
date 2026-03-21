@@ -224,6 +224,9 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    /// The command to resume a previously running AI coding agent (e.g. "claude --continue").
+    /// Populated at snapshot time by inspecting the terminal's foreground process tree.
+    var agentResumeCommand: String?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -425,24 +428,89 @@ enum SessionPersistenceStore {
     }
 }
 
+enum AgentProcessDetector {
+    /// Known AI coding agent binary names mapped to their resume commands.
+    private static let agentResumeCommands: [(binaryNames: [String], command: String)] = [
+        (["claude"], "claude --continue"),
+        (["codex"], "codex --resume"),
+        (["aider"], "aider"),
+        (["goose"], "goose session resume"),
+    ]
+
+    /// Detect the foreground AI coding agent for a given TTY name (e.g. "ttys003").
+    /// Returns the appropriate resume command, or nil if no known agent is running.
+    static func detectAgentResumeCommand(ttyName: String?) -> String? {
+        guard let ttyName, !ttyName.isEmpty else { return nil }
+        guard let processes = foregroundProcessNames(ttyName: ttyName) else { return nil }
+
+        for entry in agentResumeCommands {
+            for binaryName in entry.binaryNames {
+                if processes.contains(where: { $0 == binaryName || $0.hasSuffix("/\(binaryName)") }) {
+                    return entry.command
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Match a list of process names against known AI agents.
+    /// Extracted for testability — callers provide the process list, this does pure matching.
+    static func matchAgentResumeCommand(processNames: [String]) -> String? {
+        for entry in agentResumeCommands {
+            for binaryName in entry.binaryNames {
+                if processNames.contains(where: { $0 == binaryName || $0.hasSuffix("/\(binaryName)") }) {
+                    return entry.command
+                }
+            }
+        }
+        return nil
+    }
+
+    /// List process command names running on the given TTY.
+    private static func foregroundProcessNames(ttyName: String) -> [String]? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-t", ttyName, "-o", "comm="]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        // Read pipe data before waitUntilExit to avoid potential deadlock
+        // if the pipe buffer fills up.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        guard let output = String(data: data, encoding: .utf8) else { return nil }
+        let names = output.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }
+        return names.isEmpty ? nil : names
+    }
+}
+
 enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
+    static let agentResumeCommandKey = "CMUX_RESTORE_AGENT_COMMAND"
     private static let directoryName = "cmux-session-scrollback"
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
 
     static func replayEnvironment(
         for scrollback: String?,
+        agentResumeCommand: String? = nil,
         tempDirectory: URL = FileManager.default.temporaryDirectory
     ) -> [String: String] {
-        guard let replayText = normalizedScrollback(scrollback) else { return [:] }
-        guard let replayFileURL = writeReplayFile(
-            contents: replayText,
-            tempDirectory: tempDirectory
-        ) else {
-            return [:]
+        var env: [String: String] = [:]
+        if let replayText = normalizedScrollback(scrollback),
+           let replayFileURL = writeReplayFile(contents: replayText, tempDirectory: tempDirectory) {
+            env[environmentKey] = replayFileURL.path
         }
-        return [environmentKey: replayFileURL.path]
+        if let agentResumeCommand, !agentResumeCommand.isEmpty {
+            env[agentResumeCommandKey] = agentResumeCommand
+        }
+        return env
     }
 
     private static func normalizedScrollback(_ scrollback: String?) -> String? {
