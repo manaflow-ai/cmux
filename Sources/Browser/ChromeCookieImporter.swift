@@ -15,7 +15,7 @@ enum ChromeCookieSettings {
 
 // MARK: - ChromeCookieImporter
 
-final class ChromeCookieImporter {
+final class ChromeCookieImporter: @unchecked Sendable {
 
     static let shared = ChromeCookieImporter()
 
@@ -49,7 +49,7 @@ final class ChromeCookieImporter {
 
     // MARK: - Import result
 
-    struct ImportResult {
+    struct ImportResult: Sendable {
         let cookieCount: Int
         let error: ImportError?
     }
@@ -66,7 +66,7 @@ final class ChromeCookieImporter {
         qos: .userInitiated
     )
 
-    /// Microseconds between 1601-01-01 and 1970-01-01 (Unix epoch).
+    /// Seconds between 1601-01-01 and 1970-01-01 (Unix epoch).
     private static let chromeEpochOffset: Int64 = 11_644_473_600
 
     private init() {}
@@ -112,7 +112,7 @@ final class ChromeCookieImporter {
 
         // Sort: "Default" first, then alphabetical by display name
         profiles.sort { lhs, rhs in
-            if lhs.directory == "Default" { return true }
+            if lhs.directory == "Default" && rhs.directory != "Default" { return true }
             if rhs.directory == "Default" { return false }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
@@ -137,14 +137,14 @@ final class ChromeCookieImporter {
     }
 
     /// Returns the path to the Cookies SQLite database for a given profile directory name.
-    func cookieDBPath(profile: String) -> String {
+    private static func cookieDBPath(profile: String) -> String {
         "\(Self.chromeAppSupportPath)/\(profile)/Cookies"
     }
 
     // MARK: - Step 2: Keychain access
 
     /// Reads the "Chrome Safe Storage" password from macOS Keychain.
-    func readChromeKeychainPassword() throws -> String {
+    private static func readChromeKeychainPassword() throws -> String {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "Chrome Safe Storage",
@@ -175,7 +175,7 @@ final class ChromeCookieImporter {
     // MARK: - Step 3: AES-128-CBC decryption
 
     /// Derives a 16-byte AES key from the Chrome keychain password using PBKDF2.
-    func deriveKey(fromPassword password: String) -> [UInt8] {
+    private static func deriveKey(fromPassword password: String) -> [UInt8] {
         let salt = Array("saltysalt".utf8)
         let iterations: UInt32 = 1003
         let keyLength = 16
@@ -205,7 +205,7 @@ final class ChromeCookieImporter {
     /// - First 3 bytes: version tag (`v10`)
     /// - IV: 16 bytes of space characters (0x20)
     /// - Remaining bytes: AES-128-CBC encrypted data with PKCS7 padding
-    func decryptCookieValue(_ encryptedData: Data, key: [UInt8]) -> String? {
+    private static func decryptCookieValue(_ encryptedData: Data, key: [UInt8]) -> String? {
         // Must have at least the 3-byte "v10" prefix plus some cipher data
         guard encryptedData.count > 3 else { return nil }
 
@@ -244,7 +244,7 @@ final class ChromeCookieImporter {
     // MARK: - Step 4: SQLite reading
 
     /// Reads and decrypts cookies from Chrome's SQLite database.
-    func readCookies(profile: String, key: [UInt8]) throws -> [HTTPCookie] {
+    private static func readCookies(profile: String, key: [UInt8]) throws -> [HTTPCookie] {
         let dbPath = cookieDBPath(profile: profile)
         let fm = FileManager.default
 
@@ -253,7 +253,7 @@ final class ChromeCookieImporter {
         }
 
         var db: OpaquePointer?
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
+        let flags = SQLITE_OPEN_READONLY
         let openStatus = sqlite3_open_v2(dbPath, &db, flags, nil)
 
         guard openStatus == SQLITE_OK, let db = db else {
@@ -263,6 +263,8 @@ final class ChromeCookieImporter {
         }
 
         defer { sqlite3_close(db) }
+
+        sqlite3_busy_timeout(db, 1000)
 
         var cookies: [HTTPCookie] = []
 
@@ -357,7 +359,7 @@ final class ChromeCookieImporter {
     }
 
     /// Returns the current time as a Chrome-format timestamp (microseconds since 1601-01-01).
-    private func currentChromeTimestamp() -> Int64 {
+    private static func currentChromeTimestamp() -> Int64 {
         let unixSeconds = Int64(Date().timeIntervalSince1970)
         return (unixSeconds + Self.chromeEpochOffset) * 1_000_000
     }
@@ -372,20 +374,19 @@ final class ChromeCookieImporter {
         profile: String? = nil,
         completion: @escaping (ImportResult) -> Void
     ) {
-        let importer = shared
         let targetProfile = profile
             ?? UserDefaults.standard.string(forKey: ChromeCookieSettings.profileKey)
             ?? ChromeCookieSettings.defaultProfile
 
-        importer.importQueue.async {
+        shared.importQueue.async {
             do {
                 guard isChromeInstalled else {
                     throw ImportError.chromeNotInstalled
                 }
 
-                let password = try importer.readChromeKeychainPassword()
-                let key = importer.deriveKey(fromPassword: password)
-                let cookies = try importer.readCookies(profile: targetProfile, key: key)
+                let password = try readChromeKeychainPassword()
+                let key = deriveKey(fromPassword: password)
+                let cookies = try readCookies(profile: targetProfile, key: key)
 
                 guard !cookies.isEmpty else {
                     DispatchQueue.main.async {
