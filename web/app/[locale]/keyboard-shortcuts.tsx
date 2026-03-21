@@ -40,6 +40,8 @@ const CATEGORIES: ShortcutCategory[] = [
       { id: "sf-jump-1-8", combos: [["⌃", "1–8"]] },
       { id: "sf-jump-last", combos: [["⌃", "9"]] },
       { id: "sf-close", combos: [["⌘", "W"]] },
+      { id: "sf-next-global", combos: [["⌃", "⌥", "Tab"]] },
+      { id: "sf-prev-global", combos: [["⌃", "⌥", "⇧", "Tab"]] },
     ],
   },
   {

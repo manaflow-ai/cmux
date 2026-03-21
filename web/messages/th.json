@@ -334,6 +334,8 @@
         "sf-jump-1-8": "ไปยัง surface 1–8",
         "sf-jump-last": "ไปยัง surface สุดท้าย",
         "sf-close": "ปิด surface",
+        "sf-next-global": "Surface ถัดไป (ทุกพาเนล)",
+        "sf-prev-global": "Surface ก่อนหน้า (ทุกพาเนล)",
         "sp-right": "แบ่งขวา",
         "sp-down": "แบ่งล่าง",
         "sp-focus": "โฟกัสพาเนลตามทิศทาง",

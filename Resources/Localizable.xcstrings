@@ -38662,6 +38662,23 @@
         }
       }
     },
+    "menu.view.nextSurfaceGlobal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Surface (All Panes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のサーフェス（全ペイン）"
+          }
+        }
+      }
+    },
     "menu.view.nextWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -38884,6 +38901,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Önceki Yüzey"
+          }
+        }
+      }
+    },
+    "menu.view.previousSurfaceGlobal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Surface (All Panes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のサーフェス（全ペイン）"
           }
         }
       }
@@ -60502,6 +60536,23 @@
         }
       }
     },
+    "shortcut.nextSurfaceGlobal.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next Surface (All Panes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次のサーフェス（全ペイン）"
+          }
+        }
+      }
+    },
     "shortcut.nextWorkspace.label": {
       "extractionState": "manual",
       "localizations": {
@@ -61063,6 +61114,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Önceki Yüzey"
+          }
+        }
+      }
+    },
+    "shortcut.prevSurfaceGlobal.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous Surface (All Panes)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前のサーフェス（全ペイン）"
           }
         }
       }

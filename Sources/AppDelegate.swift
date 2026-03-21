@@ -9603,6 +9603,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Cross-pane surface navigation (customizable, default: Ctrl+Opt+Tab / Ctrl+Opt+Shift+Tab)
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSurfaceGlobal)) {
+            tabManager?.selectNextSurfaceGlobal()
+            return true
+        }
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSurfaceGlobal)) {
+            tabManager?.selectPreviousSurfaceGlobal()
+            return true
+        }
+
         // Surface navigation (legacy Ctrl+Tab support)
         if matchTabShortcut(event: event, shortcut: StoredShortcut(key: "\t", command: false, shift: false, option: false, control: true)) {
             tabManager?.selectNextSurface()
@@ -10632,6 +10642,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "n": return 45  // kVK_ANSI_N
         case "m": return 46  // kVK_ANSI_M
         case ".": return 47  // kVK_ANSI_Period
+        case "\t": return 48  // kVK_Tab
         case "`": return 50  // kVK_ANSI_Grave
         case "\r": return 36 // kVK_Return
         case "←": return 123 // kVK_LeftArrow

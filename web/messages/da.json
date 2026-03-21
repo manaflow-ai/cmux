@@ -334,6 +334,8 @@
         "sf-jump-1-8": "Spring til surface 1–8",
         "sf-jump-last": "Spring til sidste surface",
         "sf-close": "Luk surface",
+        "sf-next-global": "Næste surface (alle paneler)",
+        "sf-prev-global": "Forrige surface (alle paneler)",
         "sp-right": "Opdel til højre",
         "sp-down": "Opdel nedad",
         "sp-focus": "Fokusér panel retningsbestemt",

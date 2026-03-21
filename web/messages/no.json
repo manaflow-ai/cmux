@@ -334,6 +334,8 @@
         "sf-jump-1-8": "Hopp til overflate 1–8",
         "sf-jump-last": "Hopp til siste overflate",
         "sf-close": "Lukk overflate",
+        "sf-next-global": "Neste overflate (alle paneler)",
+        "sf-prev-global": "Forrige overflate (alle paneler)",
         "sp-right": "Del til høyre",
         "sp-down": "Del nedover",
         "sp-focus": "Fokuser panel retningsbestemt",

@@ -334,6 +334,8 @@
         "sf-jump-1-8": "跳转到 surface 1–8",
         "sf-jump-last": "跳转到最后一个 surface",
         "sf-close": "关闭 surface",
+        "sf-next-global": "下一个 surface（所有面板）",
+        "sf-prev-global": "上一个 surface（所有面板）",
         "sp-right": "向右分屏",
         "sp-down": "向下分屏",
         "sp-focus": "按方向聚焦面板",

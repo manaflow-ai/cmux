@@ -335,6 +335,8 @@
         "sf-jump-1-8": "Jump to surface 1–8",
         "sf-jump-last": "Jump to last surface",
         "sf-close": "Close surface",
+        "sf-next-global": "Next surface (all panes)",
+        "sf-prev-global": "Previous surface (all panes)",
         "sp-right": "Split right",
         "sp-down": "Split down",
         "sp-focus": "Focus pane directionally",

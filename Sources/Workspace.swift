@@ -8221,6 +8221,60 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Returns all panel IDs ordered by visual position: top-to-bottom, then left-to-right.
+    /// Within each pane, tabs are listed in their tab-bar order.
+    /// Unlike `sidebarOrderedPanelIds()`, this uses pixel geometry so the result is
+    /// independent of the order in which splits were created.
+    private func visualOrderedPanelIds() -> [UUID] {
+        let layout = bonsplitController.layoutSnapshot()
+        // Sort panes by visual reading order: top first (by y), then left first (by x).
+        // Quantize to integer pixels for a strict weak ordering that tolerates sub-pixel differences.
+        let sortedPanes = layout.panes.sorted { a, b in
+            let ay = Int(round(a.frame.y)), by = Int(round(b.frame.y))
+            if ay != by { return ay < by }
+            return Int(round(a.frame.x)) < Int(round(b.frame.x))
+        }
+        var ordered: [UUID] = []
+        var seen: Set<UUID> = []
+        for pane in sortedPanes {
+            for tabIdStr in pane.tabIds {
+                guard let uuid = UUID(uuidString: tabIdStr) else { continue }
+                let tabId = TabID(uuid: uuid)
+                guard let panelId = panelIdFromSurfaceId(tabId) else { continue }
+                if seen.insert(panelId).inserted {
+                    ordered.append(panelId)
+                }
+            }
+        }
+        return ordered
+    }
+
+    /// Select the next surface across all panes in visual reading order
+    func selectNextSurfaceGlobal() {
+        if bonsplitController.isSplitZoomed { clearSplitZoom() }
+        let allPanelIds = visualOrderedPanelIds()
+        guard !allPanelIds.isEmpty else { return }
+        guard let current = focusedPanelId,
+              let idx = allPanelIds.firstIndex(of: current) else {
+            if let first = allPanelIds.first { focusPanel(first) }
+            return
+        }
+        focusPanel(allPanelIds[(idx + 1) % allPanelIds.count])
+    }
+
+    /// Select the previous surface across all panes in visual reading order
+    func selectPreviousSurfaceGlobal() {
+        if bonsplitController.isSplitZoomed { clearSplitZoom() }
+        let allPanelIds = visualOrderedPanelIds()
+        guard !allPanelIds.isEmpty else { return }
+        guard let current = focusedPanelId,
+              let idx = allPanelIds.firstIndex(of: current) else {
+            if let last = allPanelIds.last { focusPanel(last) }
+            return
+        }
+        focusPanel(allPanelIds[(idx - 1 + allPanelIds.count) % allPanelIds.count])
+    }
+
     /// Select a surface by index in the currently focused pane
     func selectSurface(at index: Int) {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
