@@ -74,18 +74,26 @@ function desiredStatus(sessions) {
 }
 
 export const CmuxIntegrationPlugin = async ({ $ }) => {
-  const sessions = new Map()
-  let applied = ""
-  let attention = false
+   const sessions = new Map()
+   let applied = ""
+   let attention = false
+   let lastNotificationTime = 0
+   const NOTIFICATION_COOLDOWN_MS = 5000 // 5 seconds
 
-  async function notify(subtitle, body) {
-    const text = clip(body)
-    if (!text) return
-    try {
-      await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`
-      attention = true
-    } catch {}
-  }
+   async function notify(subtitle, body) {
+     const now = Date.now()
+     if (now - lastNotificationTime < NOTIFICATION_COOLDOWN_MS) {
+       // Too soon since last notification, skip
+       return
+     }
+     const text = clip(body)
+     if (!text) return
+     try {
+       await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`
+       attention = true
+       lastNotificationTime = now
+     } catch {}
+   }
 
   // NOTE: clear-notifications is workspace-global; cmux does not yet support
   // --pid scoping for clears. In practice each surface runs one OpenCode instance.
