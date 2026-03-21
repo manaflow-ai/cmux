@@ -1281,6 +1281,13 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         )
     }
 
+    func testNavigationFlashUsesNonNeutralAccent() {
+        XCTAssertEqual(
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
+            .navigationTeal
+        )
+    }
+
     func testTmuxWorkspacePaneExactRectReturnsContentRelativeFrameForDescendantView() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
