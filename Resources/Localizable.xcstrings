@@ -57728,6 +57728,39 @@
         }
       }
     },
+    "settings.shortcuts.swapNumberModifiers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap Workspace/Surface Number Shortcuts"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapNumberModifiers.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+1–9 switches workspaces, Ctrl+1–9 switches surfaces."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.swapNumberModifiers.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl+1–9 switches workspaces, Cmd+1–9 switches surfaces."
+          }
+        }
+      }
+    },
     "settings.state.active": {
       "extractionState": "manual",
       "localizations": {

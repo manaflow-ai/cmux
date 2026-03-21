@@ -1114,8 +1114,8 @@ final class ServeWebOutputCollector {
 }
 
 enum WorkspaceShortcutMapper {
-    /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
-    /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
+    /// Maps digit workspace shortcuts (Cmd+digit or Ctrl+digit, depending on settings) to a zero-based workspace index.
+    /// Digits 1...8 target fixed indices; 9 always targets the last workspace.
     static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
         guard workspaceCount > 0 else { return nil }
         guard (1...9).contains(digit) else { return nil }
@@ -9474,8 +9474,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
+        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 or Ctrl+1-9 (configurable, 9 = last workspace)
+        let workspaceMod = ShortcutHintDebugSettings.workspaceNumberModifier()
+        if flags == workspaceMod,
            let manager = tabManager,
            let num = Int(chars),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
@@ -9488,8 +9489,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
+        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 or Cmd+1-9 (configurable, 9 = last)
+        let surfaceMod = ShortcutHintDebugSettings.surfaceNumberModifier()
+        if flags == surfaceMod {
             if let num = Int(chars), num >= 1 && num <= 9 {
                 if num == 9 {
                     tabManager?.selectLastSurface()

@@ -3834,6 +3834,8 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage(ShortcutHintDebugSettings.swapNumberShortcutModifiersKey)
+    private var swapNumberShortcutModifiers = ShortcutHintDebugSettings.defaultSwapNumberShortcutModifiers
     @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
@@ -5308,6 +5310,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.shortcuts.swapNumberModifiers", defaultValue: "Swap Workspace/Surface Number Shortcuts"),
+                            subtitle: swapNumberShortcutModifiers
+                                ? String(localized: "settings.shortcuts.swapNumberModifiers.subtitleOn", defaultValue: "Ctrl+1–9 switches workspaces, Cmd+1–9 switches surfaces.")
+                                : String(localized: "settings.shortcuts.swapNumberModifiers.subtitleOff", defaultValue: "Cmd+1–9 switches workspaces, Ctrl+1–9 switches surfaces.")
+                        ) {
+                            Toggle("", isOn: $swapNumberShortcutModifiers)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         let actions = KeyboardShortcutSettings.Action.allCases
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
@@ -5578,6 +5593,7 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        swapNumberShortcutModifiers = ShortcutHintDebugSettings.defaultSwapNumberShortcutModifiers
         sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true
