@@ -26,9 +26,14 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    // Validate the font pointer is a live heap allocation before interpreting
-    // it as a CTFont. ghostty_surface_quicklook_font returns an unretained
-    // pointer that can become stale on Intel Macs (#1496, #1870).
+    // Best-effort check: reject pointers that are not the start of a live
+    // malloc allocation. ghostty_surface_quicklook_font returns an unretained
+    // pointer whose lifetime is managed by Ghostty; on Intel Macs the pointer
+    // can become stale after the internal font is freed (#1496, #1870).
+    // malloc_size is safe to call with any address (returns 0 for non-malloc
+    // pointers without dereferencing them). This does not guarantee the memory
+    // still contains a valid CTFont, but it catches the common case of
+    // fully-freed or unmapped allocations that would otherwise SIGSEGV.
     guard malloc_size(quicklookFont) > 0 else {
         return nil
     }
