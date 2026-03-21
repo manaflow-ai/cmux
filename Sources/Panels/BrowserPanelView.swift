@@ -1300,7 +1300,12 @@ struct BrowserPanelView: View {
     }
 
     private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {
-        panel.webView.window === window && isPanelFocusedInModel()
+        // Navigation-triggered omnibar blur can still be unwinding when Cmd+F opens
+        // the browser find bar. Once find is visible, any delayed omnibar-exit
+        // handoff must not reclaim first responder for WebKit.
+        panel.webView.window === window &&
+            isPanelFocusedInModel() &&
+            panel.searchState == nil
     }
 
 #if DEBUG
