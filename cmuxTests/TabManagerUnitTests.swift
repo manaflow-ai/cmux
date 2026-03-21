@@ -304,6 +304,32 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
     }
 
+    func testCloseCurrentPanelKeepsPinnedWorkspaceOpenWhenItOwnsTheLastSurface() {
+        let manager = TabManager()
+        _ = manager.tabs[0]
+        let pinnedWorkspace = manager.addWorkspace()
+        manager.setPinned(pinnedWorkspace, pinned: true)
+        manager.selectWorkspace(pinnedWorkspace)
+
+        guard let pinnedPanelId = pinnedWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in pinned workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, pinnedWorkspace.id)
+        XCTAssertEqual(pinnedWorkspace.panels.count, 1)
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
+        XCTAssertEqual(manager.selectedTabId, pinnedWorkspace.id)
+        XCTAssertNotNil(pinnedWorkspace.panels[pinnedPanelId])
+        XCTAssertEqual(pinnedWorkspace.panels.count, 1)
+    }
+
     func testCloseCurrentPanelKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: lastSurfaceCloseShortcutDefaultsKey)
