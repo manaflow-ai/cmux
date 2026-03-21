@@ -336,6 +336,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .handlesExternalEvents(preferring: [], allowing: [])
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -359,6 +360,7 @@ struct cmuxApp: App {
                     updateSocketController()
                 }
         }
+        .handlesExternalEvents(matching: [])
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .appSettings) {

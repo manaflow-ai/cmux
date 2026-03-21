@@ -11294,7 +11294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         window.makeKeyAndOrderFront(nil)
         // Improve reliability across Spaces / when other helper panels are key.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        // Note: .activateAllWindows removed to prevent SwiftUI WindowGroup from
+        // interpreting activation as a request to create a new window. (fixes #872, #616)
+        NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // When visible windows exist, prevent macOS from asking SwiftUI to create
+        // a new window on dock-click or app reactivation. (fixes #872)
+        if flag { return false }
+        return true
     }
 
     private func markReadIfFocused(
