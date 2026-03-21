@@ -503,6 +503,39 @@ final class ChromeCookieImporter: @unchecked Sendable {
 
     // MARK: - Public import API
 
+    /// Injects cookies into WKWebView and merges history. Must be called on the main thread.
+    @MainActor
+    private static func applyImportedData(
+        cookies: [HTTPCookie],
+        historyEntries: [BrowserHistoryStore.Entry],
+        completion: @escaping (ImportResult) -> Void
+    ) {
+        // Merge Chrome history into BrowserHistoryStore
+        if !historyEntries.isEmpty {
+            BrowserHistoryStore.shared.mergeImportedEntries(historyEntries)
+        }
+
+        guard !cookies.isEmpty else {
+            completion(ImportResult(cookieCount: 0, error: nil))
+            return
+        }
+
+        let cookieStore = WKWebsiteDataStore.default().httpCookieStore
+        let group = DispatchGroup()
+
+        for cookie in cookies {
+            group.enter()
+            cookieStore.setCookie(cookie) {
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) {
+            shared.lastImportTime = Date()
+            completion(ImportResult(cookieCount: cookies.count, error: nil))
+        }
+    }
+
     /// Imports Chrome cookies into WKWebView's default cookie store and Chrome history
     /// into BrowserHistoryStore.
     ///
@@ -529,37 +562,13 @@ final class ChromeCookieImporter: @unchecked Sendable {
                 NSLog("[ChromeCookieImporter] read \(cookies.count) cookies from Chrome profile '\(targetProfile)'")
 
                 // Import history (best-effort, don't fail the whole import if this errors)
-                let historyEntries = (try? readHistory(profile: targetProfile)) ?? []
+                let historyEntries: [BrowserHistoryStore.Entry] = (try? readHistory(profile: targetProfile)) ?? []
                 if !historyEntries.isEmpty {
                     NSLog("[ChromeCookieImporter] read \(historyEntries.count) history entries from Chrome")
                 }
 
-                // WKWebsiteDataStore and BrowserHistoryStore must be accessed on the main thread.
-                DispatchQueue.main.async {
-                    // Merge Chrome history into BrowserHistoryStore
-                    if !historyEntries.isEmpty {
-                        BrowserHistoryStore.shared.mergeImportedEntries(historyEntries)
-                    }
-
-                    guard !cookies.isEmpty else {
-                        completion(ImportResult(cookieCount: 0, error: nil))
-                        return
-                    }
-
-                    let cookieStore = WKWebsiteDataStore.default().httpCookieStore
-                    let group = DispatchGroup()
-
-                    for cookie in cookies {
-                        group.enter()
-                        cookieStore.setCookie(cookie) {
-                            group.leave()
-                        }
-                    }
-
-                    group.notify(queue: .main) {
-                        shared.lastImportTime = Date()
-                        completion(ImportResult(cookieCount: cookies.count, error: nil))
-                    }
+                Task { @MainActor in
+                    applyImportedData(cookies: cookies, historyEntries: historyEntries, completion: completion)
                 }
 
             } catch let error as ImportError {

@@ -765,6 +765,8 @@ struct cmuxApp: App {
                     DispatchQueue.main.async {
                         BrowserDataImportCoordinator.shared.presentImportDialog()
                     }
+                }
+
                 if ChromeCookieImporter.isChromeInstalled {
                     Button(String(localized: "menu.view.importChromeSessions", defaultValue: "Import Chrome Sessions")) {
                         ChromeCookieImporter.importCookies { result in
