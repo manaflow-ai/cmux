@@ -2682,8 +2682,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     ///
     /// Use this before passing `surface` to Ghostty C APIs that dereference the
     /// pointer (e.g. `ghostty_surface_inherited_config`, `ghostty_surface_quicklook_font`).
-    /// A non-nil `surface` alone is not sufficient — the underlying native state may
-    /// already be closing or closed.
+    /// A non-nil `surface` alone is not sufficient because the underlying native
+    /// state may already be closing or closed.
     var hasLiveSurface: Bool { surface != nil && portalLifecycleState == .live }
 
     /// Whether the terminal surface view is currently attached to a window.
