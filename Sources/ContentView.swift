@@ -119,10 +119,13 @@ func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat, for colorScheme: ColorScheme = .dark) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
     let accent = cmuxAccentNSColor(for: colorScheme)
-    // Calculate relative luminance (ITU-R BT.709) to pick a contrasting text color
-    let r = accent.redComponent
-    let g = accent.greenComponent
-    let b = accent.blueComponent
+    // Linearize sRGB channels before applying BT.709 luminance formula
+    func linearize(_ c: CGFloat) -> CGFloat {
+        c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+    }
+    let r = linearize(accent.redComponent)
+    let g = linearize(accent.greenComponent)
+    let b = linearize(accent.blueComponent)
     let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
     let baseColor: NSColor = luminance > 0.5 ? .black : .white
     return baseColor.withAlphaComponent(clampedOpacity)
