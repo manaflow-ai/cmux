@@ -4323,8 +4323,8 @@ struct SettingsView: View {
             SettingsSectionHeader(title: String(localized: "settings.section.chromeSessions", defaultValue: "Chrome Sessions"))
             SettingsCard {
                 SettingsCardRow(
-                    String(localized: "settings.browser.chromeCookie.autoImport", defaultValue: "Import Chrome Sessions on Launch"),
-                    subtitle: String(localized: "settings.browser.chromeCookie.autoImport.subtitle", defaultValue: "Copies your Chrome login cookies into cmux's browser so you're already signed in.")
+                    String(localized: "settings.browser.chromeCookie.autoImport", defaultValue: "Auto-Import Chrome Sessions"),
+                    subtitle: String(localized: "settings.browser.chromeCookie.autoImport.subtitle", defaultValue: "On launch and when opening new browser tabs, copies your Chrome login cookies into cmux's browser so you're already signed in.")
                 ) {
                     Toggle("", isOn: $chromeCookieAutoImport)
                         .labelsHidden()
@@ -4356,23 +4356,29 @@ struct SettingsView: View {
                         ChromeCookieImporter.importCookies(profile: chromeCookieProfile) { result in
                             chromeCookieImporting = false
                             if let error = result.error {
-                                chromeCookieImportStatus = error.localizedDescription
+                                chromeCookieImportStatus = String(
+                                    localized: "settings.browser.chromeCookie.importFailed",
+                                    defaultValue: "Couldn't import Chrome sessions."
+                                )
+                                NSLog("[ChromeCookieImporter] import failed: \(error.localizedDescription)")
                             } else {
                                 let count = result.cookieCount
-                                chromeCookieImportStatus = String(
-                                    localized: "settings.browser.chromeCookie.importSuccess",
-                                    defaultValue: "Imported \(count) cookies from Chrome."
-                                )
+                                chromeCookieImportStatus = count == 1
+                                    ? String(localized: "settings.browser.chromeCookie.importSuccess.one", defaultValue: "Imported 1 cookie from Chrome.")
+                                    : String(localized: "settings.browser.chromeCookie.importSuccess.other", defaultValue: "Imported \(count) cookies from Chrome.")
                             }
                         }
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(chromeCookieImporting)
+                    .disabled(chromeCookieImporting || chromeProfiles.isEmpty)
                 }
             }
             .onAppear {
                 chromeProfiles = ChromeCookieImporter.availableProfiles()
+                if !chromeProfiles.contains(where: { $0.directory == chromeCookieProfile }) {
+                    chromeCookieProfile = chromeProfiles.first?.directory ?? ChromeCookieSettings.defaultProfile
+                }
             }
         }
     }

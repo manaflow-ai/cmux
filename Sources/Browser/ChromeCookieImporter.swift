@@ -23,17 +23,17 @@ final class ChromeCookieImporter: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .chromeNotInstalled:
-                return "Google Chrome is not installed or its data directory is missing."
+                return String(localized: "browser.import.error.chromeNotInstalled", defaultValue: "Google Chrome is not installed or its data directory is missing.")
             case .keychainAccessDenied:
-                return "Access to the Chrome Safe Storage keychain item was denied."
+                return String(localized: "browser.import.error.keychainAccessDenied", defaultValue: "Access to the Chrome Safe Storage keychain item was denied.")
             case .keychainError(let status):
-                return "Keychain error: \(status)"
+                return String(localized: "browser.import.error.keychainError", defaultValue: "Keychain error: \(status)")
             case .databaseOpenFailed(let reason):
-                return "Failed to open Chrome cookie database: \(reason)"
+                return String(localized: "browser.import.error.databaseOpenFailed", defaultValue: "Failed to open Chrome cookie database: \(reason)")
             case .decryptionFailed:
-                return "Failed to decrypt Chrome cookie values."
+                return String(localized: "browser.import.error.decryptionFailed", defaultValue: "Failed to decrypt Chrome cookie values.")
             case .noProfile(let name):
-                return "Chrome profile not found: \(name)"
+                return String(localized: "browser.import.error.noProfile", defaultValue: "Chrome profile not found: \(name)")
             }
         }
     }
@@ -63,8 +63,14 @@ final class ChromeCookieImporter: @unchecked Sendable {
     /// Minimum interval between automatic re-imports (5 minutes).
     private static let autoReimportInterval: TimeInterval = 300
 
+    /// Guards access to `lastImportTime` and `importInFlight` for thread safety.
+    private let lock = NSLock()
+
     /// Timestamp of last successful import.
     private var lastImportTime: Date?
+
+    /// Whether an import is currently in progress (prevents duplicate concurrent imports).
+    private var importInFlight = false
 
     private init() {}
 
@@ -75,15 +81,21 @@ final class ChromeCookieImporter: @unchecked Sendable {
         guard UserDefaults.standard.bool(forKey: ChromeCookieSettings.autoImportEnabledKey),
               isChromeInstalled else { return }
 
-        let now = Date()
-        if let lastImport = shared.lastImportTime,
-           now.timeIntervalSince(lastImport) < autoReimportInterval {
-            return
+        let shouldImport: Bool = shared.lock.withLock {
+            guard !shared.importInFlight else { return false }
+            let now = Date()
+            if let lastImport = shared.lastImportTime,
+               now.timeIntervalSince(lastImport) < autoReimportInterval {
+                return false
+            }
+            shared.importInFlight = true
+            return true
         }
+        guard shouldImport else { return }
 
-        importCookies { result in
-            if result.error == nil && result.cookieCount > 0 {
-                shared.lastImportTime = now
+        importCookies { _ in
+            shared.lock.withLock {
+                shared.importInFlight = false
             }
         }
     }
@@ -301,7 +313,7 @@ final class ChromeCookieImporter: @unchecked Sendable {
         var cookies: [HTTPCookie] = []
 
         let query = """
-            SELECT host_key, name, path, encrypted_value, is_secure, is_httponly, expires_utc
+            SELECT host_key, name, path, encrypted_value, is_secure, is_httponly, expires_utc, value
             FROM cookies
             WHERE expires_utc > 0 OR is_persistent = 1
             """
@@ -334,20 +346,25 @@ final class ChromeCookieImporter: @unchecked Sendable {
                 continue
             }
 
-            // Decrypt cookie value
+            // Prefer encrypted_value; fall back to plaintext value column
             let blobPtr = sqlite3_column_blob(stmt, 3)
             let blobLen = sqlite3_column_bytes(stmt, 3)
 
-            var value = ""
+            var value: String?
             if let blobPtr = blobPtr, blobLen > 0 {
                 let encryptedData = Data(bytes: blobPtr, count: Int(blobLen))
-                if let decrypted = decryptCookieValue(encryptedData, key: key) {
-                    value = decrypted
-                } else {
-                    // Skip cookies we cannot decrypt
-                    continue
+                value = decryptCookieValue(encryptedData, key: key)
+            }
+            // Fall back to plaintext value column (index 7)
+            if value == nil || value?.isEmpty == true {
+                if let plaintextCStr = sqlite3_column_text(stmt, 7) {
+                    let plaintext = String(cString: plaintextCStr)
+                    if !plaintext.isEmpty {
+                        value = plaintext
+                    }
                 }
             }
+            guard let cookieValue = value, !cookieValue.isEmpty else { continue }
 
             let isSecure = sqlite3_column_int(stmt, 4) != 0
             let isHttpOnly = sqlite3_column_int(stmt, 5) != 0
@@ -357,7 +374,6 @@ final class ChromeCookieImporter: @unchecked Sendable {
             // - Domain cookies: keep the leading dot so the cookie applies to subdomains.
             // - Host-only cookies: use the bare host. __Host- prefixed cookies MUST NOT
             //   have a Domain attribute at all per the cookie spec.
-            let isHostOnly = !hostKey.hasPrefix(".")
             let domain = hostKey
 
             // Convert Chrome timestamp to Unix Date
@@ -372,16 +388,13 @@ final class ChromeCookieImporter: @unchecked Sendable {
             var properties: [HTTPCookiePropertyKey: Any] = [
                 .path: path,
                 .name: name,
-                .value: value,
+                .value: cookieValue,
                 .secure: isSecure ? "TRUE" : "FALSE",
             ]
 
             // __Host- cookies must not have a Domain attribute.
-            // For other host-only cookies, set .domain to the bare host.
-            // For domain cookies, keep the leading-dot domain.
+            // For other cookies, set .domain to preserve Chrome's host/domain distinction.
             if name.hasPrefix("__Host-") {
-                // HTTPCookie requires .domain; use the origin host without leading dot.
-                // Setting originURL instead lets the cookie be host-locked.
                 let scheme = isSecure ? "https" : "http"
                 properties[.originURL] = "\(scheme)://\(hostKey)"
             } else {
@@ -389,8 +402,6 @@ final class ChromeCookieImporter: @unchecked Sendable {
             }
 
             if isHttpOnly {
-                // NSHTTPCookieHTTPOnly is not exposed as a public property key constant,
-                // but it is recognized when constructing HTTPCookie.
                 properties[HTTPCookiePropertyKey("HttpOnly")] = "YES"
             }
 
@@ -420,7 +431,7 @@ final class ChromeCookieImporter: @unchecked Sendable {
     }
 
     /// Reads browsing history from Chrome's History SQLite database.
-    /// Copies the file to a temp location first because Chrome holds an exclusive lock.
+    /// Copies the file (and WAL sidecars) to a temp location first because Chrome holds an exclusive lock.
     private static func readHistory(profile: String) throws -> [BrowserHistoryStore.Entry] {
         let srcPath = historyDBPath(profile: profile)
         guard FileManager.default.fileExists(atPath: srcPath) else {
@@ -428,13 +439,24 @@ final class ChromeCookieImporter: @unchecked Sendable {
         }
 
         // Chrome locks the History file exclusively. Copy to temp to read safely.
-        let tmpPath = NSTemporaryDirectory() + "cmux-chrome-history-\(UUID().uuidString).db"
-        defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+        // Also copy WAL sidecar files so we get the most recent data.
+        let tmpBase = NSTemporaryDirectory() + "cmux-chrome-history-\(UUID().uuidString)"
+        let tmpPath = tmpBase + ".db"
+        defer {
+            try? FileManager.default.removeItem(atPath: tmpPath)
+            try? FileManager.default.removeItem(atPath: tmpPath + "-wal")
+            try? FileManager.default.removeItem(atPath: tmpPath + "-shm")
+        }
 
         do {
             try FileManager.default.copyItem(atPath: srcPath, toPath: tmpPath)
+            // Best-effort copy of WAL sidecars — they may not exist
+            try? FileManager.default.copyItem(atPath: srcPath + "-wal", toPath: tmpPath + "-wal")
+            try? FileManager.default.copyItem(atPath: srcPath + "-shm", toPath: tmpPath + "-shm")
         } catch {
+            #if DEBUG
             NSLog("[ChromeCookieImporter] failed to copy History DB: \(error)")
+            #endif
             return []
         }
 
@@ -531,7 +553,9 @@ final class ChromeCookieImporter: @unchecked Sendable {
         }
 
         group.notify(queue: .main) {
-            shared.lastImportTime = Date()
+            shared.lock.withLock {
+                shared.lastImportTime = Date()
+            }
             completion(ImportResult(cookieCount: cookies.count, error: nil))
         }
     }
@@ -556,16 +580,22 @@ final class ChromeCookieImporter: @unchecked Sendable {
                 }
 
                 let password = try readChromeKeychainPassword()
+                #if DEBUG
                 NSLog("[ChromeCookieImporter] keychain access OK, deriving key")
+                #endif
                 let key = deriveKey(fromPassword: password)
                 let cookies = try readCookies(profile: targetProfile, key: key)
+                #if DEBUG
                 NSLog("[ChromeCookieImporter] read \(cookies.count) cookies from Chrome profile '\(targetProfile)'")
+                #endif
 
                 // Import history (best-effort, don't fail the whole import if this errors)
                 let historyEntries: [BrowserHistoryStore.Entry] = (try? readHistory(profile: targetProfile)) ?? []
+                #if DEBUG
                 if !historyEntries.isEmpty {
                     NSLog("[ChromeCookieImporter] read \(historyEntries.count) history entries from Chrome")
                 }
+                #endif
 
                 Task { @MainActor in
                     applyImportedData(cookies: cookies, historyEntries: historyEntries, completion: completion)
