@@ -8245,9 +8245,6 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
 
-        if let focusedPanelId, focusedPanelId != previousFocusedPanelId {
-            triggerFocusFlash(panelId: focusedPanelId)
-        }
     }
 
     // MARK: - Surface Navigation

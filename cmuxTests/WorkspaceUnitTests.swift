@@ -1073,7 +1073,7 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
 
 @MainActor
 final class WorkspaceAttentionFlashTests: XCTestCase {
-    func testMoveFocusTriggersWholePaneFlashTokenWhenWholePaneModeEnabled() {
+    func testMoveFocusDoesNotTriggerWholePaneFlashTokenWhenWholePaneModeEnabled() {
         let defaults = UserDefaults.standard
         let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
         let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
@@ -1111,28 +1111,20 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
         XCTAssertEqual(
             workspace.tmuxWorkspaceFlashToken,
-            1,
-            "Expected moving focus left to advance the workspace-pane flash token"
+            0,
+            "Expected moving focus left to avoid any workspace-pane flash"
         )
-        XCTAssertEqual(
-            workspace.tmuxWorkspaceFlashPanelId,
-            leftPanelId,
-            "Expected moving focus left to target the newly focused pane for whole-pane flash"
-        )
+        XCTAssertNil(workspace.tmuxWorkspaceFlashPanelId)
 
         workspace.moveFocus(direction: .right)
 
         XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
         XCTAssertEqual(
             workspace.tmuxWorkspaceFlashToken,
-            2,
-            "Expected moving focus right to advance the workspace-pane flash token again"
+            0,
+            "Expected moving focus right to avoid any workspace-pane flash"
         )
-        XCTAssertEqual(
-            workspace.tmuxWorkspaceFlashPanelId,
-            rightPanel.id,
-            "Expected moving focus right to retarget the whole-pane flash to the new pane"
-        )
+        XCTAssertNil(workspace.tmuxWorkspaceFlashPanelId)
     }
 
     func testMoveFocusSuppressesWorkspacePaneFlashWhenAnotherPaneOwnsUnreadAttention() {
