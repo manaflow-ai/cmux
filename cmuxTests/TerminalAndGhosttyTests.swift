@@ -3013,6 +3013,83 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
 }
 
 
+final class ResolveRelativeFileLinkTests: XCTestCase {
+    private var tempDir: URL!
+
+    override func setUp() {
+        super.setUp()
+        tempDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-relative-link-tests-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        if let tempDir {
+            try? FileManager.default.removeItem(at: tempDir)
+        }
+        super.tearDown()
+    }
+
+    func testResolvesExistingRelativeFile() throws {
+        let file = tempDir.appendingPathComponent("hello.txt")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let result = try XCTUnwrap(resolveRelativeFileLink("hello.txt", workingDirectory: tempDir.path))
+        XCTAssertEqual(result.path, file.path)
+    }
+
+    func testResolvesNestedRelativePath() throws {
+        let subdir = tempDir.appendingPathComponent("src")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        let file = subdir.appendingPathComponent("main.swift")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let result = try XCTUnwrap(resolveRelativeFileLink("src/main.swift", workingDirectory: tempDir.path))
+        XCTAssertEqual(result.path, file.path)
+    }
+
+    func testResolvesDotSlashPrefix() throws {
+        let file = tempDir.appendingPathComponent("readme.md")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let result = try XCTUnwrap(resolveRelativeFileLink("./readme.md", workingDirectory: tempDir.path))
+        XCTAssertEqual(result.path, file.path)
+    }
+
+    func testResolvesParentTraversal() throws {
+        let subdir = tempDir.appendingPathComponent("deep")
+        try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+        let file = tempDir.appendingPathComponent("root.txt")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        let result = try XCTUnwrap(resolveRelativeFileLink("../root.txt", workingDirectory: subdir.path))
+        XCTAssertEqual(result.standardized.path, file.standardized.path)
+    }
+
+    func testReturnsNilForNonexistentFile() {
+        XCTAssertNil(resolveRelativeFileLink("does-not-exist.txt", workingDirectory: tempDir.path))
+    }
+
+    func testReturnsNilForAbsolutePath() {
+        XCTAssertNil(resolveRelativeFileLink("/tmp/some-file", workingDirectory: tempDir.path))
+    }
+
+    func testReturnsNilForURLWithScheme() {
+        XCTAssertNil(resolveRelativeFileLink("https://example.com", workingDirectory: tempDir.path))
+    }
+
+    func testReturnsNilForEmptyString() {
+        XCTAssertNil(resolveRelativeFileLink("", workingDirectory: tempDir.path))
+    }
+
+    func testReturnsNilForEmptyWorkingDirectory() throws {
+        let file = tempDir.appendingPathComponent("file.txt")
+        FileManager.default.createFile(atPath: file.path, contents: nil)
+        XCTAssertNil(resolveRelativeFileLink("file.txt", workingDirectory: ""))
+    }
+
+    func testReturnsNilForWhitespaceOnly() {
+        XCTAssertNil(resolveRelativeFileLink("   ", workingDirectory: tempDir.path))
+    }
+}
+
+
 final class TerminalControllerSocketTextChunkTests: XCTestCase {
     func testSocketTextChunksReturnsSingleChunkForPlainText() {
         XCTAssertEqual(
