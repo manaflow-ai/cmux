@@ -297,6 +297,96 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
     }
 
+    @MainActor
+    func testDetachAttachPreservesSurfaceTTYMetadata() throws {
+        let source = Workspace()
+        let destination = Workspace()
+
+        let panelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let sourcePaneID = try XCTUnwrap(source.paneId(forPanelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        source.surfaceTTYNames[panelID] = "/dev/ttys004"
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panelID))
+        XCTAssertEqual(source.surfaceTTYNames[panelID], nil)
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, panelID)
+        XCTAssertEqual(destination.surfaceTTYNames[panelID], "/dev/ttys004")
+        XCTAssertEqual(source.bonsplitController.tabs(inPane: sourcePaneID).count, 0)
+    }
+
+    func testDetectedSSHUploadFailureCleansUpEarlierRemoteUploads() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-detected-ssh-upload-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let firstFileURL = directoryURL.appendingPathComponent("first.png")
+        let secondFileURL = directoryURL.appendingPathComponent("second.png")
+        try Data("first".utf8).write(to: firstFileURL)
+        try Data("second".utf8).write(to: secondFileURL)
+
+        let session = DetectedSSHSession(
+            destination: "lawrence@example.com",
+            port: 2200,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+
+        var invocations: [(executable: String, arguments: [String])] = []
+        var scpInvocationCount = 0
+        DetectedSSHSession.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            invocations.append((executable, arguments))
+            if executable == "/usr/bin/scp" {
+                scpInvocationCount += 1
+                if scpInvocationCount == 1 {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 1, stdout: "", stderr: "copy failed")
+            }
+            if executable == "/usr/bin/ssh" {
+                return (status: 0, stdout: "", stderr: "")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { DetectedSSHSession.runProcessOverrideForTesting = nil }
+
+        XCTAssertThrowsError(
+            try session.uploadDroppedFilesSyncForTesting([firstFileURL, secondFileURL])
+        )
+
+        let firstSCPDestination = try XCTUnwrap(
+            invocations
+                .first(where: { $0.executable == "/usr/bin/scp" })?
+                .arguments
+                .last
+        )
+        let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        let cleanupInvocation = try XCTUnwrap(
+            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+        )
+        let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
+
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+    }
+
     func testDetectsForegroundSSHSessionForTTY() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",

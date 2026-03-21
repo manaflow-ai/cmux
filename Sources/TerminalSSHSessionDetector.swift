@@ -47,6 +47,28 @@ struct DetectedSSHSession: Equatable {
         )
     }
 
+#if DEBUG
+    typealias ProcessOverrideResultForTesting = (
+        status: Int32,
+        stdout: String,
+        stderr: String
+    )
+
+    static var runProcessOverrideForTesting: ((
+        String,
+        [String],
+        TimeInterval,
+        TerminalImageTransferOperation?
+    ) throws -> ProcessOverrideResultForTesting)?
+
+    func uploadDroppedFilesSyncForTesting(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation = TerminalImageTransferOperation()
+    ) throws -> [String] {
+        try uploadDroppedFilesSync(fileURLs, operation: operation)
+    }
+#endif
+
     private func uploadDroppedFilesSync(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation
@@ -142,6 +164,13 @@ struct DetectedSSHSession: Equatable {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
+#if DEBUG
+        if let runProcessOverrideForTesting {
+            let result = try runProcessOverrideForTesting(executable, arguments, timeout, operation)
+            return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+        }
+#endif
+
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
