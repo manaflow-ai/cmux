@@ -5880,6 +5880,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // not hidden behind the host terminal's Metal rendering layer.
         if tmuxPaneContainer == nil {
             let container = NSView(frame: bounds)
+            // Layer-backed with opaque background to fully cover the host
+            // terminal's Metal layer underneath. Without this, the host
+            // terminal's "Last login" text bleeds through gaps in the pane.
+            container.wantsLayer = true
+            container.layer?.isOpaque = true
+            // Use the host terminal's background color if available,
+            // otherwise fall back to a dark color typical of terminal themes.
+            container.layer?.backgroundColor = (backgroundColor ?? NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)).cgColor
             container.autoresizingMask = [.width, .height]
             // Walk up: GhosttyNSView → documentView → clipView → scrollView → GhosttySurfaceScrollView
             if let parentView = enclosingScrollView?.superview {
@@ -6118,12 +6126,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             dlog("tmux.pane create pane=\(paneInfo.pane_id) regId=\(regId) viewFrame=\(paneView.frame) wpx=\(wpx) hpx=\(hpx) scale=\(scaleFactor)")
             #endif
 
-            // Initial sync: capture the tmux pane's visible content and feed
-            // it to the pane surface so the user sees the prompt immediately
-            // instead of a blank screen.
-            let paneRows = max(Int(ghostty_surface_size(paneSurface).rows), 1)
-            let capturedPaneId = paneInfo.pane_id
-            tmuxInitialSync(paneSurface: paneSurface, paneId: capturedPaneId, expectedRows: paneRows)
+            // Initial sync: capture tmux pane content and replay.
+            // On re-attach, geometry may not match yet (tmux defaults
+            // to 80x24 before refresh-client takes effect), so content
+            // may shift. This is a known limitation until Terminal.clone
+            // is properly implemented.
+            tmuxInitialSync(paneId: paneInfo.pane_id, regId: regId)
         }
 
         // Update layout for existing panes
@@ -6307,52 +6315,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Capture the tmux pane's visible content and feed it to the pane surface.
     /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content, then sends
     /// it via ghostty_surface_process_output so the pane surface renders it.
-    private func tmuxInitialSync(paneSurface: ghostty_surface_t, paneId: UInt, expectedRows: Int) {
-        // Capture regId for lifetime safety — verify pane is still alive
-        // after the async query returns.
-        guard let regId = tmuxPaneSurfaces[paneId]?.regId else { return }
-
+    private func tmuxInitialSync(paneId: UInt, regId: UInt32) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Capture visible content and cursor position
             let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
             guard !output.isEmpty else { return }
             let cursorInfo = Self.tmuxQueryArray([
                 "display-message", "-t", "%\(paneId)", "-p", "#{cursor_y};#{cursor_x}"
             ])
+
             var captureLines = output.components(separatedBy: "\n")
-            let targetRows = max(expectedRows, 1)
-            // capture-pane commonly ends with a final newline, which would
-            // otherwise create an extra empty line and immediately scroll
-            // a full pane replay by one row.
-            if captureLines.count > targetRows, captureLines.last == "" {
+            if captureLines.last == "" {
                 captureLines.removeLast()
             }
-            // If tmux is still on an older geometry (for example 80x24) but
-            // the pane surface is already smaller, keep the bottom-most rows
-            // so the prompt/cursor stay visible instead of replaying a larger
-            // viewport and immediately scrolling.
-            let droppedTopRows = max(captureLines.count - targetRows, 0)
-            if droppedTopRows > 0 {
-                captureLines = Array(captureLines.suffix(targetRows))
-            }
-            // Render all lines (including empty ones) to preserve viewport layout
-            var fullOutput = "\u{1B}[H"  // cursor home
+
+            // ESC[H = cursor home, then each line with CR+LF
+            var fullOutput = "\u{1B}[H"
             for (i, line) in captureLines.enumerated() {
                 if i > 0 { fullOutput += "\r\n" }
                 fullOutput += line
             }
-            // Restore cursor to correct position (1-based for ANSI)
+
+            // Restore cursor position (tmux 0-based → ANSI 1-based)
             let parts = cursorInfo.components(separatedBy: ";")
             if parts.count == 2,
-               let rawRow = Int(parts[0]),
+               let row = Int(parts[0]),
                let col = Int(parts[1]) {
-                let row = max(0, rawRow - droppedTopRows)
                 fullOutput += "\u{1B}[\(row + 1);\(col + 1)H"
             }
+
             guard let bytes = fullOutput.data(using: .utf8) else { return }
 
             DispatchQueue.main.async {
-                // Verify pane is still alive with same regId
                 guard let self = self,
                       let state = self.tmuxPaneSurfaces[paneId],
                       state.regId == regId else { return }
