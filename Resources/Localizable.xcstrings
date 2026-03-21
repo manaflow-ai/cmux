@@ -29814,6 +29814,40 @@
         }
       }
     },
+    "dialog.closePinnedWorkspace.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace is pinned. Closing it will close the workspace and all of its panels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースはピン留めされています。閉じると、このワークスペースとその中のすべてのパネルが閉じます。"
+          }
+        }
+      }
+    },
+    "dialog.closePinnedWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close pinned workspace?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースを閉じますか？"
+          }
+        }
+      }
+    },
     "dialog.closeWorkspace.message": {
       "extractionState": "manual",
       "localizations": {
@@ -62655,13 +62689,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pinned workspace protected from closing. Unpin to close."
+            "value": "Pinned workspace. Closing requires confirmation."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ピン留めされたワークスペースは閉じられません。閉じるにはピンを外してください。"
+            "value": "ピン留めされたワークスペースです。閉じるには確認が必要です。"
           }
         }
       }

@@ -644,9 +644,6 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: closeWorkspaceMenuShortcut) {
                     closeTabOrWindow()
                 }
-                .disabled(
-                    activeTabManager.selectedWorkspace.map { !activeTabManager.canCloseWorkspace($0) } ?? true
-                )
 
                 Menu(String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace")) {
                     workspaceCommandMenuContent(manager: activeTabManager)
@@ -1070,21 +1067,21 @@ struct cmuxApp: App {
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
@@ -1174,7 +1171,7 @@ struct cmuxApp: App {
         Button(String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace")) {
             manager.closeCurrentWorkspaceWithConfirmation()
         }
-        .disabled(workspace.map { !manager.canCloseWorkspace($0) } ?? true)
+        .disabled(workspace == nil)
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)

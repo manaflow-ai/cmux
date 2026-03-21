@@ -2201,7 +2201,7 @@ class TabManager: ObservableObject {
 #endif
         let sidebarSelectionIds = orderedSidebarSelectedWorkspaceIds()
         if sidebarSelectionIds.count > 1 {
-            closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: false)
+            closeWorkspacesWithConfirmation(sidebarSelectionIds, allowPinned: true)
             return
         }
         guard let selectedId = selectedTabId,
@@ -2215,9 +2215,19 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
-        guard canCloseWorkspace(workspace) else {
-            signalProtectedWorkspaceCloseAttempt(workspace)
-            return false
+        if workspace.isPinned {
+            guard confirmClose(
+                title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
+                message: String(
+                    localized: "dialog.closePinnedWorkspace.message",
+                    defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+                ),
+                acceptCmdD: tabs.count <= 1
+            ) else {
+                return false
+            }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
         }
         closeWorkspaceIfRunningProcess(workspace)
         return true
@@ -2236,15 +2246,7 @@ class TabManager: ObservableObject {
 
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
         let workspaces = orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
-        guard !workspaces.isEmpty else {
-            if !allowPinned,
-               workspaceIds.contains(where: { id in
-                   tabs.first(where: { $0.id == id })?.isPinned == true
-               }) {
-                signalProtectedWorkspaceCloseAttempt()
-            }
-            return
-        }
+        guard !workspaces.isEmpty else { return }
         guard workspaces.count > 1 else {
             closeWorkspaceWithConfirmation(workspaces[0])
             return
@@ -2371,17 +2373,6 @@ class TabManager: ObservableObject {
         tabs.compactMap { workspace in
             sidebarSelectedWorkspaceIds.contains(workspace.id) ? workspace.id : nil
         }
-    }
-
-    private func signalProtectedWorkspaceCloseAttempt(_ workspace: Workspace? = nil) {
-#if DEBUG
-        if let workspace {
-            dlog("workspace.close.skip workspace=\(workspace.id.uuidString.prefix(5)) reason=pinned")
-        } else {
-            dlog("workspace.close.skip reason=pinned")
-        }
-#endif
-        NSSound.beep()
     }
 
     private func closeWorkspacesPlan(for workspaces: [Workspace]) -> CloseWorkspacesPlan {

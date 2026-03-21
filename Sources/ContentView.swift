@@ -1664,7 +1664,6 @@ struct ContentView: View {
         static let workspaceHasCustomName = "workspace.hasCustomName"
         static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
         static let workspaceShouldPin = "workspace.shouldPin"
-        static let workspaceCanClose = "workspace.canClose"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
         static let workspaceHasSplits = "workspace.hasSplits"
         static let workspaceHasPeers = "workspace.hasPeers"
@@ -4950,7 +4949,6 @@ struct ContentView: View {
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
-            snapshot.setBool(CommandPaletteContextKeys.workspaceCanClose, tabManager.canCloseWorkspace(workspace))
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
                 !workspace.sidebarPullRequestsInDisplayOrder().isEmpty
@@ -5113,8 +5111,7 @@ struct ContentView: View {
                 title: constant(String(localized: "command.closeWorkspace.title", defaultValue: "Close Workspace")),
                 subtitle: constant(String(localized: "command.closeWorkspace.subtitle", defaultValue: "Workspace")),
                 shortcutHint: "⌘⇧W",
-                keywords: ["close", "workspace"],
-                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanClose) }
+                keywords: ["close", "workspace"]
             )
         )
         contributions.append(
@@ -6936,21 +6933,21 @@ struct ContentView: View {
     private func closeOtherSelectedWorkspaces() {
         guard let workspace = tabManager.selectedWorkspace else { return }
         let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func syncSidebarSelectedWorkspaceIds() {
@@ -10886,8 +10883,11 @@ private struct TabItemView: View, Equatable {
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
-            defaultValue: "Pinned workspace protected from closing. Unpin to close."
+            defaultValue: "Pinned workspace. Closing requires confirmation."
         )
+        let closeButtonTooltip = tab.isPinned
+            ? protectedWorkspaceTooltip
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
@@ -10962,30 +10962,21 @@ private struct TabItemView: View, Equatable {
                 Spacer(minLength: 0)
 
                 ZStack(alignment: .trailing) {
-                    if tab.isPinned {
-                        Image(systemName: "lock.fill")
+                    Button(action: {
+                        #if DEBUG
+                        dlog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }) {
+                        Image(systemName: "xmark")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(activeSecondaryColor(0.65))
-                            .safeHelp(protectedWorkspaceTooltip)
-                            .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                            .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                    } else {
-                        Button(action: {
-                            #if DEBUG
-                            dlog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                            #endif
-                            tabManager.closeWorkspaceWithConfirmation(tab)
-                        }) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(activeSecondaryColor(0.7))
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                        .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                        .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
-                        .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
+                            .foregroundColor(activeSecondaryColor(0.7))
                     }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                    .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
+                    .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
                     if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
                         Text(workspaceShortcutLabel)
@@ -11306,10 +11297,6 @@ private struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.closeWorkspaces", defaultValue: "Close Workspaces"),
             single: String(localized: "contextMenu.closeWorkspace", defaultValue: "Close Workspace"),
             isMulti: isMulti)
-        let hasClosableTargets = targetIds.contains { workspaceId in
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return false }
-            return tabManager.canCloseWorkspace(workspace)
-        }
         let markReadLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.markWorkspacesRead", defaultValue: "Mark Workspaces as Read"),
             single: String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read"),
@@ -11448,15 +11435,15 @@ private struct TabItemView: View, Equatable {
 
         if let key = closeWorkspaceShortcut.keyEquivalent {
             Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: false)
+                closeTabs(targetIds, allowPinned: true)
             }
             .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-            .disabled(!hasClosableTargets)
+            .disabled(targetIds.isEmpty)
         } else {
             Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: false)
+                closeTabs(targetIds, allowPinned: true)
             }
-            .disabled(!hasClosableTargets)
+            .disabled(targetIds.isEmpty)
         }
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
@@ -11620,19 +11607,19 @@ private struct TabItemView: View, Equatable {
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
         let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {
