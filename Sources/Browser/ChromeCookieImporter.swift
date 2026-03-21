@@ -196,6 +196,9 @@ final class ChromeCookieImporter: @unchecked Sendable {
     /// - First 3 bytes: version tag (`v10`)
     /// - IV: 16 bytes of space characters (0x20)
     /// - Remaining bytes: AES-128-CBC encrypted data with PKCS7 padding
+    ///
+    /// Modern Chrome (v80+) prepends a 32-byte hash to the plaintext before encryption.
+    /// After decrypting, we strip these 32 bytes to get the actual cookie value.
     private static func decryptCookieValue(_ encryptedData: Data, key: [UInt8]) -> String? {
         // Must have at least the 3-byte "v10" prefix plus some cipher data
         guard encryptedData.count > 3 else { return nil }
@@ -229,7 +232,19 @@ final class ChromeCookieImporter: @unchecked Sendable {
 
         guard status == kCCSuccess, decryptedLength > 0 else { return nil }
 
-        return String(bytes: decryptedBytes.prefix(decryptedLength), encoding: .utf8)
+        let decrypted = Array(decryptedBytes.prefix(decryptedLength))
+
+        // Modern Chrome prepends a 32-byte hash/integrity prefix to the plaintext.
+        // Strip it to get the actual cookie value. If the decrypted data is <= 32 bytes,
+        // try interpreting the whole thing as the value (older Chrome format).
+        let valueBytes: ArraySlice<UInt8>
+        if decrypted.count > 32 {
+            valueBytes = decrypted.dropFirst(32)
+        } else {
+            valueBytes = decrypted[...]
+        }
+
+        return String(bytes: valueBytes, encoding: .utf8)
     }
 
     // MARK: - Step 4: SQLite reading
