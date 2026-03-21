@@ -2388,7 +2388,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
-    func testShellIntegrationPublishesCmuxEnvironmentToTmuxServerAutomatically() throws {
+    func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-tmux-publish-\(UUID().uuidString)")
@@ -2429,10 +2429,11 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment -g CMUX_TAG feat-tmux-notification-attention-state"), log)
         XCTAssertTrue(log.contains("set-environment -g CMUX_SOCKET_PATH /tmp/cmux-current.sock"), log)
         XCTAssertTrue(log.contains("set-environment -g CMUX_WORKSPACE_ID 11111111-1111-1111-1111-111111111111"), log)
-        XCTAssertTrue(log.contains("set-environment -g CMUX_SURFACE_ID 22222222-2222-2222-2222-222222222222"), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_SURFACE_ID"), log)
+        XCTAssertFalse(log.contains("set-environment -g CMUX_PANEL_ID"), log)
     }
 
-    func testShellIntegrationRefreshesStaleCmuxEnvironmentFromTmuxAutomatically() throws {
+    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxWithoutOverwritingSurfaceScope() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-tmux-refresh-\(UUID().uuidString)")
@@ -2449,9 +2450,9 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
               printf '%s\\n' 'CMUX_SOCKET_PATH=/tmp/cmux-current.sock'
               printf '%s\\n' 'CMUX_TAG=feat-tmux-notification-attention-state'
               printf '%s\\n' 'CMUX_WORKSPACE_ID=11111111-1111-1111-1111-111111111111'
-              printf '%s\\n' 'CMUX_SURFACE_ID=22222222-2222-2222-2222-222222222222'
+              printf '%s\\n' 'CMUX_SURFACE_ID=99999999-9999-9999-9999-999999999999'
               printf '%s\\n' 'CMUX_TAB_ID=11111111-1111-1111-1111-111111111111'
-              printf '%s\\n' 'CMUX_PANEL_ID=22222222-2222-2222-2222-222222222222'
+              printf '%s\\n' 'CMUX_PANEL_ID=99999999-9999-9999-9999-999999999999'
               exit 0
             fi
             exit 0
@@ -2461,22 +2462,22 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
-            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_SURFACE_ID\"",
+            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_SURFACE_ID|$CMUX_PANEL_ID\"",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMUX": "/tmp/tmux-stale,123,0",
                 "CMUX_SOCKET_PATH": "/tmp/cmux-stale.sock",
                 "CMUX_TAG": "feat-tmux-integration-experiments",
                 "CMUX_WORKSPACE_ID": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
-                "CMUX_SURFACE_ID": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_TAB_ID": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA",
-                "CMUX_PANEL_ID": "BBBBBBBB-BBBB-BBBB-BBBB-BBBBBBBBBBBB",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             ]
         )
 
         XCTAssertEqual(
             output,
-            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222"
+            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222|22222222-2222-2222-2222-222222222222"
         )
     }
 
