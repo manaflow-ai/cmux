@@ -201,7 +201,7 @@ if [[ -f "$INFO_PLIST" ]]; then
   # Inject staging socket paths via LSEnvironment so the Release binary
   # (which defaults to the per-user stable socket) uses isolated sockets instead.
   STAGING_SLUG="${TAG_SLUG:-staging}"
-  APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
+  APP_SUPPORT_DIR="$CMUX_APP_SUPPORT_DIR"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
   CMUX_SOCKET="/tmp/cmux-${STAGING_SLUG}.sock"
   write_last_socket_path "$CMUX_SOCKET"
