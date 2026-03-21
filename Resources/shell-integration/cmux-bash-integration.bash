@@ -76,6 +76,10 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_TAG
     CMUX_WORKSPACE_ID
 )
+_CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_PANEL_ID
+    CMUX_SURFACE_ID
+)
 
 _cmux_tmux_sync_key_is_managed() {
     local candidate="$1"
@@ -114,6 +118,10 @@ _cmux_tmux_publish_cmux_environment() {
         value="${!key}"
         [[ -n "$value" ]] || continue
         tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+    done
+
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
     done
 
     _CMUX_TMUX_PUSH_SIGNATURE="$signature"
@@ -205,17 +213,32 @@ _cmux_git_head_signature() {
     printf '%s\n' "$line"
 }
 
+_cmux_report_tty_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload="report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID"
+    if [[ -z "$TMUX" ]]; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    printf '%s\n' "$payload"
+}
+
 _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tty_payload)"
+    [[ -n "$payload" ]] || return 0
+
     _CMUX_TTY_REPORTED=1
     {
-        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        _cmux_send "$payload"
     } >/dev/null 2>&1 & disown
 }
 

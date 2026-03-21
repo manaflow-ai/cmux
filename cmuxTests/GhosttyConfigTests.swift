@@ -2526,51 +2526,21 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     }
 
     func testShellIntegrationReportsTTYFromTmuxWithoutUsingPanelScope() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-zsh-tmux-report-tty-\(UUID().uuidString)")
-        let binDir = root.appendingPathComponent("bin", isDirectory: true)
-        let socketPath = root.appendingPathComponent("cmux-test.sock", isDirectory: false)
-        let logPath = root.appendingPathComponent("tty.log", isDirectory: false)
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
-        let listenerFD = try bindUnixSocket(at: socketPath.path)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath.path)
-            try? fileManager.removeItem(at: root)
-        }
-
-        try writeExecutableScript(
-            at: binDir.appendingPathComponent("ncat", isDirectory: false),
-            contents: """
-            #!/bin/sh
-            cat > "\(logPath.path)"
-            exit 0
-            """
-        )
-
-        _ = try runInteractiveZsh(
+        let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: """
             _CMUX_TTY_NAME=ttys999
-            _cmux_report_tty_once
-            sleep 0.05
-            print -r -- READY
+            print -r -- "$(_cmux_report_tty_payload)"
             """,
             extraEnvironment: [
-                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMUX": "/tmp/tmux-current,123,0",
-                "CMUX_SOCKET_PATH": socketPath.path,
                 "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_PANEL_ID": "99999999-9999-9999-9999-999999999999",
             ]
         )
 
-        let log = (try? String(contentsOf: logPath, encoding: .utf8)) ?? ""
-        XCTAssertEqual(log, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111\n")
+        XCTAssertEqual(output, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111")
     }
 
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {

@@ -1864,10 +1864,13 @@ struct CMUXCLI {
         case "trigger-flash":
             let tfWsFlag = optionValue(commandArgs, name: "--workspace")
             let explicitWorkspaceArg = tfWsFlag
-            let callerWorkspaceArg = windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
+            let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
+            let callerWorkspaceArg = preferTTYFallback
+                ? nil
+                : (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
-            let callerSurfaceArg = explicitWorkspaceArg == nil && windowId == nil
+            let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowId == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil
             let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
@@ -2084,10 +2087,13 @@ struct CMUXCLI {
             let body = optionValue(commandArgs, name: "--body") ?? ""
 
             let explicitWorkspaceArg = optionValue(commandArgs, name: "--workspace")
-            let callerWorkspaceArg = windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
+            let preferTTYFallback = windowId == nil && ProcessInfo.processInfo.environment["TMUX"] != nil
+            let callerWorkspaceArg = preferTTYFallback
+                ? nil
+                : (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let workspaceArg = explicitWorkspaceArg ?? callerWorkspaceArg
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface")
-            let callerSurfaceArg = explicitWorkspaceArg == nil && windowId == nil
+            let callerSurfaceArg = explicitSurfaceArg == nil && preferTTYFallback == false && windowId == nil
                 ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
                 : nil
             let surfaceArg = explicitSurfaceArg ?? callerSurfaceArg
