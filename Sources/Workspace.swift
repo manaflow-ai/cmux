@@ -107,6 +107,35 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
+private enum RemoteDropUploadError: LocalizedError {
+    case unavailable
+    case invalidFileURL
+    case uploadFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            String(
+                localized: "error.remoteDrop.unavailable",
+                defaultValue: "Remote drop is unavailable."
+            )
+        case .invalidFileURL:
+            String(
+                localized: "error.remoteDrop.invalidFileURL",
+                defaultValue: "Dropped item is not a file URL."
+            )
+        case .uploadFailed(let detail):
+            String.localizedStringWithFormat(
+                String(
+                    localized: "error.remoteDrop.uploadFailed",
+                    defaultValue: "Failed to upload dropped file: %@"
+                ),
+                detail
+            )
+        }
+    }
+}
+
 struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     struct Entry: Decodable, Equatable {
         let goOS: String
@@ -2945,6 +2974,58 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    func uploadDroppedFiles(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation,
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        queue.async { [weak self] in
+            guard let self else {
+                DispatchQueue.main.async {
+                    completion(.failure(RemoteDropUploadError.unavailable))
+                }
+                return
+            }
+
+            do {
+                try operation.throwIfCancelled()
+                let remotePaths = try self.uploadDroppedFilesLocked(fileURLs, operation: operation)
+                try operation.throwIfCancelled()
+                DispatchQueue.main.async { [weak self] in
+                    if operation.isCancelled {
+                        guard let self else {
+                            completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                            return
+                        }
+                        self.queue.async { [weak self] in
+                            self?.cleanupUploadedRemotePaths(remotePaths)
+                            DispatchQueue.main.async {
+                                completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                            }
+                        }
+                    } else {
+                        completion(.success(remotePaths))
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
+    func uploadDroppedFiles(
+        _ fileURLs: [URL],
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        uploadDroppedFiles(
+            fileURLs,
+            operation: TerminalImageTransferOperation(),
+            completion: completion
+        )
+    }
+
     private func stopAllLocked() {
         debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
@@ -3442,12 +3523,17 @@ final class WorkspaceRemoteSessionController {
         )
     }
 
-    private func scpExec(arguments: [String], timeout: TimeInterval = 30) throws -> CommandResult {
+    private func scpExec(
+        arguments: [String],
+        timeout: TimeInterval = 30,
+        operation: TerminalImageTransferOperation? = nil
+    ) throws -> CommandResult {
         try runProcess(
             executable: "/usr/bin/scp",
             arguments: arguments,
             stdin: nil,
-            timeout: timeout
+            timeout: timeout,
+            operation: operation
         )
     }
 
@@ -3457,7 +3543,8 @@ final class WorkspaceRemoteSessionController {
         environment: [String: String]? = nil,
         currentDirectory: URL? = nil,
         stdin: Data?,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -3512,6 +3599,7 @@ final class WorkspaceRemoteSessionController {
         }
 
         do {
+            try operation?.throwIfCancelled()
             try process.run()
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
@@ -3526,20 +3614,34 @@ final class WorkspaceRemoteSessionController {
         }
         try? stdoutPipe.fileHandleForWriting.close()
         try? stderrPipe.fileHandleForWriting.close()
+        operation?.installCancellationHandler {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
             pipe.fileHandleForWriting.write(stdin)
             try? pipe.fileHandleForWriting.close()
         }
 
-        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
-        if !didExitBeforeTimeout, process.isRunning {
+        func terminateProcessAndWait() {
             process.terminate()
             let terminatedGracefully = exitSemaphore.wait(timeout: .now() + 2.0) == .success
             if !terminatedGracefully, process.isRunning {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
+        }
+
+        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
+        if !didExitBeforeTimeout, process.isRunning {
+            if operation?.isCancelled == true {
+                terminateProcessAndWait()
+                throw TerminalImageTransferExecutionError.cancelled
+            }
+            terminateProcessAndWait()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -3554,6 +3656,9 @@ final class WorkspaceRemoteSessionController {
         try? stderrHandle.close()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        if operation?.isCancelled == true {
+            throw TerminalImageTransferExecutionError.cancelled
+        }
         debugLog(
             "remote.proc.end exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
             "status=\(process.terminationStatus) stdout=\(Self.debugLogSnippet(stdout)) " +
@@ -4003,6 +4108,70 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
             ])
         }
+    }
+
+    private func uploadDroppedFilesLocked(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation
+    ) throws -> [String] {
+        guard !fileURLs.isEmpty else { return [] }
+
+        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        var uploadedRemotePaths: [String] = []
+        do {
+            for localURL in fileURLs {
+                try operation.throwIfCancelled()
+                let normalizedLocalURL = localURL.standardizedFileURL
+                guard normalizedLocalURL.isFileURL else {
+                    throw RemoteDropUploadError.invalidFileURL
+                }
+
+                let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
+                uploadedRemotePaths.append(remotePath)
+                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                    scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+                }
+                if let port = configuration.port {
+                    scpArgs += ["-P", String(port)]
+                }
+                if let identityFile = configuration.identityFile,
+                   !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    scpArgs += ["-i", identityFile]
+                }
+                for option in scpSSHOptions {
+                    scpArgs += ["-o", option]
+                }
+                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+
+                let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
+                guard scpResult.status == 0 else {
+                    let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
+                        "scp exited \(scpResult.status)"
+                    throw RemoteDropUploadError.uploadFailed(detail)
+                }
+            }
+            return uploadedRemotePaths
+        } catch {
+            cleanupUploadedRemotePaths(uploadedRemotePaths)
+            throw error
+        }
+    }
+
+    static func remoteDropPath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        let extensionSuffix = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedSuffix = extensionSuffix.isEmpty ? "" : ".\(extensionSuffix.lowercased())"
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
+    }
+
+    private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        _ = try? sshExec(
+            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
+            timeout: 8
+        )
     }
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
@@ -5410,6 +5579,8 @@ final class Workspace: Identifiable, ObservableObject {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
+        let isRemoteTerminal: Bool
+        let remoteRelayPort: Int?
     }
 
     private var detachingTabIds: Set<TabID> = []
@@ -6217,12 +6388,42 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
+    @MainActor
+    func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId)
+    }
+
     var remoteDisplayTarget: String? {
         remoteConfiguration?.displayTarget
     }
 
     var hasActiveRemoteTerminalSessions: Bool {
         activeRemoteTerminalSessionCount > 0
+    }
+
+    @MainActor
+    func uploadDroppedFilesForRemoteTerminal(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation,
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        guard let controller = remoteSessionController else {
+            completion(.failure(RemoteDropUploadError.unavailable))
+            return
+        }
+        controller.uploadDroppedFiles(fileURLs, operation: operation, completion: completion)
+    }
+
+    @MainActor
+    func uploadDroppedFilesForRemoteTerminal(
+        _ fileURLs: [URL],
+        completion: @escaping (Result<[String], Error>) -> Void
+    ) {
+        uploadDroppedFilesForRemoteTerminal(
+            fileURLs,
+            operation: TerminalImageTransferOperation(),
+            completion: completion
+        )
     }
 
     func remoteStatusPayload() -> [String: Any] {
@@ -7725,6 +7926,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if detached.isRemoteTerminal,
+           let detachedRelayPort = detached.remoteRelayPort,
+           detachedRelayPort == remoteConfiguration?.relayPort {
+            trackRemoteTerminalSurface(detached.panelId)
+        }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -9530,7 +9736,11 @@ extension Workspace: BonsplitDelegate {
                 directory: panelDirectories[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
-                manuallyUnread: manualUnreadPanelIds.contains(panelId)
+                manuallyUnread: manualUnreadPanelIds.contains(panelId),
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
+                    ? remoteConfiguration?.relayPort
+                    : nil
             )
         } else {
             if let closedBrowserRestoreSnapshot {

@@ -77627,6 +77627,57 @@
           }
         }
       }
+    },
+    "error.remoteDrop.invalidFileURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dropped item is not a file URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップされた項目はファイル URL ではありません。"
+          }
+        }
+      }
+    },
+    "error.remoteDrop.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote drop is unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートへのドロップは利用できません。"
+          }
+        }
+      }
+    },
+    "error.remoteDrop.uploadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to upload dropped file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドロップされたファイルのアップロードに失敗しました: %@"
+          }
+        }
+      }
     }
   }
 }
