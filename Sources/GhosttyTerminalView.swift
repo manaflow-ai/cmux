@@ -5880,15 +5880,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // not hidden behind the host terminal's Metal rendering layer.
         if tmuxPaneContainer == nil {
             let container = NSView(frame: bounds)
-            // Layer-backed with opaque background to fully cover the host
-            // terminal's Metal layer underneath. Without this, the host
-            // terminal's "Last login" text bleeds through gaps in the pane.
-            container.wantsLayer = true
-            container.layer?.isOpaque = true
-            // Use the host terminal's background color if available,
-            // otherwise fall back to a dark color typical of terminal themes.
-            container.layer?.backgroundColor = (backgroundColor ?? NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1.0)).cgColor
             container.autoresizingMask = [.width, .height]
+            // Hide host terminal rendering but keep the view in the event
+            // chain for mouse handling. alphaValue=0 makes the Metal layer
+            // invisible without setting isHidden (which breaks hit-testing).
+            self.alphaValue = 0
             // Walk up: GhosttyNSView → documentView → clipView → scrollView → GhosttySurfaceScrollView
             if let parentView = enclosingScrollView?.superview {
                 parentView.addSubview(container, positioned: .above, relativeTo: nil)
@@ -6127,10 +6123,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             #endif
 
             // Initial sync: capture tmux pane content and replay.
-            // On re-attach, geometry may not match yet (tmux defaults
-            // to 80x24 before refresh-client takes effect), so content
-            // may shift. This is a known limitation until Terminal.clone
-            // is properly implemented.
+            // On re-attach, tmux may still be on the default 80x24 geometry,
+            // so we wait briefly for pane_height to converge before replaying.
             tmuxInitialSync(paneId: paneInfo.pane_id, regId: regId)
         }
 
@@ -6241,6 +6235,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         tmuxStatusBarTimer = nil
         tmuxStatusBar?.superview?.removeFromSuperview()  // remove barView
         tmuxStatusBar = nil
+        // Restore host terminal rendering
+        self.alphaValue = 1
         tmuxPaneContainer?.removeFromSuperview()
         tmuxPaneContainer = nil
         tmuxRequestedClientSize = nil
@@ -6313,42 +6309,79 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Capture the tmux pane's visible content and feed it to the pane surface.
-    /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content, then sends
-    /// it via ghostty_surface_process_output so the pane surface renders it.
-    private func tmuxInitialSync(paneId: UInt, regId: UInt32) {
+    /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content. On re-attach
+    /// tmux may briefly report the default 80x24 geometry, so we retry until
+    /// pane_height matches the pane surface rows (or fall back after a few tries).
+    private func tmuxInitialSync(paneId: UInt, regId: UInt32, attempt: Int = 0) {
+        let maxAttempts = 12
+        let retryDelay: TimeInterval = 0.05
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
-            guard !output.isEmpty else { return }
-            let cursorInfo = Self.tmuxQueryArray([
-                "display-message", "-t", "%\(paneId)", "-p", "#{cursor_y};#{cursor_x}"
+            let paneInfo = Self.tmuxQueryArray([
+                "display-message", "-t", "%\(paneId)", "-p", "#{pane_height};#{cursor_y};#{cursor_x}"
             ])
-
-            var captureLines = output.components(separatedBy: "\n")
-            if captureLines.last == "" {
-                captureLines.removeLast()
-            }
-
-            // ESC[H = cursor home, then each line with CR+LF
-            var fullOutput = "\u{1B}[H"
-            for (i, line) in captureLines.enumerated() {
-                if i > 0 { fullOutput += "\r\n" }
-                fullOutput += line
-            }
-
-            // Restore cursor position (tmux 0-based → ANSI 1-based)
-            let parts = cursorInfo.components(separatedBy: ";")
-            if parts.count == 2,
-               let row = Int(parts[0]),
-               let col = Int(parts[1]) {
-                fullOutput += "\u{1B}[\(row + 1);\(col + 1)H"
-            }
-
-            guard let bytes = fullOutput.data(using: .utf8) else { return }
+            let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
 
             DispatchQueue.main.async {
                 guard let self = self,
                       let state = self.tmuxPaneSurfaces[paneId],
                       state.regId == regId else { return }
+
+                let surfaceRows = max(Int(ghostty_surface_size(state.surface).rows), 1)
+
+                let paneParts = paneInfo.components(separatedBy: ";")
+                let tmuxRows = paneParts.count >= 1 ? Int(paneParts[0]) : nil
+                let rawCursorRow = paneParts.count >= 2 ? Int(paneParts[1]) : nil
+                let rawCursorCol = paneParts.count >= 3 ? Int(paneParts[2]) : nil
+
+                if attempt < maxAttempts {
+                    if tmuxRows != surfaceRows || output.isEmpty {
+                        if let desired = self.tmuxDesiredClientSize() {
+                            self.tmuxRequestedClientSize = desired
+                            self.tmuxSendCommand("refresh-client -C \(desired.cols)x\(desired.rows)")
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+                            self?.tmuxInitialSync(paneId: paneId, regId: regId, attempt: attempt + 1)
+                        }
+                        return
+                    }
+                } else if output.isEmpty {
+                    return
+                }
+
+                var captureLines = output.components(separatedBy: "\n")
+                if captureLines.last == "" {
+                    captureLines.removeLast()
+                }
+
+                var adjustedCursorRow = rawCursorRow ?? 0
+                let adjustedCursorCol = rawCursorCol ?? 0
+
+                if captureLines.count > surfaceRows {
+                    // More lines than surface can display: keep bottom rows
+                    let overflow = captureLines.count - surfaceRows
+                    captureLines = Array(captureLines.suffix(surfaceRows))
+                    adjustedCursorRow -= overflow
+                } else if captureLines.count < surfaceRows {
+                    // Fewer lines: use cursor position to calculate minimal
+                    // top padding so content aligns with where tmux has the
+                    // cursor, instead of blindly padding to fill the screen.
+                    let neededTopPad = max(0, adjustedCursorRow - (captureLines.count - 1))
+                    if neededTopPad > 0 {
+                        captureLines = Array(repeating: "", count: neededTopPad) + captureLines
+                        adjustedCursorRow = adjustedCursorRow  // unchanged — pad pushes content down to match
+                    }
+                }
+
+                adjustedCursorRow = max(0, min(adjustedCursorRow, max(captureLines.count - 1, 0)))
+
+                var fullOutput = "\u{1B}[H"
+                for (i, line) in captureLines.enumerated() {
+                    if i > 0 { fullOutput += "\r\n" }
+                    fullOutput += line
+                }
+                fullOutput += "\u{1B}[\(adjustedCursorRow + 1);\(adjustedCursorCol + 1)H"
+
+                guard let bytes = fullOutput.data(using: .utf8) else { return }
                 bytes.withUnsafeBytes { rawBuf in
                     let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
                     ghostty_surface_process_output(state.surface, ptr, bytes.count)
