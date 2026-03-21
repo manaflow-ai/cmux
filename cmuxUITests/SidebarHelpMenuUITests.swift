@@ -47,12 +47,12 @@ final class SidebarHelpMenuUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["ShortcutRecordingHint"].waitForExistence(timeout: 6.0))
     }
 
-    func testHelpMenuCheckForUpdatesTriggersSidebarUpdatePill() {
+    func testHelpMenuCheckForUpdatesShowsSparkleDialogOnFirstAttempt() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "available"
-        app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "99.0.0"
         app.launchEnvironment["CMUX_UI_TEST_AUTO_ALLOW_PERMISSION"] = "1"
         launchAndActivate(app)
 
@@ -72,9 +72,11 @@ final class SidebarHelpMenuUITests: XCTestCase {
         )
         checkForUpdatesItem.click()
 
-        let updatePill = app.buttons["UpdatePill"]
-        XCTAssertTrue(updatePill.waitForExistence(timeout: 6.0))
-        XCTAssertEqual(updatePill.label, "Update Available: 9.9.9")
+        let installButton = app.buttons["Install Update"]
+        XCTAssertTrue(installButton.waitForExistence(timeout: 8.0))
+        XCTAssertTrue(app.buttons["Remind Me Later"].exists)
+        XCTAssertTrue(app.buttons["Skip This Version"].exists)
+        XCTAssertTrue(app.staticTexts["99.0.0"].exists)
     }
 
     func testHelpMenuSendFeedbackOpensComposerSheet() {
