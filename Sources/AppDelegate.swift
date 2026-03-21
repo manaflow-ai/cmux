@@ -2645,6 +2645,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
+        screenChangeSnapshotWorkItem?.cancel()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
         return .terminateNow
     }
