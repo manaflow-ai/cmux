@@ -3436,14 +3436,29 @@ class TerminalController {
         }
 
         var found = false
+        var protected = false
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                guard tabManager.canCloseWorkspace(ws) else {
+                    protected = true
+                    found = true
+                    return
+                }
                 tabManager.closeWorkspace(ws)
                 found = true
             }
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        if protected {
+            return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": wsId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                "pinned": true
+            ])
+        }
         return found
             ? .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -3456,6 +3471,14 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
             ])
     }
+
+    private func workspaceCloseProtectedMessage() -> String {
+        String(
+            localized: "workspace.closeProtected.message",
+            defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -12958,14 +12981,18 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
 
-        var success = false
+        var result = "ERROR: Tab not found"
         DispatchQueue.main.sync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                guard tabManager.canCloseWorkspace(tab) else {
+                    result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
                 tabManager.closeTab(tab)
-                success = true
+                result = "OK"
             }
         }
-        return success ? "OK" : "ERROR: Tab not found"
+        return result
     }
 
     private func selectWorkspace(_ arg: String) -> String {

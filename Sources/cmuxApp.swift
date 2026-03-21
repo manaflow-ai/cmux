@@ -1067,21 +1067,21 @@ struct cmuxApp: App {
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {

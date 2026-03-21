@@ -2328,13 +2328,34 @@ class TabManager: ObservableObject {
         closeWorkspaceWithConfirmation(workspace)
     }
 
-    func closeWorkspaceWithConfirmation(_ workspace: Workspace) {
-        closeWorkspaceIfRunningProcess(workspace)
+    func canCloseWorkspace(_ workspace: Workspace, allowPinned: Bool = false) -> Bool {
+        allowPinned || !workspace.isPinned
     }
 
-    func closeWorkspaceWithConfirmation(tabId: UUID) {
-        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return }
-        closeWorkspaceWithConfirmation(workspace)
+    @discardableResult
+    func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
+        if workspace.isPinned {
+            guard confirmClose(
+                title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
+                message: String(
+                    localized: "dialog.closePinnedWorkspace.message",
+                    defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+                ),
+                acceptCmdD: tabs.count <= 1
+            ) else {
+                return false
+            }
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            return true
+        }
+        closeWorkspaceIfRunningProcess(workspace)
+        return true
+    }
+
+    @discardableResult
+    func closeWorkspaceWithConfirmation(tabId: UUID) -> Bool {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
+        return closeWorkspaceWithConfirmation(workspace)
     }
 
     func setSidebarSelectedWorkspaceIds(_ workspaceIds: Set<UUID>) {

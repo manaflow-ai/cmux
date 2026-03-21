@@ -6933,21 +6933,21 @@ struct ContentView: View {
     private func closeOtherSelectedWorkspaces() {
         guard let workspace = tabManager.selectedWorkspace else { return }
         let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func syncSidebarSelectedWorkspaceIds() {
@@ -10881,6 +10881,13 @@ private struct TabItemView: View, Equatable {
 
     var body: some View {
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        let protectedWorkspaceTooltip = String(
+            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
+            defaultValue: "Pinned workspace. Closing requires confirmation."
+        )
+        let closeButtonTooltip = tab.isPinned
+            ? protectedWorkspaceTooltip
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
@@ -10942,6 +10949,7 @@ private struct TabItemView: View, Equatable {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(protectedWorkspaceTooltip)
                 }
 
                 Text(tab.title)
@@ -10965,7 +10973,7 @@ private struct TabItemView: View, Equatable {
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
-                    .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
+                    .safeHelp(closeButtonTooltip)
                     .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
@@ -11599,19 +11607,19 @@ private struct TabItemView: View, Equatable {
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
         let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {
