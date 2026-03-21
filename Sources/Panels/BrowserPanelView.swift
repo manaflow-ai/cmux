@@ -3735,7 +3735,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
-            let lowered = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            // When a non-Latin input source is active (Korean, Chinese, Japanese),
+            // charactersIgnoringModifiers returns non-ASCII characters. Normalize
+            // via KeyboardLayout so Cmd/Ctrl+N/P navigation works across input sources.
+            let lowered = KeyboardLayout.normalizedCharacters(for: event)
             let hasCommandOrControl = modifiers.contains(.command) || modifiers.contains(.control)
 
             // Cmd/Ctrl+N and Cmd/Ctrl+P should repeat while held.

@@ -8889,7 +8889,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
-        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
+        // charactersIgnoringModifiers returns non-ASCII characters that never match
+        // Latin shortcut keys. Normalize via KeyboardLayout so downstream comparisons
+        // (Cmd+1-9, Ctrl+1-9, omnibar N/P, command palette, etc.) work correctly.
+        let chars = KeyboardLayout.normalizedCharacters(for: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
