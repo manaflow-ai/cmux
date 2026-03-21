@@ -644,6 +644,9 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace"), shortcut: closeWorkspaceMenuShortcut) {
                     closeTabOrWindow()
                 }
+                .disabled(
+                    activeTabManager.selectedWorkspace.map { !activeTabManager.canCloseWorkspace($0) } ?? true
+                )
 
                 Menu(String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace")) {
                     workspaceCommandMenuContent(manager: activeTabManager)
@@ -1171,7 +1174,7 @@ struct cmuxApp: App {
         Button(String(localized: "menu.file.closeWorkspace", defaultValue: "Close Workspace")) {
             manager.closeCurrentWorkspaceWithConfirmation()
         }
-        .disabled(workspace == nil)
+        .disabled(workspace.map { !manager.canCloseWorkspace($0) } ?? true)
 
         Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
             closeOtherSelectedWorkspacePeers(in: manager)

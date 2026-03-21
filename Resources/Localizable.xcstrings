@@ -62649,6 +62649,23 @@
         }
       }
     },
+    "sidebar.pinnedWorkspaceProtected.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned workspace protected from closing. Unpin to close."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースは閉じられません。閉じるにはピンを外してください。"
+          }
+        }
+      }
+    },
     "sidebar.folderIcon.dragHint": {
       "extractionState": "manual",
       "localizations": {
@@ -74878,6 +74895,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Çalışma Alanı"
+          }
+        }
+      }
+    },
+    "workspace.closeProtected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピン留めされたワークスペースは閉じられません。先にピンを外してください。"
           }
         }
       }
