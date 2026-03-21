@@ -3463,7 +3463,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Force a full size recalculation and surface redraw.
-    func forceRefresh(reason: String = "unspecified") {
+    @discardableResult
+    func forceRefresh(reason: String = "unspecified") -> Bool {
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
@@ -3482,9 +3483,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
-            return
+            return false
         }
-        guard let currentSurface = self.surface else { return }
+        guard let currentSurface = self.surface else { return false }
 
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
@@ -3500,8 +3501,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         view.forceRefreshSurface()
-        guard let surface = self.surface else { return }
+        guard let surface = self.surface else { return false }
         ghostty_surface_refresh(surface)
+        return true
     }
 
     func applyWindowBackgroundIfActive() {
@@ -6634,8 +6636,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
-    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+    @discardableResult
+    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") -> Bool {
+        surfaceView.terminalSurface?.forceRefresh(reason: reason) ?? false
     }
 
     @discardableResult
@@ -7872,8 +7875,7 @@ final class GhosttySurfaceScrollView: NSView {
         dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=run frame=\(sizeText)")
 #endif
         reconcileGeometryNow()
-        refreshSurfaceNow(reason: "workspace.\(trigger)")
-        return true
+        return refreshSurfaceNow(reason: "workspace.\(trigger)")
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
