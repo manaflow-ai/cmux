@@ -765,6 +765,15 @@ struct cmuxApp: App {
                     DispatchQueue.main.async {
                         BrowserDataImportCoordinator.shared.presentImportDialog()
                     }
+                if ChromeCookieImporter.isChromeInstalled {
+                    Button(String(localized: "menu.view.importChromeSessions", defaultValue: "Import Chrome Sessions")) {
+                        ChromeCookieImporter.importCookies { result in
+                            if let error = result.error {
+                                NSLog("[ChromeCookieImporter] manual import failed: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
                 }
 
                 splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {
