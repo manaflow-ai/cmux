@@ -2192,6 +2192,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
     }
+    @Published private(set) var isElementFullscreenActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLease {
@@ -2478,6 +2479,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable developer extras (DevTools)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        configuration.preferences.isElementFullscreenEnabled = true
 
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -3063,6 +3065,27 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         webViewObservers.append(progressObserver)
+
+        let fullscreenObserver = webView.observe(\.fullscreenState, options: [.initial, .new]) { [weak self] webView, _ in
+            let isElementFullscreenActive = webView.cmuxIsElementFullscreenActiveOrTransitioning
+            let fullscreenState = webView.fullscreenState
+            Task { @MainActor in
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.isElementFullscreenActive = isElementFullscreenActive
+                BrowserWindowPortalRegistry.refresh(
+                    webView: webView,
+                    reason: "fullscreenStateChanged"
+                )
+#if DEBUG
+                dlog(
+                    "browser.fullscreen.state panel=\(self.id.uuidString.prefix(5)) " +
+                    "web=\(ObjectIdentifier(webView)) state=\(String(describing: fullscreenState)) " +
+                    "active=\(isElementFullscreenActive ? 1 : 0)"
+                )
+#endif
+            }
+        }
+        webViewObservers.append(fullscreenObserver)
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in

@@ -2759,6 +2759,8 @@ final class WindowBrowserPortal: NSObject {
         let webViewId = ObjectIdentifier(webView)
         let anchorId = ObjectIdentifier(anchorView)
         let previousEntry = entriesByWebViewId[webViewId]
+        let shouldPreserveExternalFullscreenHost =
+            webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
         let containerView = ensureContainerView(
             for: previousEntry ?? Entry(
                 webView: nil,
@@ -2833,7 +2835,16 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
 
-        if webView.superview !== containerView {
+        if shouldPreserveExternalFullscreenHost {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView)) " +
+                "state=\(String(describing: webView.fullscreenState))"
+            )
+#endif
+        } else if webView.superview !== containerView {
 #if DEBUG
             dlog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -3097,10 +3108,22 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
             refreshReasons.append("syncAttachContainer")
         }
+        let shouldPreserveExternalFullscreenHost =
+            webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
         let shouldPreserveExternalHostForHiddenEntry =
+            !shouldPreserveExternalFullscreenHost &&
             !entry.visibleInUI &&
             webView.superview !== containerView
-        if shouldPreserveExternalHostForHiddenEntry {
+        if shouldPreserveExternalFullscreenHost {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView)) " +
+                "state=\(String(describing: webView.fullscreenState))"
+            )
+#endif
+        } else if shouldPreserveExternalHostForHiddenEntry {
 #if DEBUG
             dlog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
