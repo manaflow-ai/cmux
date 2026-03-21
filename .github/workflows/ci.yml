@@ -393,7 +393,7 @@ jobs:
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
 
-  ui-display-resolution-regression:
+  ui-regressions:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
