@@ -117,6 +117,101 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
     }
 }
 
+@MainActor
+final class TabManagerPullRequestProbeTests: XCTestCase {
+    func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
+        let output = """
+        origin https://github.com/austinwang/cmux.git (fetch)
+        origin https://github.com/austinwang/cmux.git (push)
+        upstream git@github.com:manaflow-ai/cmux.git (fetch)
+        upstream git@github.com:manaflow-ai/cmux.git (push)
+        backup ssh://git@github.com/manaflow-ai/cmux.git (fetch)
+        mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
+        let candidates = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1889,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/1889",
+                updatedAt: "2026-03-20T18:00:00Z"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1891,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/1891",
+                updatedAt: "2026-03-19T18:00:00Z"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1800,
+                state: "CLOSED",
+                url: "https://github.com/manaflow-ai/cmux/pull/1800",
+                updatedAt: "2026-03-21T18:00:00Z"
+            ),
+        ]
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: candidates),
+            candidates[1]
+        )
+    }
+
+    func testPreferredPullRequestPrefersMostRecentlyUpdatedWithinSameStatus() {
+        let olderOpen = TabManager.GitHubPullRequestProbeItem(
+            number: 1880,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1880",
+            updatedAt: "2026-03-18T18:00:00Z"
+        )
+        let newerOpen = TabManager.GitHubPullRequestProbeItem(
+            number: 1890,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1890",
+            updatedAt: "2026-03-20T18:00:00Z"
+        )
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: [olderOpen, newerOpen]),
+            newerOpen
+        )
+    }
+
+    func testPreferredPullRequestIgnoresMalformedCandidates() {
+        let valid = TabManager.GitHubPullRequestProbeItem(
+            number: 1888,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1888",
+            updatedAt: "2026-03-20T18:00:00Z"
+        )
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: [
+                TabManager.GitHubPullRequestProbeItem(
+                    number: 9999,
+                    state: "WHATEVER",
+                    url: "https://github.com/manaflow-ai/cmux/pull/9999",
+                    updatedAt: "2026-03-21T18:00:00Z"
+                ),
+                TabManager.GitHubPullRequestProbeItem(
+                    number: 10000,
+                    state: "OPEN",
+                    url: "not a url",
+                    updatedAt: "2026-03-21T18:00:00Z"
+                ),
+                valid,
+            ]),
+            valid
+        )
+    }
+}
+
 
 @MainActor
 final class TabManagerCloseWorkspacesWithConfirmationTests: XCTestCase {
