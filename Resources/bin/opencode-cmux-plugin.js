@@ -164,8 +164,8 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
         if (prevState === "idle" && state.state !== "idle") {
           state.completed = false
         }
-        // Clear waiting text when entering idle state
-        if (state.state === "idle") {
+        // Clear waiting text when leaving idle state (starting work/resuming from permission/question)
+        if (prevState === "idle" && state.state !== "idle") {
           state.waiting = ""
         }
         // Detect completion: busy -> idle transition (not initial idle)
