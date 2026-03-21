@@ -6205,6 +6205,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     private var pendingWorkspaceSwitchRedraw = false
+    private var workspaceSwitchRedrawDrainScheduled = false
     private var pendingWorkspaceSwitchRedrawTrigger = "unknown"
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
@@ -6604,6 +6605,7 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+        drainWorkspaceSwitchRedrawIfNeeded()
     }
 
     override func viewDidMoveToSuperview() {
@@ -6855,6 +6857,7 @@ final class GhosttySurfaceScrollView: NSView {
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
+        drainWorkspaceSwitchRedrawIfNeeded()
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -7428,9 +7431,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         if active {
             scheduleAutomaticFirstResponderApply(reason: "setActive")
-            if !wasActive {
-                scheduleWorkspaceSwitchRedraw(trigger: "active")
-            }
+            drainWorkspaceSwitchRedrawIfNeeded()
         } else {
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
@@ -7801,24 +7802,32 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func scheduleWorkspaceSwitchRedraw(trigger: String) {
         pendingWorkspaceSwitchRedrawTrigger = trigger
-        guard !pendingWorkspaceSwitchRedraw else {
+        pendingWorkspaceSwitchRedraw = true
+        guard !workspaceSwitchRedrawDrainScheduled else {
 #if DEBUG
             let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
-            dlog("ws.redraw.defer surface=\(surfaceShort) trigger=\(trigger) result=skip reason=pending")
+            dlog("ws.redraw.defer surface=\(surfaceShort) trigger=\(trigger) result=skip reason=drain_scheduled")
 #endif
             return
         }
-        pendingWorkspaceSwitchRedraw = true
+        workspaceSwitchRedrawDrainScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.pendingWorkspaceSwitchRedraw = false
-            let trigger = self.pendingWorkspaceSwitchRedrawTrigger
-            self.pendingWorkspaceSwitchRedrawTrigger = "unknown"
-            self.runWorkspaceSwitchRedrawIfNeeded(trigger: trigger)
+            self.workspaceSwitchRedrawDrainScheduled = false
+            self.drainWorkspaceSwitchRedrawIfNeeded()
         }
     }
 
-    private func runWorkspaceSwitchRedrawIfNeeded(trigger: String) {
+    private func drainWorkspaceSwitchRedrawIfNeeded() {
+        guard pendingWorkspaceSwitchRedraw else { return }
+        let trigger = pendingWorkspaceSwitchRedrawTrigger
+        guard runWorkspaceSwitchRedrawIfNeeded(trigger: trigger) else { return }
+        pendingWorkspaceSwitchRedraw = false
+        pendingWorkspaceSwitchRedrawTrigger = "unknown"
+    }
+
+    @discardableResult
+    private func runWorkspaceSwitchRedrawIfNeeded(trigger: String) -> Bool {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
         let size = bounds.size
         let hiddenInHierarchy = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
@@ -7827,25 +7836,25 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_surface")
 #endif
-            return
+            return false
         }
         guard surfaceView.isVisibleInUI else {
 #if DEBUG
             dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=not_visible")
 #endif
-            return
+            return false
         }
         guard isActive else {
 #if DEBUG
             dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=inactive")
 #endif
-            return
+            return false
         }
         guard window != nil else {
 #if DEBUG
             dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_window")
 #endif
-            return
+            return false
         }
         guard !hiddenInHierarchy, size.width > 1, size.height > 1 else {
 #if DEBUG
@@ -7855,7 +7864,7 @@ final class GhosttySurfaceScrollView: NSView {
                 "reason=hidden_or_tiny hidden=\(hiddenInHierarchy ? 1 : 0) frame=\(sizeText)"
             )
 #endif
-            return
+            return false
         }
 
 #if DEBUG
@@ -7864,6 +7873,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         reconcileGeometryNow()
         refreshSurfaceNow(reason: "workspace.\(trigger)")
+        return true
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
