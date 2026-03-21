@@ -44,8 +44,13 @@ async function main() {
   expect(typeof plugin === "function", "expected an importable OpenCode cmux plugin function")
 
   const commands = []
-  const $ = async (strings, ...values) => {
+  const $ = (strings, ...values) => {
     commands.push(render(strings, values))
+    const promise = Promise.resolve()
+    promise.quiet = () => promise
+    promise.nothrow = () => promise
+    promise.text = () => Promise.resolve("")
+    return promise
   }
 
   const hooks = await plugin({ $ })

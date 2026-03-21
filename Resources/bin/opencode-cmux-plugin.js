@@ -85,7 +85,7 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
      const text = clip(body)
      if (!text) return
      try {
-       await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`
+       await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`.quiet()
        attention = true
      } catch {}
    }
@@ -95,7 +95,7 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
   async function clearNotifications() {
     if (!attention) return
     try {
-      await $`cmux clear-notifications`
+      await $`cmux clear-notifications`.quiet()
       attention = false
     } catch {}
   }
@@ -106,9 +106,9 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
     if (applied === next) return
     try {
       if (pid > 0) {
-        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color} --pid ${pid}`
-      } else {
-        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`
+        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color} --pid ${pid}`.quiet()
+       } else {
+         await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`.quiet()
       }
       applied = next
     } catch {}
@@ -119,7 +119,7 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
   async function clearStatus() {
     if (!applied) return
     try {
-      await $`cmux clear-status opencode`
+      await $`cmux clear-status opencode`.quiet()
       applied = ""
     } catch {}
   }
