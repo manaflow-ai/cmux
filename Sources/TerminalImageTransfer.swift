@@ -232,11 +232,18 @@ enum TerminalImageTransferPlanner {
     }
 
     static func escapeForShell(_ value: String) -> String {
+        if value.contains(where: { $0 == "\n" || $0 == "\r" }) {
+            return shellSingleQuoted(value)
+        }
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
         }
         return result
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
 
     private static func preparePaste(

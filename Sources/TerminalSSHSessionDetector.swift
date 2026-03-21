@@ -21,9 +21,17 @@ struct DetectedSSHSession: Equatable {
     ) {
         let session = self
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try session.uploadDroppedFilesSync(fileURLs, operation: operation) }
+            let result = Result {
+                let remotePaths = try session.uploadDroppedFilesSync(fileURLs, operation: operation)
+                try operation.throwIfCancelled()
+                return remotePaths
+            }
             DispatchQueue.main.async {
-                completion(result)
+                if operation.isCancelled {
+                    completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                } else {
+                    completion(result)
+                }
             }
         }
     }
@@ -156,12 +164,21 @@ struct DetectedSSHSession: Equatable {
             exitSignal.signal()
         }
 
-        if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
-            if operation?.isCancelled == true {
-                throw TerminalImageTransferExecutionError.cancelled
-            }
+        func terminateProcessAndWait() {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+        }
+
+        if exitSignal.wait(timeout: .now() + timeout) == .timedOut {
+            if operation?.isCancelled == true {
+                terminateProcessAndWait()
+                throw TerminalImageTransferExecutionError.cancelled
+            }
+            terminateProcessAndWait()
             throw NSError(domain: "cmux.detected-ssh.drop", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "scp timed out",
             ])

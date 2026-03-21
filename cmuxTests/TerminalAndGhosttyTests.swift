@@ -428,6 +428,11 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(escaped, "/tmp/Screen\\ Shot.png")
     }
 
+    func testRemoteUploadResultSingleQuotesEmbeddedNewlinesBeforePaste() {
+        let escaped = TerminalImageTransferPlanner.escapeForShell("/tmp/Screen\nShot\r.png")
+        XCTAssertEqual(escaped, "'/tmp/Screen\nShot\r.png'")
+    }
+
     func testRemoteImageDropHandlerUploadsAndSendsRemotePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-\(UUID().uuidString)"))
         pasteboard.clearContents()

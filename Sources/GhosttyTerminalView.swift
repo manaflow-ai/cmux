@@ -1064,11 +1064,19 @@ class GhosttyApp {
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
 
             DispatchQueue.main.async {
-                guard let surface = callbackContext.runtimeSurface else { return }
+                guard let requestSurface = callbackContext.runtimeSurface else { return }
 
                 func completeClipboardRequest(with text: String) {
-                    text.withCString { ptr in
-                        ghostty_surface_complete_clipboard_request(surface, ptr, state, false)
+                    let finish = {
+                        guard callbackContext.runtimeSurface == requestSurface else { return }
+                        text.withCString { ptr in
+                            ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
+                        }
+                    }
+                    if Thread.isMainThread {
+                        finish()
+                    } else {
+                        DispatchQueue.main.async(execute: finish)
                     }
                 }
 
@@ -6185,13 +6193,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             },
             insertText: { [weak self] text in
-                if let operation {
-                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                let send = {
+                    if let operation {
+                        self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                    }
+                    // Use the text/paste path (ghostty_surface_text) instead of the key event
+                    // path (ghostty_surface_key) so bracketed paste mode is triggered and the
+                    // insertion is instant, matching upstream Ghostty behaviour.
+                    self?.terminalSurface?.sendText(text)
                 }
-                // Use the text/paste path (ghostty_surface_text) instead of the key event
-                // path (ghostty_surface_key) so bracketed paste mode is triggered and the
-                // insertion is instant, matching upstream Ghostty behaviour.
-                self?.terminalSurface?.sendText(text)
+                if Thread.isMainThread {
+                    send()
+                } else {
+                    DispatchQueue.main.async(execute: send)
+                }
             },
             onFailure: { [weak self] _ in
                 if let operation {

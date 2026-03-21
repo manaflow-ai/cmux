@@ -2965,8 +2965,13 @@ final class WorkspaceRemoteSessionController {
             do {
                 try operation.throwIfCancelled()
                 let remotePaths = try self.uploadDroppedFilesLocked(fileURLs, operation: operation)
+                try operation.throwIfCancelled()
                 DispatchQueue.main.async {
-                    completion(.success(remotePaths))
+                    if operation.isCancelled {
+                        completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                    } else {
+                        completion(.success(remotePaths))
+                    }
                 }
             } catch {
                 DispatchQueue.main.async {
@@ -3587,17 +3592,22 @@ final class WorkspaceRemoteSessionController {
             try? pipe.fileHandleForWriting.close()
         }
 
-        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
-        if !didExitBeforeTimeout, process.isRunning {
-            if operation?.isCancelled == true {
-                throw TerminalImageTransferExecutionError.cancelled
-            }
+        func terminateProcessAndWait() {
             process.terminate()
             let terminatedGracefully = exitSemaphore.wait(timeout: .now() + 2.0) == .success
             if !terminatedGracefully, process.isRunning {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
+        }
+
+        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
+        if !didExitBeforeTimeout, process.isRunning {
+            if operation?.isCancelled == true {
+                terminateProcessAndWait()
+                throw TerminalImageTransferExecutionError.cancelled
+            }
+            terminateProcessAndWait()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -4073,42 +4083,49 @@ final class WorkspaceRemoteSessionController {
         guard !fileURLs.isEmpty else { return [] }
 
         let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        return try fileURLs.map { localURL in
-            try operation.throwIfCancelled()
-            let normalizedLocalURL = localURL.standardizedFileURL
-            guard normalizedLocalURL.isFileURL else {
-                throw NSError(domain: "cmux.remote.drop", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "dropped item is not a file URL",
-                ])
-            }
+        var uploadedRemotePaths: [String] = []
+        do {
+            for localURL in fileURLs {
+                try operation.throwIfCancelled()
+                let normalizedLocalURL = localURL.standardizedFileURL
+                guard normalizedLocalURL.isFileURL else {
+                    throw NSError(domain: "cmux.remote.drop", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                    ])
+                }
 
-            let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
-            var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
-            if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-                scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
-            }
-            if let port = configuration.port {
-                scpArgs += ["-P", String(port)]
-            }
-            if let identityFile = configuration.identityFile,
-               !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                scpArgs += ["-i", identityFile]
-            }
-            for option in scpSSHOptions {
-                scpArgs += ["-o", option]
-            }
-            scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+                let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
+                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                    scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+                }
+                if let port = configuration.port {
+                    scpArgs += ["-P", String(port)]
+                }
+                if let identityFile = configuration.identityFile,
+                   !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    scpArgs += ["-i", identityFile]
+                }
+                for option in scpSSHOptions {
+                    scpArgs += ["-o", option]
+                }
+                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
 
-            let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
-            guard scpResult.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
-                    "scp exited \(scpResult.status)"
-                throw NSError(domain: "cmux.remote.drop", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
-                ])
-            }
+                let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
+                guard scpResult.status == 0 else {
+                    let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
+                        "scp exited \(scpResult.status)"
+                    throw NSError(domain: "cmux.remote.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
+                    ])
+                }
 
-            return remotePath
+                uploadedRemotePaths.append(remotePath)
+            }
+            return uploadedRemotePaths
+        } catch {
+            cleanupUploadedRemotePaths(uploadedRemotePaths)
+            throw error
         }
     }
 
@@ -4116,6 +4133,16 @@ final class WorkspaceRemoteSessionController {
         let extensionSuffix = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowercasedSuffix = extensionSuffix.isEmpty ? "" : ".\(extensionSuffix.lowercased())"
         return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
+    }
+
+    private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        _ = try? sshExec(
+            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
+            timeout: 8
+        )
     }
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
