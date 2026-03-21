@@ -6462,18 +6462,21 @@ struct CMUXCLI {
             """
         case "capture-pane":
             return """
-            Usage: cmux capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+            Usage: cmux capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>] [--follow [--interval <s>]]
 
-            tmux-compatible alias for reading terminal text from a pane.
+            Read terminal text from a pane. With --follow, streams new output continuously.
 
             Flags:
               --workspace <id|ref>   Workspace context (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Surface context (default: $CMUX_SURFACE_ID)
               --scrollback           Include scrollback
               --lines <n>            Return only the last N lines (implies --scrollback)
+              --follow               Continuously stream new terminal output (Ctrl+C to stop)
+              --interval <s>         Poll interval in seconds for --follow (default: 0.5)
 
             Example:
-              cmux capture-pane --workspace workspace:2 --surface surface:1 --scrollback --lines 200
+              cmux capture-pane --workspace workspace:2 --scrollback --lines 200
+              cmux capture-pane --follow --interval 0.3 --workspace workspace:2
             """
         case "resize-pane":
             return """
@@ -9646,6 +9649,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (linesArg, rem2) = parseOption(rem1, name: "--lines")
+            let (intervalArg, rem3) = parseOption(rem2, name: "--interval")
             let workspaceArg = wsArg ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceArg = sfArg ?? (wsArg == nil && windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
@@ -9655,7 +9659,7 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId)
             if let sfId { params["surface_id"] = sfId }
 
-            let includeScrollback = rem2.contains("--scrollback")
+            let includeScrollback = rem3.contains("--scrollback")
             if includeScrollback {
                 params["scrollback"] = true
             }
@@ -9667,11 +9671,47 @@ struct CMUXCLI {
                 params["scrollback"] = true
             }
 
-            let payload = try client.sendV2(method: "surface.read_text", params: params)
-            if jsonOutput {
-                print(jsonString(payload))
+            let followMode = rem3.contains("--follow")
+
+            if followMode {
+                // Continuous streaming: poll surface, print only new content
+                let interval = Double(intervalArg ?? "0.5") ?? 0.5
+                var previousText = ""
+
+                // Ignore SIGPIPE so we exit cleanly when the reader disconnects
+                signal(SIGPIPE, SIG_IGN)
+
+                while true {
+                    let payload = try client.sendV2(method: "surface.read_text", params: params)
+                    let currentText = (payload["text"] as? String) ?? ""
+
+                    if currentText != previousText {
+                        if previousText.isEmpty {
+                            // First read — print everything
+                            print(currentText, terminator: "")
+                        } else if currentText.count > previousText.count,
+                                  currentText.hasPrefix(String(previousText.prefix(100))) {
+                            // Text grew — print only the new part
+                            let newText = String(currentText.dropFirst(previousText.count))
+                            print(newText, terminator: "")
+                        } else {
+                            // Content changed completely (screen refresh) — print separator + all
+                            print("\n---\n\(currentText)", terminator: "")
+                        }
+                        fflush(stdout)
+                        previousText = currentText
+                    }
+
+                    Thread.sleep(forTimeInterval: interval)
+                }
             } else {
-                print((payload["text"] as? String) ?? "")
+                // One-shot capture (original behavior)
+                let payload = try client.sendV2(method: "surface.read_text", params: params)
+                if jsonOutput {
+                    print(jsonString(payload))
+                } else {
+                    print((payload["text"] as? String) ?? "")
+                }
             }
 
         case "resize-pane":
