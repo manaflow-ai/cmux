@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       url,
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
