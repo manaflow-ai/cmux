@@ -217,9 +217,7 @@ jobs:
             clang -framework Foundation -framework CoreGraphics \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-            cat >"$MANIFEST_PATH" <<EOF
-            {"helperBinaryPath":"$HELPER_PATH"}
-            EOF
+            printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"
           fi
 
           # Start recording right before the test (after build/resolve).

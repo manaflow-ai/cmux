@@ -4721,6 +4721,8 @@ extension BrowserPanel {
         if created {
             searchState = BrowserSearchState()
         }
+        pendingAddressBarFocusRequestId = nil
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
 #if DEBUG
         let window = webView.window
