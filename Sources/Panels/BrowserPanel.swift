@@ -2575,6 +2575,10 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
+
+        // Re-import Chrome cookies if enough time has passed since the last import.
+        ChromeCookieImporter.importIfNeeded()
+
         let requestedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
         let resolvedProfileID = BrowserProfileStore.shared.profileDefinition(id: requestedProfileID) != nil
             ? requestedProfileID

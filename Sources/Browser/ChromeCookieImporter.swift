@@ -60,7 +60,33 @@ final class ChromeCookieImporter: @unchecked Sendable {
     /// Seconds between 1601-01-01 and 1970-01-01 (Unix epoch).
     private static let chromeEpochOffset: Int64 = 11_644_473_600
 
+    /// Minimum interval between automatic re-imports (5 minutes).
+    private static let autoReimportInterval: TimeInterval = 300
+
+    /// Timestamp of last successful import.
+    private var lastImportTime: Date?
+
     private init() {}
+
+    /// Triggers a cookie re-import if enough time has passed since the last one.
+    /// Called when a new browser tab is opened. No-op if auto-import is disabled,
+    /// Chrome is not installed, or the throttle interval hasn't elapsed.
+    static func importIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: ChromeCookieSettings.autoImportEnabledKey),
+              isChromeInstalled else { return }
+
+        let now = Date()
+        if let lastImport = shared.lastImportTime,
+           now.timeIntervalSince(lastImport) < autoReimportInterval {
+            return
+        }
+
+        importCookies { result in
+            if result.error == nil && result.cookieCount > 0 {
+                shared.lastImportTime = now
+            }
+        }
+    }
 
     // MARK: - Step 1: Chrome profile discovery
 
@@ -432,6 +458,7 @@ final class ChromeCookieImporter: @unchecked Sendable {
                     }
 
                     group.notify(queue: .main) {
+                        shared.lastImportTime = Date()
                         completion(ImportResult(cookieCount: cookies.count, error: nil))
                     }
                 }
