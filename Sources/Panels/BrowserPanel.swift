@@ -9353,6 +9353,7 @@ final class BrowserDataImportCoordinator {
                 defaultValue: "Import Browser Data"
             )
             panel.isReleasedWhenClosed = false
+            panel.isRestorable = false
             panel.delegate = self
             panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
             panel.standardWindowButton(.zoomButton)?.isHidden = true
@@ -10095,6 +10096,7 @@ final class BrowserDataImportCoordinator {
         )
         window.title = title
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true

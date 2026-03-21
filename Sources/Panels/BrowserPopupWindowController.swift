@@ -155,6 +155,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.level = NSWindow.Level.normal
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
+        panel.isRestorable = false
         panel.minSize = NSSize(width: minWidth, height: minHeight)
         panel.title = String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
         self.panel = panel
