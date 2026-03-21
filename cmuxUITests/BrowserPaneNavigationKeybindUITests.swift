@@ -792,6 +792,60 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
     }
 
+    func testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D to create a split before opening the browser. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before opening find. value=\(String(describing: omnibar.value))"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        let omnibarValueBeforeFindTyping = (omnibar.value as? String) ?? ""
+        app.typeText("needle")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "needle"
+            },
+            "Expected Cmd+F to focus browser find after Cmd+D, Cmd+L, and navigation. " +
+                "findValue=\(String(describing: findField.value)) omnibarValue=\(String(describing: omnibar.value))"
+        )
+        XCTAssertEqual(
+            (omnibar.value as? String) ?? "",
+            omnibarValueBeforeFindTyping,
+            "Expected typing after Cmd+F to stay out of the omnibar. findValue=\(String(describing: findField.value))"
+        )
+    }
+
     private enum FindFocusRoute {
         case cmdOptionArrows
         case cmdCtrlLetters
