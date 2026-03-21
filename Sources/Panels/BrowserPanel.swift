@@ -2858,7 +2858,8 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
-    func triggerFlash() {
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken &+= 1
     }

@@ -929,7 +929,9 @@ final class FileDropOverlayView: NSView {
 
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
+private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
 let commandPaletteOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.commandPalette.overlay.container")
+let tmuxWorkspacePaneOverlayContainerIdentifier = NSUserInterfaceItemIdentifier("cmux.tmuxWorkspacePane.overlay.container")
 
 enum CommandPaletteOverlayPromotionPolicy {
     static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
@@ -947,6 +949,15 @@ private final class CommandPaletteOverlayContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard capturesMouseEvents else { return nil }
         return super.hitTest(point)
+    }
+}
+
+@MainActor
+private final class PassthroughWindowOverlayContainerView: NSView {
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 
@@ -1263,6 +1274,103 @@ private func commandPaletteWindowOverlayController(for window: NSWindow) -> Wind
     }
     let controller = WindowCommandPaletteOverlayController(window: window)
     objc_setAssociatedObject(window, &commandPaletteWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    return controller
+}
+
+@MainActor
+private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
+    private weak var window: NSWindow?
+    private let containerView = PassthroughWindowOverlayContainerView(frame: .zero)
+    private let model = TmuxWorkspacePaneOverlayModel()
+    private let hostingView: NSHostingView<TmuxWorkspacePaneOverlayView>
+    private var installConstraints: [NSLayoutConstraint] = []
+
+    init(window: NSWindow) {
+        self.window = window
+        self.hostingView = NSHostingView(
+            rootView: TmuxWorkspacePaneOverlayView(
+                unreadRects: [],
+                flashRect: nil,
+                flashStartedAt: nil,
+                flashReason: nil
+            )
+        )
+        super.init()
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.wantsLayer = true
+        containerView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.isHidden = true
+        containerView.alphaValue = 0
+        containerView.identifier = tmuxWorkspacePaneOverlayContainerIdentifier
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.addSubview(hostingView)
+        NSLayoutConstraint.activate([
+            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+        ])
+        _ = ensureInstalled()
+    }
+
+    @discardableResult
+    private func ensureInstalled() -> Bool {
+        guard let window,
+              let contentView = window.contentView,
+              let themeFrame = contentView.superview else { return false }
+
+        if containerView.superview !== themeFrame {
+            NSLayoutConstraint.deactivate(installConstraints)
+            installConstraints.removeAll()
+            containerView.removeFromSuperview()
+            themeFrame.addSubview(containerView, positioned: .above, relativeTo: contentView)
+            installConstraints = [
+                containerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+                containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+                containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            ]
+            NSLayoutConstraint.activate(installConstraints)
+        }
+
+        return true
+    }
+
+    func update(state: TmuxWorkspacePaneOverlayRenderState?) {
+        guard ensureInstalled() else { return }
+        if let state {
+            model.apply(state)
+            hostingView.rootView = TmuxWorkspacePaneOverlayView(
+                unreadRects: model.unreadRects,
+                flashRect: model.flashRect,
+                flashStartedAt: model.flashStartedAt,
+                flashReason: model.flashReason
+            )
+            containerView.alphaValue = 1
+            containerView.isHidden = false
+        } else {
+            model.clear()
+            hostingView.rootView = TmuxWorkspacePaneOverlayView(
+                unreadRects: [],
+                flashRect: nil,
+                flashStartedAt: nil,
+                flashReason: nil
+            )
+            containerView.alphaValue = 0
+            containerView.isHidden = true
+        }
+    }
+}
+
+@MainActor
+private func tmuxWorkspacePaneWindowOverlayController(for window: NSWindow) -> WindowTmuxWorkspacePaneOverlayController {
+    if let existing = objc_getAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey) as? WindowTmuxWorkspacePaneOverlayController {
+        return existing
+    }
+    let controller = WindowTmuxWorkspacePaneOverlayController(window: window)
+    objc_setAssociatedObject(window, &tmuxWorkspacePaneWindowOverlayKey, controller, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     return controller
 }
 
@@ -1620,6 +1728,135 @@ struct ContentView: View {
     private struct CommandPaletteUsageEntry: Codable, Sendable {
         var useCount: Int
         var lastUsedAt: TimeInterval
+    }
+
+    static func tmuxWorkspacePaneExactRect(
+        for panel: Panel,
+        in contentView: NSView
+    ) -> CGRect? {
+        let targetView: NSView?
+        switch panel {
+        case let terminal as TerminalPanel:
+            targetView = terminal.hostedView
+        case let browser as BrowserPanel:
+            targetView = browser.webView
+        default:
+            targetView = nil
+        }
+        guard let targetView else { return nil }
+        return tmuxWorkspacePaneExactRect(for: targetView, in: contentView)
+    }
+
+    static func tmuxWorkspacePaneExactRect(
+        for targetView: NSView,
+        in contentView: NSView
+    ) -> CGRect? {
+        guard let contentWindow = contentView.window,
+              let targetWindow = targetView.window,
+              contentWindow === targetWindow,
+              targetView.superview != nil else {
+            return nil
+        }
+
+        let rectInWindow = targetView.convert(targetView.bounds, to: nil)
+        let rectInContent = contentView.convert(rectInWindow, from: nil)
+        guard rectInContent.width > 1, rectInContent.height > 1 else { return nil }
+        return rectInContent
+    }
+
+    static func preferredTmuxWorkspacePaneWindowOverlayRect(
+        exactRect: CGRect?,
+        paneRect: CGRect?
+    ) -> CGRect? {
+        guard let paneRect else { return exactRect }
+        guard let exactRect,
+              exactRect.width > 1,
+              exactRect.height > 1 else {
+            return paneRect
+        }
+
+        let tolerance: CGFloat = 0.5
+        let exactFitsWithinPane =
+            exactRect.minX >= paneRect.minX - tolerance &&
+            exactRect.maxX <= paneRect.maxX + tolerance &&
+            exactRect.minY >= paneRect.minY - tolerance &&
+            exactRect.maxY <= paneRect.maxY + tolerance
+        return exactFitsWithinPane ? exactRect : paneRect
+    }
+
+    private func tmuxWorkspacePaneWindowOverlayState(for window: NSWindow) -> TmuxWorkspacePaneOverlayRenderState? {
+        guard TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay,
+              let workspace = tabManager.selectedWorkspace else { return nil }
+        let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
+            cachedSnapshot: workspace.tmuxLayoutSnapshot,
+            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+        )
+        let contentView = window.contentView
+
+        let unreadRects: [CGRect]
+        if let layoutSnapshot, let contentView {
+            unreadRects = layoutSnapshot.panes.compactMap { pane in
+                guard let selectedTabId = pane.selectedTabId,
+                      let tabUUID = UUID(uuidString: selectedTabId),
+                      let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: tabUUID)),
+                      let panel = workspace.panels[panelId] else {
+                    return nil
+                }
+
+                let shouldShowUnread = Workspace.shouldShowUnreadIndicator(
+                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
+                        forTabId: workspace.id,
+                        surfaceId: panelId
+                    ),
+                    isManuallyUnread: workspace.manualUnreadPanelIds.contains(panelId)
+                )
+                guard shouldShowUnread else { return nil }
+
+                let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    paneId: workspace.paneId(forPanelId: panelId)
+                )
+                let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
+                return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                    exactRect: exactRect,
+                    paneRect: paneRect
+                )
+            }
+        } else {
+            unreadRects = WorkspaceContentView.tmuxWorkspacePaneWindowUnreadRects(
+                workspace: workspace,
+                notificationStore: notificationStore,
+                layoutSnapshot: layoutSnapshot
+            )
+        }
+
+        let flashRect: CGRect?
+        if let panelId = workspace.tmuxWorkspaceFlashPanelId,
+           let panel = workspace.panels[panelId],
+           let contentView {
+            let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: workspace.paneId(forPanelId: panelId)
+            )
+            let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
+            flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
+                exactRect: exactRect,
+                paneRect: paneRect
+            )
+        } else {
+            flashRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: workspace.tmuxWorkspaceFlashPanelId.flatMap { workspace.paneId(forPanelId: $0) }
+            )
+        }
+
+        return TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: workspace.id,
+            unreadRects: unreadRects,
+            flashRect: flashRect,
+            flashToken: workspace.tmuxWorkspaceFlashToken,
+            flashReason: workspace.tmuxWorkspaceFlashReason
+        )
     }
 
     private struct CommandPaletteContextSnapshot {
@@ -2762,6 +2999,8 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor(dedupeByWindow: false) { window in
             MainActor.assumeIsolated {
+                let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
+                tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
                 let overlayController = commandPaletteWindowOverlayController(for: window)
                 overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
             }
