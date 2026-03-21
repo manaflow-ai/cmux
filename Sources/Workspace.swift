@@ -9230,8 +9230,28 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
         let alert = NSAlert()
+
         alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
-        alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+
+        let panelName: String? = {
+            guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
+            if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return custom
+            }
+            if let title = panelTitles[panelId], !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return title
+            }
+            if let dir = panelDirectories[panelId], !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return (dir as NSString).lastPathComponent
+            }
+            return nil
+        }()
+
+        if let panelName {
+            alert.informativeText = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+        } else {
+            alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+        }
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
