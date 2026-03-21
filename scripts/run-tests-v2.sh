@@ -9,7 +9,11 @@ if [ "$(id -un)" != "cmux" ]; then
   exit 2
 fi
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
+cd "$CMUX_REPO_ROOT"
 
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v2"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
@@ -21,7 +25,7 @@ echo "== build =="
 # module file ... was built".
 rm -rf "$DERIVED_DATA_PATH/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" || true
 xcodebuild \
-  -project GhosttyTabs.xcodeproj \
+  -project "$CMUX_XCODE_PROJECT_PATH" \
   -scheme cmux \
   -configuration Debug \
   -destination "platform=macOS" \

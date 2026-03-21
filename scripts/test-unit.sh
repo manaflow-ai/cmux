@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
 
-PROJECT="GhosttyTabs.xcodeproj"
+cd "$CMUX_REPO_ROOT"
+
+PROJECT="$CMUX_XCODE_PROJECT_PATH"
 SCHEME="cmux-unit"
 CONFIGURATION="${CMUX_TEST_CONFIGURATION:-Debug}"
 DESTINATION="${CMUX_TEST_DESTINATION:-platform=macOS}"

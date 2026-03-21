@@ -2,9 +2,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
 
-cd "$PROJECT_DIR"
+cd "$CMUX_REPO_ROOT"
 
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
@@ -16,11 +17,11 @@ if ! command -v zig &> /dev/null; then
     exit 1
 fi
 
-GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
+GHOSTTY_SHA="$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)"
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
 CACHE_XCFRAMEWORK="$CACHE_DIR/GhosttyKit.xcframework"
-LOCAL_XCFRAMEWORK="$PROJECT_DIR/ghostty/macos/GhosttyKit.xcframework"
+LOCAL_XCFRAMEWORK="$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework"
 LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
 LOCK_DIR="$CACHE_ROOT/$GHOSTTY_SHA.lock"
 
@@ -57,7 +58,7 @@ else
     else
         echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
         (
-            cd ghostty
+            cd "$CMUX_GHOSTTY_DIR"
             zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
         )
         # Stamp the build output with the SHA it was built from
@@ -79,7 +80,7 @@ else
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
-ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
+ln -sfn "$CACHE_XCFRAMEWORK" "$CMUX_GHOSTTYKIT_PATH"
 
 echo "==> Setup complete!"
 echo ""

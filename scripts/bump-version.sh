@@ -8,10 +8,14 @@ set -euo pipefail
 #   ./scripts/bump-version.sh patch     # Bump patch (0.15.0 -> 0.15.1)
 #   ./scripts/bump-version.sh major     # Bump major (0.15.0 -> 1.0.0)
 
-PROJECT_FILE="GhosttyTabs.xcodeproj/project.pbxproj"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
+PROJECT_FILE="${CMUX_XCODE_PROJECT_PATH}/project.pbxproj"
 
 if [[ ! -f "$PROJECT_FILE" ]]; then
-  echo "Error: $PROJECT_FILE not found. Run from repo root." >&2
+  echo "Error: Xcode project file not found at $PROJECT_FILE" >&2
   exit 1
 fi
 

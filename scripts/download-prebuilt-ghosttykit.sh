@@ -2,21 +2,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
 
 if [ -n "${GHOSTTY_SHA:-}" ]; then
   GHOSTTY_SHA="$GHOSTTY_SHA"
 else
-  if [ ! -d "$REPO_ROOT/ghostty" ] || ! git -C "$REPO_ROOT/ghostty" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ ! -d "$CMUX_GHOSTTY_DIR" ] || ! git -C "$CMUX_GHOSTTY_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "Missing ghostty submodule. Run ./scripts/setup.sh or git submodule update --init --recursive first." >&2
     exit 1
   fi
-  GHOSTTY_SHA="$(git -C "$REPO_ROOT/ghostty" rev-parse HEAD)"
+  GHOSTTY_SHA="$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)"
 fi
 
 TAG="xcframework-$GHOSTTY_SHA"
 ARCHIVE_NAME="${GHOSTTYKIT_ARCHIVE_NAME:-GhosttyKit.xcframework.tar.gz}"
-OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-GhosttyKit.xcframework}"
+OUTPUT_DIR="${GHOSTTYKIT_OUTPUT_DIR:-$CMUX_GHOSTTYKIT_PATH}"
 CHECKSUMS_FILE="${GHOSTTYKIT_CHECKSUMS_FILE:-$SCRIPT_DIR/ghosttykit-checksums.txt}"
 DOWNLOAD_URL="${GHOSTTYKIT_URL:-https://github.com/manaflow-ai/ghostty/releases/download/$TAG/$ARCHIVE_NAME}"
 DOWNLOAD_RETRIES="${GHOSTTYKIT_DOWNLOAD_RETRIES:-30}"

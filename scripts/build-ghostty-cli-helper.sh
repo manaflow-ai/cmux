@@ -14,8 +14,9 @@ EOF
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-GHOSTTY_DIR="$REPO_ROOT/ghostty"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+GHOSTTY_DIR="$CMUX_GHOSTTY_DIR"
 
 OUTPUT_PATH=""
 TARGET_TRIPLE=""

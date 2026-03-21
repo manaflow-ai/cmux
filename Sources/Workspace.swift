@@ -4010,15 +4010,19 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "cannot locate cmux repo root for dev-only cmuxd-remote build fallback",
             ])
         }
-        let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
+        guard let daemonRoot = Self.remoteDaemonSourceRoot(repoRoot: repoRoot) else {
+            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "cannot locate local cmuxd-remote source directory from \(repoRoot.path)",
+            ])
+        }
         let goModPath = daemonRoot.appendingPathComponent("go.mod").path
         guard FileManager.default.fileExists(atPath: goModPath) else {
-            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
+            throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
                 NSLocalizedDescriptionKey: "missing daemon module at \(goModPath)",
             ])
         }
         guard let goBinary = Self.which("go") else {
-            throw NSError(domain: "cmux.remote.daemon", code: 22, userInfo: [
+            throw NSError(domain: "cmux.remote.daemon", code: 23, userInfo: [
                 NSLocalizedDescriptionKey: "go is required for the dev-only cmuxd-remote build fallback",
             ])
         }
@@ -4041,12 +4045,12 @@ final class WorkspaceRemoteSessionController {
         )
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "go build failed with status \(result.status)"
-            throw NSError(domain: "cmux.remote.daemon", code: 23, userInfo: [
+            throw NSError(domain: "cmux.remote.daemon", code: 24, userInfo: [
                 NSLocalizedDescriptionKey: "failed to build cmuxd-remote: \(detail)",
             ])
         }
         guard FileManager.default.isExecutableFile(atPath: output.path) else {
-            throw NSError(domain: "cmux.remote.daemon", code: 24, userInfo: [
+            throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "cmuxd-remote build output is not executable",
             ])
         }
@@ -4377,6 +4381,16 @@ final class WorkspaceRemoteSessionController {
         return "\(baseVersion)-dev-\(sourceFingerprint)"
     }
 
+    private static let repoRootMarkers = [
+        "daemon/remote/go.mod",
+        "Tools/daemon-remote/go.mod",
+        "GhosttyTabs.xcodeproj/project.pbxproj",
+        "Apps/cmux-macOS/cmux.xcodeproj/project.pbxproj",
+    ]
+    private static let remoteDaemonRelativePaths = [
+        "daemon/remote",
+        "Tools/daemon-remote",
+    ]
     private static let cachedRemoteDaemonSourceFingerprint: String? = computeRemoteDaemonSourceFingerprint()
 
     private static func remoteDaemonSourceFingerprint() -> String? {
@@ -4384,8 +4398,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private static func computeRemoteDaemonSourceFingerprint(fileManager: FileManager = .default) -> String? {
-        guard let repoRoot = findRepoRoot() else { return nil }
-        let daemonRoot = repoRoot.appendingPathComponent("daemon/remote", isDirectory: true)
+        guard let daemonRoot = remoteDaemonSourceRoot(fileManager: fileManager) else { return nil }
         guard let enumerator = fileManager.enumerator(
             at: daemonRoot,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -4452,12 +4465,16 @@ final class WorkspaceRemoteSessionController {
 
     private static func findRepoRoot() -> URL? {
         var candidates: [URL] = []
-        let compileTimeRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // Sources
-            .deletingLastPathComponent() // repo root
-        candidates.append(compileTimeRoot)
+        let compileTimePath = URL(fileURLWithPath: #filePath)
+        candidates.append(compileTimePath.deletingLastPathComponent())
+        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent())
+        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
         let environment = ProcessInfo.processInfo.environment
         if let envRoot = environment["CMUX_REMOTE_DAEMON_SOURCE_ROOT"],
+           !envRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            candidates.append(URL(fileURLWithPath: envRoot, isDirectory: true))
+        }
+        if let envRoot = environment["CMUX_REPO_ROOT"],
            !envRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             candidates.append(URL(fileURLWithPath: envRoot, isDirectory: true))
         }
@@ -4476,8 +4493,9 @@ final class WorkspaceRemoteSessionController {
         for base in candidates {
             var cursor = base.standardizedFileURL
             for _ in 0..<10 {
-                let marker = cursor.appendingPathComponent("daemon/remote/go.mod").path
-                if fm.fileExists(atPath: marker) {
+                if Self.repoRootMarkers.contains(where: { marker in
+                    fm.fileExists(atPath: cursor.appendingPathComponent(marker).path)
+                }) {
                     return cursor
                 }
                 let parent = cursor.deletingLastPathComponent()
@@ -4485,6 +4503,29 @@ final class WorkspaceRemoteSessionController {
                     break
                 }
                 cursor = parent
+            }
+        }
+        return nil
+    }
+
+    private static func remoteDaemonSourceRoot(fileManager: FileManager = .default) -> URL? {
+        let environment = ProcessInfo.processInfo.environment
+        if let explicitPath = environment["CMUX_REMOTE_DAEMON_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicitPath.isEmpty {
+            let explicitURL = URL(fileURLWithPath: explicitPath, isDirectory: true)
+            if fileManager.fileExists(atPath: explicitURL.appendingPathComponent("go.mod").path) {
+                return explicitURL
+            }
+        }
+        guard let repoRoot = findRepoRoot() else { return nil }
+        return remoteDaemonSourceRoot(repoRoot: repoRoot, fileManager: fileManager)
+    }
+
+    private static func remoteDaemonSourceRoot(repoRoot: URL, fileManager: FileManager = .default) -> URL? {
+        for relativePath in remoteDaemonRelativePaths {
+            let candidate = repoRoot.appendingPathComponent(relativePath, isDirectory: true)
+            if fileManager.fileExists(atPath: candidate.appendingPathComponent("go.mod").path) {
+                return candidate
             }
         }
         return nil
