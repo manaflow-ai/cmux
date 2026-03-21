@@ -11024,18 +11024,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Returns the `Workspace` that owns `tabId`, if any.
-    nonisolated func workspaceFor(tabId: UUID) -> Workspace? {
-        if Thread.isMainThread {
-            return MainActor.assumeIsolated {
-                workspaceForMainActor(tabId: tabId)
-            }
-        }
-
-        return DispatchQueue.main.sync {
-            MainActor.assumeIsolated {
-                workspaceForMainActor(tabId: tabId)
-            }
-        }
+    @MainActor
+    func workspaceFor(tabId: UUID) -> Workspace? {
+        workspaceForMainActor(tabId: tabId)
     }
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {

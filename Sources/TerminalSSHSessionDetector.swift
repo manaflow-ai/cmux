@@ -7,7 +7,7 @@ struct DetectedSSHSession: Equatable {
     let identityFile: String?
     let configFile: String?
     let jumpHost: String?
-    let sshProgram: String?
+    let controlPath: String?
     let useIPv4: Bool
     let useIPv6: Bool
     let forwardAgent: Bool
@@ -114,8 +114,10 @@ struct DetectedSSHSession: Equatable {
         if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["-i", identityFile]
         }
-        if let sshProgram, !sshProgram.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-S", sshProgram]
+        if let controlPath,
+           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+            args += ["-o", "ControlPath=\(controlPath)"]
         }
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
@@ -227,6 +229,12 @@ struct DetectedSSHSession: Equatable {
             .map(String.init)?
             .lowercased()
     }
+
+#if DEBUG
+    func scpArgumentsForTesting(localPath: String, remotePath: String) -> [String] {
+        scpArguments(localPath: localPath, remotePath: remotePath)
+    }
+#endif
 }
 
 enum TerminalSSHSessionDetector {
@@ -285,7 +293,8 @@ enum TerminalSSHSessionDetector {
     }
 
     private static let psPath = "/bin/ps"
-    private static let noArgumentFlags = Set("46ABCfGgKkMNnqstTvVXYxy")
+    private static let noArgumentFlags = Set("46AaCfGgKkMNnqsTtVvXxYy")
+    private static let valueArgumentFlags = Set("BbcDEeFIiJLlmOopQRSWw")
     private static let filteredSSHOptionKeys: Set<String> = [
         "batchmode",
         "controlmaster",
@@ -430,7 +439,7 @@ enum TerminalSSHSessionDetector {
         var identityFile: String?
         var configFile: String?
         var jumpHost: String?
-        var sshProgram: String?
+        var controlPath: String?
         var loginName: String?
         var useIPv4 = false
         var useIPv6 = false
@@ -457,7 +466,7 @@ enum TerminalSSHSessionDetector {
                 jumpHost = trimmedValue
                 return true
             case "S":
-                sshProgram = trimmedValue
+                controlPath = trimmedValue
                 return true
             case "l":
                 loginName = trimmedValue
@@ -467,12 +476,13 @@ enum TerminalSSHSessionDetector {
                     trimmedValue,
                     port: &port,
                     identityFile: &identityFile,
+                    controlPath: &controlPath,
                     jumpHost: &jumpHost,
                     loginName: &loginName,
                     sshOptions: &sshOptions
                 )
             default:
-                return false
+                return valueArgumentFlags.contains(option)
             }
         }
 
@@ -492,15 +502,15 @@ enum TerminalSSHSessionDetector {
 
             if argument.count > 2,
                let option = argument.dropFirst().first,
-               Set("piFoJSl").contains(option) {
+               valueArgumentFlags.contains(option) {
                 guard consumeValue(String(argument.dropFirst(2)), for: option) else { return nil }
                 index += 1
                 continue
             }
 
-            switch argument {
-            case "-p", "-i", "-F", "-J", "-S", "-l", "-o":
-                guard let optionCharacter = argument.dropFirst().first else { return nil }
+            if argument.count == 2,
+               let optionCharacter = argument.dropFirst().first,
+               valueArgumentFlags.contains(optionCharacter) {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count,
                       consumeValue(arguments[nextIndex], for: optionCharacter) else {
@@ -508,8 +518,6 @@ enum TerminalSSHSessionDetector {
                 }
                 index += 2
                 continue
-            default:
-                break
             }
 
             let flags = Array(argument.dropFirst())
@@ -545,7 +553,7 @@ enum TerminalSSHSessionDetector {
             identityFile: identityFile,
             configFile: configFile,
             jumpHost: jumpHost,
-            sshProgram: sshProgram,
+            controlPath: controlPath,
             useIPv4: useIPv4,
             useIPv6: useIPv6,
             forwardAgent: forwardAgent,
@@ -558,6 +566,7 @@ enum TerminalSSHSessionDetector {
         _ option: String,
         port: inout Int?,
         identityFile: inout String?,
+        controlPath: inout String?,
         jumpHost: inout String?,
         loginName: inout String?,
         sshOptions: inout [String]
@@ -577,6 +586,12 @@ enum TerminalSSHSessionDetector {
         case "identityfile":
             if let value, !value.isEmpty {
                 identityFile = value
+                return true
+            }
+            return false
+        case "controlpath":
+            if let value, !value.isEmpty {
+                controlPath = value
                 return true
             }
             return false

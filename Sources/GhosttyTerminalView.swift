@@ -76,6 +76,7 @@ enum GhosttyPasteboardHelper {
     )
     private static let utf8PlainTextType = NSPasteboard.PasteboardType("public.utf8-plain-text")
     private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
+    private static let temporaryImageFilenamePrefix = "clipboard-"
     private static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
 
     static func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
@@ -139,11 +140,19 @@ enum GhosttyPasteboardHelper {
     }
 
     static func escapeForShell(_ value: String) -> String {
+        if value.contains(where: { $0 == "\n" || $0 == "\r" }) {
+            return shellSingleQuoted(value)
+        }
         var result = value
         for char in shellEscapeCharacters {
             result = result.replacingOccurrences(of: String(char), with: "\\\(char)")
         }
         return result
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        let escaped = value.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 
     private static func attributedStringContents(
@@ -356,6 +365,19 @@ enum GhosttyPasteboardHelper {
     ) -> String? {
         saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: assumeNoText)
             .map { escapeForShell($0.path) }
+    }
+
+    static func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
+        let temporaryDirectory = FileManager.default.temporaryDirectory.standardizedFileURL
+        for fileURL in fileURLs {
+            let normalizedURL = fileURL.standardizedFileURL
+            guard normalizedURL.isFileURL,
+                  normalizedURL.deletingLastPathComponent() == temporaryDirectory,
+                  normalizedURL.lastPathComponent.hasPrefix(temporaryImageFilenamePrefix) else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: normalizedURL)
+        }
     }
 }
 
@@ -1118,21 +1140,30 @@ class GhosttyApp {
                         plan: plan,
                         operation: operation,
                         uploadWorkspaceRemote: { fileURLs, operation, finish in
-                            guard let workspace = callbackContext.terminalSurface?.owningWorkspace() else {
+                            guard let workspace = MainActor.assumeIsolated({
+                                callbackContext.terminalSurface?.owningWorkspace()
+                            }) else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
                                 return
                             }
                             workspace.uploadDroppedFilesForRemoteTerminal(
                                 fileURLs,
                                 operation: operation,
-                                completion: finish
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
                             )
                         },
                         uploadDetectedSSH: { session, fileURLs, operation, finish in
                             session.uploadDroppedFiles(
                                 fileURLs,
                                 operation: operation,
-                                completion: finish
+                                completion: { result in
+                                    finish(result)
+                                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                }
                             )
                         },
                         insertText: { text in
@@ -3823,6 +3854,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 }
 
 extension TerminalSurface {
+    @MainActor
     func owningWorkspace() -> Workspace? {
         AppDelegate.shared?.workspaceFor(tabId: tabId)
     }
@@ -6139,7 +6171,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         TerminalImageTransferPlanner.execute(
             plan: plan,
             uploadWorkspaceRemote: { urls, _, finish in
-                uploadRemote(urls, finish)
+                uploadRemote(urls) { result in
+                    finish(result)
+                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(urls)
+                }
             },
             uploadDetectedSSH: { _, _, _, finish in
                 finish(.failure(NSError(domain: "cmux.remote.drop", code: 4)))
@@ -6175,21 +6210,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             plan: plan,
             operation: operation,
             uploadWorkspaceRemote: { [weak self] fileURLs, operation, finish in
-                guard let workspace = self?.terminalSurface?.owningWorkspace() else {
+                guard let workspace = MainActor.assumeIsolated({
+                    self?.terminalSurface?.owningWorkspace()
+                }) else {
                     finish(.failure(NSError(domain: "cmux.remote.drop", code: 3)))
+                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
                     return
                 }
                 workspace.uploadDroppedFilesForRemoteTerminal(
                     fileURLs,
                     operation: operation,
-                    completion: finish
+                    completion: { result in
+                        finish(result)
+                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    }
                 )
             },
             uploadDetectedSSH: { session, fileURLs, operation, finish in
                 session.uploadDroppedFiles(
                     fileURLs,
                     operation: operation,
-                    completion: finish
+                    completion: { result in
+                        finish(result)
+                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    }
                 )
             },
             insertText: { [weak self] text in

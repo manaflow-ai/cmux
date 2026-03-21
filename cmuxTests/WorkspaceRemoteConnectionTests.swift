@@ -247,13 +247,54 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
     }
 
-    func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() {
+    func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() throws {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
-        let uuid = UUID(uuidString: "12345678-1234-1234-1234-1234567890AB")!
+        let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
 
         let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+    }
+
+    @MainActor
+    func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let originalPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let originalPaneID = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelID))
+        let movedPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal)
+        )
+
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(originalPanelID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: movedPanel.id))
+        XCTAssertTrue(detached.isRemoteTerminal)
+        XCTAssertEqual(detached.remoteRelayPort, config.relayPort)
+
+        let restoredPanelID = workspace.attachDetachedSurface(
+            detached,
+            inPane: originalPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
     }
 
     func testDetectsForegroundSSHSessionForTTY() {
@@ -283,17 +324,78 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 identityFile: "/Users/test/.ssh/id_ed25519",
                 configFile: nil,
                 jumpHost: nil,
-                sshProgram: nil,
+                controlPath: "/tmp/cmux-ssh-%C",
                 useIPv4: false,
                 useIPv6: false,
                 forwardAgent: false,
                 compressionEnabled: false,
                 sshOptions: [
-                    "ControlPath=/tmp/cmux-ssh-%C",
                     "StrictHostKeyChecking=accept-new",
                 ]
             )
         )
+    }
+
+    func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-S", "/tmp/cmux-ssh-%C",
+                    "-p", "2200",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.controlPath, "/tmp/cmux-ssh-%C")
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertTrue(scpArgs.contains("ControlPath=/tmp/cmux-ssh-%C"))
+        XCTAssertFalse(scpArgs.contains("-S"))
+    }
+
+    func testDetectsForegroundSSHSessionWithLowercaseAgentFlag() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-a",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertFalse(session?.forwardAgent ?? true)
+    }
+
+    func testDetectsForegroundSSHSessionIgnoringBindInterfaceValue() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-B", "en0",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
     }
 
     func testIgnoresBackgroundSSHProcessForTTY() {

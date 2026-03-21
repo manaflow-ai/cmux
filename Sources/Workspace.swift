@@ -107,8 +107,33 @@ private struct SessionPaneRestoreEntry {
     let snapshot: SessionPaneLayoutSnapshot
 }
 
-private enum RemoteDropUploadError: Error {
+private enum RemoteDropUploadError: LocalizedError {
     case unavailable
+    case invalidFileURL
+    case uploadFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            String(
+                localized: "error.remoteDrop.unavailable",
+                defaultValue: "Remote drop is unavailable."
+            )
+        case .invalidFileURL:
+            String(
+                localized: "error.remoteDrop.invalidFileURL",
+                defaultValue: "Dropped item is not a file URL."
+            )
+        case .uploadFailed(let detail):
+            String.localizedStringWithFormat(
+                String(
+                    localized: "error.remoteDrop.uploadFailed",
+                    defaultValue: "Failed to upload dropped file: %@"
+                ),
+                detail
+            )
+        }
+    }
 }
 
 struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
@@ -2966,9 +2991,18 @@ final class WorkspaceRemoteSessionController {
                 try operation.throwIfCancelled()
                 let remotePaths = try self.uploadDroppedFilesLocked(fileURLs, operation: operation)
                 try operation.throwIfCancelled()
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [weak self] in
                     if operation.isCancelled {
-                        completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                        guard let self else {
+                            completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                            return
+                        }
+                        self.queue.async { [weak self] in
+                            self?.cleanupUploadedRemotePaths(remotePaths)
+                            DispatchQueue.main.async {
+                                completion(.failure(TerminalImageTransferExecutionError.cancelled))
+                            }
+                        }
                     } else {
                         completion(.success(remotePaths))
                     }
@@ -4089,12 +4123,11 @@ final class WorkspaceRemoteSessionController {
                 try operation.throwIfCancelled()
                 let normalizedLocalURL = localURL.standardizedFileURL
                 guard normalizedLocalURL.isFileURL else {
-                    throw NSError(domain: "cmux.remote.drop", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "dropped item is not a file URL",
-                    ])
+                    throw RemoteDropUploadError.invalidFileURL
                 }
 
                 let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
+                uploadedRemotePaths.append(remotePath)
                 var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
                 if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
                     scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
@@ -4115,12 +4148,8 @@ final class WorkspaceRemoteSessionController {
                 guard scpResult.status == 0 else {
                     let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
                         "scp exited \(scpResult.status)"
-                    throw NSError(domain: "cmux.remote.drop", code: 2, userInfo: [
-                        NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
-                    ])
+                    throw RemoteDropUploadError.uploadFailed(detail)
                 }
-
-                uploadedRemotePaths.append(remotePath)
             }
             return uploadedRemotePaths
         } catch {
@@ -5550,6 +5579,8 @@ final class Workspace: Identifiable, ObservableObject {
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
+        let isRemoteTerminal: Bool
+        let remoteRelayPort: Int?
     }
 
     private var detachingTabIds: Set<TabID> = []
@@ -7895,6 +7926,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if detached.isRemoteTerminal,
+           let detachedRelayPort = detached.remoteRelayPort,
+           detachedRelayPort == remoteConfiguration?.relayPort {
+            trackRemoteTerminalSurface(detached.panelId)
+        }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -9700,7 +9736,11 @@ extension Workspace: BonsplitDelegate {
                 directory: panelDirectories[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
-                manuallyUnread: manualUnreadPanelIds.contains(panelId)
+                manuallyUnread: manualUnreadPanelIds.contains(panelId),
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
+                    ? remoteConfiguration?.relayPort
+                    : nil
             )
         } else {
             if let closedBrowserRestoreSnapshot {

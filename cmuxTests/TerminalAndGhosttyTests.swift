@@ -460,6 +460,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(failureCount, 0)
     }
 
+    func testRemoteImageDropHandlerCleansUpMaterializedTemporaryImageAfterSuccess() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-cleanup-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .orange), forType: .png)
+
+        var uploadedURL: URL?
+
+        let handled = GhosttyNSView.handleDropForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true,
+            uploadRemote: { urls, finish in
+                uploadedURL = urls.first
+                XCTAssertEqual(urls.count, 1)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: urls[0].path))
+                finish(.success(["/tmp/cmux-drop-abc123.png"]))
+            },
+            sendText: { _ in },
+            onFailure: {}
+        )
+
+        XCTAssertTrue(handled)
+        let url = try XCTUnwrap(uploadedURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
     func testRemoteDropUploadFailureTriggersFailureHandler() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-fail-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -485,6 +510,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(uploadedURLs.count, 1)
         XCTAssertTrue(sentText.isEmpty)
         XCTAssertEqual(failureCount, 1)
+    }
+
+    func testRemoteImageDropHandlerCleansUpMaterializedTemporaryImageAfterFailure() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-handler-failure-cleanup-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setData(try make1x1PNG(color: .cyan), forType: .png)
+
+        var uploadedURL: URL?
+
+        let handled = GhosttyNSView.handleDropForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true,
+            uploadRemote: { urls, finish in
+                uploadedURL = urls.first
+                XCTAssertEqual(urls.count, 1)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: urls[0].path))
+                finish(.failure(NSError(domain: "test", code: 1)))
+            },
+            sendText: { _ in XCTFail("unexpected sendText") },
+            onFailure: {}
+        )
+
+        XCTAssertTrue(handled)
+        let url = try XCTUnwrap(uploadedURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 }
 
