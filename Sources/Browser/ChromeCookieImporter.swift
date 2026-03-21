@@ -419,20 +419,21 @@ final class ChromeCookieImporter: @unchecked Sendable {
                     return
                 }
 
-                let cookieStore = WKWebsiteDataStore.default().httpCookieStore
-                let group = DispatchGroup()
+                // WKWebsiteDataStore must be accessed on the main thread.
+                DispatchQueue.main.async {
+                    let cookieStore = WKWebsiteDataStore.default().httpCookieStore
+                    let group = DispatchGroup()
 
-                for cookie in cookies {
-                    group.enter()
-                    DispatchQueue.main.async {
+                    for cookie in cookies {
+                        group.enter()
                         cookieStore.setCookie(cookie) {
                             group.leave()
                         }
                     }
-                }
 
-                group.notify(queue: .main) {
-                    completion(ImportResult(cookieCount: cookies.count, error: nil))
+                    group.notify(queue: .main) {
+                        completion(ImportResult(cookieCount: cookies.count, error: nil))
+                    }
                 }
 
             } catch let error as ImportError {
