@@ -4,15 +4,6 @@ import CommonCrypto
 import SQLite3
 import WebKit
 
-// MARK: - Settings constants (temporary; will move to BrowserPanel.swift in Task 2)
-
-enum ChromeCookieSettings {
-    static let autoImportEnabledKey = "browserChromeCookieAutoImport"
-    static let profileKey = "browserChromeCookieProfile"
-    static let defaultAutoImportEnabled = false
-    static let defaultProfile = "Default"
-}
-
 // MARK: - ChromeCookieImporter
 
 final class ChromeCookieImporter: @unchecked Sendable {

@@ -786,6 +786,13 @@ enum BrowserInsecureHTTPSettings {
     }
 }
 
+enum ChromeCookieSettings {
+    static let autoImportEnabledKey = "browserChromeCookieAutoImport"
+    static let profileKey = "browserChromeCookieProfile"
+    static let defaultAutoImportEnabled = false
+    static let defaultProfile = "Default"
+}
+
 func browserShouldBlockInsecureHTTPURL(
     _ url: URL,
     defaults: UserDefaults = .standard
