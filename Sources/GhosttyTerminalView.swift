@@ -6204,6 +6204,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
+    private var pendingWorkspaceSwitchRedraw = false
+    private var pendingWorkspaceSwitchRedrawTrigger = "unknown"
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -7392,6 +7394,9 @@ final class GhosttySurfaceScrollView: NSView {
             }
         } else {
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            if !wasVisible {
+                scheduleWorkspaceSwitchRedraw(trigger: "visible")
+            }
         }
     }
 
@@ -7423,6 +7428,9 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         if active {
             scheduleAutomaticFirstResponderApply(reason: "setActive")
+            if !wasActive {
+                scheduleWorkspaceSwitchRedraw(trigger: "active")
+            }
         } else {
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
@@ -7789,6 +7797,73 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             self.applyFirstResponderIfNeeded()
         }
+    }
+
+    private func scheduleWorkspaceSwitchRedraw(trigger: String) {
+        pendingWorkspaceSwitchRedrawTrigger = trigger
+        guard !pendingWorkspaceSwitchRedraw else {
+#if DEBUG
+            let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+            dlog("ws.redraw.defer surface=\(surfaceShort) trigger=\(trigger) result=skip reason=pending")
+#endif
+            return
+        }
+        pendingWorkspaceSwitchRedraw = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.pendingWorkspaceSwitchRedraw = false
+            let trigger = self.pendingWorkspaceSwitchRedrawTrigger
+            self.pendingWorkspaceSwitchRedrawTrigger = "unknown"
+            self.runWorkspaceSwitchRedrawIfNeeded(trigger: trigger)
+        }
+    }
+
+    private func runWorkspaceSwitchRedrawIfNeeded(trigger: String) {
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let size = bounds.size
+        let hiddenInHierarchy = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+
+        guard surfaceView.terminalSurface != nil else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_surface")
+#endif
+            return
+        }
+        guard surfaceView.isVisibleInUI else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=not_visible")
+#endif
+            return
+        }
+        guard isActive else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=inactive")
+#endif
+            return
+        }
+        guard window != nil else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_window")
+#endif
+            return
+        }
+        guard !hiddenInHierarchy, size.width > 1, size.height > 1 else {
+#if DEBUG
+            let sizeText = String(format: "%.1fx%.1f", size.width, size.height)
+            dlog(
+                "ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip " +
+                "reason=hidden_or_tiny hidden=\(hiddenInHierarchy ? 1 : 0) frame=\(sizeText)"
+            )
+#endif
+            return
+        }
+
+#if DEBUG
+        let sizeText = String(format: "%.1fx%.1f", size.width, size.height)
+        dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=run frame=\(sizeText)")
+#endif
+        reconcileGeometryNow()
+        refreshSurfaceNow(reason: "workspace.\(trigger)")
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
