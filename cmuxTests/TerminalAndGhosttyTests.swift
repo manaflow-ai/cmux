@@ -192,6 +192,18 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    func testCleanupTransferredTemporaryImageFilesDoesNotDeleteUnownedClipboardPrefixedFile() throws {
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "clipboard-report-\(UUID().uuidString).png"
+        )
+        try Data("report".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles([fileURL])
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     func testRemoteImageDropPlanUploadsMaterializedFile() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-remote-drop-\(UUID().uuidString)"))
         pasteboard.clearContents()

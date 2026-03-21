@@ -78,6 +78,8 @@ enum GhosttyPasteboardHelper {
     private static let shellEscapeCharacters = "\\ ()[]{}<>\"'`!#$&;|*?\t"
     private static let temporaryImageFilenamePrefix = "clipboard-"
     private static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
+    private static let temporaryImageOwnershipLock = NSLock()
+    private static var ownedTemporaryImagePaths: Set<String> = []
 
     static func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
@@ -341,7 +343,7 @@ enum GhosttyPasteboardHelper {
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         let timestamp = formatter.string(from: Date())
-        let filename = "clipboard-\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
+        let filename = "\(temporaryImageFilenamePrefix)\(timestamp)-\(UUID().uuidString.prefix(8)).\(fileExtension)"
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
 
         do {
@@ -353,6 +355,7 @@ enum GhosttyPasteboardHelper {
             return nil
         }
 
+        registerOwnedTemporaryImageFile(fileURL)
         return fileURL
     }
 
@@ -368,16 +371,29 @@ enum GhosttyPasteboardHelper {
     }
 
     static func cleanupTransferredTemporaryImageFiles(_ fileURLs: [URL]) {
-        let temporaryDirectory = FileManager.default.temporaryDirectory.standardizedFileURL
         for fileURL in fileURLs {
             let normalizedURL = fileURL.standardizedFileURL
             guard normalizedURL.isFileURL,
-                  normalizedURL.deletingLastPathComponent() == temporaryDirectory,
-                  normalizedURL.lastPathComponent.hasPrefix(temporaryImageFilenamePrefix) else {
+                  consumeOwnedTemporaryImageFile(normalizedURL) else {
                 continue
             }
             try? FileManager.default.removeItem(at: normalizedURL)
         }
+    }
+
+    private static func registerOwnedTemporaryImageFile(_ fileURL: URL) {
+        let normalizedPath = fileURL.standardizedFileURL.path
+        temporaryImageOwnershipLock.lock()
+        ownedTemporaryImagePaths.insert(normalizedPath)
+        temporaryImageOwnershipLock.unlock()
+    }
+
+    private static func consumeOwnedTemporaryImageFile(_ fileURL: URL) -> Bool {
+        let normalizedPath = fileURL.standardizedFileURL.path
+        temporaryImageOwnershipLock.lock()
+        let didOwnFile = ownedTemporaryImagePaths.remove(normalizedPath) != nil
+        temporaryImageOwnershipLock.unlock()
+        return didOwnFile
     }
 }
 

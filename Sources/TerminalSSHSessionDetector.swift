@@ -167,7 +167,7 @@ struct DetectedSSHSession: Equatable {
             args += ["-o", option]
         }
 
-        args += [localPath, "\(destination):\(remotePath)"]
+        args += [localPath, "\(Self.scpRemoteDestination(destination)):\(remotePath)"]
         return args
     }
 
@@ -344,6 +344,40 @@ struct DetectedSSHSession: Equatable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    private static func scpRemoteDestination(_ destination: String) -> String {
+        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDestination.isEmpty else { return destination }
+
+        let parts = trimmedDestination.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        let userPart: String?
+        let hostPart: String
+        if parts.count == 2 {
+            userPart = String(parts[0])
+            hostPart = String(parts[1])
+        } else {
+            userPart = nil
+            hostPart = trimmedDestination
+        }
+
+        guard shouldBracketIPv6Literal(hostPart) else {
+            return trimmedDestination
+        }
+
+        let bracketedHost = "[\(hostPart)]"
+        if let userPart {
+            return "\(userPart)@\(bracketedHost)"
+        }
+        return bracketedHost
+    }
+
+    private static func shouldBracketIPv6Literal(_ host: String) -> Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedHost.isEmpty &&
+            trimmedHost.contains(":") &&
+            !trimmedHost.hasPrefix("[") &&
+            !trimmedHost.hasSuffix("]")
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
