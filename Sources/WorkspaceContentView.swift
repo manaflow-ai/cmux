@@ -205,27 +205,41 @@ struct WorkspaceContentView: View {
         defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
         defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
     ) -> GhosttyConfig {
-        var next = loadConfig()
-        let loadedBackgroundHex = next.backgroundColor.hexString()
-        let defaultBackgroundHex: String
-        let resolvedBackground: NSColor
+        let loadedConfig = loadConfig()
+        let loadedBackgroundHex = loadedConfig.backgroundColor.hexString()
+        let loadedOpacity = loadedConfig.backgroundOpacity
+        let next: GhosttyConfig
+        let runtimeBackgroundHex: String
+        let runtimeOpacity: Double
+        let chromeSource: String
 
         if let backgroundOverride {
-            resolvedBackground = backgroundOverride
-            defaultBackgroundHex = "skipped"
+            var overrideConfig = loadedConfig
+            overrideConfig.backgroundColor = backgroundOverride
+            next = overrideConfig
+            runtimeBackgroundHex = backgroundOverride.hexString()
+            runtimeOpacity = overrideConfig.backgroundOpacity
+            chromeSource = "override"
         } else {
-            let fallback = defaultBackground()
-            resolvedBackground = fallback
-            defaultBackgroundHex = fallback.hexString()
+            let runtimeBackground = defaultBackground()
+            let resolved = cmuxResolveGhosttyChromeConfig(
+                loadedConfig: loadedConfig,
+                runtimeBackgroundColor: runtimeBackground,
+                runtimeBackgroundOpacity: defaultBackgroundOpacity()
+            )
+            next = resolved
+            runtimeBackgroundHex = runtimeBackground.hexString()
+            runtimeOpacity = defaultBackgroundOpacity()
+            chromeSource =
+                resolved.backgroundColor.hexString() == loadedBackgroundHex &&
+                abs(resolved.backgroundOpacity - loadedOpacity) <= 0.0001
+                ? "loaded"
+                : "runtime"
         }
 
-        next.backgroundColor = resolvedBackground
-        // Use the runtime opacity from the Ghostty engine, which may differ from the
-        // file-level value parsed by GhosttyConfig.load().
-        next.backgroundOpacity = defaultBackgroundOpacity()
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(
-                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) overrideBg=\(backgroundOverride?.hexString() ?? "nil") defaultBg=\(defaultBackgroundHex) finalBg=\(next.backgroundColor.hexString()) opacity=\(String(format: "%.3f", next.backgroundOpacity)) theme=\(next.theme ?? "nil")"
+                "theme resolve reason=\(reason) loadedBg=\(loadedBackgroundHex) loadedOpacity=\(String(format: "%.3f", loadedOpacity)) overrideBg=\(backgroundOverride?.hexString() ?? "nil") runtimeBg=\(runtimeBackgroundHex) runtimeOpacity=\(String(format: "%.3f", runtimeOpacity)) finalBg=\(next.backgroundColor.hexString()) finalOpacity=\(String(format: "%.3f", next.backgroundOpacity)) chromeSource=\(chromeSource) theme=\(next.theme ?? "nil")"
             )
         }
         return next
@@ -248,7 +262,8 @@ struct WorkspaceContentView: View {
         let payloadLabel = notificationPayloadHex ?? "nil"
         let backgroundChanged = previousBackgroundHex != next.backgroundColor.hexString()
         let opacityChanged = abs(config.backgroundOpacity - next.backgroundOpacity) > 0.0001
-        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || reason == "onAppear"
+        let blurChanged = config.backgroundBlur != next.backgroundBlur
+        let shouldRequestTitlebarRefresh = backgroundChanged || opacityChanged || blurChanged || reason == "onAppear"
         logTheme(
             "theme refresh begin workspace=\(workspace.id.uuidString) reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousBg=\(previousBackgroundHex) nextBg=\(next.backgroundColor.hexString()) overrideBg=\(backgroundOverride?.hexString() ?? "nil")"
         )

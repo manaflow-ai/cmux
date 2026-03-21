@@ -43,8 +43,17 @@ enum GhosttyBackgroundTheme {
         CGFloat(max(0.0, min(1.0, opacity)))
     }
 
+    static func compositedChromeOpacity(_ opacity: Double) -> CGFloat {
+        let alpha = clampedOpacity(opacity)
+        return alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+    }
+
     static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
         backgroundColor.withAlphaComponent(clampedOpacity(opacity))
+    }
+
+    static func compositedChromeColor(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        backgroundColor.withAlphaComponent(compositedChromeOpacity(opacity))
     }
 
     static func color(

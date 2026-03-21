@@ -48,16 +48,14 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+          if compgen -G "/Applications/Xcode_*.app" >/dev/null 2>&1; then
+            XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1)"
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          elif [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
             XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
           else
-            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
+            echo "No Xcode.app found under /Applications" >&2
+            exit 1
           fi
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
@@ -217,9 +215,7 @@ jobs:
             clang -framework Foundation -framework CoreGraphics \
               -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-            cat >"$MANIFEST_PATH" <<EOF
-            {"helperBinaryPath":"$HELPER_PATH"}
-            EOF
+            printf '{"helperBinaryPath":"%s"}\n' "$HELPER_PATH" >"$MANIFEST_PATH"
           fi
 
           # Start recording right before the test (after build/resolve).

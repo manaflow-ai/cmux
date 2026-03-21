@@ -141,6 +141,20 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
 
+    func testParseBackgroundBlurReadsMacOSGlassValue() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = macos-glass-regular")
+        XCTAssertEqual(config.backgroundBlur, .macosGlassRegular)
+        XCTAssertTrue(config.backgroundBlur.isGlassStyle)
+    }
+
+    func testParseBackgroundBlurTreatsNumericRadiusAsEnabled() {
+        var config = GhosttyConfig()
+        config.parse("background-blur = 24")
+        XCTAssertEqual(config.backgroundBlur, .enabled)
+        XCTAssertFalse(config.backgroundBlur.isGlassStyle)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")
@@ -695,6 +709,56 @@ final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
     }
 }
 
+final class MainWindowTitlebarOpacityTests: XCTestCase {
+    func testUsesCompositedOpacityForTranslucentBackground() {
+        XCTAssertEqual(
+            cmuxMainWindowTitlebarOpacity(backgroundOpacity: 0.57),
+            1.0 - pow(1.0 - 0.57, 2),
+            accuracy: 0.0001
+        )
+    }
+
+    func testKeepsOpaqueBackgroundOpaque() {
+        XCTAssertEqual(
+            cmuxMainWindowTitlebarOpacity(backgroundOpacity: 1.0),
+            1.0,
+            accuracy: 0.0001
+        )
+    }
+}
+
+final class GhosttyChromeConfigResolutionTests: XCTestCase {
+    func testPrefersLoadedThemeWhenRuntimeBackgroundBecomesClear() {
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = NSColor(hex: "#272822")!
+        loaded.backgroundOpacity = 0.8
+
+        let resolved = cmuxResolveGhosttyChromeConfig(
+            loadedConfig: loaded,
+            runtimeBackgroundColor: NSColor(hex: "#000004")!,
+            runtimeBackgroundOpacity: 0.0
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#272822")
+        XCTAssertEqual(resolved.backgroundOpacity, 0.8, accuracy: 0.0001)
+    }
+
+    func testUsesRuntimeBackgroundWhenRuntimeOpacityIsVisible() {
+        var loaded = GhosttyConfig()
+        loaded.backgroundColor = NSColor(hex: "#272822")!
+        loaded.backgroundOpacity = 0.8
+
+        let resolved = cmuxResolveGhosttyChromeConfig(
+            loadedConfig: loaded,
+            runtimeBackgroundColor: NSColor(hex: "#112233")!,
+            runtimeBackgroundOpacity: 0.42
+        )
+
+        XCTAssertEqual(resolved.backgroundColor.hexString(), "#112233")
+        XCTAssertEqual(resolved.backgroundOpacity, 0.42, accuracy: 0.0001)
+    }
+}
+
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
     func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
@@ -706,7 +770,7 @@ final class WorkspaceChromeColorTests: XCTestCase {
         )
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, "#112233BF")
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {

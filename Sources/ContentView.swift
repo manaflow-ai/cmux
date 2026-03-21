@@ -320,6 +320,44 @@ struct TitlebarLayerBackground: NSViewRepresentable {
     }
 }
 
+func cmuxMainWindowTitlebarOpacity(
+    backgroundOpacity: Double
+) -> CGFloat {
+    GhosttyBackgroundTheme.compositedChromeOpacity(backgroundOpacity)
+}
+
+func cmuxResolveGhosttyChromeConfig(
+    loadedConfig: GhosttyConfig,
+    runtimeBackgroundColor: NSColor,
+    runtimeBackgroundOpacity: Double
+) -> GhosttyConfig {
+    let runtimeOpacity = GhosttyBackgroundTheme.clampedOpacity(runtimeBackgroundOpacity)
+    let loadedOpacity = GhosttyBackgroundTheme.clampedOpacity(loadedConfig.backgroundOpacity)
+
+    // Newer Ghostty builds can drive the window background fully clear at runtime for
+    // translucent terminals. That clear backing color should not replace cmux chrome.
+    guard runtimeOpacity > 0.001 || loadedOpacity <= 0.001 else {
+        return loadedConfig
+    }
+
+    var resolved = loadedConfig
+    resolved.backgroundColor = runtimeBackgroundColor
+    resolved.backgroundOpacity = runtimeBackgroundOpacity
+    return resolved
+}
+
+func cmuxResolveGhosttyChromeConfig(
+    loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
+    runtimeBackgroundColor: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
+    runtimeBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
+) -> GhosttyConfig {
+    cmuxResolveGhosttyChromeConfig(
+        loadedConfig: loadConfig(),
+        runtimeBackgroundColor: runtimeBackgroundColor(),
+        runtimeBackgroundOpacity: runtimeBackgroundOpacity()
+    )
+}
+
 final class SidebarState: ObservableObject {
     @Published var isVisible: Bool
     @Published var persistedWidth: CGFloat
@@ -1457,6 +1495,7 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackTask: Task<Void, Never>?
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
+    @State private var titlebarThemeConfig = cmuxResolveGhosttyChromeConfig()
     @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseWorkItem: DispatchWorkItem?
@@ -2183,8 +2222,7 @@ struct ContentView: View {
     @State private var titlebarLeadingInset: CGFloat = 12
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var fakeTitlebarTextColor: Color {
-        _ = titlebarThemeGeneration
-        let ghosttyBackground = GhosttyApp.shared.defaultBackgroundColor
+        let ghosttyBackground = titlebarThemeConfig.backgroundColor
         return ghosttyBackground.isLightColor
             ? Color.black.opacity(0.78)
             : Color.white.opacity(0.82)
@@ -2242,14 +2280,11 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .background({
-            // The terminal area has two stacked semi-transparent layers: the Bonsplit
-            // container chrome background plus Ghostty's own Metal-rendered background.
-            // Compute the effective composited opacity so the titlebar matches visually.
-            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return TitlebarLayerBackground(
-                backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                opacity: effective
+                backgroundColor: titlebarThemeConfig.backgroundColor,
+                opacity: cmuxMainWindowTitlebarOpacity(
+                    backgroundOpacity: titlebarThemeConfig.backgroundOpacity
+                )
             )
         }())
         .overlay(alignment: .bottom) {
@@ -2408,6 +2443,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
+            titlebarThemeConfig = cmuxResolveGhosttyChromeConfig()
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -2529,9 +2565,10 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
+            titlebarThemeConfig = cmuxResolveGhosttyChromeConfig()
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
-                "titlebar theme refresh applied oldGeneration=\(oldValue) generation=\(newValue) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+                "titlebar theme refresh applied oldGeneration=\(oldValue) generation=\(newValue) titlebarBg=\(titlebarThemeConfig.backgroundColor.hexString()) titlebarOpacity=\(String(format: "%.3f", titlebarThemeConfig.backgroundOpacity)) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
             )
         })
 

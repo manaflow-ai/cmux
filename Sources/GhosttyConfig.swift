@@ -7,6 +7,44 @@ struct GhosttyConfig {
         case dark
     }
 
+    enum BackgroundBlur: Hashable {
+        case disabled
+        case enabled
+        case macosGlassRegular
+        case macosGlassClear
+
+        var isGlassStyle: Bool {
+            switch self {
+            case .macosGlassRegular, .macosGlassClear:
+                return true
+            case .disabled, .enabled:
+                return false
+            }
+        }
+
+        static func parse(_ rawValue: String) -> Self? {
+            let normalized = rawValue
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            switch normalized {
+            case "false", "0", "off", "disabled":
+                return .disabled
+            case "true", "1", "on":
+                return .enabled
+            case "macos-glass-regular":
+                return .macosGlassRegular
+            case "macos-glass-clear":
+                return .macosGlassClear
+            default:
+                if Double(normalized) != nil {
+                    return .enabled
+                }
+                return nil
+            }
+        }
+    }
+
     private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
@@ -23,6 +61,7 @@ struct GhosttyConfig {
     // Colors (from theme or config)
     var backgroundColor: NSColor = NSColor(hex: "#272822")!
     var backgroundOpacity: Double = 1.0
+    var backgroundBlur: BackgroundBlur = .disabled
     var foregroundColor: NSColor = NSColor(hex: "#fdfff1")!
     var cursorColor: NSColor = NSColor(hex: "#c0c1b5")!
     var cursorTextColor: NSColor = NSColor(hex: "#8d8e82")!
@@ -257,6 +296,10 @@ struct GhosttyConfig {
                 case "background-opacity":
                     if let opacity = Double(value) {
                         backgroundOpacity = opacity
+                    }
+                case "background-blur":
+                    if let blur = BackgroundBlur.parse(value) {
+                        backgroundBlur = blur
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {

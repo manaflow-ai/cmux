@@ -1808,6 +1808,97 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
     }
 
+    func testPendingGhosttyStartSearchFallbackCreatesSearchStateWhenCallbackDoesNotArrive() {
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        surface.requestGhosttySearchActivation(.startSearch)
+
+        var focusNotificationCount = 0
+        cmuxApplyPendingGhosttyStartSearchFallbackIfNeeded(surface) { _ in
+            focusNotificationCount += 1
+        }
+
+        XCTAssertNotNil(surface.searchState)
+        XCTAssertNil(surface.consumeGhosttySearchActivationRequest())
+        XCTAssertEqual(
+            focusNotificationCount,
+            1,
+            "Explicit Find requests should still open a search state if Ghostty never calls back"
+        )
+    }
+
+    func testGhosttyStartSearchIgnoresEmptyUnsolicitedRequests() {
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: false,
+                pendingRequest: nil,
+                needle: nil
+            ),
+            .ignore
+        )
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: false,
+                pendingRequest: nil,
+                needle: ""
+            ),
+            .ignore
+        )
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: false,
+                pendingRequest: nil,
+                needle: "needle"
+            ),
+            .ignore
+        )
+    }
+
+    func testGhosttyStartSearchCreatesEmptyStateForExplicitOpenRequest() {
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: false,
+                pendingRequest: .startSearch,
+                needle: nil
+            ),
+            .createEmpty
+        )
+    }
+
+    func testGhosttyStartSearchCreatesNeedleStateForSelectionRequest() {
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: false,
+                pendingRequest: .searchSelection,
+                needle: "term"
+            ),
+            .createWithNeedle("term")
+        )
+    }
+
+    func testGhosttyStartSearchUpdatesExistingStateWhenNeedleArrives() {
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: true,
+                pendingRequest: nil,
+                needle: "term"
+            ),
+            .updateExistingNeedle("term")
+        )
+        XCTAssertEqual(
+            cmuxResolveGhosttyStartSearch(
+                existingSearchState: true,
+                pendingRequest: nil,
+                needle: nil
+            ),
+            .focusExisting
+        )
+    }
+
     func testEscapeDismissingFindOverlayDoesNotLeakEscapeKeyUpToTerminal() {
         _ = NSApplication.shared
 

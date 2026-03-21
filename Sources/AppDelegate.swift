@@ -1769,15 +1769,18 @@ func startOrFocusTerminalSearch(
         return true
     }
 
+    terminalSurface.requestGhosttySearchActivation(.startSearch)
     if terminalSurface.performBindingAction("start_search") {
-        DispatchQueue.main.async { [weak terminalSurface] in
-            guard let terminalSurface, terminalSurface.searchState == nil else { return }
-            terminalSurface.searchState = TerminalSurface.SearchState()
-            searchFocusNotifier(terminalSurface)
+        DispatchQueue.main.async {
+            cmuxApplyPendingGhosttyStartSearchFallbackIfNeeded(
+                terminalSurface,
+                searchFocusNotifier: searchFocusNotifier
+            )
         }
         return true
     }
 
+    terminalSurface.clearGhosttySearchActivationRequest()
     terminalSurface.searchState = TerminalSurface.SearchState()
     searchFocusNotifier(terminalSurface)
     return true
@@ -2076,6 +2079,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
+    private var didSetupAutomationSocketStressUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
     private struct UITestRenderDiagnosticsSnapshot {
@@ -2459,6 +2463,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return object
     }
 
+    private func updateUITestDiagnosticsIfNeeded(_ updates: [String: String]) {
+        let env = ProcessInfo.processInfo.environment
+        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
+
+        var payload = loadUITestDiagnostics(at: path)
+        for (key, value) in updates {
+            payload[key] = value
+        }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
     private func appendUITestSocketDiagnosticsIfNeeded(
         _ payload: inout [String: String],
         environment env: [String: String]
@@ -2679,6 +2696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupGotoSplitUITestIfNeeded()
         setupBonsplitTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
+        setupAutomationSocketStressUITestIfNeeded(tabManager: tabManager)
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
 
         // UI tests sometimes don't run SwiftUI `.onAppear` soon enough (or at all) on the VM.
@@ -2731,6 +2749,232 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
             }
         }
+    }
+
+    private func setupAutomationSocketStressUITestIfNeeded(tabManager: TabManager) {
+        guard !didSetupAutomationSocketStressUITest else { return }
+        didSetupAutomationSocketStressUITest = true
+
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_AUTOMATION_SOCKET_STRESS"] == "1" else { return }
+
+        updateUITestDiagnosticsIfNeeded([
+            "automationSocketStressStatus": "waiting",
+            "automationSocketStressDone": "0",
+            "automationSocketStressIterationsCompleted": "0",
+            "automationSocketStressTrace": "scheduled",
+        ])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.runAutomationSocketStressUITestAttempt(tabManager: tabManager, remainingAttempts: 40)
+        }
+    }
+
+    private func runAutomationSocketStressUITestAttempt(tabManager: TabManager, remainingAttempts: Int) {
+        let env = ProcessInfo.processInfo.environment
+        guard env["CMUX_UI_TEST_AUTOMATION_SOCKET_STRESS"] == "1" else { return }
+
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            finishAutomationSocketStressAttempt(
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts,
+                status: "waiting",
+                trace: ["socket_disabled"]
+            )
+            return
+        }
+
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
+        let pingResponse = health.isHealthy
+            ? TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+            : nil
+
+        guard health.isHealthy, pingResponse == "PONG" else {
+            finishAutomationSocketStressAttempt(
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts,
+                status: "waiting",
+                trace: [
+                    "socket=\(socketPath)",
+                    "isHealthy=\(health.isHealthy ? "1" : "0")",
+                    "ping=\(pingResponse ?? "<nil>")",
+                ]
+            )
+            return
+        }
+
+        let workspaceListResponse = TerminalController.probeSocketCommand(
+            "list_workspaces",
+            at: socketPath,
+            timeout: 1.0
+        )
+        guard let workspaceId = automationSocketStressPrimaryId(from: workspaceListResponse) else {
+            finishAutomationSocketStressAttempt(
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts,
+                status: "waiting",
+                trace: [
+                    "socket=\(socketPath)",
+                    "ping=PONG",
+                    "workspaces=\(workspaceListResponse ?? "<nil>")",
+                ]
+            )
+            return
+        }
+
+        let surfaceListResponse = TerminalController.probeSocketCommand(
+            "list_surfaces \(workspaceId)",
+            at: socketPath,
+            timeout: 1.0
+        )
+        guard let surfaceId = automationSocketStressPrimaryId(from: surfaceListResponse) else {
+            finishAutomationSocketStressAttempt(
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts,
+                status: "waiting",
+                trace: [
+                    "socket=\(socketPath)",
+                    "ping=PONG",
+                    "workspace=\(workspaceId)",
+                    "workspaces=\(workspaceListResponse ?? "<nil>")",
+                    "surfaces=\(surfaceListResponse ?? "<nil>")",
+                ]
+            )
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.performAutomationSocketStressLoop(
+                socketPath: socketPath,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                baselineListResponse: surfaceListResponse
+            )
+        }
+    }
+
+    private func finishAutomationSocketStressAttempt(
+        tabManager: TabManager,
+        remainingAttempts: Int,
+        status: String,
+        trace: [String]
+    ) {
+        updateUITestDiagnosticsIfNeeded([
+            "automationSocketStressStatus": status,
+            "automationSocketStressDone": "0",
+            "automationSocketStressIterationsCompleted": "0",
+            "automationSocketStressTrace": trace.joined(separator: " | "),
+        ])
+
+        guard remainingAttempts > 1 else {
+            updateUITestDiagnosticsIfNeeded([
+                "automationSocketStressStatus": "failed",
+                "automationSocketStressDone": "1",
+                "automationSocketStressIterationsCompleted": "0",
+                "automationSocketStressTrace": trace.joined(separator: " | "),
+            ])
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.runAutomationSocketStressUITestAttempt(
+                tabManager: tabManager,
+                remainingAttempts: remainingAttempts - 1
+            )
+        }
+    }
+
+    private func performAutomationSocketStressLoop(
+        socketPath: String,
+        workspaceId: String,
+        surfaceId: String,
+        baselineListResponse: String?
+    ) {
+        var trace: [String] = [
+            "socket=\(socketPath)",
+            "workspace=\(workspaceId)",
+            "surface=\(surfaceId)",
+            "baseline.list=\(baselineListResponse ?? "<nil>")",
+        ]
+
+        for iteration in 1...8 {
+            let pingBefore = TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+            let sendResponse = TerminalController.probeSocketCommand(
+                "send_key_surface \(surfaceId) enter",
+                at: socketPath,
+                timeout: 2.0
+            )
+            let pingAfter = TerminalController.probeSocketCommand("ping", at: socketPath, timeout: 1.0)
+            let listResponse = TerminalController.probeSocketCommand(
+                "list_surfaces \(workspaceId)",
+                at: socketPath,
+                timeout: 2.0
+            )
+
+            trace.append(
+                "iteration\(iteration)=pingBefore:\(pingBefore ?? "<nil>"),send:\(sendResponse ?? "<nil>"),pingAfter:\(pingAfter ?? "<nil>"),list:\(listResponse ?? "<nil>")"
+            )
+
+            guard pingBefore == "PONG",
+                  sendResponse == "OK",
+                  pingAfter == "PONG",
+                  automationSocketStressListResponse(listResponse, containsSurface: surfaceId) else {
+                updateUITestDiagnosticsIfNeeded([
+                    "automationSocketStressStatus": "failed",
+                    "automationSocketStressDone": "1",
+                    "automationSocketStressIterationsCompleted": String(iteration - 1),
+                    "automationSocketStressTrace": trace.joined(separator: " | "),
+                ])
+                return
+            }
+        }
+
+        updateUITestDiagnosticsIfNeeded([
+            "automationSocketStressStatus": "passed",
+            "automationSocketStressDone": "1",
+            "automationSocketStressIterationsCompleted": "8",
+            "automationSocketStressTrace": trace.joined(separator: " | "),
+        ])
+    }
+
+    private func automationSocketStressListResponse(_ response: String?, containsSurface surfaceId: String) -> Bool {
+        guard let response, !response.isEmpty, response != "No surfaces" else { return false }
+        return response.contains(surfaceId)
+    }
+
+    private func automationSocketStressPrimaryId(from response: String?) -> String? {
+        let entries = automationSocketStressListEntries(from: response)
+        return entries.first(where: \.isSelected)?.id ?? entries.first?.id
+    }
+
+    private func automationSocketStressListEntries(from response: String?) -> [(id: String, isSelected: Bool)] {
+        guard let response,
+              !response.isEmpty,
+              !response.hasPrefix("ERROR:"),
+              response != "No workspaces",
+              response != "No surfaces" else {
+            return []
+        }
+
+        return response
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { rawLine in
+                var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty else { return nil }
+
+                let isSelected = line.hasPrefix("*")
+                if line.hasPrefix("* ") || line.hasPrefix("  ") {
+                    line = String(line.dropFirst(2))
+                }
+
+                let parts = line.split(whereSeparator: \.isWhitespace)
+                guard parts.count >= 2 else { return nil }
+
+                let id = String(parts[1])
+                guard UUID(uuidString: id) != nil else { return nil }
+                return (id: id, isSelected: isSelected)
+            }
     }
 
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
