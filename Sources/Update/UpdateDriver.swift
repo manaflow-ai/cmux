@@ -85,10 +85,16 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
+        if usesStandardPresentation {
+            standard.showUpdateReleaseNotes(with: downloadData)
+        }
         // cmux uses Sparkle's UI for release notes links instead.
     }
 
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {
+        if usesStandardPresentation {
+            standard.showUpdateReleaseNotesFailedToDownloadWithError(error)
+        }
         // Release notes are handled via link buttons.
     }
 
@@ -103,6 +109,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
             return
         }
+        clearActiveUserInitiatedCheckPresentation()
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
 
@@ -118,6 +125,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
             }
             return
         }
+        clearActiveUserInitiatedCheckPresentation()
         setState(.error(.init(
             error: error,
             retry: { [weak viewModel] in
@@ -324,6 +332,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard case .checking = self.viewModel.state else { return }
+            self.clearActiveUserInitiatedCheckPresentation()
             self.setState(.notFound(.init(acknowledgement: {})))
         }
         checkTimeoutWorkItem = workItem
@@ -372,6 +381,12 @@ class UpdateDriver: NSObject, SPUUserDriver {
     func finishUserInitiatedCheckPresentation() {
         runOnMain { [weak self] in
             self?.pendingUserInitiatedCheckPresentation = nil
+            self?.activeUserInitiatedCheckPresentation = nil
+        }
+    }
+
+    private func clearActiveUserInitiatedCheckPresentation() {
+        runOnMain { [weak self] in
             self?.activeUserInitiatedCheckPresentation = nil
         }
     }
