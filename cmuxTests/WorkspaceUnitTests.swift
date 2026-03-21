@@ -1314,6 +1314,180 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
 
 @MainActor
+final class WorkspaceTerminalZoomInheritanceTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 360),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func attachAndWaitForRuntimeSurface(
+        _ panel: TerminalPanel,
+        frame: NSRect,
+        in window: NSWindow,
+        testCase: XCTestCase
+    ) {
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        panel.hostedView.frame = frame
+        panel.hostedView.setVisibleInUI(true)
+        contentView.addSubview(panel.hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        if panel.surface.surface != nil {
+            drainMainQueue()
+            return
+        }
+
+        let ready = testCase.expectation(description: "terminal surface ready \(panel.id)")
+        var observer: NSObjectProtocol?
+        observer = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: panel.surface,
+            queue: .main
+        ) { _ in
+            ready.fulfill()
+        }
+
+        defer {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        wait(for: [ready], timeout: 5.0)
+        drainMainQueue()
+    }
+
+    func testNewTerminalSplitPreservesRememberedZoomFromLiveSourceSurface() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept font-size binding action"
+        )
+        drainMainQueue()
+        workspace.focusPanel(sourcePanel.id)
+        drainMainQueue()
+
+        let rememberedSourceZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertNotNil(
+            rememberedSourceZoom,
+            "Expected focusing the live source terminal to cache a zoom value for inheritance"
+        )
+        XCTAssertEqual(
+            Double(rememberedSourceZoom ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected focusing the live source terminal to cache its current zoom for inheritance"
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(from: sourcePanel.id, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            splitPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        workspace.focusPanel(splitPanel.id)
+        drainMainQueue()
+
+        let rememberedSplitZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertNotNil(
+            rememberedSplitZoom,
+            "Expected split creation to preserve a remembered zoom value from the live source terminal"
+        )
+        XCTAssertEqual(
+            Double(rememberedSplitZoom ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected split creation to preserve the remembered zoom from the live source terminal"
+        )
+    }
+
+    func testNewTerminalSplitPreservesLatestZoomWithoutRefocusingSourcePanel() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept font-size binding action"
+        )
+        drainMainQueue()
+
+        guard let splitPanel = workspace.newTerminalSplit(from: sourcePanel.id, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            splitPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        workspace.focusPanel(splitPanel.id)
+        drainMainQueue()
+
+        let rememberedSplitZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertNotNil(
+            rememberedSplitZoom,
+            "Expected split creation to preserve the latest zoom even when the source terminal was already focused"
+        )
+        XCTAssertEqual(
+            Double(rememberedSplitZoom ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected split creation to use the latest live zoom without requiring a refocus first"
+        )
+    }
+}
+
+
+@MainActor
 final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
     private final class RejectingCreateTabDelegate: BonsplitDelegate {
         func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
