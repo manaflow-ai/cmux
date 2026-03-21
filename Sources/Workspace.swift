@@ -4005,14 +4005,15 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        guard let repoRoot = Self.findRepoRoot() else {
+        let repoRoot = Self.findRepoRoot()
+        guard let daemonRoot = Self.remoteDaemonSourceRoot() else {
+            if let repoRoot {
+                throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
+                    NSLocalizedDescriptionKey: "cannot locate local cmuxd-remote source directory from \(repoRoot.path)",
+                ])
+            }
             throw NSError(domain: "cmux.remote.daemon", code: 20, userInfo: [
                 NSLocalizedDescriptionKey: "cannot locate cmux repo root for dev-only cmuxd-remote build fallback",
-            ])
-        }
-        guard let daemonRoot = Self.remoteDaemonSourceRoot(repoRoot: repoRoot) else {
-            throw NSError(domain: "cmux.remote.daemon", code: 21, userInfo: [
-                NSLocalizedDescriptionKey: "cannot locate local cmuxd-remote source directory from \(repoRoot.path)",
             ])
         }
         let goModPath = daemonRoot.appendingPathComponent("go.mod").path
@@ -4465,10 +4466,6 @@ final class WorkspaceRemoteSessionController {
 
     private static func findRepoRoot() -> URL? {
         var candidates: [URL] = []
-        let compileTimePath = URL(fileURLWithPath: #filePath)
-        candidates.append(compileTimePath.deletingLastPathComponent())
-        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent())
-        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
         let environment = ProcessInfo.processInfo.environment
         if let envRoot = environment["CMUX_REMOTE_DAEMON_SOURCE_ROOT"],
            !envRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -4482,6 +4479,10 @@ final class WorkspaceRemoteSessionController {
            !envRoot.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             candidates.append(URL(fileURLWithPath: envRoot, isDirectory: true))
         }
+        let compileTimePath = URL(fileURLWithPath: #filePath)
+        candidates.append(compileTimePath.deletingLastPathComponent())
+        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent())
+        candidates.append(compileTimePath.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
         candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true))
         if let executable = Bundle.main.executableURL?.deletingLastPathComponent() {
             candidates.append(executable)

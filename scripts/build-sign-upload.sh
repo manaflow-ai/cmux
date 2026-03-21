@@ -204,7 +204,7 @@ cask "cmux" do
   ]
 end
 CASKEOF
-    cd "$CMUX_HOMEBREW_TAP_DIR"
+    pushd "$CMUX_HOMEBREW_TAP_DIR" >/dev/null
     git add Casks/cmux.rb
     if git diff --staged --quiet; then
       echo "Homebrew cask already up to date"
@@ -213,7 +213,7 @@ CASKEOF
       git push
       echo "Homebrew cask updated"
     fi
-    cd ..
+    popd >/dev/null
   else
     echo "WARNING: homebrew tap submodule not found at $CMUX_HOMEBREW_TAP_DIR, skipping cask update"
   fi
