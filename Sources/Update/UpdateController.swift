@@ -199,18 +199,23 @@ class UpdateController {
                 self.stopAttemptUpdateMonitoring()
             }
 
-        checkForUpdates()
+        requestCheckForUpdates(presentation: .custom)
     }
 
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
-        UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
-        checkForUpdatesWhenReady(retries: readyRetryCount)
+        requestCheckForUpdates(presentation: .dialog)
     }
 
-    private func performCheckForUpdates() {
+    private func requestCheckForUpdates(presentation: UpdateUserInitiatedCheckPresentation) {
+        UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"), presentation=\(presentation == .dialog ? "dialog" : "custom"))")
+        checkForUpdatesWhenReady(retries: readyRetryCount, presentation: presentation)
+    }
+
+    private func performCheckForUpdates(presentation: UpdateUserInitiatedCheckPresentation) {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
+        userDriver.prepareForUserInitiatedCheck(presentation: presentation)
         if viewModel.state == .idle {
             updater.checkForUpdates()
             return
@@ -220,12 +225,13 @@ class UpdateController {
         viewModel.state.cancel()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
+            self?.userDriver.prepareForUserInitiatedCheck(presentation: presentation)
             self?.updater.checkForUpdates()
         }
     }
 
     /// Check for updates once the updater is ready (used by UI tests).
-    func checkForUpdatesWhenReady(retries: Int = 10) {
+    func checkForUpdatesWhenReady(retries: Int = 10, presentation: UpdateUserInitiatedCheckPresentation = .dialog) {
         readyCheckWorkItem?.cancel()
         readyCheckWorkItem = nil
         startUpdaterIfNeeded()
@@ -233,7 +239,7 @@ class UpdateController {
         let canCheck = updater.canCheckForUpdates
         UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
-            performCheckForUpdates()
+            performCheckForUpdates(presentation: presentation)
             return
         }
         if viewModel.state.isIdle {
@@ -248,14 +254,14 @@ class UpdateController {
                         code: 1,
                         userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
                     ),
-                    retry: { [weak self] in self?.checkForUpdates() },
+                    retry: { [weak self] in self?.requestCheckForUpdates(presentation: presentation) },
                     dismiss: { [weak self] in self?.viewModel.state = .idle }
                 ))
             }
             return
         }
         let workItem = DispatchWorkItem { [weak self] in
-            self?.checkForUpdatesWhenReady(retries: retries - 1)
+            self?.checkForUpdatesWhenReady(retries: retries - 1, presentation: presentation)
         }
         readyCheckWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + readyRetryDelay, execute: workItem)
