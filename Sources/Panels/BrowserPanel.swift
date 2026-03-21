@@ -1277,6 +1277,24 @@ final class BrowserHistoryStore: ObservableObject {
         try? Self.persistSnapshot(entries, to: fileURL)
     }
 
+    /// Merges imported history entries, skipping URLs that already exist.
+    /// Called by ChromeCookieImporter on the main thread.
+    func mergeImportedEntries(_ imported: [Entry]) {
+        loadIfNeeded()
+        let existingURLs = Set(entries.map { $0.url })
+        var added = 0
+        for entry in imported where !existingURLs.contains(entry.url) {
+            entries.append(entry)
+            added += 1
+        }
+        guard added > 0 else { return }
+        entries.sort(by: { $0.lastVisited > $1.lastVisited })
+        if entries.count > maxEntries {
+            entries.removeLast(entries.count - maxEntries)
+        }
+        scheduleSave()
+    }
+
     private func scheduleSave() {
         guard let fileURL else { return }
 

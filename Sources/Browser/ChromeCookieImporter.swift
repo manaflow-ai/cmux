@@ -412,9 +412,99 @@ final class ChromeCookieImporter: @unchecked Sendable {
         return (unixSeconds + Self.chromeEpochOffset) * 1_000_000
     }
 
-    // MARK: - Step 5: Public import API
+    // MARK: - Chrome history import
 
-    /// Imports Chrome cookies into WKWebView's default cookie store.
+    /// Path to Chrome's History SQLite database for a given profile.
+    private static func historyDBPath(profile: String) -> String {
+        "\(chromeAppSupportPath)/\(profile)/History"
+    }
+
+    /// Reads browsing history from Chrome's History SQLite database.
+    /// Copies the file to a temp location first because Chrome holds an exclusive lock.
+    private static func readHistory(profile: String) throws -> [BrowserHistoryStore.Entry] {
+        let srcPath = historyDBPath(profile: profile)
+        guard FileManager.default.fileExists(atPath: srcPath) else {
+            return []
+        }
+
+        // Chrome locks the History file exclusively. Copy to temp to read safely.
+        let tmpPath = NSTemporaryDirectory() + "cmux-chrome-history-\(UUID().uuidString).db"
+        defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+
+        do {
+            try FileManager.default.copyItem(atPath: srcPath, toPath: tmpPath)
+        } catch {
+            NSLog("[ChromeCookieImporter] failed to copy History DB: \(error)")
+            return []
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(tmpPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK,
+              let db = db else {
+            sqlite3_close(db)
+            return []
+        }
+        defer { sqlite3_close(db) }
+
+        let query = """
+            SELECT url, title, visit_count, typed_count, last_visit_time
+            FROM urls
+            WHERE hidden = 0 AND visit_count > 0
+            ORDER BY last_visit_time DESC
+            LIMIT 5000
+            """
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, query, -1, &stmt, nil) == SQLITE_OK else {
+            return []
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var entries: [BrowserHistoryStore.Entry] = []
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let urlCStr = sqlite3_column_text(stmt, 0) else { continue }
+            let urlString = String(cString: urlCStr)
+
+            // Skip non-HTTP(S) URLs
+            guard urlString.hasPrefix("http://") || urlString.hasPrefix("https://") else {
+                continue
+            }
+
+            let title: String?
+            if let titleCStr = sqlite3_column_text(stmt, 1) {
+                let t = String(cString: titleCStr)
+                title = t.isEmpty ? nil : t
+            } else {
+                title = nil
+            }
+
+            let visitCount = Int(sqlite3_column_int(stmt, 2))
+            let typedCount = Int(sqlite3_column_int(stmt, 3))
+            let lastVisitTime = sqlite3_column_int64(stmt, 4)
+
+            // Convert Chrome timestamp to Date
+            let unixSeconds = TimeInterval(lastVisitTime / 1_000_000) - TimeInterval(chromeEpochOffset)
+            let lastVisited = Date(timeIntervalSince1970: unixSeconds)
+
+            let entry = BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: urlString,
+                title: title,
+                lastVisited: lastVisited,
+                visitCount: visitCount,
+                typedCount: typedCount
+            )
+            entries.append(entry)
+        }
+
+        return entries
+    }
+
+    // MARK: - Public import API
+
+    /// Imports Chrome cookies into WKWebView's default cookie store and Chrome history
+    /// into BrowserHistoryStore.
     ///
     /// Reads the target profile from `UserDefaults` (key: `ChromeCookieSettings.profileKey`),
     /// falling back to `"Default"`. Runs on a background queue; completion is called on main thread.
@@ -438,15 +528,24 @@ final class ChromeCookieImporter: @unchecked Sendable {
                 let cookies = try readCookies(profile: targetProfile, key: key)
                 NSLog("[ChromeCookieImporter] read \(cookies.count) cookies from Chrome profile '\(targetProfile)'")
 
-                guard !cookies.isEmpty else {
-                    DispatchQueue.main.async {
-                        completion(ImportResult(cookieCount: 0, error: nil))
-                    }
-                    return
+                // Import history (best-effort, don't fail the whole import if this errors)
+                let historyEntries = (try? readHistory(profile: targetProfile)) ?? []
+                if !historyEntries.isEmpty {
+                    NSLog("[ChromeCookieImporter] read \(historyEntries.count) history entries from Chrome")
                 }
 
-                // WKWebsiteDataStore must be accessed on the main thread.
+                // WKWebsiteDataStore and BrowserHistoryStore must be accessed on the main thread.
                 DispatchQueue.main.async {
+                    // Merge Chrome history into BrowserHistoryStore
+                    if !historyEntries.isEmpty {
+                        BrowserHistoryStore.shared.mergeImportedEntries(historyEntries)
+                    }
+
+                    guard !cookies.isEmpty else {
+                        completion(ImportResult(cookieCount: 0, error: nil))
+                        return
+                    }
+
                     let cookieStore = WKWebsiteDataStore.default().httpCookieStore
                     let group = DispatchGroup()
 
