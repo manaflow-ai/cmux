@@ -2440,6 +2440,45 @@ class GhosttyApp {
             #if DEBUG
             dlog("link.openURL raw=\(urlString)")
             #endif
+
+            // Resolve relative file paths against the terminal's working directory.
+            // Ghostty emits bare relative paths (e.g. "src/main.swift", "./foo.txt")
+            // which have no URL scheme and are not absolute — resolve them against the
+            // panel's reported CWD and open in the default app if the file exists.
+            let trimmedForRelative = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedForRelative.isEmpty,
+               !NSString(string: trimmedForRelative).isAbsolutePath,
+               URL(string: trimmedForRelative)?.scheme == nil {
+                let panelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                let tabId = callbackTabId ?? surfaceView.tabId
+                if let panelId, let tabId {
+                    let resolvedFileURL: URL? = performOnMain {
+                        guard let app = AppDelegate.shared,
+                              let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                              let workspace = manager.tabs.first(where: { $0.id == tabId }),
+                              let cwd = workspace.panelDirectories[panelId],
+                              !cwd.isEmpty else {
+                            return nil
+                        }
+                        let cwdURL = URL(fileURLWithPath: cwd, isDirectory: true)
+                        let resolved = cwdURL.appendingPathComponent(trimmedForRelative)
+                            .standardized
+                        guard FileManager.default.fileExists(atPath: resolved.path) else {
+                            return nil
+                        }
+                        return resolved
+                    }
+                    if let fileURL = resolvedFileURL {
+                        #if DEBUG
+                        dlog("link.openURL resolved relative path to file=\(fileURL.path)")
+                        #endif
+                        return performOnMain {
+                            NSWorkspace.shared.open(fileURL)
+                        }
+                    }
+                }
+            }
+
             guard let target = resolveTerminalOpenURLTarget(urlString) else {
                 #if DEBUG
                 dlog("link.openURL resolve failed, returning false")
