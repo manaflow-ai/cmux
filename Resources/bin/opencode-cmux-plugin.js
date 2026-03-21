@@ -154,10 +154,15 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
         const sessionID = event.properties?.sessionID
         if (!sessionID) return
         const state = ensure(sessions, sessionID)
+        const prevState = state.state
         state.state = event.properties?.status?.type || "idle"
         state.error = ""
         if (state.state !== "idle") {
           state.waiting = ""
+        }
+        // Detect completion: busy -> idle transition (not initial idle)
+        if (prevState === "busy" && state.state === "idle") {
+          await notify("Done", "Session completed")
         }
         await sync()
         return
