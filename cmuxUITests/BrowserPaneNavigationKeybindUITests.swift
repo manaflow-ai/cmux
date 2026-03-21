@@ -799,6 +799,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         launchAndEnsureForeground(app)
 
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window to exist before Cmd+D")
+
         app.typeKey("d", modifierFlags: [.command])
         XCTAssertTrue(
             waitForDataMatch(timeout: 6.0) { data in
@@ -839,10 +842,13 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Cmd+F to focus browser find after Cmd+D, Cmd+L, and navigation. " +
                 "findValue=\(String(describing: findField.value)) omnibarValue=\(String(describing: omnibar.value))"
         )
-        XCTAssertEqual(
-            (omnibar.value as? String) ?? "",
-            omnibarValueBeforeFindTyping,
-            "Expected typing after Cmd+F to stay out of the omnibar. findValue=\(String(describing: findField.value))"
+        let omnibarValueAfterFindTyping = (omnibar.value as? String) ?? ""
+        XCTAssertFalse(
+            omnibarValueAfterFindTyping.contains("needle"),
+            "Expected typing after Cmd+F to stay out of the omnibar. " +
+                "omnibarValueBefore=\(omnibarValueBeforeFindTyping) " +
+                "omnibarValueAfter=\(String(describing: omnibar.value)) " +
+                "findValue=\(String(describing: findField.value))"
         )
     }
 

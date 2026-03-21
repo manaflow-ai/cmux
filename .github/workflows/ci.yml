@@ -350,6 +350,7 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
+          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -392,6 +393,15 @@ jobs:
           CMUX_LAG_MAX_CHURN_P95_MS=35 \
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
+
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display
 
   ui-regressions:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -491,6 +501,7 @@ jobs:
             -destination "platform=macOS" \
             -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
             test
+
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
