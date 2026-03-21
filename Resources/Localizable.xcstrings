@@ -38453,6 +38453,23 @@
         }
       }
     },
+    "menu.view.importChromeSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Chrome Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeセッションをインポート"
+          }
+        }
+      }
+    },
     "menu.view.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -51100,6 +51117,142 @@
         }
       }
     },
+    "settings.browser.chromeCookie.autoImport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Chrome Sessions on Launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動時にChromeセッションをインポート"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.autoImport.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copies your Chrome login cookies into cmux's browser so you're already signed in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeのログインクッキーをcmuxのブラウザにコピーし、すでにサインインした状態にします。"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.importButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐインポート"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.importNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeセッション"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.importNow.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import cookies from Chrome now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐChromeからクッキーをインポートします。"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.importSuccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported %lld cookies from Chrome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeから%lld個のクッキーをインポートしました。"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome Profile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeプロファイル"
+          }
+        }
+      }
+    },
+    "settings.browser.chromeCookie.profile.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Which Chrome profile to import cookies from."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クッキーをインポートするChromeプロファイル。"
+          }
+        }
+      }
+    },
     "settings.browser.externalPatterns": {
       "extractionState": "manual",
       "localizations": {
@@ -56899,6 +57052,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tarayıcı"
+          }
+        }
+      }
+    },
+    "settings.section.chromeSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromeセッション"
           }
         }
       }
