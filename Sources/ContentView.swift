@@ -116,9 +116,16 @@ func sidebarSelectedWorkspaceBackgroundNSColor(for colorScheme: ColorScheme) -> 
     cmuxAccentNSColor(for: colorScheme)
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
+func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat, for colorScheme: ColorScheme = .dark) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
-    return NSColor.white.withAlphaComponent(clampedOpacity)
+    let accent = cmuxAccentNSColor(for: colorScheme)
+    // Calculate relative luminance (ITU-R BT.709) to pick a contrasting text color
+    let r = accent.redComponent
+    let g = accent.greenComponent
+    let b = accent.blueComponent
+    let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    let baseColor: NSColor = luminance > 0.5 ? .black : .white
+    return baseColor.withAlphaComponent(clampedOpacity)
 }
 
 #if compiler(>=6.2)
@@ -10410,22 +10417,25 @@ private struct SidebarDevFooter: View {
 
 private struct SidebarTopScrim: View {
     let height: CGFloat
+    @AppStorage("sidebarScrimEnabled") private var sidebarScrimEnabled = true
 
     var body: some View {
-        SidebarTopBlurEffect()
-            .frame(height: height)
-            .mask(
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.95),
-                        Color.black.opacity(0.75),
-                        Color.black.opacity(0.35),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+        if sidebarScrimEnabled {
+            SidebarTopBlurEffect()
+                .frame(height: height)
+                .mask(
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.95),
+                            Color.black.opacity(0.75),
+                            Color.black.opacity(0.35),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            )
+        }
     }
 }
 
@@ -10740,13 +10750,13 @@ private struct TabItemView: View, Equatable {
 
     private var activePrimaryTextColor: Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0, for: colorScheme))
             : .primary
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
         usesInvertedActiveForeground
-            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+            ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity), for: colorScheme))
             : .secondary
     }
 
@@ -13053,9 +13063,51 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     }
 
     func updateIcon() {
-        let icon = NSWorkspace.shared.icon(forFile: directory)
-        icon.size = NSSize(width: 16, height: 16)
-        imageView.image = icon
+        let useMonochrome = UserDefaults.standard.bool(forKey: "sidebarMonochromeIcons")
+        if useMonochrome {
+            let sfName = sfSymbolName(for: directory)
+            if let sfImage = NSImage(systemSymbolName: sfName, accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+                let configured = sfImage.withSymbolConfiguration(config) ?? sfImage
+                imageView.image = configured
+                imageView.contentTintColor = NSColor.secondaryLabelColor
+                imageView.symbolConfiguration = config
+            } else {
+                let icon = NSWorkspace.shared.icon(forFile: directory)
+                icon.size = NSSize(width: 16, height: 16)
+                imageView.image = icon
+                imageView.contentTintColor = nil
+            }
+        } else {
+            let icon = NSWorkspace.shared.icon(forFile: directory)
+            icon.size = NSSize(width: 16, height: 16)
+            imageView.image = icon
+            imageView.contentTintColor = nil
+        }
+    }
+
+    private func sfSymbolName(for path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        let home = NSHomeDirectory()
+        if expanded == home {
+            return "folder"
+        }
+        if expanded.hasPrefix(home + "/") {
+            let childName = String(expanded.dropFirst(home.count + 1)).components(separatedBy: "/").first ?? ""
+            switch childName {
+            case "Desktop": return "menubar.dock.rectangle"
+            case "Documents": return "doc.text"
+            case "Downloads": return "arrow.down.circle"
+            case "Music": return "music.note"
+            case "Pictures", "Photos": return "photo"
+            case "Movies": return "film"
+            case "Library": return "building.columns"
+            case "Applications": return "square.grid.2x2"
+            case "Developer": return "hammer"
+            default: break
+            }
+        }
+        return "folder"
     }
 
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
