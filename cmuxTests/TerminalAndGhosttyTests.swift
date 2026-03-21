@@ -275,6 +275,31 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(urls, [fileURL])
     }
 
+    func testRemoteDirectoryPastePlanFallsBackToEscapedPathInsertion() throws {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "clipboard-folder-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-directory-paste-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([directoryURL as NSURL]))
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .remote(.workspaceRemote)
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected directory path insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(directoryURL.path))
+    }
+
     func testLazyPastePlanSkipsTargetResolutionForPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-lazy-text-paste-\(UUID().uuidString)"))
         pasteboard.clearContents()

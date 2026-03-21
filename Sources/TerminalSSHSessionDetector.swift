@@ -21,13 +21,24 @@ struct DetectedSSHSession: Equatable {
     ) {
         let session = self
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
+            let result: Result<[String], Error>
+            do {
                 let remotePaths = try session.uploadDroppedFilesSync(fileURLs, operation: operation)
-                try operation.throwIfCancelled()
-                return remotePaths
+                do {
+                    try operation.throwIfCancelled()
+                    result = .success(remotePaths)
+                } catch {
+                    session.cleanupUploadedRemotePathsAsync(remotePaths)
+                    result = .failure(error)
+                }
+            } catch {
+                result = .failure(error)
             }
             DispatchQueue.main.async {
                 if operation.isCancelled {
+                    if case .success(let remotePaths) = result {
+                        session.cleanupUploadedRemotePathsAsync(remotePaths)
+                    }
                     completion(.failure(TerminalImageTransferExecutionError.cancelled))
                 } else {
                     completion(result)
@@ -47,37 +58,67 @@ struct DetectedSSHSession: Equatable {
         )
     }
 
+#if DEBUG
+    typealias ProcessOverrideResultForTesting = (
+        status: Int32,
+        stdout: String,
+        stderr: String
+    )
+
+    static var runProcessOverrideForTesting: ((
+        String,
+        [String],
+        TimeInterval,
+        TerminalImageTransferOperation?
+    ) throws -> ProcessOverrideResultForTesting)?
+
+    func uploadDroppedFilesSyncForTesting(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation = TerminalImageTransferOperation()
+    ) throws -> [String] {
+        try uploadDroppedFilesSync(fileURLs, operation: operation)
+    }
+#endif
+
     private func uploadDroppedFilesSync(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation
     ) throws -> [String] {
         guard !fileURLs.isEmpty else { return [] }
 
-        return try fileURLs.map { localURL in
-            try operation.throwIfCancelled()
-            let normalizedLocalURL = localURL.standardizedFileURL
-            guard normalizedLocalURL.isFileURL else {
-                throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
-                    NSLocalizedDescriptionKey: "dropped item is not a file URL",
-                ])
+        var uploadedRemotePaths: [String] = []
+        do {
+            for localURL in fileURLs {
+                try operation.throwIfCancelled()
+                let normalizedLocalURL = localURL.standardizedFileURL
+                guard normalizedLocalURL.isFileURL else {
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "dropped item is not a file URL",
+                    ])
+                }
+
+                let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
+                let result = try Self.runProcess(
+                    executable: "/usr/bin/scp",
+                    arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
+                    timeout: 45,
+                    operation: operation
+                )
+                guard result.status == 0 else {
+                    let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
+                        "scp exited \(result.status)"
+                    throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
+                        NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
+                    ])
+                }
+
+                uploadedRemotePaths.append(remotePath)
             }
 
-            let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: normalizedLocalURL)
-            let result = try Self.runProcess(
-                executable: "/usr/bin/scp",
-                arguments: scpArguments(localPath: normalizedLocalURL.path, remotePath: remotePath),
-                timeout: 45,
-                operation: operation
-            )
-            guard result.status == 0 else {
-                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ??
-                    "scp exited \(result.status)"
-                throw NSError(domain: "cmux.detected-ssh.drop", code: 2, userInfo: [
-                    NSLocalizedDescriptionKey: "failed to upload dropped file: \(detail)",
-                ])
-            }
-
-            return remotePath
+            return uploadedRemotePaths
+        } catch {
+            cleanupUploadedRemotePaths(uploadedRemotePaths)
+            throw error
         }
     }
 
@@ -130,6 +171,74 @@ struct DetectedSSHSession: Equatable {
         return args
     }
 
+    private func sshArguments(command: String) -> [String] {
+        var args: [String] = [
+            "-T",
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "BatchMode=yes",
+            "-o", "ControlMaster=no",
+        ]
+
+        if useIPv4 {
+            args.append("-4")
+        } else if useIPv6 {
+            args.append("-6")
+        }
+        if forwardAgent {
+            args.append("-A")
+        }
+        if compressionEnabled {
+            args.append("-C")
+        }
+        if let configFile, !configFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-F", configFile]
+        }
+        if let jumpHost, !jumpHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-J", jumpHost]
+        }
+        if let port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile, !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        if let controlPath,
+           !controlPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !Self.hasSSHOptionKey(sshOptions, key: "ControlPath") {
+            args += ["-o", "ControlPath=\(controlPath)"]
+        }
+        if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        for option in sshOptions {
+            args += ["-o", option]
+        }
+
+        args += [destination, command]
+        return args
+    }
+
+    private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        _ = try? Self.runProcess(
+            executable: "/usr/bin/ssh",
+            arguments: sshArguments(command: cleanupCommand),
+            timeout: 8
+        )
+    }
+
+    private func cleanupUploadedRemotePathsAsync(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        let session = self
+        DispatchQueue.global(qos: .utility).async {
+            session.cleanupUploadedRemotePaths(remotePaths)
+        }
+    }
+
     private struct CommandResult {
         let status: Int32
         let stdout: String
@@ -142,6 +251,13 @@ struct DetectedSSHSession: Equatable {
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
+#if DEBUG
+        if let runProcessOverrideForTesting {
+            let result = try runProcessOverrideForTesting(executable, arguments, timeout, operation)
+            return CommandResult(status: result.status, stdout: result.stdout, stderr: result.stderr)
+        }
+#endif
+
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -228,6 +344,10 @@ struct DetectedSSHSession: Equatable {
             .first
             .map(String.init)?
             .lowercased()
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
 #if DEBUG
