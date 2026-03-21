@@ -63,7 +63,6 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUXTERM_REPO_ROOT
     CMUX_DEBUG_LOG
     CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
-    CMUX_PANEL_ID
     CMUX_PORT
     CMUX_PORT_END
     CMUX_PORT_RANGE
@@ -73,11 +72,19 @@ _CMUX_TMUX_SYNC_KEYS=(
     CMUX_SOCKET_ENABLE
     CMUX_SOCKET_MODE
     CMUX_SOCKET_PATH
-    CMUX_SURFACE_ID
     CMUX_TAB_ID
     CMUX_TAG
     CMUX_WORKSPACE_ID
 )
+
+_cmux_tmux_sync_key_is_managed() {
+    local candidate="$1"
+    local key
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        [[ "$key" == "$candidate" ]] && return 0
+    done
+    return 1
+}
 
 _cmux_tmux_shell_env_signature() {
     local key value first=1
@@ -121,6 +128,8 @@ _cmux_tmux_refresh_cmux_environment() {
 
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
         filtered+="${line}"$'\n'
     done <<< "$output"
 
@@ -130,6 +139,7 @@ _cmux_tmux_refresh_cmux_environment() {
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
         key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
         value="${line#*=}"
         if [[ "${!key}" != "$value" ]]; then
             printf -v "$key" '%s' "$value"

@@ -69,7 +69,6 @@ typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUXTERM_REPO_ROOT
     CMUX_DEBUG_LOG
     CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
-    CMUX_PANEL_ID
     CMUX_PORT
     CMUX_PORT_END
     CMUX_PORT_RANGE
@@ -79,11 +78,19 @@ typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_SOCKET_ENABLE
     CMUX_SOCKET_MODE
     CMUX_SOCKET_PATH
-    CMUX_SURFACE_ID
     CMUX_TAB_ID
     CMUX_TAG
     CMUX_WORKSPACE_ID
 )
+
+_cmux_tmux_sync_key_is_managed() {
+    local candidate="$1"
+    local key
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        [[ "$key" == "$candidate" ]] && return 0
+    done
+    return 1
+}
 
 _cmux_tmux_shell_env_signature() {
     local key value
@@ -122,19 +129,22 @@ _cmux_tmux_refresh_cmux_environment() {
     local output
     output="$(tmux show-environment -g 2>/dev/null)" || return 0
 
-    local line filtered="" did_change=0
+    local line key filtered="" did_change=0
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
         filtered+="${line}"$'\n'
     done <<< "$output"
 
     [[ -n "$filtered" ]] || return 0
     [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
 
-    local key value
+    local value
     while IFS= read -r line; do
         [[ "$line" == CMUX_* ]] || continue
         key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
         value="${line#*=}"
         if [[ "${(P)key}" != "$value" ]]; then
             export "$key=$value"
