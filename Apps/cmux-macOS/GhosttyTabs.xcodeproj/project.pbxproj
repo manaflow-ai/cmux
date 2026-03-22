@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		49E684212F70186E00053C84 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001261 /* Bonsplit */; };
 		49E684602F7018EB00053C84 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684282F7018EB00053C84 /* BrowserPanelView.swift */; };
 		49E684612F7018EB00053C84 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684332F7018EB00053C84 /* UpdateController.swift */; };
 		49E684622F7018EB00053C84 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */; };
@@ -122,6 +121,7 @@
 		49E688CD2F70279900053C84 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CA2F70279900053C84 /* AppIcon.icon */; };
 		49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CC2F70279900053C84 /* cmux-icon-chevron.png */; };
 		49E688CF2F70279900053C84 /* cmux.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CB2F70279900053C84 /* cmux.icon */; };
+		49E688D22F70303800053C84 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = 49E688D12F70303800053C84 /* Bonsplit */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
@@ -781,9 +781,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				49E684212F70186E00053C84 /* Bonsplit in Frameworks */,
 				A5001230 /* Sparkle in Frameworks */,
 				A5001250 /* Sentry in Frameworks */,
+				49E688D22F70303800053C84 /* Bonsplit in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
 			);
@@ -1581,8 +1581,8 @@
 				A5001231 /* Sparkle */,
 				A5001251 /* Sentry */,
 				A5001271 /* PostHog */,
-				A5001261 /* Bonsplit */,
 				A5001291 /* MarkdownUI */,
+				49E688D12F70303800053C84 /* Bonsplit */,
 			);
 			productName = GhosttyTabs;
 			productReference = A5001000 /* cmux DEV.app */;
@@ -1689,7 +1689,7 @@
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
-				A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */,
+				49E688D02F70303800053C84 /* XCLocalSwiftPackageReference "../../vendor/bonsplit" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -2264,9 +2264,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */ = {
+		49E688D02F70303800053C84 /* XCLocalSwiftPackageReference "../../vendor/bonsplit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = vendor/bonsplit;
+			relativePath = ../../vendor/bonsplit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -2306,6 +2306,10 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		49E688D12F70303800053C84 /* Bonsplit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Bonsplit;
+		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
@@ -2315,11 +2319,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
 			productName = Sentry;
-		};
-		A5001261 /* Bonsplit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */;
-			productName = Bonsplit;
 		};
 		A5001271 /* PostHog */ = {
 			isa = XCSwiftPackageProductDependency;
