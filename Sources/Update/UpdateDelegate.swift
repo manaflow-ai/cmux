@@ -101,9 +101,12 @@ extension UpdateDriver: SPUUpdaterDelegate {
         }
     }
 
-    func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
+    func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state: SPUUserUpdateState) {
         DispatchQueue.main.async { [weak viewModel] in
             viewModel?.clearDetectedUpdate()
+        }
+        if state.userInitiated, choice != .install {
+            finishUserInitiatedCheckPresentation()
         }
     }
 
