@@ -25,7 +25,7 @@ skills/cmux-debug-windows/scripts/debug_windows_snapshot.sh --copy
 ```
 5. After code edits, run build + tagged reload:
 ```bash
-xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
+xcodebuild -project Apps/cmux-macOS/GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' build
 ./scripts/reload.sh --tag <tag>
 ```
 

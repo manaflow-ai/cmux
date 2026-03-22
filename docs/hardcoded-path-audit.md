@@ -96,27 +96,19 @@ These should be rewritten to the settled layout:
 
 ### User-facing docs and skills
 
-These still contain old VM paths or old submodule paths:
+The earlier stale path cluster in `CLAUDE.md`, `docs/ghostty-fork.md`,
+`docs/agent-browser-port-spec.md`, `docs/v2-api-migration.md`, and
+`skills/cmux-debug-windows/SKILL.md` has been repaired.
 
-- `CLAUDE.md`
-- `docs/ghostty-fork.md`
-- `docs/agent-browser-port-spec.md`
-- `docs/v2-api-migration.md`
-- `skills/cmux-debug-windows/SKILL.md`
+This audit document still mentions the old examples as historical findings, but
+the live docs and skills surfaces above now reflect the settled layout.
 
-Known stale examples:
+Current settled examples:
 
-- `xcodebuild -project GhosttyTabs.xcodeproj ...` in `CLAUDE.md` and the skill
-  doc
-- `cd ghostty` and `git add ghostty` in `CLAUDE.md` and `docs/ghostty-fork.md`
-- `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ...'` in the long-form docs
-
-These should be updated to:
-
-- `Apps/cmux-macOS/GhosttyTabs.xcodeproj`
-- `vendor/ghostty`
-- `/Users/cmux/cmux` or whatever the current documented VM repo root is meant to
-  be
+- compile-only build examples now use
+  `Apps/cmux-macOS/GhosttyTabs.xcodeproj`
+- Ghostty submodule workflow docs now use `vendor/ghostty`
+- VM test runner examples now use `/Users/cmux/cmux`
 
 ### Likely real code bug in CLI fallback logic
 
