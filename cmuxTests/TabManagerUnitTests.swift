@@ -23,6 +23,15 @@ func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+    }
+}
+
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
@@ -736,15 +745,6 @@ final class TabManagerEqualizeSplitsTests: XCTestCase {
             XCTAssertEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
         }
     }
-
-    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
-        switch node {
-        case .pane:
-            return []
-        case .split(let split):
-            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
-        }
-    }
 }
 
 @MainActor
@@ -987,15 +987,6 @@ final class TabManagerResizeSplitsTests: XCTestCase {
         }
 
         XCTAssertEqual(updatedSplit.dividerPosition, 0.1, accuracy: 0.000_1)
-    }
-
-    private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
-        switch node {
-        case .pane:
-            return []
-        case .split(let split):
-            return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
-        }
     }
 }
 
