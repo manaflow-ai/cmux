@@ -13,8 +13,8 @@ if [ ! -f "$CHECKSUMS_FILE" ]; then
 fi
 
 GHOSTTY_SHA="$(
-  git -C "$ROOT_DIR" ls-tree HEAD ghostty \
-    | awk '$4 == "ghostty" { print $3; found = 1 } END { if (!found) exit 1 }'
+  git -C "$ROOT_DIR" ls-tree HEAD vendor/ghostty \
+    | awk '$4 == "vendor/ghostty" { print $3; found = 1 } END { if (!found) exit 1 }'
 )"
 
 MATCH_COUNT="$(

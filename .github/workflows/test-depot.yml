@@ -61,9 +61,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          source "$PWD/scripts/lib/cmux-paths.sh"
-          cmux_paths_init "$PWD/scripts/reload.sh"
-          GHOSTTY_SHA=$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)
+          GHOSTTY_SHA=$(git -C "$PWD/vendor/ghostty" rev-parse HEAD)
           TAG="xcframework-$GHOSTTY_SHA"
           URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
           echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
