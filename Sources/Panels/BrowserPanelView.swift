@@ -1300,7 +1300,12 @@ struct BrowserPanelView: View {
     }
 
     private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {
-        panel.webView.window === window && isPanelFocusedInModel()
+        // Navigation-triggered omnibar blur can still be unwinding when Cmd+F opens
+        // the browser find bar. Once find is visible, any delayed omnibar-exit
+        // handoff must not reclaim first responder for WebKit.
+        panel.webView.window === window &&
+            isPanelFocusedInModel() &&
+            panel.searchState == nil
     }
 
 #if DEBUG
@@ -5769,6 +5774,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.clearLocalInlineCallbacks()
     }
 
+    private static func shouldPreserveExternalFullscreenHost(
+        for webView: WKWebView,
+        relativeTo expectedWindow: NSWindow?
+    ) -> Bool {
+        webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: expectedWindow)
+    }
+
     private static func localInlineTransferRoot(for webView: WKWebView) -> NSView? {
         var current = webView.superview
         var last: NSView?
@@ -5869,7 +5881,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         guard let host = nsView as? HostContainerView else { return false }
         let slotView = host.ensureLocalInlineSlotView()
         let isAlreadyInLocalHost = host.containsManagedLocalInlineContent(webView)
-        let didAttachWebViewToLocalHost = !isAlreadyInLocalHost
+        let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
+            for: webView,
+            relativeTo: host.window
+        )
+        let didAttachWebViewToLocalHost =
+            !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
         let coordinator = context.coordinator
         coordinator.desiredPortalVisibleInUI = false
@@ -5913,6 +5930,16 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
             return false
         }
+
+#if DEBUG
+        if shouldPreserveExternalFullscreenHost {
+            dlog(
+                "browser.localHost.reparent.skip web=\(Self.objectID(webView)) " +
+                "reason=fullscreenExternalHost host=\(Self.objectID(host)) " +
+                "slot=\(Self.objectID(slotView)) state=\(String(describing: webView.fullscreenState))"
+            )
+        }
+#endif
 
         let preferredAttachedWidthState = panel.preferredAttachedDeveloperToolsWidthState()
         host.setPreferredHostedInspectorWidth(
@@ -5966,7 +5993,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 host.setHostedInspectorFrontendWebView(webView.cmuxInspectorFrontendWebView())
                 host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update.async")
             }
-        } else {
+        } else if !shouldPreserveExternalFullscreenHost {
             panel.consumeAttachedDeveloperToolsManualCloseIfNeeded()
             host.scheduleHostedInspectorDockConfigurationSync(reason: "localInline.update")
         }
@@ -5980,7 +6007,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             details: Self.attachContext(webView: webView, host: host)
         )
 #endif
-        return true
+        return !shouldPreserveExternalFullscreenHost
     }
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
@@ -5988,6 +6015,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         host.prepareForWindowPortalHosting()
         host.setLocalInlineSlotHidden(true)
         host.releaseHostedWebViewConstraints()
+        let shouldPreserveExternalFullscreenHost = Self.shouldPreserveExternalFullscreenHost(
+            for: webView,
+            relativeTo: host.window
+        )
 
         let coordinator = context.coordinator
         let paneDropContext = currentPaneDropContext()
@@ -6183,7 +6214,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             details: Self.attachContext(webView: webView, host: host)
         )
         #endif
-        return portalHostAccepted
+        return portalHostAccepted && !shouldPreserveExternalFullscreenHost
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {

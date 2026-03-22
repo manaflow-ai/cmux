@@ -17,6 +17,8 @@
 			A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 			A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
+		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
+		A5001543 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001545 /* TerminalSSHSessionDetector.swift */; };
 			A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
 		A5001500 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001510 /* CmuxWebView.swift */; };
@@ -65,9 +67,11 @@
 		A5001209 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001219 /* WindowToolbarController.swift */; };
 		A5001240 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001241 /* WindowDecorationsController.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
+		A5001640 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
+		B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001641 /* RemoteRelayZshBootstrap.swift */; };
 		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
 		C1ADE00002A1B2C3D4E5F719 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE00001A1B2C3D4E5F719 /* claude */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
@@ -185,6 +189,8 @@
 			A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
+		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
+		A5001545 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
 			A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		A5001017 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -231,6 +237,7 @@
 		A5001223 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/UpdateLogStore.swift; sourceTree = "<group>"; };
 		A5001241 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
+		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
@@ -413,6 +420,8 @@
 				A5001533 /* BrowserWindowPortal.swift */,
 				A5001019 /* TerminalController.swift */,
 				A5001541 /* PortScanner.swift */,
+				A5001544 /* TerminalImageTransfer.swift */,
+				A5001545 /* TerminalSSHSessionDetector.swift */,
 				A5001225 /* SocketControlSettings.swift */,
 				A5001600 /* SentryHelper.swift */,
 				A5001620 /* AppleScriptSupport.swift */,
@@ -448,6 +457,7 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
+				A5001641 /* RemoteRelayZshBootstrap.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -705,6 +715,8 @@
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
+				A5001542 /* TerminalImageTransfer.swift in Sources */,
+				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
@@ -740,6 +752,7 @@
 				A5001240 /* WindowDecorationsController.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
+				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -805,6 +818,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
+				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

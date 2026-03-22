@@ -1515,6 +1515,49 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    private func writeBrowserFixturePage(
+        at url: URL,
+        title: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let html = """
+        <html>
+        <head><title>\(title)</title></head>
+        <body>\(title)</body>
+        </html>
+        """
+
+        do {
+            try html.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            XCTFail("Failed to write browser fixture page: \(error)", file: file, line: line)
+            throw error
+        }
+    }
+
+    private func waitForBrowserPanel(
+        _ panel: BrowserPanel,
+        url: URL,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            if panel.preferredURLStringForOmnibar() == url.absoluteString && !panel.isLoading {
+                return
+            }
+        }
+
+        XCTFail(
+            "Timed out waiting for browser panel to load \(url.absoluteString). Current=\(panel.preferredURLStringForOmnibar() ?? "nil") loading=\(panel.isLoading)",
+            file: file,
+            line: line
+        )
+    }
+
     func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
         let panel = BrowserPanel(workspaceId: UUID())
 
@@ -1576,6 +1619,47 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertEqual(afterForward.forwardHistoryURLStrings, ["https://example.com/d"])
         XCTAssertTrue(panel.canGoBack)
         XCTAssertTrue(panel.canGoForward)
+    }
+
+    func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let pageA = tempDir.appendingPathComponent("a.html")
+        let pageB = tempDir.appendingPathComponent("b.html")
+        let pageC = tempDir.appendingPathComponent("c.html")
+        try writeBrowserFixturePage(at: pageA, title: "A")
+        try writeBrowserFixturePage(at: pageB, title: "B")
+        try writeBrowserFixturePage(at: pageC, title: "C")
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: pageB
+        )
+        waitForBrowserPanel(panel, url: pageB)
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [pageA.absoluteString],
+            forwardHistoryURLStrings: [],
+            currentURLString: pageB.absoluteString
+        )
+
+        _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
+        waitForBrowserPanel(panel, url: pageC)
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            snapshot.backHistoryURLStrings,
+            [pageA.absoluteString, pageB.absoluteString]
+        )
+
+        panel.goBack()
+        waitForBrowserPanel(panel, url: pageB)
+
+        panel.goBack()
+        waitForBrowserPanel(panel, url: pageA)
     }
 
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {

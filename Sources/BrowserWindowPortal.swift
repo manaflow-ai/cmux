@@ -1777,13 +1777,38 @@ final class WindowBrowserSlotView: NSView {
         logSearchOverlayEvent("create", panelId: configuration.panelId)
     }
 
-    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
-        guard let overlay = searchOverlayHostingView,
-              let view = responder.browserPortalOwningView,
-              view.isDescendant(of: overlay) else {
-            return nil
+    private func searchOverlayOwnsFieldEditor(_ fieldEditor: NSTextView, in root: NSView) -> Bool {
+        guard fieldEditor.isFieldEditor else { return false }
+
+        if let textField = root as? NSTextField, textField.currentEditor() === fieldEditor {
+            return true
         }
-        return objc_getAssociatedObject(overlay, &cmuxBrowserSearchOverlayPanelIdAssociationKey) as? UUID
+
+        for subview in root.subviews {
+            if searchOverlayOwnsFieldEditor(fieldEditor, in: subview) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    func searchOverlayPanelId(for responder: NSResponder) -> UUID? {
+        guard let overlay = searchOverlayHostingView else { return nil }
+
+        let panelId = objc_getAssociatedObject(overlay, &cmuxBrowserSearchOverlayPanelIdAssociationKey) as? UUID
+
+        if let view = responder as? NSView,
+           view === overlay || view.isDescendant(of: overlay) {
+            return panelId
+        }
+
+        if let fieldEditor = responder as? NSTextView,
+           searchOverlayOwnsFieldEditor(fieldEditor, in: overlay) {
+            return panelId
+        }
+
+        return nil
     }
 
     @discardableResult
@@ -2734,6 +2759,8 @@ final class WindowBrowserPortal: NSObject {
         let webViewId = ObjectIdentifier(webView)
         let anchorId = ObjectIdentifier(anchorView)
         let previousEntry = entriesByWebViewId[webViewId]
+        let shouldPreserveExternalFullscreenHost =
+            webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
         let containerView = ensureContainerView(
             for: previousEntry ?? Entry(
                 webView: nil,
@@ -2808,7 +2835,16 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
 
-        if webView.superview !== containerView {
+        if shouldPreserveExternalFullscreenHost {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView)) " +
+                "state=\(String(describing: webView.fullscreenState))"
+            )
+#endif
+        } else if webView.superview !== containerView {
 #if DEBUG
             dlog(
                 "browser.portal.reparent web=\(browserPortalDebugToken(webView)) " +
@@ -3072,10 +3108,22 @@ final class WindowBrowserPortal: NSObject {
             hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
             refreshReasons.append("syncAttachContainer")
         }
+        let shouldPreserveExternalFullscreenHost =
+            webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
         let shouldPreserveExternalHostForHiddenEntry =
+            !shouldPreserveExternalFullscreenHost &&
             !entry.visibleInUI &&
             webView.superview !== containerView
-        if shouldPreserveExternalHostForHiddenEntry {
+        if shouldPreserveExternalFullscreenHost {
+#if DEBUG
+            dlog(
+                "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
+                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "container=\(browserPortalDebugToken(containerView)) " +
+                "state=\(String(describing: webView.fullscreenState))"
+            )
+#endif
+        } else if shouldPreserveExternalHostForHiddenEntry {
 #if DEBUG
             dlog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +

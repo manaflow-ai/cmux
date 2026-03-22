@@ -462,6 +462,9 @@ final class FileDropOverlayView: NSView {
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     private weak var activeDragWebView: WKWebView?
+    /// The WKWebView that accepted prepareForDragOperation so conclude can be
+    /// delivered to the same browser target after the drop completes.
+    private weak var preparedDragWebView: WKWebView?
     private var lastHitTestLogSignature: String?
     private var lastDragRouteLogSignatureByPhase: [String: String] = [:]
 
@@ -627,10 +630,42 @@ final class FileDropOverlayView: NSView {
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        preparedDragWebView = nil
         if let prev = activeDragWebView {
             prev.draggingExited(sender)
             activeDragWebView = nil
         }
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let hasLocalDraggingSource = sender.draggingSource != nil
+        let types = sender.draggingPasteboard.types
+        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureFileDropDestination(
+            pasteboardTypes: types,
+            hasLocalDraggingSource: hasLocalDraggingSource
+        )
+        let webView = shouldCapture ? (activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)) : nil
+        let terminal = terminalUnderPoint(sender.draggingLocation)
+        let hasTerminalTarget = terminal != nil
+#if DEBUG
+        logDragRouteDecision(
+            phase: "prepare",
+            pasteboardTypes: types,
+            shouldCapture: shouldCapture,
+            hasLocalDraggingSource: hasLocalDraggingSource,
+            hasTerminalTarget: hasTerminalTarget
+        )
+#endif
+        guard shouldCapture else {
+            preparedDragWebView = nil
+            return false
+        }
+        if let webView {
+            preparedDragWebView = webView
+            return webView.prepareForDragOperation(sender)
+        }
+        preparedDragWebView = nil
+        return hasTerminalTarget
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
@@ -640,8 +675,9 @@ final class FileDropOverlayView: NSView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
-        let webView = activeDragWebView
-        activeDragWebView = nil
+        let webView = shouldCapture
+            ? (preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation))
+            : nil
         let terminal = terminalUnderPoint(sender.draggingLocation)
         let hasTerminalTarget = terminal != nil
 #if DEBUG
@@ -653,12 +689,29 @@ final class FileDropOverlayView: NSView {
             hasTerminalTarget: hasTerminalTarget
         )
 #endif
-        guard shouldCapture else { return false }
+        guard shouldCapture else {
+            preparedDragWebView = nil
+            activeDragWebView = nil
+            return false
+        }
         if let webView {
+            preparedDragWebView = webView
             return webView.performDragOperation(sender)
         }
+        preparedDragWebView = nil
+        activeDragWebView = nil
         guard let terminal else { return false }
         return terminal.performDragOperation(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        defer {
+            preparedDragWebView = nil
+            activeDragWebView = nil
+        }
+        guard let sender else { return }
+        let webView = preparedDragWebView ?? activeDragWebView ?? webViewUnderPoint(sender.draggingLocation)
+        webView?.concludeDragOperation(sender)
     }
 
     private func updateDragTarget(_ sender: any NSDraggingInfo, phase: String) -> NSDragOperation {
@@ -6880,21 +6933,21 @@ struct ContentView: View {
     private func closeOtherSelectedWorkspaces() {
         guard let workspace = tabManager.selectedWorkspace else { return }
         let workspaceIds = tabManager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove() {
         guard tabManager.selectedWorkspace != nil,
               let anchorIndex = selectedWorkspaceIndex() else { return }
         let workspaceIds = tabManager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, allowPinned: true)
     }
 
     private func syncSidebarSelectedWorkspaceIds() {
@@ -10550,6 +10603,26 @@ enum SidebarWorkspaceShortcutHintMetrics {
     #endif
 }
 
+enum SidebarTrailingAccessoryWidthPolicy {
+    static let closeButtonWidth: CGFloat = 16
+
+    static func width(
+        canCloseWorkspace: Bool,
+        showsWorkspaceShortcutHint: Bool,
+        workspaceShortcutLabel: String?,
+        debugXOffset: Double
+    ) -> CGFloat {
+        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
+                label: workspaceShortcutLabel,
+                debugXOffset: debugXOffset
+            )
+        }
+
+        return canCloseWorkspace ? closeButtonWidth : 0
+    }
+}
+
 // PERF: TabItemView is Equatable so SwiftUI skips body re-evaluation when
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
@@ -10706,9 +10779,11 @@ private struct TabItemView: View, Equatable {
         (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
-    private var workspaceHintSlotWidth: CGFloat {
-        SidebarWorkspaceShortcutHintMetrics.slotWidth(
-            label: workspaceShortcutLabel,
+    private var trailingAccessoryWidth: CGFloat {
+        SidebarTrailingAccessoryWidthPolicy.width(
+            canCloseWorkspace: canCloseWorkspace,
+            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
+            workspaceShortcutLabel: workspaceShortcutLabel,
             debugXOffset: sidebarShortcutHintXOffset
         )
     }
@@ -10806,6 +10881,13 @@ private struct TabItemView: View, Equatable {
 
     var body: some View {
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        let protectedWorkspaceTooltip = String(
+            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
+            defaultValue: "Pinned workspace. Closing requires confirmation."
+        )
+        let closeButtonTooltip = tab.isPinned
+            ? protectedWorkspaceTooltip
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
         let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
         let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
@@ -10867,6 +10949,7 @@ private struct TabItemView: View, Equatable {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(protectedWorkspaceTooltip)
                 }
 
                 Text(tab.title)
@@ -10874,8 +10957,9 @@ private struct TabItemView: View, Equatable {
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .layoutPriority(1)
 
-                Spacer()
+                Spacer(minLength: 0)
 
                 ZStack(alignment: .trailing) {
                     Button(action: {
@@ -10889,8 +10973,8 @@ private struct TabItemView: View, Equatable {
                             .foregroundColor(activeSecondaryColor(0.7))
                     }
                     .buttonStyle(.plain)
-                    .safeHelp(KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip))
-                    .frame(width: 16, height: 16, alignment: .center)
+                    .safeHelp(closeButtonTooltip)
+                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
                     .opacity(showCloseButton && !showsWorkspaceShortcutHint ? 1 : 0)
                     .allowsHitTesting(showCloseButton && !showsWorkspaceShortcutHint)
 
@@ -10912,7 +10996,7 @@ private struct TabItemView: View, Equatable {
                     }
                 }
                 .animation(.easeInOut(duration: 0.14), value: showsModifierShortcutHints || alwaysShowShortcutHints)
-                .frame(width: workspaceHintSlotWidth, height: 16, alignment: .trailing)
+                .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
             if let subtitle = effectiveSubtitle {
@@ -11523,19 +11607,19 @@ private struct TabItemView: View, Equatable {
     private func closeOtherTabs(_ targetIds: [UUID]) {
         let keepIds = Set(targetIds)
         let idsToClose = tabManager.tabs.compactMap { keepIds.contains($0.id) ? nil : $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsBelow(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.suffix(from: anchorIndex + 1).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func closeTabsAbove(tabId: UUID) {
         guard let anchorIndex = tabManager.tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let idsToClose = tabManager.tabs.prefix(upTo: anchorIndex).map { $0.id }
-        closeTabs(idsToClose, allowPinned: false)
+        closeTabs(idsToClose, allowPinned: true)
     }
 
     private func markTabsRead(_ targetIds: [UUID]) {

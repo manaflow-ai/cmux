@@ -92,13 +92,24 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         self.parentPopupController = parentPopupController
         self.nestingDepth = nestingDepth
 
-        // Create popup web view with WebKit's supplied configuration (preserves
-        // internal browsing-context state for opener linkage / postMessage).
+        let browserContextSource = parentPopupController?.webView.configuration ?? openerPanel?.webView.configuration
+        if let browserContextSource {
+            BrowserPanel.configureWebViewConfiguration(
+                configuration,
+                websiteDataStore: browserContextSource.websiteDataStore,
+                processPool: browserContextSource.processPool
+            )
+        }
+
+        // Create popup web view with WebKit's supplied configuration after
+        // overlaying the opener's browser context so OAuth popups keep cmux's
+        // shared cookie/storage scope and opener linkage.
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         self.webView = webView
 

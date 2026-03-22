@@ -3442,14 +3442,29 @@ class TerminalController {
         }
 
         var found = false
+        var protected = false
         v2MainSync {
             if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                guard tabManager.canCloseWorkspace(ws) else {
+                    protected = true
+                    found = true
+                    return
+                }
                 tabManager.closeWorkspace(ws)
                 found = true
             }
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        if protected {
+            return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": wsId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                "pinned": true
+            ])
+        }
         return found
             ? .ok([
                 "window_id": v2OrNull(windowId?.uuidString),
@@ -3462,6 +3477,14 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
             ])
     }
+
+    private func workspaceCloseProtectedMessage() -> String {
+        String(
+            localized: "workspace.closeProtected.message",
+            defaultValue: "Pinned workspaces can't be closed while pinned. Unpin the workspace first."
+        )
+    }
+
     private func v2WorkspaceMoveToWindow(params: [String: Any]) -> V2CallResult {
         guard let wsId = v2UUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -4010,7 +4033,8 @@ class TerminalController {
             "pin", "unpin", "rename", "clear_name",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
-            "mark_read", "mark_unread"
+            "mark_read", "mark_unread",
+            "set_color", "clear_color"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4135,6 +4159,35 @@ class TerminalController {
             case "mark_unread":
                 AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
                 finish()
+
+            case "set_color":
+                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
+                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                    return
+                }
+                // Resolve named color to hex via palette lookup
+                let resolved: String
+                if colorRaw.hasPrefix("#") {
+                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
+                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
+                        return
+                    }
+                    resolved = normalized
+                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
+                    $0.name.lowercased() == colorRaw.lowercased()
+                }) {
+                    resolved = entry.hex
+                } else {
+                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
+                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    return
+                }
+                tabManager.setTabColor(tabId: workspace.id, color: resolved)
+                finish(["color": resolved])
+
+            case "clear_color":
+                tabManager.setTabColor(tabId: workspace.id, color: nil)
+                finish(["color": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -6360,6 +6413,7 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let explicitSurfaceId = v2UUID(params, "surface_id")
         let title = (params["title"] as? String) ?? "Notification"
         let subtitle = (params["subtitle"] as? String) ?? ""
         let body = (params["body"] as? String) ?? ""
@@ -6370,7 +6424,15 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = ws.focusedPanelId
+            if let explicitSurfaceId, ws.panels[explicitSurfaceId] == nil {
+                result = .err(
+                    code: "not_found",
+                    message: "Surface not found",
+                    data: ["surface_id": explicitSurfaceId.uuidString]
+                )
+                return
+            }
+            let surfaceId = explicitSurfaceId ?? ws.focusedPanelId
             TerminalNotificationStore.shared.addNotification(
                 tabId: ws.id,
                 surfaceId: surfaceId,
@@ -7196,9 +7258,18 @@ class TerminalController {
 
             let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
 
+            let directionStr = v2String(params, "direction") ?? "right"
+            guard let direction = parseSplitDirection(directionStr) else {
+                result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
+                return
+            }
+            let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+            let insertFirst = (direction == .left || direction == .up)
+
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
-                orientation: .horizontal,
+                orientation: orientation,
+                insertFirst: insertFirst,
                 filePath: filePath,
                 focus: v2FocusAllowed()
             )
@@ -12987,14 +13058,18 @@ class TerminalController {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
         guard let uuid = UUID(uuidString: tabId) else { return "ERROR: Invalid tab ID" }
 
-        var success = false
+        var result = "ERROR: Tab not found"
         DispatchQueue.main.sync {
             if let tab = tabManager.tabs.first(where: { $0.id == uuid }) {
+                guard tabManager.canCloseWorkspace(tab) else {
+                    result = "ERROR: \(workspaceCloseProtectedMessage())"
+                    return
+                }
                 tabManager.closeTab(tab)
-                success = true
+                result = "OK"
             }
         }
-        return success ? "OK" : "ERROR: Tab not found"
+        return result
     }
 
     private func selectWorkspace(_ arg: String) -> String {
@@ -14037,10 +14112,11 @@ class TerminalController {
     }
 
     private func resolveTabForReport(_ args: String) -> Tab? {
-        guard let tabManager else { return nil }
         let parsed = parseOptions(args)
         if let tabArg = parsed.options["tab"], !tabArg.isEmpty {
-            if let tab = resolveTab(from: tabArg, tabManager: tabManager) {
+            // First try the local tabManager if available
+            if let tabManager = self.tabManager,
+               let tab = resolveTab(from: tabArg, tabManager: tabManager) {
                 return tab
             }
             // The tab may belong to a different window — search all contexts.
@@ -14050,6 +14126,8 @@ class TerminalController {
             }
             return nil
         }
+        // Only require self.tabManager when using the selected tab (no --tab arg)
+        guard let tabManager = self.tabManager else { return nil }
         guard let selectedId = tabManager.selectedTabId else { return nil }
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
@@ -14154,7 +14232,6 @@ class TerminalController {
     }
 
     private func upsertSidebarMetadata(_ args: String, missingError: String) -> String {
-        guard tabManager != nil else { return "ERROR: TabManager not available" }
         let parsed = parseOptionsNoStop(args)
         guard parsed.positional.count >= 2 else { return missingError }
 

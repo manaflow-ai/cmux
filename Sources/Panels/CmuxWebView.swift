@@ -4,6 +4,104 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+extension WKWebView {
+    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
+        switch fullscreenState {
+        case .notInFullscreen:
+            return false
+        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
+            return true
+        @unknown default:
+            return true
+        }
+    }
+
+    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
+        guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
+        guard let expectedWindow else { return true }
+        return window !== expectedWindow
+    }
+}
+
+struct BrowserImageCopyPasteboardPayload {
+    let imageData: Data
+    let mimeType: String?
+    let sourceURL: URL?
+}
+
+enum BrowserImageCopyPasteboardBuilder {
+    private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
+    private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
+    private static let urlPasteboardType = NSPasteboard.PasteboardType(UTType.url.identifier)
+
+    static func makePasteboardItems(from payload: BrowserImageCopyPasteboardPayload) -> [NSPasteboardItem] {
+        guard let imageItem = imagePasteboardItem(from: payload) else { return [] }
+
+        var items = [imageItem]
+        if let sourceURL = payload.sourceURL {
+            // Keep the URL as a secondary item so image-aware paste targets can
+            // prefer the binary image payload without losing the textual fallback.
+            items.append(urlPasteboardItem(for: sourceURL))
+        }
+        return items
+    }
+
+    private static func imagePasteboardItem(from payload: BrowserImageCopyPasteboardPayload) -> NSPasteboardItem? {
+        let item = NSPasteboardItem()
+        var wroteImageType = false
+
+        if let image = NSImage(data: payload.imageData) {
+            if let tiffData = image.tiffRepresentation, !tiffData.isEmpty {
+                item.setData(tiffData, forType: tiffPasteboardType)
+                wroteImageType = true
+            }
+            if let pngData = pngData(for: image), !pngData.isEmpty {
+                item.setData(pngData, forType: pngPasteboardType)
+                wroteImageType = true
+            }
+        }
+
+        if let sourceType = sourceImageType(mimeType: payload.mimeType, sourceURL: payload.sourceURL) {
+            item.setData(payload.imageData, forType: NSPasteboard.PasteboardType(sourceType.identifier))
+            wroteImageType = true
+        }
+
+        return wroteImageType ? item : nil
+    }
+
+    private static func urlPasteboardItem(for url: URL) -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setString(url.absoluteString, forType: .string)
+        item.setString(url.absoluteString, forType: urlPasteboardType)
+        return item
+    }
+
+    private static func sourceImageType(mimeType: String?, sourceURL: URL?) -> UTType? {
+        if let mimeType,
+           let type = UTType(mimeType: mimeType),
+           type.conforms(to: .image) {
+            return type
+        }
+
+        if let pathExtension = sourceURL?.pathExtension,
+           !pathExtension.isEmpty,
+           let type = UTType(filenameExtension: pathExtension),
+           type.conforms(to: .image) {
+            return type
+        }
+
+        return nil
+    }
+
+    private static func pngData(for image: NSImage) -> Data? {
+        guard let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData) else {
+            return nil
+        }
+        return bitmap.representation(using: .png, properties: [:])
+    }
+}
+
 /// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
 /// preventing the app menu/SwiftUI Commands from receiving them. Route menu
 /// key equivalents first so app-level shortcuts continue to work when WebKit is
@@ -311,6 +409,9 @@ final class CmuxWebView: WKWebView {
     /// Saved native WebKit action for "Download Image".
     private var fallbackDownloadImageTarget: AnyObject?
     private var fallbackDownloadImageAction: Selector?
+    /// Saved native WebKit action for "Copy Image".
+    private var fallbackCopyImageTarget: AnyObject?
+    private var fallbackCopyImageAction: Selector?
     /// Saved native WebKit action for "Download Linked File".
     private var fallbackDownloadLinkedFileTarget: AnyObject?
     private var fallbackDownloadLinkedFileAction: Selector?
@@ -474,6 +575,29 @@ final class CmuxWebView: WKWebView {
         return false
     }
 
+    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
+        let tokens = [
+            Self.normalizedContextMenuToken(item.identifier?.rawValue),
+            Self.normalizedContextMenuToken(item.title),
+            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
+        ]
+
+        for token in tokens where !token.isEmpty {
+            if token.contains("copyimageaddress")
+                || token.contains("copyimageurl")
+                || token.contains("copyimagelocation") {
+                return false
+            }
+            if token == "copyimage"
+                || token.contains("copyimagetoclipboard")
+                || token.contains("copyimage") {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func isDownloadableScheme(_ url: URL) -> Bool {
         let scheme = url.scheme?.lowercased() ?? ""
         return scheme == "http" || scheme == "https" || scheme == "file"
@@ -488,8 +612,11 @@ final class CmuxWebView: WKWebView {
         return isDownloadableScheme(url) || isDataURLScheme(url)
     }
 
-    private func isOurDownloadMenuAction(target: AnyObject?, action: Selector?) -> Bool {
+    private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
+        if action == #selector(contextMenuCopyImage(_:)) {
+            return true
+        }
         return action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
@@ -564,7 +691,7 @@ final class CmuxWebView: WKWebView {
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
         let target = item.target as AnyObject?
         let action = item.action
-        if isOurDownloadMenuAction(target: target, action: action) {
+        if isOurContextMenuAction(target: target, action: action) {
             return
         }
         let box = ContextMenuFallbackBox(target: target, action: action)
@@ -879,9 +1006,7 @@ final class CmuxWebView: WKWebView {
             return
         }
         // Guard against accidental self-recursion if fallback gets overwritten.
-        if target === self,
-           action == #selector(contextMenuDownloadImage(_:))
-            || action == #selector(contextMenuDownloadLinkedFile(_:)) {
+        if isOurContextMenuAction(target: target, action: action) {
             debugContextDownload(
                 "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(Self.selectorName(action))"
             )
@@ -1151,6 +1276,192 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    private func inferredImageMIMEType(from url: URL) -> String? {
+        guard !url.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: url.pathExtension),
+              type.conforms(to: .image) else {
+            return nil
+        }
+        return type.preferredMIMEType
+    }
+
+    private func resolveContextMenuCopyImageSourceURL(
+        at point: NSPoint,
+        completion: @escaping (URL?) -> Void
+    ) {
+        findImageURLAtPoint(point) { [weak self] imageURL in
+            guard let self else { return completion(nil) }
+
+            if let imageURL {
+                let normalized = self.normalizedLinkedDownloadURL(imageURL)
+                if self.isDownloadSupportedScheme(normalized) {
+                    completion(normalized)
+                    return
+                }
+            }
+
+            self.findLinkURLAtPoint(point) { fallbackLinkURL in
+                guard let fallbackLinkURL else {
+                    completion(nil)
+                    return
+                }
+
+                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
+                guard self.isDownloadSupportedScheme(normalized),
+                      self.isLikelyImageURL(normalized) else {
+                    completion(nil)
+                    return
+                }
+
+                completion(normalized)
+            }
+        }
+    }
+
+    private func fetchContextMenuImageCopyPayload(
+        from sourceURL: URL,
+        traceID: String,
+        completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
+    ) {
+        let scheme = sourceURL.scheme?.lowercased() ?? ""
+        debugContextDownload(
+            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        )
+
+        if scheme == "data" {
+            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
+                debugContextDownload(
+                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
+                )
+                completion(nil)
+                return
+            }
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
+            )
+            completion(
+                BrowserImageCopyPasteboardPayload(
+                    imageData: parsed.data,
+                    mimeType: parsed.mimeType,
+                    sourceURL: nil
+                )
+            )
+            return
+        }
+
+        if scheme == "file" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = try? Data(contentsOf: sourceURL)
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: self.inferredImageMIMEType(from: sourceURL),
+                            sourceURL: nil
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        guard scheme == "http" || scheme == "https" else {
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
+            )
+            completion(nil)
+            return
+        }
+
+        let cookieStore = configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            var request = URLRequest(url: sourceURL)
+            request.httpMethod = "GET"
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            for (key, value) in cookieHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            if let referer = self.url?.absoluteString, !referer.isEmpty {
+                request.setValue(referer, forHTTPHeaderField: "Referer")
+            }
+            if let ua = self.customUserAgent, !ua.isEmpty {
+                request.setValue(ua, forHTTPHeaderField: "User-Agent")
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
+            )
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty, error == nil else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    let resolvedURL = response?.url.flatMap {
+                        let scheme = $0.scheme?.lowercased() ?? ""
+                        return (scheme == "http" || scheme == "https") ? $0 : nil
+                    } ?? sourceURL
+                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: mimeType,
+                            sourceURL: resolvedURL
+                        )
+                    )
+                }
+            }.resume()
+        }
+    }
+
+    private func writeContextMenuImageCopyPayload(
+        _ payload: BrowserImageCopyPasteboardPayload,
+        expectedPasteboardChangeCount: Int,
+        traceID: String
+    ) -> (wrote: Bool, shouldFallback: Bool) {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.changeCount != expectedPasteboardChangeCount {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+
+        let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
+        guard !items.isEmpty else {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
+            )
+            return (false, true)
+        }
+
+        _ = pasteboard.clearContents()
+        let wrote = pasteboard.writeObjects(items)
+        debugContextDownload(
+            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        )
+        return (wrote, !wrote)
+    }
+
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
@@ -1196,6 +1507,16 @@ final class CmuxWebView: WKWebView {
         return super.performDragOperation(sender)
     }
 
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        return super.prepareForDragOperation(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        guard !Self.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
+        super.concludeDragOperation(sender)
+    }
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
@@ -1239,12 +1560,28 @@ final class CmuxWebView: WKWebView {
                 if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
                     fallbackDownloadImageTarget = box.target
                     fallbackDownloadImageAction = box.action
-                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadImageTarget = item.target as AnyObject?
                     fallbackDownloadImageAction = item.action
                 }
                 item.target = self
                 item.action = #selector(contextMenuDownloadImage(_:))
+            }
+
+            if isCopyImageMenuItem(item) {
+                debugContextDownload(
+                    "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                )
+                captureFallbackForMenuItemIfNeeded(item)
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackCopyImageTarget = box.target
+                    fallbackCopyImageAction = box.action
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
+                    fallbackCopyImageTarget = item.target as AnyObject?
+                    fallbackCopyImageAction = item.action
+                }
+                item.target = self
+                item.action = #selector(contextMenuCopyImage(_:))
             }
 
             if isDownloadLinkedFileMenuItem(item) {
@@ -1256,7 +1593,7 @@ final class CmuxWebView: WKWebView {
                 if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
                     fallbackDownloadLinkedFileTarget = box.target
                     fallbackDownloadLinkedFileAction = box.action
-                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadLinkedFileTarget = item.target as AnyObject?
                     fallbackDownloadLinkedFileAction = item.action
                 }
@@ -1290,6 +1627,81 @@ final class CmuxWebView: WKWebView {
         resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self, let url else { return }
             self.onContextMenuOpenLinkInNewTab?(url)
+        }
+    }
+
+    @objc private func contextMenuCopyImage(_ sender: Any?) {
+        let traceID = Self.makeContextDownloadTraceID(prefix: "cpy")
+        let point = lastContextMenuPoint
+        let pasteboardChangeCount = NSPasteboard.general.changeCount
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackCopyImageAction,
+            defaultTarget: fallbackCopyImageTarget
+        )
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+        )
+
+        resolveContextMenuCopyImageSourceURL(at: point) { [weak self] sourceURL in
+            guard let self else { return }
+            guard let sourceURL else {
+                self.debugContextDownload(
+                    "browser.ctxcopy.resolve trace=\(traceID) stage=noSourceURL"
+                )
+                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "copy")
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "no_copy_image_url"
+                )
+                return
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.resolve trace=\(traceID) stage=resolved url=\(sourceURL.absoluteString)"
+            )
+            self.fetchContextMenuImageCopyPayload(from: sourceURL, traceID: traceID) { payload in
+                guard let payload else {
+                    self.debugContextDownload(
+                        "browser.ctxcopy.resolve trace=\(traceID) stage=noPayload"
+                    )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_fetch_failed"
+                    )
+                    return
+                }
+
+                let writeResult = self.writeContextMenuImageCopyPayload(
+                    payload,
+                    expectedPasteboardChangeCount: pasteboardChangeCount,
+                    traceID: traceID
+                )
+                if writeResult.wrote {
+                    return
+                }
+                if !writeResult.shouldFallback {
+                    return
+                }
+
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "copy_image_write_failed"
+                )
+            }
         }
     }
 
@@ -1407,7 +1819,7 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                if let linkURL {
+                if linkURL != nil {
                     self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
                     self.runContextMenuFallback(
                         action: fallback.action,

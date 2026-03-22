@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   workflow-guard-tests:
     runs-on: ubuntu-latest
@@ -234,9 +238,9 @@ jobs:
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
-    # XCUITests cannot run on WarpBuild (Virtualization.framework limitation:
-    # XCUIApplication stuck "Running Background", 62s activation timeout per
-    # test). Interactive UI tests run via test-e2e.yml on GitHub-hosted runners.
+    # Keep lag validation separate from UI regressions so functional UI failures
+    # and performance regressions stay isolated. Broader interactive UI suites
+    # still run via test-e2e.yml on GitHub-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
@@ -346,6 +350,7 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
+          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -389,7 +394,16 @@ jobs:
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
 
-  ui-display-resolution-regression:
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display
+
+  ui-regressions:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
@@ -441,8 +455,8 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-ui-display-resolution-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-display-resolution-
+          key: spm-ui-regressions-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-ui-regressions-
 
       - name: Resolve Swift packages
         run: |
@@ -486,4 +500,16 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+            test
+
+      - name: Run browser find focus UI regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 120 \
+            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation \
             test

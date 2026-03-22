@@ -2389,7 +2389,8 @@ struct CMUXCLI {
         let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
         let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
-        args = argsAfterSurface
+        let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
+        args = argsAfterDirection
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -2404,7 +2405,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -2422,20 +2423,21 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
             )
         }
 
         let absolutePath = resolvePath(rawPath)
 
         // Build params
-        var params: [String: Any] = ["path": absolutePath]
+        let direction = directionOpt ?? "right"
+        var params: [String: Any] = ["path": absolutePath, "direction": direction]
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -3308,8 +3310,9 @@ struct CMUXCLI {
         let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
+        let (colorOpt, rem3) = parseOption(rem2, name: "--color")
 
-        var positional = rem2
+        var positional = rem3
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -3334,6 +3337,9 @@ struct CMUXCLI {
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
         }
+        if action == "set_color", (colorOpt?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-color requires --color <#hex|name>")
+        }
 
         var params: [String: Any] = ["action": action]
         if let workspaceId {
@@ -3341,6 +3347,9 @@ struct CMUXCLI {
         }
         if let title, !title.isEmpty {
             params["title"] = title
+        }
+        if let color = colorOpt, !color.isEmpty {
+            params["color"] = color
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -3583,16 +3592,29 @@ struct CMUXCLI {
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript
         )
-        let initialSSHStartupCommand = try buildSSHStartupCommand(
-            sshCommand: initialSSHCommand,
-            shellFeatures: "",
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
-        let remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
-            sshCommand: remoteTerminalSSHCommand,
-            shellFeatures: shellFeaturesValue,
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
+        let initialSSHStartupCommand: String
+        let remoteTerminalSSHStartupCommand: String
+        if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
+            let bootstrapSSHStartupCommand = try buildBootstrapSSHStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+            initialSSHStartupCommand = bootstrapSSHStartupCommand
+            remoteTerminalSSHStartupCommand = bootstrapSSHStartupCommand
+        } else {
+            initialSSHStartupCommand = try buildSSHStartupCommand(
+                sshCommand: initialSSHCommand,
+                shellFeatures: "",
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+            remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
+                sshCommand: remoteTerminalSSHCommand,
+                shellFeatures: shellFeaturesValue,
+                remoteRelayPort: sshOptions.remoteRelayPort
+            )
+        }
         let remoteSSHOptions = effectiveSSHOptions(
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
@@ -3823,6 +3845,68 @@ struct CMUXCLI {
         return parts.map(shellQuote).joined(separator: " ")
     }
 
+    func buildBootstrapSSHStartupCommand(
+        options: SSHCommandOptions,
+        remoteBootstrapScript: String,
+        shellFeatures: String,
+        remoteRelayPort: Int
+    ) throws -> String {
+        let commandSnippet = buildSSHBootstrapCommandSnippet(
+            options: options,
+            remoteBootstrapScript: remoteBootstrapScript
+        )
+        return try buildSSHStartupCommand(
+            sshCommand: commandSnippet,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: true
+        )
+    }
+
+    private func buildSSHBootstrapCommandSnippet(
+        options: SSHCommandOptions,
+        remoteBootstrapScript: String
+    ) -> String {
+        let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
+        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let remoteCommandBase64Placeholder = "__CMUX_REMOTE_BOOTSTRAP_B64_RUNTIME__"
+        let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
+            runtimeEncodedRemoteBootstrapCommandShell(
+                base64Placeholder: remoteCommandBase64Placeholder
+            )
+        )
+        var lines: [String] = [
+            "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
+            "cmux_surface_id=\"${CMUX_SURFACE_ID:-}\"",
+            "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
+            "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
+            "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
+            "cmux_remote_bootstrap_b64_runtime=\"$(printf '%s' \"$cmux_remote_bootstrap\" | base64 | tr -d '\\n')\"",
+            "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
+            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s|\(remoteCommandBase64Placeholder)|$cmux_remote_bootstrap_b64_runtime|g\")\"",
+        ]
+
+        var sshInvocation = "command \(sshPrefix) -o \"RemoteCommand=$cmux_remote_command\""
+        if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
+            sshInvocation += " -tt"
+        }
+        sshInvocation += " " + shellQuote(options.destination)
+        lines.append(sshInvocation)
+        return lines.joined(separator: "\n")
+    }
+
+    private func runtimeEncodedRemoteBootstrapCommandShell(base64Placeholder: String) -> String {
+        return [
+            "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
+            "(printf %s '\(base64Placeholder)' | base64 -d 2>/dev/null || printf %s '\(base64Placeholder)' | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
+            "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
+            "/bin/sh \"$cmux_tmp\"",
+            "cmux_status=$?",
+            "rm -f \"$cmux_tmp\"",
+            "exit $cmux_status",
+        ].joined(separator: "; ")
+    }
+
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
@@ -3838,30 +3922,28 @@ struct CMUXCLI {
     ) -> String {
         let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
+        let remoteCallerExportLines = [
+            "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'; fi",
+            "if [ -n '__CMUX_SURFACE_ID__' ]; then export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; fi",
+        ]
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
         let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
-        let commonShellLines = remoteTerminalLines
-            + remoteEnvExportLines
-            + ["export PATH=\"$HOME/.cmux/bin:$PATH\""]
-            + (relaySocket.map { ["export CMUX_SOCKET_PATH=\($0)"] } ?? [])
-            + [
-                "hash -r >/dev/null 2>&1 || true",
-                "rehash >/dev/null 2>&1 || true",
-            ]
-        let zshEnvLines = [
-            "[ -f \"$CMUX_REAL_ZDOTDIR/.zshenv\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshenv\"",
-            "if [ -n \"${ZDOTDIR:-}\" ] && [ \"$ZDOTDIR\" != \"\(shellStateDir)\" ]; then export CMUX_REAL_ZDOTDIR=\"$ZDOTDIR\"; fi",
-            "export ZDOTDIR=\"\(shellStateDir)\"",
-        ]
-        let zshProfileLines = [
-            "[ -f \"$CMUX_REAL_ZDOTDIR/.zprofile\" ] && source \"$CMUX_REAL_ZDOTDIR/.zprofile\"",
-        ]
-        let zshRCLines = [
-            "[ -f \"$CMUX_REAL_ZDOTDIR/.zshrc\" ] && source \"$CMUX_REAL_ZDOTDIR/.zshrc\"",
-        ] + commonShellLines
-        let zshLoginLines = [
-            "[ -f \"$CMUX_REAL_ZDOTDIR/.zlogin\" ] && source \"$CMUX_REAL_ZDOTDIR/.zlogin\"",
-        ]
+        var commonShellLines = remoteTerminalLines
+        commonShellLines.append(contentsOf: remoteEnvExportLines)
+        commonShellLines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
+        if let relaySocket {
+            commonShellLines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
+        }
+        commonShellLines.append(contentsOf: remoteCallerExportLines)
+        commonShellLines.append(contentsOf: [
+            "hash -r >/dev/null 2>&1 || true",
+            "rehash >/dev/null 2>&1 || true",
+        ])
+        let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
+        let zshEnvLines = zshBootstrap.zshEnvLines
+        let zshProfileLines = zshBootstrap.zshProfileLines
+        let zshRCLines = zshBootstrap.zshRCLines(commonShellLines: commonShellLines)
+        let zshLoginLines = zshBootstrap.zshLoginLines
         let bashRCLines = [
             "if [ -f \"$HOME/.bash_profile\" ]; then . \"$HOME/.bash_profile\"; elif [ -f \"$HOME/.bash_login\" ]; then . \"$HOME/.bash_login\"; elif [ -f \"$HOME/.profile\" ]; then . \"$HOME/.profile\"; fi",
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
@@ -4095,7 +4177,8 @@ struct CMUXCLI {
     func buildSSHStartupCommand(
         sshCommand: String,
         shellFeatures: String,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        isShellSnippet: Bool = false
     ) throws -> String {
         let trimmedFeatures = shellFeatures.trimmingCharacters(in: .whitespacesAndNewlines)
         let shellFeaturesBootstrap: String = trimmedFeatures.isEmpty
@@ -4111,7 +4194,11 @@ struct CMUXCLI {
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
             "trap 'cmux_ssh_session_end' EXIT HUP INT TERM",
         ]
-        scriptLines.append("command \(sshCommand)")
+        if isShellSnippet {
+            scriptLines.append(sshCommand)
+        } else {
+            scriptLines.append("command \(sshCommand)")
+        }
         scriptLines += [
             "cmux_ssh_status=$?",
             "trap - EXIT HUP INT TERM",
@@ -6120,16 +6207,20 @@ struct CMUXCLI {
               move-up | move-down | move-top
               close-others | close-above | close-below
               mark-read | mark-unread
+              set-color | clear-color
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename (or pass trailing title text)
+              --color <#hex|name>          Color for set-color (e.g. '#C0392B' or 'Red')
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
               cmux workspace-action --action rename --title "infra"
               cmux workspace-action close-others
+              cmux workspace-action --action set-color --workspace workspace:1 --color '#C0392B'
+              cmux workspace-action --action clear-color --workspace workspace:1
             """
         case "tab-action":
             return """
@@ -7060,11 +7151,13 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
               --window <id|ref|index>      Target window
+              --direction <left|right|up|down>  Split direction (default: right)
 
             Examples:
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
+              cmux markdown open plan.md --direction down
             """
         default:
             return nil
@@ -11096,7 +11189,7 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <#hex|name>]
           list-workspaces
           new-workspace [--cwd <path>] [--command <text>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]

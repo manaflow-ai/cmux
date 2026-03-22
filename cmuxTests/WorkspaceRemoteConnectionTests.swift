@@ -61,6 +61,57 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    private func writeShellFile(at url: URL, lines: [String]) throws {
+        try lines.joined(separator: "\n")
+            .appending("\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func runRelayZshHistfile(
+        configureUserHome: (URL) throws -> URL
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-zsh-\(UUID().uuidString)")
+        let relayDir = home.appendingPathComponent(".cmux/relay/64011.shell")
+
+        try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let effectiveUserZdotdir = try configureUserHome(home)
+        let bootstrap = RemoteRelayZshBootstrap(shellStateDir: relayDir.path)
+
+        try writeShellFile(at: relayDir.appendingPathComponent(".zshenv"), lines: bootstrap.zshEnvLines)
+        try writeShellFile(at: relayDir.appendingPathComponent(".zprofile"), lines: bootstrap.zshProfileLines)
+        try writeShellFile(at: relayDir.appendingPathComponent(".zshrc"), lines: bootstrap.zshRCLines(commonShellLines: []))
+        try writeShellFile(at: relayDir.appendingPathComponent(".zlogin"), lines: bootstrap.zshLoginLines)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "TERM=xterm-256color",
+                "SHELL=/bin/zsh",
+                "USER=\(NSUserName())",
+                "CMUX_REAL_ZDOTDIR=\(home.path)",
+                "ZDOTDIR=\(relayDir.path)",
+                "/bin/zsh",
+                "-ilc",
+                "print -r -- \"$HISTFILE\"",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let histfile = result.stdout
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .last(where: { !$0.isEmpty })
+        XCTAssertEqual(histfile, effectiveUserZdotdir.appendingPathComponent(".zsh_history").path)
+        return histfile ?? ""
+    }
+
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")
@@ -125,6 +176,32 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
     }
 
+    func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
+        let histfile = try runRelayZshHistfile { home in
+            try ":\n".write(to: home.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
+            try ":\n".write(to: home.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+            return home
+        }
+
+        XCTAssertTrue(histfile.hasSuffix("/.zsh_history"))
+    }
+
+    func testRelayZshBootstrapUsesUserUpdatedZdotdirHistory() throws {
+        let histfile = try runRelayZshHistfile { home in
+            let altZdotdir = home.appendingPathComponent("dotfiles")
+            try FileManager.default.createDirectory(at: altZdotdir, withIntermediateDirectories: true)
+            try "export ZDOTDIR=\"$HOME/dotfiles\"\n".write(
+                to: home.appendingPathComponent(".zshenv"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try ":\n".write(to: altZdotdir.appendingPathComponent(".zshrc"), atomically: true, encoding: .utf8)
+            return altZdotdir
+        }
+
+        XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
+    }
+
     func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
         let process = Process()
         let stderrPipe = Pipe()
@@ -143,6 +220,309 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(detail, "remote port forwarding failed for listen port 64009")
+    }
+
+    @MainActor
+    func testRemoteTerminalSurfaceLookupTracksOnlyActiveSSHSurfaces() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+
+        workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+    }
+
+    func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() throws {
+        let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
+        let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
+
+        let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
+
+        XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+    }
+
+    @MainActor
+    func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        let originalPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let originalPaneID = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelID))
+        let movedPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal)
+        )
+
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(originalPanelID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+
+        let detached = try XCTUnwrap(workspace.detachSurface(panelId: movedPanel.id))
+        XCTAssertTrue(detached.isRemoteTerminal)
+        XCTAssertEqual(detached.remoteRelayPort, config.relayPort)
+
+        let restoredPanelID = workspace.attachDetachedSurface(
+            detached,
+            inPane: originalPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+    }
+
+    @MainActor
+    func testDetachAttachPreservesSurfaceTTYMetadata() throws {
+        let source = Workspace()
+        let destination = Workspace()
+
+        let panelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let sourcePaneID = try XCTUnwrap(source.paneId(forPanelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        source.surfaceTTYNames[panelID] = "/dev/ttys004"
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panelID))
+        XCTAssertEqual(source.surfaceTTYNames[panelID], nil)
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, panelID)
+        XCTAssertEqual(destination.surfaceTTYNames[panelID], "/dev/ttys004")
+        XCTAssertEqual(source.bonsplitController.tabs(inPane: sourcePaneID).count, 0)
+    }
+
+    func testDetectedSSHUploadFailureCleansUpEarlierRemoteUploads() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-detected-ssh-upload-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let firstFileURL = directoryURL.appendingPathComponent("first.png")
+        let secondFileURL = directoryURL.appendingPathComponent("second.png")
+        try Data("first".utf8).write(to: firstFileURL)
+        try Data("second".utf8).write(to: secondFileURL)
+
+        let session = DetectedSSHSession(
+            destination: "lawrence@example.com",
+            port: 2200,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+
+        var invocations: [(executable: String, arguments: [String])] = []
+        var scpInvocationCount = 0
+        DetectedSSHSession.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            invocations.append((executable, arguments))
+            if executable == "/usr/bin/scp" {
+                scpInvocationCount += 1
+                if scpInvocationCount == 1 {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 1, stdout: "", stderr: "copy failed")
+            }
+            if executable == "/usr/bin/ssh" {
+                return (status: 0, stdout: "", stderr: "")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { DetectedSSHSession.runProcessOverrideForTesting = nil }
+
+        XCTAssertThrowsError(
+            try session.uploadDroppedFilesSyncForTesting([firstFileURL, secondFileURL])
+        )
+
+        let firstSCPDestination = try XCTUnwrap(
+            invocations
+                .first(where: { $0.executable == "/usr/bin/scp" })?
+                .arguments
+                .last
+        )
+        let uploadedRemotePath = try XCTUnwrap(firstSCPDestination.split(separator: ":", maxSplits: 1).last)
+        let cleanupInvocation = try XCTUnwrap(
+            invocations.first(where: { $0.executable == "/usr/bin/ssh" })
+        )
+        let cleanupCommand = cleanupInvocation.arguments.joined(separator: " ")
+
+        XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
+    }
+
+    func testDetectsForegroundSSHSessionForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-o", "ControlMaster=auto",
+                    "-o", "ControlPath=/tmp/cmux-ssh-%C",
+                    "-o", "StrictHostKeyChecking=accept-new",
+                    "-p", "2200",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(
+            session,
+            DetectedSSHSession(
+                destination: "lawrence@example.com",
+                port: 2200,
+                identityFile: "/Users/test/.ssh/id_ed25519",
+                configFile: nil,
+                jumpHost: nil,
+                controlPath: "/tmp/cmux-ssh-%C",
+                useIPv4: false,
+                useIPv6: false,
+                forwardAgent: false,
+                compressionEnabled: false,
+                sshOptions: [
+                    "StrictHostKeyChecking=accept-new",
+                ]
+            )
+        )
+    }
+
+    func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-S", "/tmp/cmux-ssh-%C",
+                    "-p", "2200",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.controlPath, "/tmp/cmux-ssh-%C")
+        let scpArgs = session?.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        ) ?? []
+        XCTAssertTrue(scpArgs.contains("ControlPath=/tmp/cmux-ssh-%C"))
+        XCTAssertFalse(scpArgs.contains("-S"))
+    }
+
+    func testDetectedSSHSessionBracketsIPv6LiteralSCPDestination() {
+        let session = DetectedSSHSession(
+            destination: "lawrence@2001:db8::1",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+
+        let scpArgs = session.scpArgumentsForTesting(
+            localPath: "/tmp/local.png",
+            remotePath: "/tmp/cmux-drop-123.png"
+        )
+
+        XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
+    }
+
+    func testDetectsForegroundSSHSessionWithLowercaseAgentFlag() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-a",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+        XCTAssertFalse(session?.forwardAgent ?? true)
+    }
+
+    func testDetectsForegroundSSHSessionIgnoringBindInterfaceValue() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-B", "en0",
+                    "lawrence@example.com",
+                ],
+            ]
+        )
+
+        XCTAssertEqual(session?.destination, "lawrence@example.com")
+    }
+
+    func testIgnoresBackgroundSSHProcessForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "ttys004",
+            processes: [
+                .init(pid: 2145, pgid: 2145, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: ["ssh", "lawrence@example.com"],
+            ]
+        )
+
+        XCTAssertNil(session)
     }
 
     @MainActor

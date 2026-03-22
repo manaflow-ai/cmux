@@ -427,6 +427,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case cursor
     case finder
     case ghostty
+    case intellij
     case iterm2
     case terminal
     case tower
@@ -475,6 +476,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
             return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
+        case .intellij:
+            return String(localized: "menu.openInIntelliJ", defaultValue: "Open Current Directory in IntelliJ IDEA")
         case .iterm2:
             return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
@@ -509,6 +512,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["finder", "file", "manager", "reveal"]
         case .ghostty:
             return common + ["ghostty", "terminal", "shell"]
+        case .intellij:
+            return common + ["intellij", "idea", "jetbrains"]
         case .iterm2:
             return common + ["iterm", "iterm2", "terminal", "shell"]
         case .terminal:
@@ -602,6 +607,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return ["/System/Library/CoreServices/Finder.app"]
         case .ghostty:
             return ["/Applications/Ghostty.app"]
+        case .intellij:
+            return ["/Applications/IntelliJ IDEA.app"]
         case .iterm2:
             return [
                 "/Applications/iTerm.app",
@@ -1914,7 +1921,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
-    static var shared: AppDelegate?
+    nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
@@ -10472,8 +10479,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
+        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
+        // charactersIgnoringModifiers returns non-ASCII characters that can never match
+        // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
         if hasEventChars,
+           eventCharsAreASCII,
            flags.contains(.command),
            !flags.contains(.control),
            shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
@@ -10496,12 +10508,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
+        // When a non-Latin input source is active, treat non-ASCII event chars the same as
+        // absent chars — they carry no usable Latin key identity.
+        let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || (!hasUsableEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
@@ -11002,6 +11017,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
         contextContainingTabId(tabId)?.tabManager
+    }
+
+    private func workspaceForMainActor(tabId: UUID) -> Workspace? {
+        contextContainingTabId(tabId)?.tabManager.tabs.first(where: { $0.id == tabId })
+    }
+
+    /// Returns the `Workspace` that owns `tabId`, if any.
+    @MainActor
+    func workspaceFor(tabId: UUID) -> Workspace? {
+        workspaceForMainActor(tabId: tabId)
     }
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {
@@ -12448,6 +12473,13 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
+        // Browser find runs in the portal slot alongside the hosted WKWebView.
+        // Treat its native field editor chain as browser chrome, not as web content,
+        // so Cmd+F can move first responder into the find field while web focus is suppressed.
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
+            return nil
+        }
+
         if let webView = cmuxOwningWebView(for: responder) {
             return webView
         }

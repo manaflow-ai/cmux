@@ -1004,6 +1004,48 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
 }
 
 @MainActor
+final class BrowserPanelPopupContextTests: XCTestCase {
+    func testFloatingPopupInheritsOpenerBrowserContext() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        let popupWebView = try XCTUnwrap(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        defer { popupWebView.window?.close() }
+
+        XCTAssertTrue(
+            popupWebView.configuration.processPool === panel.webView.configuration.processPool
+        )
+        XCTAssertTrue(
+            popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
+        )
+    }
+
+    func testFloatingPopupInheritsRemoteWorkspaceWebsiteDataStore() throws {
+        let remoteWorkspaceId = UUID()
+        let panel = BrowserPanel(
+            workspaceId: remoteWorkspaceId,
+            isRemoteWorkspace: true,
+            remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
+        )
+        let popupWebView = try XCTUnwrap(
+            panel.createFloatingPopup(
+                configuration: WKWebViewConfiguration(),
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        defer { popupWebView.window?.close() }
+
+        XCTAssertTrue(
+            popupWebView.configuration.websiteDataStore === panel.webView.configuration.websiteDataStore
+        )
+        XCTAssertFalse(popupWebView.configuration.websiteDataStore === WKWebsiteDataStore.default())
+    }
+}
+
+@MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
         let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
@@ -2016,16 +2058,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
     }
 
-    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])!
-        let fonts = Set(mappings.map(\.1))
-        let ranges = mappings.map(\.0)
-
-        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
-        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
-        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
-        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
-        XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
+    func testCJKFontMappingsReturnsNilForKoreanOnly() {
+        // Korean is not auto-mapped — Ghostty's native CTFontCreateForString
+        // fallback selects a better-matching font for Hangul.
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
@@ -2044,15 +2080,16 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
     }
 
-    func testCJKFontMappingsMultiLanguageMapsScriptSpecificRanges() {
+    func testCJKFontMappingsMultiLanguageSkipsKorean() {
+        // When both ja and ko are preferred, only Japanese mappings are generated.
+        // Korean is left to Ghostty's native CTFontCreateForString fallback.
         let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
 
         let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
-        let sdGothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
 
         XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
         XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
-        XCTAssertTrue(sdGothicRanges.contains("U+AC00-U+D7AF"), "Hangul → Apple SD Gothic Neo")
+        XCTAssertFalse(mappings.contains { $0.1 == "Apple SD Gothic Neo" }, "No Korean font mapping")
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
     }
 
