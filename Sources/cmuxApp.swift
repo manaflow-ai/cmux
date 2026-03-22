@@ -3684,17 +3684,45 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode) {
         switch mode {
         case .automatic:
-            // Let the asset catalog handle appearance-based icon selection (macOS 15+).
-            // Reset to the default bundle icon.
-            NSApplication.shared.applicationIconImage = nil
+            AppIconAppearanceObserver.shared.startObserving()
         case .light:
+            AppIconAppearanceObserver.shared.stopObserving()
             if let icon = NSImage(named: "AppIconLight") {
                 NSApplication.shared.applicationIconImage = icon
             }
         case .dark:
+            AppIconAppearanceObserver.shared.stopObserving()
             if let icon = NSImage(named: "AppIconDark") {
                 NSApplication.shared.applicationIconImage = icon
             }
+        }
+    }
+}
+
+final class AppIconAppearanceObserver: NSObject {
+    static let shared = AppIconAppearanceObserver()
+    private var observation: NSKeyValueObservation?
+
+    func startObserving() {
+        applyIconForCurrentAppearance()
+        guard observation == nil else { return }
+        observation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.applyIconForCurrentAppearance()
+            }
+        }
+    }
+
+    func stopObserving() {
+        observation?.invalidate()
+        observation = nil
+    }
+
+    private func applyIconForCurrentAppearance() {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let imageName = isDark ? "AppIconDark" : "AppIconLight"
+        if let icon = NSImage(named: imageName) {
+            NSApplication.shared.applicationIconImage = icon
         }
     }
 }
