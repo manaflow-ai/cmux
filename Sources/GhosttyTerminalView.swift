@@ -5110,7 +5110,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
-                    equivalent = event.characters ?? ""
+                    equivalent = event.charactersIgnoringModifiers ?? ""
                     break
                 }
             }
