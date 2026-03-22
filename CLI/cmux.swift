@@ -1956,8 +1956,8 @@ struct CMUXCLI {
             }
             let color = trailing[0].trimmingCharacters(in: .whitespacesAndNewlines)
             let body = color.hasPrefix("#") ? String(color.dropFirst()) : color
-            guard body.count == 6 || body.count == 8, UInt64(body.prefix(8), radix: 16) != nil else {
-                throw CLIError(message: "set-workspace-color: invalid hex color \"\(color)\" (expected #RRGGBB or #RRGGBBAA)")
+            guard body.count == 6, UInt64(body, radix: 16) != nil else {
+                throw CLIError(message: "set-workspace-color: invalid hex color \"\(color)\" (expected #RRGGBB)")
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["workspace_id": wsId, "color": color]
