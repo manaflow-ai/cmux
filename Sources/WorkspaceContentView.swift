@@ -91,6 +91,13 @@ struct WorkspaceContentView: View {
                         guard workspace.panels[panel.id] != nil else { return }
                         workspace.focusPanel(panel.id, trigger: .terminalFirstResponder)
                     },
+                    onHoverFocusRequest: {
+                        guard isWorkspaceInputActive else { return }
+                        guard workspace.bonsplitController.allPaneIds.count > 1 else { return }
+                        guard workspace.panels[panel.id] != nil else { return }
+                        guard workspace.focusedPanelId != panel.id else { return }
+                        workspace.focusPanel(panel.id)
+                    },
                     onRequestPanelFocus: {
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }

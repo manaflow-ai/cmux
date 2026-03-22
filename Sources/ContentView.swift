@@ -5981,14 +5981,14 @@ struct ContentView: View {
             BrowserHistoryStore.shared.clearHistory()
         }
         registry.register(commandId: "palette.browserSplitRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
+            _ = tabManager.performConfiguredBrowserSplitAction(direction: .right)
         }
         registry.register(commandId: "palette.browserSplitDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
+            _ = tabManager.performConfiguredBrowserSplitAction(direction: .down)
         }
         registry.register(commandId: "palette.browserDuplicateRight") {
             let url = tabManager.focusedBrowserPanel?.preferredURLStringForOmnibar().flatMap(URL.init(string:))
-            _ = tabManager.createBrowserSplit(direction: .right, url: url)
+            _ = tabManager.performConfiguredBrowserSplitAction(direction: .right, url: url)
         }
 
         for target in TerminalDirectoryOpenTarget.commandPaletteShortcutTargets {
@@ -6022,16 +6022,16 @@ struct ContentView: View {
             tabManager.searchSelection()
         }
         registry.register(commandId: "palette.terminalSplitRight") {
-            tabManager.createSplit(direction: .right)
+            tabManager.performConfiguredTerminalSplitAction(direction: .right)
         }
         registry.register(commandId: "palette.terminalSplitDown") {
-            tabManager.createSplit(direction: .down)
+            tabManager.performConfiguredTerminalSplitAction(direction: .down)
         }
         registry.register(commandId: "palette.terminalSplitBrowserRight") {
-            _ = tabManager.createBrowserSplit(direction: .right)
+            _ = tabManager.performConfiguredBrowserSplitAction(direction: .right)
         }
         registry.register(commandId: "palette.terminalSplitBrowserDown") {
-            _ = tabManager.createBrowserSplit(direction: .down)
+            _ = tabManager.performConfiguredBrowserSplitAction(direction: .down)
         }
         registry.register(commandId: "palette.toggleSplitZoom") {
             if !tabManager.toggleFocusedSplitZoom() {

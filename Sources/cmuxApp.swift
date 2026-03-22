@@ -1002,14 +1002,14 @@ struct cmuxApp: App {
         if AppDelegate.shared?.performSplitShortcut(direction: direction) == true {
             return
         }
-        tabManager.createSplit(direction: direction)
+        _ = tabManager.performConfiguredTerminalSplitAction(direction: direction)
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {
         if AppDelegate.shared?.performBrowserSplitShortcut(direction: direction) == true {
             return
         }
-        _ = tabManager.createBrowserSplit(direction: direction)
+        _ = tabManager.performConfiguredBrowserSplitAction(direction: direction)
     }
 
     private func selectedWorkspaceIndex(in manager: TabManager, workspaceId: UUID) -> Int? {
@@ -3816,6 +3816,7 @@ struct SettingsView: View {
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
     private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(SplitLayoutSettings.modeKey) private var splitLayoutMode = SplitLayoutSettings.defaultMode.rawValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
@@ -3872,6 +3873,10 @@ struct SettingsView: View {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
     }
 
+    private var selectedSplitLayoutMode: SplitLayoutMode {
+        SplitLayoutMode(rawValue: splitLayoutMode) ?? SplitLayoutSettings.defaultMode
+    }
+
     private var minimalModeEnabled: Bool {
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
     }
@@ -3887,6 +3892,10 @@ struct SettingsView: View {
             localized: "settings.app.minimalMode.subtitleOff",
             defaultValue: "Use the standard workspace title bar and controls."
         )
+    }
+
+    private var splitLayoutSubtitle: String {
+        selectedSplitLayoutMode.description
     }
 
     private var keepWorkspaceOpenOnLastSurfaceShortcut: Bool {
@@ -4364,6 +4373,19 @@ struct SettingsView: View {
                         ) {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            String(localized: "settings.app.splitLayoutMode", defaultValue: "Split Action Layout"),
+                            subtitle: splitLayoutSubtitle,
+                            controlWidth: pickerColumnWidth,
+                            selection: $splitLayoutMode
+                        ) {
+                            ForEach(SplitLayoutMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode.rawValue)
                             }
                         }
 
@@ -5561,6 +5583,7 @@ struct SettingsView: View {
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        splitLayoutMode = SplitLayoutSettings.defaultMode.rawValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: WorkspaceTitlebarSettings.showTitlebarKey)

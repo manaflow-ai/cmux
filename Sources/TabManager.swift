@@ -235,6 +235,50 @@ enum WorkspacePlacementSettings {
     }
 }
 
+enum SplitLayoutMode: String, CaseIterable, Identifiable {
+    case paneGrid
+    case tabStack
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .paneGrid:
+            return String(localized: "split.layout.paneGrid", defaultValue: "Pane Grid")
+        case .tabStack:
+            return String(localized: "split.layout.tabStack", defaultValue: "Tab Stack")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .paneGrid:
+            return String(
+                localized: "split.layout.paneGrid.description",
+                defaultValue: "Split actions create adjacent panes inside the current workspace."
+            )
+        case .tabStack:
+            return String(
+                localized: "split.layout.tabStack.description",
+                defaultValue: "Split actions open another tab in the current pane instead of changing the pane layout."
+            )
+        }
+    }
+}
+
+enum SplitLayoutSettings {
+    static let modeKey = "splitLayoutMode"
+    static let defaultMode: SplitLayoutMode = .paneGrid
+
+    static func current(defaults: UserDefaults = .standard) -> SplitLayoutMode {
+        guard let rawValue = defaults.string(forKey: modeKey),
+              let mode = SplitLayoutMode(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
@@ -3250,6 +3294,67 @@ class TabManager: ObservableObject {
     }
 
     // MARK: - Split Creation
+
+    /// Perform the user-facing split action, honoring the split layout preference.
+    @discardableResult
+    func performConfiguredTerminalSplitAction(direction: SplitDirection) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        return performConfiguredTerminalSplitAction(
+            tabId: selectedTabId,
+            surfaceId: focusedPanelId,
+            direction: direction
+        )
+    }
+
+    /// Perform the user-facing split action from an explicit source panel.
+    @discardableResult
+    func performConfiguredTerminalSplitAction(
+        tabId: UUID,
+        surfaceId: UUID,
+        direction: SplitDirection
+    ) -> UUID? {
+        guard let tab = tabs.first(where: { $0.id == tabId }),
+              tab.panels[surfaceId] != nil else { return nil }
+
+        switch SplitLayoutSettings.current() {
+        case .paneGrid:
+            return createSplit(tabId: tabId, surfaceId: surfaceId, direction: direction)
+        case .tabStack:
+            tab.clearSplitZoom()
+            guard let paneId = tab.paneId(forPanelId: surfaceId),
+                  let panel = tab.newTerminalSurface(inPane: paneId, focus: true) else {
+                return nil
+            }
+            rememberFocusedSurface(tabId: tabId, surfaceId: panel.id)
+            return panel.id
+        }
+    }
+
+    /// Perform the user-facing browser split action, honoring the split layout preference.
+    @discardableResult
+    func performConfiguredBrowserSplitAction(direction: SplitDirection, url: URL? = nil) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+
+        switch SplitLayoutSettings.current() {
+        case .paneGrid:
+            return createBrowserSplit(direction: direction, url: url)
+        case .tabStack:
+            tab.clearSplitZoom()
+            let targetPaneId = tab.paneId(forPanelId: focusedPanelId)
+                ?? tab.bonsplitController.focusedPaneId
+                ?? tab.bonsplitController.allPaneIds.first
+            guard let targetPaneId,
+                  let panel = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: true) else {
+                return nil
+            }
+            rememberFocusedSurface(tabId: selectedTabId, surfaceId: panel.id)
+            return panel.id
+        }
+    }
 
     /// Create a new split in the current tab
     @discardableResult

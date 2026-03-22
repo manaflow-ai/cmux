@@ -715,6 +715,91 @@ final class TabManagerPendingUnfocusPolicyTests: XCTestCase {
 
 
 @MainActor
+final class TabManagerConfiguredSplitActionTests: XCTestCase {
+    private func withSplitLayoutMode<T>(
+        _ mode: SplitLayoutMode?,
+        run body: () throws -> T
+    ) rethrows -> T {
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: SplitLayoutSettings.modeKey)
+        if let mode {
+            defaults.set(mode.rawValue, forKey: SplitLayoutSettings.modeKey)
+        } else {
+            defaults.removeObject(forKey: SplitLayoutSettings.modeKey)
+        }
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: SplitLayoutSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: SplitLayoutSettings.modeKey)
+            }
+        }
+        return try body()
+    }
+
+    func testConfiguredTerminalSplitActionDefaultsToPaneGrid() throws {
+        try withSplitLayoutMode(nil) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId else {
+                XCTFail("Expected focused workspace and pane")
+                return
+            }
+
+            let paneCountBefore = workspace.bonsplitController.allPaneIds.count
+            let tabsInPaneBefore = workspace.bonsplitController.tabs(inPane: paneId).count
+
+            let createdPanelId = try XCTUnwrap(
+                manager.performConfiguredTerminalSplitAction(direction: .right)
+            )
+
+            XCTAssertEqual(
+                workspace.bonsplitController.allPaneIds.count,
+                paneCountBefore + 1,
+                "Expected default split action to create a new pane"
+            )
+            XCTAssertEqual(
+                workspace.bonsplitController.tabs(inPane: paneId).count,
+                tabsInPaneBefore,
+                "Expected original pane tab count to remain unchanged in pane-grid mode"
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanelId, "Expected created pane to be focused")
+        }
+    }
+
+    func testConfiguredTerminalSplitActionUsesTabStackMode() throws {
+        try withSplitLayoutMode(.tabStack) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let paneId = workspace.bonsplitController.focusedPaneId else {
+                XCTFail("Expected focused workspace and pane")
+                return
+            }
+
+            let paneCountBefore = workspace.bonsplitController.allPaneIds.count
+            let tabsInPaneBefore = workspace.bonsplitController.tabs(inPane: paneId).count
+
+            let createdPanelId = try XCTUnwrap(
+                manager.performConfiguredTerminalSplitAction(direction: .right)
+            )
+
+            XCTAssertEqual(
+                workspace.bonsplitController.allPaneIds.count,
+                paneCountBefore,
+                "Expected tab-stack mode to reuse the current pane"
+            )
+            XCTAssertEqual(
+                workspace.bonsplitController.tabs(inPane: paneId).count,
+                tabsInPaneBefore + 1,
+                "Expected tab-stack mode to create a new surface in the existing pane"
+            )
+            XCTAssertEqual(workspace.focusedPanelId, createdPanelId, "Expected created surface to be focused")
+        }
+    }
+}
+
+
+@MainActor
 final class TabManagerSurfaceCreationTests: XCTestCase {
     func testNewSurfaceFocusesCreatedSurface() {
         let manager = TabManager()

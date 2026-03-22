@@ -9474,8 +9474,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
+        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 or Ctrl+1-9 (9 = last workspace)
+        if (flags == [.command] || flags == [.control]),
            let manager = tabManager,
            let num = Int(chars),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
@@ -9488,8 +9488,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
+        // Numeric shortcuts for surfaces within pane: Ctrl+Shift+1-9 (9 = last)
+        if flags == [.control, .shift] {
             if let num = Int(chars), num >= 1 && num <= 9 {
                 if num == 9 {
                     tabManager?.selectLastSurface()
@@ -10277,13 +10277,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         let didCreateSplit: Bool = {
             if let terminalContext {
-                return terminalContext.tabManager.createSplit(
+                return terminalContext.tabManager.performConfiguredTerminalSplitAction(
                     tabId: terminalContext.workspaceId,
                     surfaceId: terminalContext.panelId,
                     direction: direction
                 ) != nil
             }
-            return tabManager?.createSplit(direction: direction) != nil
+            return tabManager?.performConfiguredTerminalSplitAction(direction: direction) != nil
         }()
 #if DEBUG
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
@@ -10334,7 +10334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         #endif
 
-        guard let panelId = tabManager?.createBrowserSplit(direction: direction) else {
+        guard let panelId = tabManager?.performConfiguredBrowserSplitAction(direction: direction) else {
             #if DEBUG
             dlog("split.browser.shortcut failed dir=\(directionLabel)")
             #endif
