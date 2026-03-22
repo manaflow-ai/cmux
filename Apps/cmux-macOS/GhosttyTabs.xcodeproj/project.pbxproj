@@ -15,6 +15,51 @@
 		492F16342F709A9000A70A71 /* open in Resources */ = {isa = PBXBuildFile; fileRef = 492F16312F709A9000A70A71 /* open */; };
 		492F16352F709AD100A70A71 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = 492F16302F709A9000A70A71 /* claude */; };
 		492F16362F709AD100A70A71 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = 492F16312F709A9000A70A71 /* open */; };
+		492F16372F70A3E300A70A71 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A52F701A4700053C84 /* AutomationSocketUITests.swift */; };
+		492F16382F70A3E300A70A71 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A62F701A4700053C84 /* BonsplitTabDragUITests.swift */; };
+		492F16392F70A3E300A70A71 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A72F701A4700053C84 /* BrowserImportProfilesUITests.swift */; };
+		492F163A2F70A3E300A70A71 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A82F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift */; };
+		492F163B2F70A3E300A70A71 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A92F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift */; };
+		492F163C2F70A3E300A70A71 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AA2F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift */; };
+		492F163D2F70A3E300A70A71 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AB2F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift */; };
+		492F163E2F70A3E300A70A71 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AC2F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift */; };
+		492F163F2F70A3E300A70A71 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AD2F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift */; };
+		492F16402F70A3E300A70A71 /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AE2F701A4700053C84 /* DisplayResolutionRegressionUITests.swift */; };
+		492F16412F70A3E300A70A71 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AF2F701A4700053C84 /* JumpToUnreadUITests.swift */; };
+		492F16422F70A3E300A70A71 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B02F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift */; };
+		492F16432F70A3E300A70A71 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B12F701A4700053C84 /* MultiWindowNotificationsUITests.swift */; };
+		492F16442F70A3E300A70A71 /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B22F701A4700053C84 /* SidebarHelpMenuUITests.swift */; };
+		492F16452F70A3E300A70A71 /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B32F701A4700053C84 /* SidebarResizeUITests.swift */; };
+		492F16462F70A3E300A70A71 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B42F701A4700053C84 /* UpdatePillUITests.swift */; };
+		492F16472F70A3F300A70A71 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886A2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift */; };
+		492F16482F70A3F300A70A71 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886B2F701A0A00053C84 /* BrowserConfigTests.swift */; };
+		492F16492F70A3F300A70A71 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886C2F701A0A00053C84 /* BrowserFindJavaScriptTests.swift */; };
+		492F164A2F70A3F300A70A71 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886D2F701A0A00053C84 /* BrowserImportMappingTests.swift */; };
+		492F164B2F70A3F300A70A71 /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886E2F701A0A00053C84 /* BrowserPanelTests.swift */; };
+		492F164C2F70A3F300A70A71 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886F2F701A0A00053C84 /* CJKIMEInputTests.swift */; };
+		492F164D2F70A3F300A70A71 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688702F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift */; };
+		492F164E2F70A3F300A70A71 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688712F701A0A00053C84 /* GhosttyConfigTests.swift */; };
+		492F164F2F70A3F300A70A71 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688722F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
+		492F16502F70A3F300A70A71 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688732F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift */; };
+		492F16512F70A3F300A70A71 /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688742F701A0A00053C84 /* NotificationAndMenuBarTests.swift */; };
+		492F16522F70A3F300A70A71 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688752F701A0A00053C84 /* OmnibarAndToolsTests.swift */; };
+		492F16532F70A3F300A70A71 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688762F701A0A00053C84 /* SessionPersistenceTests.swift */; };
+		492F16542F70A3F300A70A71 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688772F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift */; };
+		492F16552F70A3F300A70A71 /* SidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688782F701A0A00053C84 /* SidebarOrderingTests.swift */; };
+		492F16562F70A3F300A70A71 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688792F701A0A00053C84 /* SidebarWidthPolicyTests.swift */; };
+		492F16572F70A3F300A70A71 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887A2F701A0A00053C84 /* SocketControlPasswordStoreTests.swift */; };
+		492F16582F70A3F300A70A71 /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887B2F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift */; };
+		492F16592F70A3F300A70A71 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887C2F701A0A00053C84 /* TabManagerUnitTests.swift */; };
+		492F165A2F70A3F300A70A71 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift */; };
+		492F165B2F70A3F300A70A71 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887E2F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift */; };
+		492F165C2F70A3F300A70A71 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887F2F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift */; };
+		492F165D2F70A3F300A70A71 /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688802F701A0A00053C84 /* WindowAndDragTests.swift */; };
+		492F165E2F70A3F300A70A71 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688812F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift */; };
+		492F165F2F70A3F300A70A71 /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688822F701A0A00053C84 /* WorkspaceManualUnreadTests.swift */; };
+		492F16602F70A3F300A70A71 /* WorkspacePullRequestSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688832F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift */; };
+		492F16612F70A3F300A70A71 /* WorkspaceRemoteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688842F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift */; };
+		492F16622F70A3F300A70A71 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688852F701A0A00053C84 /* WorkspaceStressProfileTests.swift */; };
+		492F16632F70A3F300A70A71 /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688862F701A0A00053C84 /* WorkspaceUnitTests.swift */; };
 		49E684602F7018EB00053C84 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684282F7018EB00053C84 /* BrowserPanelView.swift */; };
 		49E684612F7018EB00053C84 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684332F7018EB00053C84 /* UpdateController.swift */; };
 		49E684622F7018EB00053C84 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */; };
@@ -1787,6 +1832,22 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				492F16372F70A3E300A70A71 /* AutomationSocketUITests.swift in Sources */,
+				492F16382F70A3E300A70A71 /* BonsplitTabDragUITests.swift in Sources */,
+				492F16392F70A3E300A70A71 /* BrowserImportProfilesUITests.swift in Sources */,
+				492F163A2F70A3E300A70A71 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
+				492F163B2F70A3E300A70A71 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+				492F163C2F70A3E300A70A71 /* CloseWindowConfirmDialogUITests.swift in Sources */,
+				492F163D2F70A3E300A70A71 /* CloseWorkspaceCmdDUITests.swift in Sources */,
+				492F163E2F70A3E300A70A71 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
+				492F163F2F70A3E300A70A71 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */,
+				492F16402F70A3E300A70A71 /* DisplayResolutionRegressionUITests.swift in Sources */,
+				492F16412F70A3E300A70A71 /* JumpToUnreadUITests.swift in Sources */,
+				492F16422F70A3E300A70A71 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
+				492F16432F70A3E300A70A71 /* MultiWindowNotificationsUITests.swift in Sources */,
+				492F16442F70A3E300A70A71 /* SidebarHelpMenuUITests.swift in Sources */,
+				492F16452F70A3E300A70A71 /* SidebarResizeUITests.swift in Sources */,
+				492F16462F70A3E300A70A71 /* UpdatePillUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1794,6 +1855,35 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				492F16472F70A3F300A70A71 /* AppDelegateShortcutRoutingTests.swift in Sources */,
+				492F16482F70A3F300A70A71 /* BrowserConfigTests.swift in Sources */,
+				492F16492F70A3F300A70A71 /* BrowserFindJavaScriptTests.swift in Sources */,
+				492F164A2F70A3F300A70A71 /* BrowserImportMappingTests.swift in Sources */,
+				492F164B2F70A3F300A70A71 /* BrowserPanelTests.swift in Sources */,
+				492F164C2F70A3F300A70A71 /* CJKIMEInputTests.swift in Sources */,
+				492F164D2F70A3F300A70A71 /* CommandPaletteSearchEngineTests.swift in Sources */,
+				492F164E2F70A3F300A70A71 /* GhosttyConfigTests.swift in Sources */,
+				492F164F2F70A3F300A70A71 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
+				492F16502F70A3F300A70A71 /* InactivePaneFirstClickFocusTests.swift in Sources */,
+				492F16512F70A3F300A70A71 /* NotificationAndMenuBarTests.swift in Sources */,
+				492F16522F70A3F300A70A71 /* OmnibarAndToolsTests.swift in Sources */,
+				492F16532F70A3F300A70A71 /* SessionPersistenceTests.swift in Sources */,
+				492F16542F70A3F300A70A71 /* ShortcutAndCommandPaletteTests.swift in Sources */,
+				492F16552F70A3F300A70A71 /* SidebarOrderingTests.swift in Sources */,
+				492F16562F70A3F300A70A71 /* SidebarWidthPolicyTests.swift in Sources */,
+				492F16572F70A3F300A70A71 /* SocketControlPasswordStoreTests.swift in Sources */,
+				492F16582F70A3F300A70A71 /* TabManagerSessionSnapshotTests.swift in Sources */,
+				492F16592F70A3F300A70A71 /* TabManagerUnitTests.swift in Sources */,
+				492F165A2F70A3F300A70A71 /* TerminalAndGhosttyTests.swift in Sources */,
+				492F165B2F70A3F300A70A71 /* TerminalControllerSocketSecurityTests.swift in Sources */,
+				492F165C2F70A3F300A70A71 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				492F165D2F70A3F300A70A71 /* WindowAndDragTests.swift in Sources */,
+				492F165E2F70A3F300A70A71 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
+				492F165F2F70A3F300A70A71 /* WorkspaceManualUnreadTests.swift in Sources */,
+				492F16602F70A3F300A70A71 /* WorkspacePullRequestSidebarTests.swift in Sources */,
+				492F16612F70A3F300A70A71 /* WorkspaceRemoteConnectionTests.swift in Sources */,
+				492F16622F70A3F300A70A71 /* WorkspaceStressProfileTests.swift in Sources */,
+				492F16632F70A3F300A70A71 /* WorkspaceUnitTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
