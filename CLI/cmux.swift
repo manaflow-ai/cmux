@@ -10198,26 +10198,32 @@ struct CMUXCLI {
                 )
             }
 
-            if let completion {
-                let resolvedSurface = try resolveSurfaceIdForClaudeHook(
-                    surfaceId,
-                    workspaceId: workspaceId,
-                    client: client
-                )
-                let title = "Claude Code"
-                let subtitle = sanitizeNotificationField(completion.subtitle)
-                let body = sanitizeNotificationField(completion.body)
-                let payload = "\(title)|\(subtitle)|\(body)"
-                _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
-            }
+            // Stop is a cleanup operation — errors (e.g. TabManager already
+            // disposed during session shutdown) are logged but must not propagate.
+            do {
+                if let completion {
+                    let resolvedSurface = try resolveSurfaceIdForClaudeHook(
+                        surfaceId,
+                        workspaceId: workspaceId,
+                        client: client
+                    )
+                    let title = "Claude Code"
+                    let subtitle = sanitizeNotificationField(completion.subtitle)
+                    let body = sanitizeNotificationField(completion.body)
+                    let payload = "\(title)|\(subtitle)|\(body)"
+                    _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
+                }
 
-            try setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Idle",
-                icon: "pause.circle.fill",
-                color: "#8E8E93"
-            )
+                try setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93"
+                )
+            } catch {
+                Logger.shared.log("claude-hook stop: ignoring cleanup error: \(error.localizedDescription)")
+            }
             print("OK")
 
         case "prompt-submit":
