@@ -3774,6 +3774,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
+        if isViewportMutatingAction(action) {
+            hostedView.markUserInitiatedViewportScroll()
+        }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -4519,6 +4522,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func performBindingAction(_ action: String) -> Bool {
         guard let surface = surface else { return false }
+        if isViewportMutatingAction(action) {
+            terminalSurface?.hostedView.markUserInitiatedViewportScroll()
+        }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -6486,6 +6492,20 @@ private final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
     }
 }
 
+/// Identifies binding actions that intentionally move the terminal viewport.
+/// Used by the directional scroll guard to distinguish user-initiated viewport
+/// changes from programmatic ones (forceRefresh, geometry reconcile, agent output).
+private func isViewportMutatingAction(_ action: String) -> Bool {
+    action.hasPrefix("scroll_") ||
+        action.hasPrefix("jump_to_prompt:") ||
+        action.hasPrefix("navigate_search:") ||
+        action.hasPrefix("search") ||
+        action == "start_search" ||
+        action == "clear_screen" ||
+        action == "end_search" ||
+        action.hasPrefix("adjust_selection:")
+}
+
 func shouldAllowEnsureFocusWindowActivation(
     activeTabManager: TabManager?,
     targetTabManager: TabManager,
@@ -6574,6 +6594,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var userScrolledAwayFromBottom = false
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
+    /// Bumped on cell size changes (font zoom). When the generation changes, the scroll
+    /// guard is bypassed so the viewport can reposition freely after Cmd+/- font size changes.
+    private var cellSizeGeneration: UInt64 = 0
+    private var lastSyncCellSizeGeneration: UInt64 = 0
+    /// Timestamp-based deadline for allowing programmatic scroll toward the top of scrollback.
+    /// Set by user-initiated viewport actions (scroll bindings, search, clear_screen).
+    /// Expires automatically after 0.5s — no explicit reset needed.
+    private var allowScrollTowardTopDeadline: CFTimeInterval = 0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var activeDropZone: DropZone?
@@ -6581,6 +6609,12 @@ final class GhosttySurfaceScrollView: NSView {
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+
+    /// Mark that the user initiated a viewport-changing action (scroll, search, clear_screen).
+    /// Sets a 0.5s deadline during which the directional scroll guard allows movement toward the top.
+    fileprivate func markUserInitiatedViewportScroll() {
+        allowScrollTowardTopDeadline = CACurrentMediaTime() + 0.5
+    }
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -7016,6 +7050,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
+            self?.cellSizeGeneration &+= 1
             self?.synchronizeScrollView()
         })
     }
@@ -8986,34 +9021,46 @@ final class GhosttySurfaceScrollView: NSView {
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
+
+                // Track whether the user scrolled away from the bottom
                 let documentHeight = documentView.frame.height
                 let viewportHeight = scrollView.contentView.bounds.height
                 let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
+                if distanceFromBottom <= Self.scrollToBottomThreshold {
                     userScrolledAwayFromBottom = false
                 }
 
-                // Only auto-scroll if user hasn't manually scrolled away from bottom
-                // or if we're following terminal output (scrollbar shows we're at bottom)
-                let shouldAutoScroll = !userScrolledAwayFromBottom ||
-                    (scrollbar.offset + scrollbar.len >= scrollbar.total)
+                if !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                    // Directional scroll guard: only toward-top movement needs scrutiny.
+                    // Downward scrolls (following new output) are always safe.
+                    let movingTowardTop = targetOrigin.y < currentOrigin.y
+                    let cellSizeChanged = cellSizeGeneration != lastSyncCellSizeGeneration
+                    lastSyncCellSizeGeneration = cellSizeGeneration
+                    let userInitiated = CACurrentMediaTime() <= allowScrollTowardTopDeadline
 
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                    let suppress = movingTowardTop
+                        && !cellSizeChanged
+                        && !userInitiated
+                        && userScrolledAwayFromBottom
+
+                    if suppress {
 #if DEBUG
-                    logDragGeometryChange(
-                        event: "scrollOrigin",
-                        old: currentOrigin,
-                        new: targetOrigin
-                    )
+                        dlog("scrollGuard: suppressed toward-top "
+                            + "from=\(String(format: "%.1f", currentOrigin.y)) "
+                            + "to=\(String(format: "%.1f", targetOrigin.y))")
 #endif
-                    scrollView.contentView.scroll(to: targetOrigin)
-                    didChangeGeometry = true
+                    } else {
+#if DEBUG
+                        logDragGeometryChange(
+                            event: "scrollOrigin",
+                            old: currentOrigin,
+                            new: targetOrigin
+                        )
+#endif
+                        scrollView.contentView.scroll(to: targetOrigin)
+                        didChangeGeometry = true
+                    }
                 }
                 lastSentRow = Int(scrollbar.offset)
             }
