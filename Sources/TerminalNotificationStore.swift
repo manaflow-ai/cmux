@@ -877,7 +877,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
-        indexes.latestUnreadByTabId[tabId] ?? indexes.latestByTabId[tabId]
+        indexes.latestUnreadByTabId[tabId]
     }
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
