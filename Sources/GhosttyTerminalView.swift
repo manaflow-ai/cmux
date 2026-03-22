@@ -5031,8 +5031,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // which differ from plain arrow key codes (123/124/125/126). We only pass
         // through the Fn-translated key codes with Control, so plain Ctrl+Arrow
         // (terminal word navigation) continues to work.
-        let fnNavKeyCodes: Set<UInt16> = [115, 119, 121, 116, 105] // Home, End, PgDn, PgUp, F13(Fn+F)
-        if fnNavKeyCodes.contains(event.keyCode)
+        if Self.fnNavKeyCodes.contains(event.keyCode)
             && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
             && !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
@@ -6526,6 +6525,10 @@ final class GhosttySurfaceScrollView: NSView {
         case standardFocus
         case notificationDismiss
     }
+
+    // Key codes produced by Fn+Arrow (Home/End/PgUp/PgDn) and Fn+F (F13),
+    // used to detect macOS system window arrangement shortcuts.
+    private static let fnNavKeyCodes: Set<UInt16> = [115, 119, 121, 116, 105]
 
     private enum NotificationRingMetrics {
         static let inset: CGFloat = 2
