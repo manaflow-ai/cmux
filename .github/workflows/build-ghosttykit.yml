@@ -25,7 +25,9 @@ jobs:
       - name: Get ghostty SHA
         id: ghostty-sha
         run: |
-          SHA=$(git -C ghostty rev-parse HEAD)
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
+          SHA=$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "Ghostty SHA: $SHA"
 
@@ -66,6 +68,8 @@ jobs:
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
             echo "zig ${ZIG_REQUIRED} already installed"
@@ -79,14 +83,16 @@ jobs:
             export PATH="/usr/local/bin:$PATH"
             zig version
           fi
-          cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+          cd "$CMUX_GHOSTTY_DIR" && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 
       - name: Package xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           rm -rf GhosttyKit.xcframework
-          cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+          cp -R "$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework" GhosttyKit.xcframework
           tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
 
       - name: Upload xcframework release

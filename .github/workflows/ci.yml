@@ -135,26 +135,28 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          key: deriveddata-tests-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj') }}
           restore-keys: |
-            deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
             deriveddata-tests-
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -170,9 +172,11 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
@@ -300,26 +304,28 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          key: deriveddata-build-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj') }}
           restore-keys: |
-            deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-build-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
             deriveddata-build-
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-build-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-build-
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            if xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -335,8 +341,10 @@ jobs:
       - name: Build app
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" build
@@ -455,17 +463,19 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-ui-regressions-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-ui-regressions-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-ui-regressions-
 
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            if xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -481,6 +491,8 @@ jobs:
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           HELPER_PATH="/tmp/create-virtual-display"
           MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
@@ -495,7 +507,7 @@ jobs:
           {"helperBinaryPath":"$HELPER_PATH"}
           EOF
 
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
@@ -505,8 +517,10 @@ jobs:
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
