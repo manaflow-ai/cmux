@@ -4384,13 +4384,11 @@ final class WorkspaceRemoteSessionController {
 
     private static let repoRootMarkers = [
         "daemon/remote/go.mod",
-        "Tools/daemon-remote/go.mod",
         "GhosttyTabs.xcodeproj/project.pbxproj",
-        "Apps/cmux-macOS/cmux.xcodeproj/project.pbxproj",
+        "Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj",
     ]
     private static let remoteDaemonRelativePaths = [
         "daemon/remote",
-        "Tools/daemon-remote",
     ]
     private static let cachedRemoteDaemonSourceFingerprint: String? = computeRemoteDaemonSourceFingerprint()
 

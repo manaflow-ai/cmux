@@ -23,13 +23,13 @@ cmux_paths_init() {
     CMUX_TOOLS_SCRIPTS_DIR="$CMUX_REPO_ROOT/scripts"
   fi
   if [[ -z "${CMUX_APP_ROOT:-}" ]]; then
-    CMUX_APP_ROOT="$CMUX_REPO_ROOT"
+    CMUX_APP_ROOT="$CMUX_REPO_ROOT/Apps/cmux-macOS"
   fi
   if [[ -z "${CMUX_XCODE_PROJECT_PATH:-}" ]]; then
-    CMUX_XCODE_PROJECT_PATH="$CMUX_APP_ROOT/GhosttyTabs.xcodeproj"
+    CMUX_XCODE_PROJECT_PATH="$CMUX_REPO_ROOT/Apps/cmux-macOS/GhosttyTabs.xcodeproj"
   fi
   if [[ -z "${CMUX_GHOSTTY_DIR:-}" ]]; then
-    CMUX_GHOSTTY_DIR="$CMUX_REPO_ROOT/ghostty"
+    CMUX_GHOSTTY_DIR="$CMUX_REPO_ROOT/vendor/ghostty"
   fi
   if [[ -z "${CMUX_REMOTE_DAEMON_DIR:-}" ]]; then
     CMUX_REMOTE_DAEMON_DIR="$CMUX_REPO_ROOT/daemon/remote"
@@ -44,6 +44,6 @@ cmux_paths_init() {
     CMUX_APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   fi
   if [[ -z "${CMUX_HOMEBREW_TAP_DIR:-}" ]]; then
-    CMUX_HOMEBREW_TAP_DIR="$CMUX_REPO_ROOT/homebrew-cmux"
+    CMUX_HOMEBREW_TAP_DIR="$CMUX_REPO_ROOT/vendor/homebrew-cmux"
   fi
 }
