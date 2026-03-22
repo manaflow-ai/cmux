@@ -1,0 +1,2337 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		49E684212F70186E00053C84 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = A5001261 /* Bonsplit */; };
+		49E684602F7018EB00053C84 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684282F7018EB00053C84 /* BrowserPanelView.swift */; };
+		49E684612F7018EB00053C84 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684332F7018EB00053C84 /* UpdateController.swift */; };
+		49E684622F7018EB00053C84 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */; };
+		49E684632F7018EB00053C84 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684522F7018EB00053C84 /* TerminalController.swift */; };
+		49E684642F7018EB00053C84 /* UpdateTestURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6843A2F7018EB00053C84 /* UpdateTestURLProtocol.swift */; };
+		49E684652F7018EB00053C84 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844A2F7018EB00053C84 /* PortScanner.swift */; };
+		49E684662F7018EB00053C84 /* BrowserFindJavaScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684232F7018EB00053C84 /* BrowserFindJavaScript.swift */; };
+		49E684672F7018EB00053C84 /* WorkspaceContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6845E2F7018EB00053C84 /* WorkspaceContentView.swift */; };
+		49E684682F7018EB00053C84 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684572F7018EB00053C84 /* TerminalWindowPortal.swift */; };
+		49E684692F7018EB00053C84 /* UpdateTitlebarAccessory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6843C2F7018EB00053C84 /* UpdateTitlebarAccessory.swift */; };
+		49E6846A2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844C2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift */; };
+		49E6846B2F7018EB00053C84 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842D2F7018EB00053C84 /* Panel.swift */; };
+		49E6846C2F7018EB00053C84 /* NotificationsPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684492F7018EB00053C84 /* NotificationsPage.swift */; };
+		49E6846D2F7018EB00053C84 /* UpdateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684322F7018EB00053C84 /* UpdateBadge.swift */; };
+		49E6846E2F7018EB00053C84 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684442F7018EB00053C84 /* ContentView.swift */; };
+		49E6846F2F7018EB00053C84 /* UpdateTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684392F7018EB00053C84 /* UpdateTestSupport.swift */; };
+		49E684702F7018EB00053C84 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6845D2F7018EB00053C84 /* Workspace.swift */; };
+		49E684712F7018EB00053C84 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842E2F7018EB00053C84 /* PanelContentView.swift */; };
+		49E684722F7018EB00053C84 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844D2F7018EB00053C84 /* SentryHelper.swift */; };
+		49E684732F7018EB00053C84 /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684592F7018EB00053C84 /* WindowAccessor.swift */; };
+		49E684742F7018EB00053C84 /* UpdateDriver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684352F7018EB00053C84 /* UpdateDriver.swift */; };
+		49E684752F7018EB00053C84 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684562F7018EB00053C84 /* TerminalView.swift */; };
+		49E684762F7018EB00053C84 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842B2F7018EB00053C84 /* MarkdownPanel.swift */; };
+		49E684772F7018EB00053C84 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844E2F7018EB00053C84 /* SessionPersistence.swift */; };
+		49E684782F7018EB00053C84 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684502F7018EB00053C84 /* SocketControlSettings.swift */; };
+		49E684792F7018EB00053C84 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842C2F7018EB00053C84 /* MarkdownPanelView.swift */; };
+		49E6847A2F7018EB00053C84 /* UpdateLogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684362F7018EB00053C84 /* UpdateLogStore.swift */; };
+		49E6847B2F7018EB00053C84 /* KeyboardShortcutSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684482F7018EB00053C84 /* KeyboardShortcutSettings.swift */; };
+		49E6847C2F7018EB00053C84 /* WindowToolbarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6845C2F7018EB00053C84 /* WindowToolbarController.swift */; };
+		49E6847D2F7018EB00053C84 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684512F7018EB00053C84 /* TabManager.swift */; };
+		49E6847E2F7018EB00053C84 /* PostHogAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844B2F7018EB00053C84 /* PostHogAnalytics.swift */; };
+		49E6847F2F7018EB00053C84 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684462F7018EB00053C84 /* GhosttyTerminalView.swift */; };
+		49E684802F7018EB00053C84 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842F2F7018EB00053C84 /* TerminalPanel.swift */; };
+		49E684812F7018EB00053C84 /* UpdatePopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684382F7018EB00053C84 /* UpdatePopoverView.swift */; };
+		49E684822F7018EB00053C84 /* CmuxWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6842A2F7018EB00053C84 /* CmuxWebView.swift */; };
+		49E684832F7018EB00053C84 /* SurfaceSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684252F7018EB00053C84 /* SurfaceSearchOverlay.swift */; };
+		49E684842F7018EB00053C84 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684582F7018EB00053C84 /* UITestRecorder.swift */; };
+		49E684852F7018EB00053C84 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684452F7018EB00053C84 /* GhosttyConfig.swift */; };
+		49E684862F7018EB00053C84 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684472F7018EB00053C84 /* KeyboardLayout.swift */; };
+		49E684872F7018EB00053C84 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684272F7018EB00053C84 /* BrowserPanel.swift */; };
+		49E684882F7018EB00053C84 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684292F7018EB00053C84 /* BrowserPopupWindowController.swift */; };
+		49E684892F7018EB00053C84 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684432F7018EB00053C84 /* cmuxApp.swift */; };
+		49E6848A2F7018EB00053C84 /* TerminalPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684302F7018EB00053C84 /* TerminalPanelView.swift */; };
+		49E6848B2F7018EB00053C84 /* WindowDragHandleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6845B2F7018EB00053C84 /* WindowDragHandleView.swift */; };
+		49E6848C2F7018EB00053C84 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684422F7018EB00053C84 /* BrowserWindowPortal.swift */; };
+		49E6848D2F7018EB00053C84 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684532F7018EB00053C84 /* TerminalImageTransfer.swift */; };
+		49E6848E2F7018EB00053C84 /* BrowserSearchOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684242F7018EB00053C84 /* BrowserSearchOverlay.swift */; };
+		49E6848F2F7018EB00053C84 /* UpdateDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684342F7018EB00053C84 /* UpdateDelegate.swift */; };
+		49E684902F7018EB00053C84 /* UpdateViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6843D2F7018EB00053C84 /* UpdateViewModel.swift */; };
+		49E684912F7018EB00053C84 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6843F2F7018EB00053C84 /* AppDelegate.swift */; };
+		49E684922F7018EB00053C84 /* WindowDecorationsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6845A2F7018EB00053C84 /* WindowDecorationsController.swift */; };
+		49E684932F7018EB00053C84 /* UpdateTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6843B2F7018EB00053C84 /* UpdateTiming.swift */; };
+		49E684942F7018EB00053C84 /* UpdatePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684372F7018EB00053C84 /* UpdatePill.swift */; };
+		49E684952F7018EB00053C84 /* Backport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684412F7018EB00053C84 /* Backport.swift */; };
+		49E684962F7018EB00053C84 /* TerminalSSHSessionDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684552F7018EB00053C84 /* TerminalSSHSessionDetector.swift */; };
+		49E684972F7018EB00053C84 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684542F7018EB00053C84 /* TerminalNotificationStore.swift */; };
+		49E684982F7018EB00053C84 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684402F7018EB00053C84 /* AppleScriptSupport.swift */; };
+		49E6849B2F70191100053C84 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684992F70191100053C84 /* cmux.swift */; };
+		49E6849D2F70197700053C84 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 49E6849C2F70197700053C84 /* Assets.xcassets */; };
+		49E686A22F7019C800053C84 /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = 49E684A32F7019C800053C84 /* xterm-ghostty */; };
+		49E687D32F7019C800053C84 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 49E686862F7019C800053C84 /* InfoPlist.xcstrings */; };
+		49E687F92F7019C800053C84 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = 49E686842F7019C800053C84 /* cmux.sdef */; };
+		49E688432F7019C800053C84 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 49E686872F7019C800053C84 /* Localizable.xcstrings */; };
+		49E688882F701A0A00053C84 /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688742F701A0A00053C84 /* NotificationAndMenuBarTests.swift */; };
+		49E688892F701A0A00053C84 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886B2F701A0A00053C84 /* BrowserConfigTests.swift */; };
+		49E6888A2F701A0A00053C84 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688852F701A0A00053C84 /* WorkspaceStressProfileTests.swift */; };
+		49E6888B2F701A0A00053C84 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886F2F701A0A00053C84 /* CJKIMEInputTests.swift */; };
+		49E6888C2F701A0A00053C84 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688792F701A0A00053C84 /* SidebarWidthPolicyTests.swift */; };
+		49E6888D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift */; };
+		49E6888E2F701A0A00053C84 /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886E2F701A0A00053C84 /* BrowserPanelTests.swift */; };
+		49E6888F2F701A0A00053C84 /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688862F701A0A00053C84 /* WorkspaceUnitTests.swift */; };
+		49E688902F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887F2F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift */; };
+		49E688912F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688812F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift */; };
+		49E688922F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688732F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift */; };
+		49E688932F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688842F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift */; };
+		49E688942F701A0A00053C84 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688712F701A0A00053C84 /* GhosttyConfigTests.swift */; };
+		49E688952F701A0A00053C84 /* SidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688782F701A0A00053C84 /* SidebarOrderingTests.swift */; };
+		49E688962F701A0A00053C84 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887A2F701A0A00053C84 /* SocketControlPasswordStoreTests.swift */; };
+		49E688972F701A0A00053C84 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887C2F701A0A00053C84 /* TabManagerUnitTests.swift */; };
+		49E688982F701A0A00053C84 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886C2F701A0A00053C84 /* BrowserFindJavaScriptTests.swift */; };
+		49E688992F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887E2F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift */; };
+		49E6889A2F701A0A00053C84 /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688822F701A0A00053C84 /* WorkspaceManualUnreadTests.swift */; };
+		49E6889B2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886A2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift */; };
+		49E6889C2F701A0A00053C84 /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688762F701A0A00053C84 /* SessionPersistenceTests.swift */; };
+		49E6889D2F701A0A00053C84 /* BrowserImportMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6886D2F701A0A00053C84 /* BrowserImportMappingTests.swift */; };
+		49E6889E2F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688832F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift */; };
+		49E6889F2F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688772F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift */; };
+		49E688A02F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688702F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift */; };
+		49E688A12F701A0A00053C84 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688752F701A0A00053C84 /* OmnibarAndToolsTests.swift */; };
+		49E688A22F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6887B2F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift */; };
+		49E688A32F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688722F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift */; };
+		49E688A42F701A0A00053C84 /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688802F701A0A00053C84 /* WindowAndDragTests.swift */; };
+		49E688B62F701A4700053C84 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A52F701A4700053C84 /* AutomationSocketUITests.swift */; };
+		49E688B72F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AA2F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift */; };
+		49E688B82F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AC2F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift */; };
+		49E688B92F701A4700053C84 /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AE2F701A4700053C84 /* DisplayResolutionRegressionUITests.swift */; };
+		49E688BA2F701A4700053C84 /* JumpToUnreadUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AF2F701A4700053C84 /* JumpToUnreadUITests.swift */; };
+		49E688BB2F701A4700053C84 /* UpdatePillUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B42F701A4700053C84 /* UpdatePillUITests.swift */; };
+		49E688BC2F701A4700053C84 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A62F701A4700053C84 /* BonsplitTabDragUITests.swift */; };
+		49E688BD2F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A82F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift */; };
+		49E688BE2F701A4700053C84 /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B32F701A4700053C84 /* SidebarResizeUITests.swift */; };
+		49E688BF2F701A4700053C84 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B12F701A4700053C84 /* MultiWindowNotificationsUITests.swift */; };
+		49E688C02F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A92F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift */; };
+		49E688C12F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AB2F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift */; };
+		49E688C22F701A4700053C84 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688A72F701A4700053C84 /* BrowserImportProfilesUITests.swift */; };
+		49E688C32F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688AD2F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift */; };
+		49E688C42F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B02F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift */; };
+		49E688C52F701A4700053C84 /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E688B22F701A4700053C84 /* SidebarHelpMenuUITests.swift */; };
+		49E688C72F701F7500053C84 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = 49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */; };
+		49E688C82F701FAF00053C84 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = 49E684A12F7019C800053C84 /* open */; };
+		49E688C92F701FB500053C84 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = 49E684A02F7019C800053C84 /* claude */; };
+		49E688CD2F70279900053C84 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CA2F70279900053C84 /* AppIcon.icon */; };
+		49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CC2F70279900053C84 /* cmux-icon-chevron.png */; };
+		49E688CF2F70279900053C84 /* cmux.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CB2F70279900053C84 /* cmux.icon */; };
+		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
+		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
+		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
+		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
+		B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */ = {isa = PBXBuildFile; fileRef = B9000004A1B2C3D4E5F60719 /* cmux */; };
+		B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		738BF3D3196765B250928A93 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A5001050;
+			remoteInfo = GhosttyTabs;
+		};
+		B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B9000005A1B2C3D4E5F60719;
+			remoteInfo = "cmux-cli";
+		};
+		F1000008A1B2C3D4E5F60718 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A5001070 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A5001050;
+			remoteInfo = GhosttyTabs;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A5001020 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B900000AA1B2C3D4E5F60719 /* Copy CLI */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = bin;
+			dstSubfolderSpec = 7;
+			files = (
+				49E688C92F701FB500053C84 /* claude in Copy CLI */,
+				49E688C82F701FAF00053C84 /* open in Copy CLI */,
+				B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */,
+			);
+			name = "Copy CLI";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		49E684232F7018EB00053C84 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScript.swift; sourceTree = "<group>"; };
+		49E684242F7018EB00053C84 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSearchOverlay.swift; sourceTree = "<group>"; };
+		49E684252F7018EB00053C84 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
+		49E684272F7018EB00053C84 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanel.swift; sourceTree = "<group>"; };
+		49E684282F7018EB00053C84 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelView.swift; sourceTree = "<group>"; };
+		49E684292F7018EB00053C84 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPopupWindowController.swift; sourceTree = "<group>"; };
+		49E6842A2F7018EB00053C84 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebView.swift; sourceTree = "<group>"; };
+		49E6842B2F7018EB00053C84 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanel.swift; sourceTree = "<group>"; };
+		49E6842C2F7018EB00053C84 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPanelView.swift; sourceTree = "<group>"; };
+		49E6842D2F7018EB00053C84 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panel.swift; sourceTree = "<group>"; };
+		49E6842E2F7018EB00053C84 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelContentView.swift; sourceTree = "<group>"; };
+		49E6842F2F7018EB00053C84 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
+		49E684302F7018EB00053C84 /* TerminalPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelView.swift; sourceTree = "<group>"; };
+		49E684322F7018EB00053C84 /* UpdateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateBadge.swift; sourceTree = "<group>"; };
+		49E684332F7018EB00053C84 /* UpdateController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateController.swift; sourceTree = "<group>"; };
+		49E684342F7018EB00053C84 /* UpdateDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateDelegate.swift; sourceTree = "<group>"; };
+		49E684352F7018EB00053C84 /* UpdateDriver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateDriver.swift; sourceTree = "<group>"; };
+		49E684362F7018EB00053C84 /* UpdateLogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateLogStore.swift; sourceTree = "<group>"; };
+		49E684372F7018EB00053C84 /* UpdatePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePill.swift; sourceTree = "<group>"; };
+		49E684382F7018EB00053C84 /* UpdatePopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePopoverView.swift; sourceTree = "<group>"; };
+		49E684392F7018EB00053C84 /* UpdateTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateTestSupport.swift; sourceTree = "<group>"; };
+		49E6843A2F7018EB00053C84 /* UpdateTestURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateTestURLProtocol.swift; sourceTree = "<group>"; };
+		49E6843B2F7018EB00053C84 /* UpdateTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateTiming.swift; sourceTree = "<group>"; };
+		49E6843C2F7018EB00053C84 /* UpdateTitlebarAccessory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateTitlebarAccessory.swift; sourceTree = "<group>"; };
+		49E6843D2F7018EB00053C84 /* UpdateViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateViewModel.swift; sourceTree = "<group>"; };
+		49E6843F2F7018EB00053C84 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		49E684402F7018EB00053C84 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
+		49E684412F7018EB00053C84 /* Backport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backport.swift; sourceTree = "<group>"; };
+		49E684422F7018EB00053C84 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
+		49E684432F7018EB00053C84 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		49E684442F7018EB00053C84 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		49E684452F7018EB00053C84 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
+		49E684462F7018EB00053C84 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+		49E684472F7018EB00053C84 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
+		49E684482F7018EB00053C84 /* KeyboardShortcutSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutSettings.swift; sourceTree = "<group>"; };
+		49E684492F7018EB00053C84 /* NotificationsPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsPage.swift; sourceTree = "<group>"; };
+		49E6844A2F7018EB00053C84 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
+		49E6844B2F7018EB00053C84 /* PostHogAnalytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostHogAnalytics.swift; sourceTree = "<group>"; };
+		49E6844C2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
+		49E6844D2F7018EB00053C84 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
+		49E6844E2F7018EB00053C84 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
+		49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarSelectionState.swift; sourceTree = "<group>"; };
+		49E684502F7018EB00053C84 /* SocketControlSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlSettings.swift; sourceTree = "<group>"; };
+		49E684512F7018EB00053C84 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
+		49E684522F7018EB00053C84 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
+		49E684532F7018EB00053C84 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
+		49E684542F7018EB00053C84 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
+		49E684552F7018EB00053C84 /* TerminalSSHSessionDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSSHSessionDetector.swift; sourceTree = "<group>"; };
+		49E684562F7018EB00053C84 /* TerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalView.swift; sourceTree = "<group>"; };
+		49E684572F7018EB00053C84 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
+		49E684582F7018EB00053C84 /* UITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITestRecorder.swift; sourceTree = "<group>"; };
+		49E684592F7018EB00053C84 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
+		49E6845A2F7018EB00053C84 /* WindowDecorationsController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDecorationsController.swift; sourceTree = "<group>"; };
+		49E6845B2F7018EB00053C84 /* WindowDragHandleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowDragHandleView.swift; sourceTree = "<group>"; };
+		49E6845C2F7018EB00053C84 /* WindowToolbarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowToolbarController.swift; sourceTree = "<group>"; };
+		49E6845D2F7018EB00053C84 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		49E6845E2F7018EB00053C84 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
+		49E684992F70191100053C84 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
+		49E6849C2F70197700053C84 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		49E684A02F7019C800053C84 /* claude */ = {isa = PBXFileReference; lastKnownFileType = text; path = claude; sourceTree = "<group>"; };
+		49E684A12F7019C800053C84 /* open */ = {isa = PBXFileReference; lastKnownFileType = text; path = open; sourceTree = "<group>"; };
+		49E684A32F7019C800053C84 /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "xterm-ghostty"; sourceTree = "<group>"; };
+		49E684A62F7019C800053C84 /* 0x96f */ = {isa = PBXFileReference; lastKnownFileType = text; path = 0x96f; sourceTree = "<group>"; };
+		49E684A72F7019C800053C84 /* 12-bit Rainbow */ = {isa = PBXFileReference; lastKnownFileType = text; path = "12-bit Rainbow"; sourceTree = "<group>"; };
+		49E684A82F7019C800053C84 /* 3024 Day */ = {isa = PBXFileReference; lastKnownFileType = text; path = "3024 Day"; sourceTree = "<group>"; };
+		49E684A92F7019C800053C84 /* 3024 Night */ = {isa = PBXFileReference; lastKnownFileType = text; path = "3024 Night"; sourceTree = "<group>"; };
+		49E684AA2F7019C800053C84 /* Aardvark Blue */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Aardvark Blue"; sourceTree = "<group>"; };
+		49E684AB2F7019C800053C84 /* Abernathy */ = {isa = PBXFileReference; lastKnownFileType = text; path = Abernathy; sourceTree = "<group>"; };
+		49E684AC2F7019C800053C84 /* Adventure */ = {isa = PBXFileReference; lastKnownFileType = text; path = Adventure; sourceTree = "<group>"; };
+		49E684AD2F7019C800053C84 /* Adventure Time */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Adventure Time"; sourceTree = "<group>"; };
+		49E684AE2F7019C800053C84 /* Adwaita */ = {isa = PBXFileReference; lastKnownFileType = text; path = Adwaita; sourceTree = "<group>"; };
+		49E684AF2F7019C800053C84 /* Adwaita Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Adwaita Dark"; sourceTree = "<group>"; };
+		49E684B02F7019C800053C84 /* Afterglow */ = {isa = PBXFileReference; lastKnownFileType = text; path = Afterglow; sourceTree = "<group>"; };
+		49E684B12F7019C800053C84 /* Aizen Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Aizen Dark"; sourceTree = "<group>"; };
+		49E684B22F7019C800053C84 /* Aizen Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Aizen Light"; sourceTree = "<group>"; };
+		49E684B32F7019C800053C84 /* Alabaster */ = {isa = PBXFileReference; lastKnownFileType = text; path = Alabaster; sourceTree = "<group>"; };
+		49E684B42F7019C800053C84 /* Alien Blood */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Alien Blood"; sourceTree = "<group>"; };
+		49E684B52F7019C800053C84 /* Andromeda */ = {isa = PBXFileReference; lastKnownFileType = text; path = Andromeda; sourceTree = "<group>"; };
+		49E684B62F7019C800053C84 /* Apple Classic */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Apple Classic"; sourceTree = "<group>"; };
+		49E684B72F7019C800053C84 /* Apple System Colors */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Apple System Colors"; sourceTree = "<group>"; };
+		49E684B82F7019C800053C84 /* Apple System Colors Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Apple System Colors Light"; sourceTree = "<group>"; };
+		49E684B92F7019C800053C84 /* Arcoiris */ = {isa = PBXFileReference; lastKnownFileType = text; path = Arcoiris; sourceTree = "<group>"; };
+		49E684BA2F7019C800053C84 /* Ardoise */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ardoise; sourceTree = "<group>"; };
+		49E684BB2F7019C800053C84 /* Argonaut */ = {isa = PBXFileReference; lastKnownFileType = text; path = Argonaut; sourceTree = "<group>"; };
+		49E684BC2F7019C800053C84 /* Arthur */ = {isa = PBXFileReference; lastKnownFileType = text; path = Arthur; sourceTree = "<group>"; };
+		49E684BD2F7019C800053C84 /* Atelier Sulphurpool */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Atelier Sulphurpool"; sourceTree = "<group>"; };
+		49E684BE2F7019C800053C84 /* Atom */ = {isa = PBXFileReference; lastKnownFileType = text; path = Atom; sourceTree = "<group>"; };
+		49E684BF2F7019C800053C84 /* Atom One Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Atom One Dark"; sourceTree = "<group>"; };
+		49E684C02F7019C800053C84 /* Atom One Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Atom One Light"; sourceTree = "<group>"; };
+		49E684C12F7019C800053C84 /* Aura */ = {isa = PBXFileReference; lastKnownFileType = text; path = Aura; sourceTree = "<group>"; };
+		49E684C22F7019C800053C84 /* Aurora */ = {isa = PBXFileReference; lastKnownFileType = text; path = Aurora; sourceTree = "<group>"; };
+		49E684C32F7019C800053C84 /* Ayu */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ayu; sourceTree = "<group>"; };
+		49E684C42F7019C800053C84 /* Ayu Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Ayu Light"; sourceTree = "<group>"; };
+		49E684C52F7019C800053C84 /* Ayu Mirage */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Ayu Mirage"; sourceTree = "<group>"; };
+		49E684C62F7019C800053C84 /* Banana Blueberry */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Banana Blueberry"; sourceTree = "<group>"; };
+		49E684C72F7019C800053C84 /* Batman */ = {isa = PBXFileReference; lastKnownFileType = text; path = Batman; sourceTree = "<group>"; };
+		49E684C82F7019C800053C84 /* Belafonte Day */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Belafonte Day"; sourceTree = "<group>"; };
+		49E684C92F7019C800053C84 /* Belafonte Night */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Belafonte Night"; sourceTree = "<group>"; };
+		49E684CA2F7019C800053C84 /* Birds Of Paradise */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Birds Of Paradise"; sourceTree = "<group>"; };
+		49E684CB2F7019C800053C84 /* Black Metal */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal"; sourceTree = "<group>"; };
+		49E684CC2F7019C800053C84 /* Black Metal (Bathory) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Bathory)"; sourceTree = "<group>"; };
+		49E684CD2F7019C800053C84 /* Black Metal (Burzum) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Burzum)"; sourceTree = "<group>"; };
+		49E684CE2F7019C800053C84 /* Black Metal (Dark Funeral) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Dark Funeral)"; sourceTree = "<group>"; };
+		49E684CF2F7019C800053C84 /* Black Metal (Gorgoroth) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Gorgoroth)"; sourceTree = "<group>"; };
+		49E684D02F7019C800053C84 /* Black Metal (Immortal) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Immortal)"; sourceTree = "<group>"; };
+		49E684D12F7019C800053C84 /* Black Metal (Khold) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Khold)"; sourceTree = "<group>"; };
+		49E684D22F7019C800053C84 /* Black Metal (Marduk) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Marduk)"; sourceTree = "<group>"; };
+		49E684D32F7019C800053C84 /* Black Metal (Mayhem) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Mayhem)"; sourceTree = "<group>"; };
+		49E684D42F7019C800053C84 /* Black Metal (Nile) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Nile)"; sourceTree = "<group>"; };
+		49E684D52F7019C800053C84 /* Black Metal (Venom) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Black Metal (Venom)"; sourceTree = "<group>"; };
+		49E684D62F7019C800053C84 /* Blazer */ = {isa = PBXFileReference; lastKnownFileType = text; path = Blazer; sourceTree = "<group>"; };
+		49E684D72F7019C800053C84 /* Blue Berry Pie */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Blue Berry Pie"; sourceTree = "<group>"; };
+		49E684D82F7019C800053C84 /* Blue Dolphin */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Blue Dolphin"; sourceTree = "<group>"; };
+		49E684D92F7019C800053C84 /* Blue Matrix */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Blue Matrix"; sourceTree = "<group>"; };
+		49E684DA2F7019C800053C84 /* Bluloco Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Bluloco Dark"; sourceTree = "<group>"; };
+		49E684DB2F7019C800053C84 /* Bluloco Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Bluloco Light"; sourceTree = "<group>"; };
+		49E684DC2F7019C800053C84 /* Borland */ = {isa = PBXFileReference; lastKnownFileType = text; path = Borland; sourceTree = "<group>"; };
+		49E684DD2F7019C800053C84 /* Box */ = {isa = PBXFileReference; lastKnownFileType = text; path = Box; sourceTree = "<group>"; };
+		49E684DE2F7019C800053C84 /* branch */ = {isa = PBXFileReference; lastKnownFileType = text; path = branch; sourceTree = "<group>"; };
+		49E684DF2F7019C800053C84 /* Breadog */ = {isa = PBXFileReference; lastKnownFileType = text; path = Breadog; sourceTree = "<group>"; };
+		49E684E02F7019C800053C84 /* Breeze */ = {isa = PBXFileReference; lastKnownFileType = text; path = Breeze; sourceTree = "<group>"; };
+		49E684E12F7019C800053C84 /* Bright Lights */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Bright Lights"; sourceTree = "<group>"; };
+		49E684E22F7019C800053C84 /* Broadcast */ = {isa = PBXFileReference; lastKnownFileType = text; path = Broadcast; sourceTree = "<group>"; };
+		49E684E32F7019C800053C84 /* Brogrammer */ = {isa = PBXFileReference; lastKnownFileType = text; path = Brogrammer; sourceTree = "<group>"; };
+		49E684E42F7019C800053C84 /* Builtin Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Builtin Dark"; sourceTree = "<group>"; };
+		49E684E52F7019C800053C84 /* Builtin Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Builtin Light"; sourceTree = "<group>"; };
+		49E684E62F7019C800053C84 /* Builtin Pastel Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Builtin Pastel Dark"; sourceTree = "<group>"; };
+		49E684E72F7019C800053C84 /* Builtin Tango Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Builtin Tango Dark"; sourceTree = "<group>"; };
+		49E684E82F7019C800053C84 /* Builtin Tango Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Builtin Tango Light"; sourceTree = "<group>"; };
+		49E684E92F7019C800053C84 /* C64 */ = {isa = PBXFileReference; lastKnownFileType = text; path = C64; sourceTree = "<group>"; };
+		49E684EA2F7019C800053C84 /* Calamity */ = {isa = PBXFileReference; lastKnownFileType = text; path = Calamity; sourceTree = "<group>"; };
+		49E684EB2F7019C800053C84 /* Carbonfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Carbonfox; sourceTree = "<group>"; };
+		49E684EC2F7019C800053C84 /* Catppuccin Frappe */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Catppuccin Frappe"; sourceTree = "<group>"; };
+		49E684ED2F7019C800053C84 /* Catppuccin Latte */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Catppuccin Latte"; sourceTree = "<group>"; };
+		49E684EE2F7019C800053C84 /* Catppuccin Macchiato */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Catppuccin Macchiato"; sourceTree = "<group>"; };
+		49E684EF2F7019C800053C84 /* Catppuccin Mocha */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Catppuccin Mocha"; sourceTree = "<group>"; };
+		49E684F02F7019C800053C84 /* CGA */ = {isa = PBXFileReference; lastKnownFileType = text; path = CGA; sourceTree = "<group>"; };
+		49E684F12F7019C800053C84 /* Chalk */ = {isa = PBXFileReference; lastKnownFileType = text; path = Chalk; sourceTree = "<group>"; };
+		49E684F22F7019C800053C84 /* Chalkboard */ = {isa = PBXFileReference; lastKnownFileType = text; path = Chalkboard; sourceTree = "<group>"; };
+		49E684F32F7019C800053C84 /* Challenger Deep */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Challenger Deep"; sourceTree = "<group>"; };
+		49E684F42F7019C800053C84 /* Chester */ = {isa = PBXFileReference; lastKnownFileType = text; path = Chester; sourceTree = "<group>"; };
+		49E684F52F7019C800053C84 /* Ciapre */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ciapre; sourceTree = "<group>"; };
+		49E684F62F7019C800053C84 /* Citruszest */ = {isa = PBXFileReference; lastKnownFileType = text; path = Citruszest; sourceTree = "<group>"; };
+		49E684F72F7019C800053C84 /* CLRS */ = {isa = PBXFileReference; lastKnownFileType = text; path = CLRS; sourceTree = "<group>"; };
+		49E684F82F7019C800053C84 /* Cobalt Neon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cobalt Neon"; sourceTree = "<group>"; };
+		49E684F92F7019C800053C84 /* Cobalt Next */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cobalt Next"; sourceTree = "<group>"; };
+		49E684FA2F7019C800053C84 /* Cobalt Next Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cobalt Next Dark"; sourceTree = "<group>"; };
+		49E684FB2F7019C800053C84 /* Cobalt Next Minimal */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cobalt Next Minimal"; sourceTree = "<group>"; };
+		49E684FC2F7019C800053C84 /* Cobalt2 */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cobalt2; sourceTree = "<group>"; };
+		49E684FD2F7019C800053C84 /* Coffee Theme */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Coffee Theme"; sourceTree = "<group>"; };
+		49E684FE2F7019C800053C84 /* Crayon Pony Fish */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Crayon Pony Fish"; sourceTree = "<group>"; };
+		49E684FF2F7019C800053C84 /* Cursor Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cursor Dark"; sourceTree = "<group>"; };
+		49E685002F7019C800053C84 /* Cutie Pro */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cutie Pro"; sourceTree = "<group>"; };
+		49E685012F7019C800053C84 /* Cyberdyne */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cyberdyne; sourceTree = "<group>"; };
+		49E685022F7019C800053C84 /* Cyberpunk */ = {isa = PBXFileReference; lastKnownFileType = text; path = Cyberpunk; sourceTree = "<group>"; };
+		49E685032F7019C800053C84 /* Cyberpunk Scarlet Protocol */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Cyberpunk Scarlet Protocol"; sourceTree = "<group>"; };
+		49E685042F7019C800053C84 /* Dark Modern */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dark Modern"; sourceTree = "<group>"; };
+		49E685052F7019C800053C84 /* Dark Pastel */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dark Pastel"; sourceTree = "<group>"; };
+		49E685062F7019C800053C84 /* Dark+ */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dark+"; sourceTree = "<group>"; };
+		49E685072F7019C800053C84 /* Darkermatrix */ = {isa = PBXFileReference; lastKnownFileType = text; path = Darkermatrix; sourceTree = "<group>"; };
+		49E685082F7019C800053C84 /* Darkmatrix */ = {isa = PBXFileReference; lastKnownFileType = text; path = Darkmatrix; sourceTree = "<group>"; };
+		49E685092F7019C800053C84 /* Darkside */ = {isa = PBXFileReference; lastKnownFileType = text; path = Darkside; sourceTree = "<group>"; };
+		49E6850A2F7019C800053C84 /* Dawnfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Dawnfox; sourceTree = "<group>"; };
+		49E6850B2F7019C800053C84 /* Dayfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Dayfox; sourceTree = "<group>"; };
+		49E6850C2F7019C800053C84 /* Deep */ = {isa = PBXFileReference; lastKnownFileType = text; path = Deep; sourceTree = "<group>"; };
+		49E6850D2F7019C800053C84 /* Desert */ = {isa = PBXFileReference; lastKnownFileType = text; path = Desert; sourceTree = "<group>"; };
+		49E6850E2F7019C800053C84 /* Detuned */ = {isa = PBXFileReference; lastKnownFileType = text; path = Detuned; sourceTree = "<group>"; };
+		49E6850F2F7019C800053C84 /* Dimidium */ = {isa = PBXFileReference; lastKnownFileType = text; path = Dimidium; sourceTree = "<group>"; };
+		49E685102F7019C800053C84 /* Dimmed Monokai */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dimmed Monokai"; sourceTree = "<group>"; };
+		49E685112F7019C800053C84 /* Django */ = {isa = PBXFileReference; lastKnownFileType = text; path = Django; sourceTree = "<group>"; };
+		49E685122F7019C800053C84 /* Django Reborn Again */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Django Reborn Again"; sourceTree = "<group>"; };
+		49E685132F7019C800053C84 /* Django Smooth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Django Smooth"; sourceTree = "<group>"; };
+		49E685142F7019C800053C84 /* Doom One */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Doom One"; sourceTree = "<group>"; };
+		49E685152F7019C800053C84 /* Doom Peacock */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Doom Peacock"; sourceTree = "<group>"; };
+		49E685162F7019C800053C84 /* Dot Gov */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dot Gov"; sourceTree = "<group>"; };
+		49E685172F7019C800053C84 /* Dracula */ = {isa = PBXFileReference; lastKnownFileType = text; path = Dracula; sourceTree = "<group>"; };
+		49E685182F7019C800053C84 /* Dracula+ */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Dracula+"; sourceTree = "<group>"; };
+		49E685192F7019C800053C84 /* Duckbones */ = {isa = PBXFileReference; lastKnownFileType = text; path = Duckbones; sourceTree = "<group>"; };
+		49E6851A2F7019C800053C84 /* Duotone Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Duotone Dark"; sourceTree = "<group>"; };
+		49E6851B2F7019C800053C84 /* Duskfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Duskfox; sourceTree = "<group>"; };
+		49E6851C2F7019C800053C84 /* Earthsong */ = {isa = PBXFileReference; lastKnownFileType = text; path = Earthsong; sourceTree = "<group>"; };
+		49E6851D2F7019C800053C84 /* Electron Highlighter */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Electron Highlighter"; sourceTree = "<group>"; };
+		49E6851E2F7019C800053C84 /* Elegant */ = {isa = PBXFileReference; lastKnownFileType = text; path = Elegant; sourceTree = "<group>"; };
+		49E6851F2F7019C800053C84 /* Elemental */ = {isa = PBXFileReference; lastKnownFileType = text; path = Elemental; sourceTree = "<group>"; };
+		49E685202F7019C800053C84 /* Elementary */ = {isa = PBXFileReference; lastKnownFileType = text; path = Elementary; sourceTree = "<group>"; };
+		49E685212F7019C800053C84 /* Embark */ = {isa = PBXFileReference; lastKnownFileType = text; path = Embark; sourceTree = "<group>"; };
+		49E685222F7019C800053C84 /* Embers Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Embers Dark"; sourceTree = "<group>"; };
+		49E685232F7019C800053C84 /* ENCOM */ = {isa = PBXFileReference; lastKnownFileType = text; path = ENCOM; sourceTree = "<group>"; };
+		49E685242F7019C800053C84 /* Espresso */ = {isa = PBXFileReference; lastKnownFileType = text; path = Espresso; sourceTree = "<group>"; };
+		49E685252F7019C800053C84 /* Espresso Libre */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Espresso Libre"; sourceTree = "<group>"; };
+		49E685262F7019C800053C84 /* Everblush */ = {isa = PBXFileReference; lastKnownFileType = text; path = Everblush; sourceTree = "<group>"; };
+		49E685272F7019C800053C84 /* Everforest Dark Hard */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Everforest Dark Hard"; sourceTree = "<group>"; };
+		49E685282F7019C800053C84 /* Everforest Light Med */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Everforest Light Med"; sourceTree = "<group>"; };
+		49E685292F7019C800053C84 /* Fahrenheit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Fahrenheit; sourceTree = "<group>"; };
+		49E6852A2F7019C800053C84 /* Fairyfloss */ = {isa = PBXFileReference; lastKnownFileType = text; path = Fairyfloss; sourceTree = "<group>"; };
+		49E6852B2F7019C800053C84 /* Farmhouse Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Farmhouse Dark"; sourceTree = "<group>"; };
+		49E6852C2F7019C800053C84 /* Farmhouse Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Farmhouse Light"; sourceTree = "<group>"; };
+		49E6852D2F7019C800053C84 /* Fideloper */ = {isa = PBXFileReference; lastKnownFileType = text; path = Fideloper; sourceTree = "<group>"; };
+		49E6852E2F7019C800053C84 /* Firefly Traditional */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Firefly Traditional"; sourceTree = "<group>"; };
+		49E6852F2F7019C800053C84 /* Firefox Dev */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Firefox Dev"; sourceTree = "<group>"; };
+		49E685302F7019C800053C84 /* Firewatch */ = {isa = PBXFileReference; lastKnownFileType = text; path = Firewatch; sourceTree = "<group>"; };
+		49E685312F7019C800053C84 /* Fish Tank */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fish Tank"; sourceTree = "<group>"; };
+		49E685322F7019C800053C84 /* Flat */ = {isa = PBXFileReference; lastKnownFileType = text; path = Flat; sourceTree = "<group>"; };
+		49E685332F7019C800053C84 /* Flatland */ = {isa = PBXFileReference; lastKnownFileType = text; path = Flatland; sourceTree = "<group>"; };
+		49E685342F7019C800053C84 /* Flexoki Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Flexoki Dark"; sourceTree = "<group>"; };
+		49E685352F7019C800053C84 /* Flexoki Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Flexoki Light"; sourceTree = "<group>"; };
+		49E685362F7019C800053C84 /* Floraverse */ = {isa = PBXFileReference; lastKnownFileType = text; path = Floraverse; sourceTree = "<group>"; };
+		49E685372F7019C800053C84 /* Forest Blue */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Forest Blue"; sourceTree = "<group>"; };
+		49E685382F7019C800053C84 /* Framer */ = {isa = PBXFileReference; lastKnownFileType = text; path = Framer; sourceTree = "<group>"; };
+		49E685392F7019C800053C84 /* Front End Delight */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Front End Delight"; sourceTree = "<group>"; };
+		49E6853A2F7019C800053C84 /* Fun Forrest */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Fun Forrest"; sourceTree = "<group>"; };
+		49E6853B2F7019C800053C84 /* Galaxy */ = {isa = PBXFileReference; lastKnownFileType = text; path = Galaxy; sourceTree = "<group>"; };
+		49E6853C2F7019C800053C84 /* Galizur */ = {isa = PBXFileReference; lastKnownFileType = text; path = Galizur; sourceTree = "<group>"; };
+		49E6853D2F7019C800053C84 /* Ghostty Default Style Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Ghostty Default Style Dark"; sourceTree = "<group>"; };
+		49E6853E2F7019C800053C84 /* GitHub */ = {isa = PBXFileReference; lastKnownFileType = text; path = GitHub; sourceTree = "<group>"; };
+		49E6853F2F7019C800053C84 /* GitHub Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Dark"; sourceTree = "<group>"; };
+		49E685402F7019C800053C84 /* GitHub Dark Colorblind */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Dark Colorblind"; sourceTree = "<group>"; };
+		49E685412F7019C800053C84 /* GitHub Dark Default */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Dark Default"; sourceTree = "<group>"; };
+		49E685422F7019C800053C84 /* GitHub Dark Dimmed */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Dark Dimmed"; sourceTree = "<group>"; };
+		49E685432F7019C800053C84 /* GitHub Dark High Contrast */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Dark High Contrast"; sourceTree = "<group>"; };
+		49E685442F7019C800053C84 /* GitHub Light Colorblind */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Light Colorblind"; sourceTree = "<group>"; };
+		49E685452F7019C800053C84 /* GitHub Light Default */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Light Default"; sourceTree = "<group>"; };
+		49E685462F7019C800053C84 /* GitHub Light High Contrast */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitHub Light High Contrast"; sourceTree = "<group>"; };
+		49E685472F7019C800053C84 /* GitLab Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitLab Dark"; sourceTree = "<group>"; };
+		49E685482F7019C800053C84 /* GitLab Dark Grey */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitLab Dark Grey"; sourceTree = "<group>"; };
+		49E685492F7019C800053C84 /* GitLab Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "GitLab Light"; sourceTree = "<group>"; };
+		49E6854A2F7019C800053C84 /* Glacier */ = {isa = PBXFileReference; lastKnownFileType = text; path = Glacier; sourceTree = "<group>"; };
+		49E6854B2F7019C800053C84 /* Grape */ = {isa = PBXFileReference; lastKnownFileType = text; path = Grape; sourceTree = "<group>"; };
+		49E6854C2F7019C800053C84 /* Grass */ = {isa = PBXFileReference; lastKnownFileType = text; path = Grass; sourceTree = "<group>"; };
+		49E6854D2F7019C800053C84 /* Grey Green */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Grey Green"; sourceTree = "<group>"; };
+		49E6854E2F7019C800053C84 /* Gruber Darker */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruber Darker"; sourceTree = "<group>"; };
+		49E6854F2F7019C800053C84 /* Gruvbox Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Dark"; sourceTree = "<group>"; };
+		49E685502F7019C800053C84 /* Gruvbox Dark Hard */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Dark Hard"; sourceTree = "<group>"; };
+		49E685512F7019C800053C84 /* Gruvbox Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Light"; sourceTree = "<group>"; };
+		49E685522F7019C800053C84 /* Gruvbox Light Hard */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Light Hard"; sourceTree = "<group>"; };
+		49E685532F7019C800053C84 /* Gruvbox Material */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Material"; sourceTree = "<group>"; };
+		49E685542F7019C800053C84 /* Gruvbox Material Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Material Dark"; sourceTree = "<group>"; };
+		49E685552F7019C800053C84 /* Gruvbox Material Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Gruvbox Material Light"; sourceTree = "<group>"; };
+		49E685562F7019C800053C84 /* Guezwhoz */ = {isa = PBXFileReference; lastKnownFileType = text; path = Guezwhoz; sourceTree = "<group>"; };
+		49E685572F7019C800053C84 /* Hacktober */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hacktober; sourceTree = "<group>"; };
+		49E685582F7019C800053C84 /* Hardcore */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hardcore; sourceTree = "<group>"; };
+		49E685592F7019C800053C84 /* Harper */ = {isa = PBXFileReference; lastKnownFileType = text; path = Harper; sourceTree = "<group>"; };
+		49E6855A2F7019C800053C84 /* Havn Daggry */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Havn Daggry"; sourceTree = "<group>"; };
+		49E6855B2F7019C800053C84 /* Havn Skumring */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Havn Skumring"; sourceTree = "<group>"; };
+		49E6855C2F7019C800053C84 /* HaX0R Blue */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HaX0R Blue"; sourceTree = "<group>"; };
+		49E6855D2F7019C800053C84 /* HaX0R Gr33N */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HaX0R Gr33N"; sourceTree = "<group>"; };
+		49E6855E2F7019C800053C84 /* HaX0R R3D */ = {isa = PBXFileReference; lastKnownFileType = text; path = "HaX0R R3D"; sourceTree = "<group>"; };
+		49E6855F2F7019C800053C84 /* Heeler */ = {isa = PBXFileReference; lastKnownFileType = text; path = Heeler; sourceTree = "<group>"; };
+		49E685602F7019C800053C84 /* Highway */ = {isa = PBXFileReference; lastKnownFileType = text; path = Highway; sourceTree = "<group>"; };
+		49E685612F7019C800053C84 /* Hipster Green */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Hipster Green"; sourceTree = "<group>"; };
+		49E685622F7019C800053C84 /* Hivacruz */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hivacruz; sourceTree = "<group>"; };
+		49E685632F7019C800053C84 /* Homebrew */ = {isa = PBXFileReference; lastKnownFileType = text; path = Homebrew; sourceTree = "<group>"; };
+		49E685642F7019C800053C84 /* Hopscotch */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hopscotch; sourceTree = "<group>"; };
+		49E685652F7019C800053C84 /* Hopscotch.256 */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hopscotch.256; sourceTree = "<group>"; };
+		49E685662F7019C800053C84 /* Horizon */ = {isa = PBXFileReference; lastKnownFileType = text; path = Horizon; sourceTree = "<group>"; };
+		49E685672F7019C800053C84 /* Horizon Bright */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Horizon Bright"; sourceTree = "<group>"; };
+		49E685682F7019C800053C84 /* Hot Dog Stand */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Hot Dog Stand"; sourceTree = "<group>"; };
+		49E685692F7019C800053C84 /* Hot Dog Stand (Mustard) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Hot Dog Stand (Mustard)"; sourceTree = "<group>"; };
+		49E6856A2F7019C800053C84 /* Hurtado */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hurtado; sourceTree = "<group>"; };
+		49E6856B2F7019C800053C84 /* Hybrid */ = {isa = PBXFileReference; lastKnownFileType = text; path = Hybrid; sourceTree = "<group>"; };
+		49E6856C2F7019C800053C84 /* IBM 5153 CGA */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IBM 5153 CGA"; sourceTree = "<group>"; };
+		49E6856D2F7019C800053C84 /* IBM 5153 CGA (Black) */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IBM 5153 CGA (Black)"; sourceTree = "<group>"; };
+		49E6856E2F7019C800053C84 /* IC Green PPL */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IC Green PPL"; sourceTree = "<group>"; };
+		49E6856F2F7019C800053C84 /* IC Orange PPL */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IC Orange PPL"; sourceTree = "<group>"; };
+		49E685702F7019C800053C84 /* Iceberg Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Iceberg Dark"; sourceTree = "<group>"; };
+		49E685712F7019C800053C84 /* Iceberg Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Iceberg Light"; sourceTree = "<group>"; };
+		49E685722F7019C800053C84 /* Idea */ = {isa = PBXFileReference; lastKnownFileType = text; path = Idea; sourceTree = "<group>"; };
+		49E685732F7019C800053C84 /* Idle Toes */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Idle Toes"; sourceTree = "<group>"; };
+		49E685742F7019C800053C84 /* IR Black */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IR Black"; sourceTree = "<group>"; };
+		49E685752F7019C800053C84 /* IRIX Console */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IRIX Console"; sourceTree = "<group>"; };
+		49E685762F7019C800053C84 /* IRIX Terminal */ = {isa = PBXFileReference; lastKnownFileType = text; path = "IRIX Terminal"; sourceTree = "<group>"; };
+		49E685772F7019C800053C84 /* iTerm2 Dark Background */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Dark Background"; sourceTree = "<group>"; };
+		49E685782F7019C800053C84 /* iTerm2 Default */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Default"; sourceTree = "<group>"; };
+		49E685792F7019C800053C84 /* iTerm2 Light Background */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Light Background"; sourceTree = "<group>"; };
+		49E6857A2F7019C800053C84 /* iTerm2 Pastel Dark Background */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Pastel Dark Background"; sourceTree = "<group>"; };
+		49E6857B2F7019C800053C84 /* iTerm2 Smoooooth */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Smoooooth"; sourceTree = "<group>"; };
+		49E6857C2F7019C800053C84 /* iTerm2 Solarized Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Solarized Dark"; sourceTree = "<group>"; };
+		49E6857D2F7019C800053C84 /* iTerm2 Solarized Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Solarized Light"; sourceTree = "<group>"; };
+		49E6857E2F7019C800053C84 /* iTerm2 Tango Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Tango Dark"; sourceTree = "<group>"; };
+		49E6857F2F7019C800053C84 /* iTerm2 Tango Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "iTerm2 Tango Light"; sourceTree = "<group>"; };
+		49E685802F7019C800053C84 /* Jackie Brown */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Jackie Brown"; sourceTree = "<group>"; };
+		49E685812F7019C800053C84 /* Japanesque */ = {isa = PBXFileReference; lastKnownFileType = text; path = Japanesque; sourceTree = "<group>"; };
+		49E685822F7019C800053C84 /* Jellybeans */ = {isa = PBXFileReference; lastKnownFileType = text; path = Jellybeans; sourceTree = "<group>"; };
+		49E685832F7019C800053C84 /* JetBrains Darcula */ = {isa = PBXFileReference; lastKnownFileType = text; path = "JetBrains Darcula"; sourceTree = "<group>"; };
+		49E685842F7019C800053C84 /* Jubi */ = {isa = PBXFileReference; lastKnownFileType = text; path = Jubi; sourceTree = "<group>"; };
+		49E685852F7019C800053C84 /* Kanagawa Dragon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanagawa Dragon"; sourceTree = "<group>"; };
+		49E685862F7019C800053C84 /* Kanagawa Lotus */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanagawa Lotus"; sourceTree = "<group>"; };
+		49E685872F7019C800053C84 /* Kanagawa Wave */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanagawa Wave"; sourceTree = "<group>"; };
+		49E685882F7019C800053C84 /* Kanagawabones */ = {isa = PBXFileReference; lastKnownFileType = text; path = Kanagawabones; sourceTree = "<group>"; };
+		49E685892F7019C800053C84 /* Kanso Ink */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanso Ink"; sourceTree = "<group>"; };
+		49E6858A2F7019C800053C84 /* Kanso Mist */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanso Mist"; sourceTree = "<group>"; };
+		49E6858B2F7019C800053C84 /* Kanso Pearl */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanso Pearl"; sourceTree = "<group>"; };
+		49E6858C2F7019C800053C84 /* Kanso Zen */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kanso Zen"; sourceTree = "<group>"; };
+		49E6858D2F7019C800053C84 /* Kibble */ = {isa = PBXFileReference; lastKnownFileType = text; path = Kibble; sourceTree = "<group>"; };
+		49E6858E2F7019C800053C84 /* Kitty Default */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kitty Default"; sourceTree = "<group>"; };
+		49E6858F2F7019C800053C84 /* Kitty Low Contrast */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Kitty Low Contrast"; sourceTree = "<group>"; };
+		49E685902F7019C800053C84 /* Kolorit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Kolorit; sourceTree = "<group>"; };
+		49E685912F7019C800053C84 /* Konsolas */ = {isa = PBXFileReference; lastKnownFileType = text; path = Konsolas; sourceTree = "<group>"; };
+		49E685922F7019C800053C84 /* Kurokula */ = {isa = PBXFileReference; lastKnownFileType = text; path = Kurokula; sourceTree = "<group>"; };
+		49E685932F7019C800053C84 /* Lab Fox */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Lab Fox"; sourceTree = "<group>"; };
+		49E685942F7019C800053C84 /* Laser */ = {isa = PBXFileReference; lastKnownFileType = text; path = Laser; sourceTree = "<group>"; };
+		49E685952F7019C800053C84 /* Later This Evening */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Later This Evening"; sourceTree = "<group>"; };
+		49E685962F7019C800053C84 /* Lavandula */ = {isa = PBXFileReference; lastKnownFileType = text; path = Lavandula; sourceTree = "<group>"; };
+		49E685972F7019C800053C84 /* Light Owl */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Light Owl"; sourceTree = "<group>"; };
+		49E685982F7019C800053C84 /* Liquid Carbon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Liquid Carbon"; sourceTree = "<group>"; };
+		49E685992F7019C800053C84 /* Liquid Carbon Transparent */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Liquid Carbon Transparent"; sourceTree = "<group>"; };
+		49E6859A2F7019C800053C84 /* Lovelace */ = {isa = PBXFileReference; lastKnownFileType = text; path = Lovelace; sourceTree = "<group>"; };
+		49E6859B2F7019C800053C84 /* Man Page */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Man Page"; sourceTree = "<group>"; };
+		49E6859C2F7019C800053C84 /* Mariana */ = {isa = PBXFileReference; lastKnownFileType = text; path = Mariana; sourceTree = "<group>"; };
+		49E6859D2F7019C800053C84 /* Material */ = {isa = PBXFileReference; lastKnownFileType = text; path = Material; sourceTree = "<group>"; };
+		49E6859E2F7019C800053C84 /* Material Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Material Dark"; sourceTree = "<group>"; };
+		49E6859F2F7019C800053C84 /* Material Darker */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Material Darker"; sourceTree = "<group>"; };
+		49E685A02F7019C800053C84 /* Material Design Colors */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Material Design Colors"; sourceTree = "<group>"; };
+		49E685A12F7019C800053C84 /* Material Ocean */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Material Ocean"; sourceTree = "<group>"; };
+		49E685A22F7019C800053C84 /* Mathias */ = {isa = PBXFileReference; lastKnownFileType = text; path = Mathias; sourceTree = "<group>"; };
+		49E685A32F7019C800053C84 /* Matrix */ = {isa = PBXFileReference; lastKnownFileType = text; path = Matrix; sourceTree = "<group>"; };
+		49E685A42F7019C800053C84 /* Matte Black */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Matte Black"; sourceTree = "<group>"; };
+		49E685A52F7019C800053C84 /* Medallion */ = {isa = PBXFileReference; lastKnownFileType = text; path = Medallion; sourceTree = "<group>"; };
+		49E685A62F7019C800053C84 /* Melange Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Melange Dark"; sourceTree = "<group>"; };
+		49E685A72F7019C800053C84 /* Melange Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Melange Light"; sourceTree = "<group>"; };
+		49E685A82F7019C800053C84 /* Mellifluous */ = {isa = PBXFileReference; lastKnownFileType = text; path = Mellifluous; sourceTree = "<group>"; };
+		49E685A92F7019C800053C84 /* Mellow */ = {isa = PBXFileReference; lastKnownFileType = text; path = Mellow; sourceTree = "<group>"; };
+		49E685AA2F7019C800053C84 /* Miasma */ = {isa = PBXFileReference; lastKnownFileType = text; path = Miasma; sourceTree = "<group>"; };
+		49E685AB2F7019C800053C84 /* Midnight In Mojave */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Midnight In Mojave"; sourceTree = "<group>"; };
+		49E685AC2F7019C800053C84 /* Mirage */ = {isa = PBXFileReference; lastKnownFileType = text; path = Mirage; sourceTree = "<group>"; };
+		49E685AD2F7019C800053C84 /* Misterioso */ = {isa = PBXFileReference; lastKnownFileType = text; path = Misterioso; sourceTree = "<group>"; };
+		49E685AE2F7019C800053C84 /* Modus Operandi */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Modus Operandi"; sourceTree = "<group>"; };
+		49E685AF2F7019C800053C84 /* Modus Operandi Tinted */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Modus Operandi Tinted"; sourceTree = "<group>"; };
+		49E685B02F7019C800053C84 /* Modus Vivendi */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Modus Vivendi"; sourceTree = "<group>"; };
+		49E685B12F7019C800053C84 /* Modus Vivendi Tinted */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Modus Vivendi Tinted"; sourceTree = "<group>"; };
+		49E685B22F7019C800053C84 /* Molokai */ = {isa = PBXFileReference; lastKnownFileType = text; path = Molokai; sourceTree = "<group>"; };
+		49E685B32F7019C800053C84 /* Mona Lisa */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Mona Lisa"; sourceTree = "<group>"; };
+		49E685B42F7019C800053C84 /* Monokai Classic */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Classic"; sourceTree = "<group>"; };
+		49E685B52F7019C800053C84 /* Monokai Pro */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro"; sourceTree = "<group>"; };
+		49E685B62F7019C800053C84 /* Monokai Pro Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Light"; sourceTree = "<group>"; };
+		49E685B72F7019C800053C84 /* Monokai Pro Light Sun */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Light Sun"; sourceTree = "<group>"; };
+		49E685B82F7019C800053C84 /* Monokai Pro Machine */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Machine"; sourceTree = "<group>"; };
+		49E685B92F7019C800053C84 /* Monokai Pro Octagon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Octagon"; sourceTree = "<group>"; };
+		49E685BA2F7019C800053C84 /* Monokai Pro Ristretto */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Ristretto"; sourceTree = "<group>"; };
+		49E685BB2F7019C800053C84 /* Monokai Pro Spectrum */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Pro Spectrum"; sourceTree = "<group>"; };
+		49E685BC2F7019C800053C84 /* Monokai Remastered */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Remastered"; sourceTree = "<group>"; };
+		49E685BD2F7019C800053C84 /* Monokai Soda */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Soda"; sourceTree = "<group>"; };
+		49E685BE2F7019C800053C84 /* Monokai Vivid */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Monokai Vivid"; sourceTree = "<group>"; };
+		49E685BF2F7019C800053C84 /* Moonfly */ = {isa = PBXFileReference; lastKnownFileType = text; path = Moonfly; sourceTree = "<group>"; };
+		49E685C02F7019C800053C84 /* N0Tch2K */ = {isa = PBXFileReference; lastKnownFileType = text; path = N0Tch2K; sourceTree = "<group>"; };
+		49E685C12F7019C800053C84 /* Neobones Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Neobones Dark"; sourceTree = "<group>"; };
+		49E685C22F7019C800053C84 /* Neobones Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Neobones Light"; sourceTree = "<group>"; };
+		49E685C32F7019C800053C84 /* Neon */ = {isa = PBXFileReference; lastKnownFileType = text; path = Neon; sourceTree = "<group>"; };
+		49E685C42F7019C800053C84 /* Neopolitan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Neopolitan; sourceTree = "<group>"; };
+		49E685C52F7019C800053C84 /* Neutron */ = {isa = PBXFileReference; lastKnownFileType = text; path = Neutron; sourceTree = "<group>"; };
+		49E685C62F7019C800053C84 /* Night Lion V1 */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Night Lion V1"; sourceTree = "<group>"; };
+		49E685C72F7019C800053C84 /* Night Lion V2 */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Night Lion V2"; sourceTree = "<group>"; };
+		49E685C82F7019C800053C84 /* Night Owl */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Night Owl"; sourceTree = "<group>"; };
+		49E685C92F7019C800053C84 /* Night Owlish Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Night Owlish Light"; sourceTree = "<group>"; };
+		49E685CA2F7019C800053C84 /* Nightfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Nightfox; sourceTree = "<group>"; };
+		49E685CB2F7019C800053C84 /* Niji */ = {isa = PBXFileReference; lastKnownFileType = text; path = Niji; sourceTree = "<group>"; };
+		49E685CC2F7019C800053C84 /* No Clown Fiesta */ = {isa = PBXFileReference; lastKnownFileType = text; path = "No Clown Fiesta"; sourceTree = "<group>"; };
+		49E685CD2F7019C800053C84 /* No Clown Fiesta Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "No Clown Fiesta Light"; sourceTree = "<group>"; };
+		49E685CE2F7019C800053C84 /* Nocturnal Winter */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Nocturnal Winter"; sourceTree = "<group>"; };
+		49E685CF2F7019C800053C84 /* Nord */ = {isa = PBXFileReference; lastKnownFileType = text; path = Nord; sourceTree = "<group>"; };
+		49E685D02F7019C800053C84 /* Nord Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Nord Light"; sourceTree = "<group>"; };
+		49E685D12F7019C800053C84 /* Nord Wave */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Nord Wave"; sourceTree = "<group>"; };
+		49E685D22F7019C800053C84 /* Nordfox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Nordfox; sourceTree = "<group>"; };
+		49E685D32F7019C800053C84 /* Novel */ = {isa = PBXFileReference; lastKnownFileType = text; path = Novel; sourceTree = "<group>"; };
+		49E685D42F7019C800053C84 /* novmbr */ = {isa = PBXFileReference; lastKnownFileType = text; path = novmbr; sourceTree = "<group>"; };
+		49E685D52F7019C800053C84 /* Nvim Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Nvim Dark"; sourceTree = "<group>"; };
+		49E685D62F7019C800053C84 /* Nvim Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Nvim Light"; sourceTree = "<group>"; };
+		49E685D72F7019C800053C84 /* Obsidian */ = {isa = PBXFileReference; lastKnownFileType = text; path = Obsidian; sourceTree = "<group>"; };
+		49E685D82F7019C800053C84 /* Ocean */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ocean; sourceTree = "<group>"; };
+		49E685D92F7019C800053C84 /* Oceanic Material */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Oceanic Material"; sourceTree = "<group>"; };
+		49E685DA2F7019C800053C84 /* Oceanic Next */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Oceanic Next"; sourceTree = "<group>"; };
+		49E685DB2F7019C800053C84 /* Ollie */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ollie; sourceTree = "<group>"; };
+		49E685DC2F7019C800053C84 /* One Dark Two */ = {isa = PBXFileReference; lastKnownFileType = text; path = "One Dark Two"; sourceTree = "<group>"; };
+		49E685DD2F7019C800053C84 /* One Double Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "One Double Dark"; sourceTree = "<group>"; };
+		49E685DE2F7019C800053C84 /* One Double Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "One Double Light"; sourceTree = "<group>"; };
+		49E685DF2F7019C800053C84 /* One Half Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "One Half Dark"; sourceTree = "<group>"; };
+		49E685E02F7019C800053C84 /* One Half Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "One Half Light"; sourceTree = "<group>"; };
+		49E685E12F7019C800053C84 /* Onenord */ = {isa = PBXFileReference; lastKnownFileType = text; path = Onenord; sourceTree = "<group>"; };
+		49E685E22F7019C800053C84 /* Onenord Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Onenord Light"; sourceTree = "<group>"; };
+		49E685E32F7019C800053C84 /* Operator Mono Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Operator Mono Dark"; sourceTree = "<group>"; };
+		49E685E42F7019C800053C84 /* Overnight Slumber */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Overnight Slumber"; sourceTree = "<group>"; };
+		49E685E52F7019C800053C84 /* owl */ = {isa = PBXFileReference; lastKnownFileType = text; path = owl; sourceTree = "<group>"; };
+		49E685E62F7019C800053C84 /* Oxocarbon */ = {isa = PBXFileReference; lastKnownFileType = text; path = Oxocarbon; sourceTree = "<group>"; };
+		49E685E72F7019C800053C84 /* Pale Night Hc */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pale Night Hc"; sourceTree = "<group>"; };
+		49E685E82F7019C800053C84 /* Pandora */ = {isa = PBXFileReference; lastKnownFileType = text; path = Pandora; sourceTree = "<group>"; };
+		49E685E92F7019C800053C84 /* Paraiso Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Paraiso Dark"; sourceTree = "<group>"; };
+		49E685EA2F7019C800053C84 /* Paul Millr */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Paul Millr"; sourceTree = "<group>"; };
+		49E685EB2F7019C800053C84 /* Pencil Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pencil Dark"; sourceTree = "<group>"; };
+		49E685EC2F7019C800053C84 /* Pencil Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pencil Light"; sourceTree = "<group>"; };
+		49E685ED2F7019C800053C84 /* Peppermint */ = {isa = PBXFileReference; lastKnownFileType = text; path = Peppermint; sourceTree = "<group>"; };
+		49E685EE2F7019C800053C84 /* Phala Green Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Phala Green Dark"; sourceTree = "<group>"; };
+		49E685EF2F7019C800053C84 /* Piatto Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Piatto Light"; sourceTree = "<group>"; };
+		49E685F02F7019C800053C84 /* Pnevma */ = {isa = PBXFileReference; lastKnownFileType = text; path = Pnevma; sourceTree = "<group>"; };
+		49E685F12F7019C800053C84 /* Poimandres */ = {isa = PBXFileReference; lastKnownFileType = text; path = Poimandres; sourceTree = "<group>"; };
+		49E685F22F7019C800053C84 /* Poimandres Darker */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Poimandres Darker"; sourceTree = "<group>"; };
+		49E685F32F7019C800053C84 /* Poimandres Storm */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Poimandres Storm"; sourceTree = "<group>"; };
+		49E685F42F7019C800053C84 /* Poimandres White */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Poimandres White"; sourceTree = "<group>"; };
+		49E685F52F7019C800053C84 /* Popping And Locking */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Popping And Locking"; sourceTree = "<group>"; };
+		49E685F62F7019C800053C84 /* Powershell */ = {isa = PBXFileReference; lastKnownFileType = text; path = Powershell; sourceTree = "<group>"; };
+		49E685F72F7019C800053C84 /* Primary */ = {isa = PBXFileReference; lastKnownFileType = text; path = Primary; sourceTree = "<group>"; };
+		49E685F82F7019C800053C84 /* Pro */ = {isa = PBXFileReference; lastKnownFileType = text; path = Pro; sourceTree = "<group>"; };
+		49E685F92F7019C800053C84 /* Pro Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Pro Light"; sourceTree = "<group>"; };
+		49E685FA2F7019C800053C84 /* Purple Rain */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Purple Rain"; sourceTree = "<group>"; };
+		49E685FB2F7019C800053C84 /* Purplepeter */ = {isa = PBXFileReference; lastKnownFileType = text; path = Purplepeter; sourceTree = "<group>"; };
+		49E685FC2F7019C800053C84 /* Rapture */ = {isa = PBXFileReference; lastKnownFileType = text; path = Rapture; sourceTree = "<group>"; };
+		49E685FD2F7019C800053C84 /* Raycast Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Raycast Dark"; sourceTree = "<group>"; };
+		49E685FE2F7019C800053C84 /* Raycast Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Raycast Light"; sourceTree = "<group>"; };
+		49E685FF2F7019C800053C84 /* Rebecca */ = {isa = PBXFileReference; lastKnownFileType = text; path = Rebecca; sourceTree = "<group>"; };
+		49E686002F7019C800053C84 /* Red Alert */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Red Alert"; sourceTree = "<group>"; };
+		49E686012F7019C800053C84 /* Red Planet */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Red Planet"; sourceTree = "<group>"; };
+		49E686022F7019C800053C84 /* Red Sands */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Red Sands"; sourceTree = "<group>"; };
+		49E686032F7019C800053C84 /* Relaxed */ = {isa = PBXFileReference; lastKnownFileType = text; path = Relaxed; sourceTree = "<group>"; };
+		49E686042F7019C800053C84 /* Retro */ = {isa = PBXFileReference; lastKnownFileType = text; path = Retro; sourceTree = "<group>"; };
+		49E686052F7019C800053C84 /* Retro Legends */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Retro Legends"; sourceTree = "<group>"; };
+		49E686062F7019C800053C84 /* Rippedcasts */ = {isa = PBXFileReference; lastKnownFileType = text; path = Rippedcasts; sourceTree = "<group>"; };
+		49E686072F7019C800053C84 /* Rose Pine */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Rose Pine"; sourceTree = "<group>"; };
+		49E686082F7019C800053C84 /* Rose Pine Dawn */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Rose Pine Dawn"; sourceTree = "<group>"; };
+		49E686092F7019C800053C84 /* Rose Pine Moon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Rose Pine Moon"; sourceTree = "<group>"; };
+		49E6860A2F7019C800053C84 /* Rouge 2 */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Rouge 2"; sourceTree = "<group>"; };
+		49E6860B2F7019C800053C84 /* Royal */ = {isa = PBXFileReference; lastKnownFileType = text; path = Royal; sourceTree = "<group>"; };
+		49E6860C2F7019C800053C84 /* Ryuuko */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ryuuko; sourceTree = "<group>"; };
+		49E6860D2F7019C800053C84 /* Sakura */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sakura; sourceTree = "<group>"; };
+		49E6860E2F7019C800053C84 /* Scarlet Protocol */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Scarlet Protocol"; sourceTree = "<group>"; };
+		49E6860F2F7019C800053C84 /* Sea Shells */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Sea Shells"; sourceTree = "<group>"; };
+		49E686102F7019C800053C84 /* Seafoam Pastel */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Seafoam Pastel"; sourceTree = "<group>"; };
+		49E686112F7019C800053C84 /* Selenized Black */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Selenized Black"; sourceTree = "<group>"; };
+		49E686122F7019C800053C84 /* Selenized Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Selenized Dark"; sourceTree = "<group>"; };
+		49E686132F7019C800053C84 /* Selenized Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Selenized Light"; sourceTree = "<group>"; };
+		49E686142F7019C800053C84 /* Seoulbones Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Seoulbones Dark"; sourceTree = "<group>"; };
+		49E686152F7019C800053C84 /* Seoulbones Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Seoulbones Light"; sourceTree = "<group>"; };
+		49E686162F7019C800053C84 /* Seti */ = {isa = PBXFileReference; lastKnownFileType = text; path = Seti; sourceTree = "<group>"; };
+		49E686172F7019C800053C84 /* Shades Of Purple */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Shades Of Purple"; sourceTree = "<group>"; };
+		49E686182F7019C800053C84 /* Shaman */ = {isa = PBXFileReference; lastKnownFileType = text; path = Shaman; sourceTree = "<group>"; };
+		49E686192F7019C800053C84 /* Slate */ = {isa = PBXFileReference; lastKnownFileType = text; path = Slate; sourceTree = "<group>"; };
+		49E6861A2F7019C800053C84 /* Sleepy Hollow */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Sleepy Hollow"; sourceTree = "<group>"; };
+		49E6861B2F7019C800053C84 /* Smyck */ = {isa = PBXFileReference; lastKnownFileType = text; path = Smyck; sourceTree = "<group>"; };
+		49E6861C2F7019C800053C84 /* Snazzy */ = {isa = PBXFileReference; lastKnownFileType = text; path = Snazzy; sourceTree = "<group>"; };
+		49E6861D2F7019C800053C84 /* Snazzy Soft */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Snazzy Soft"; sourceTree = "<group>"; };
+		49E6861E2F7019C800053C84 /* Soft Server */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Soft Server"; sourceTree = "<group>"; };
+		49E6861F2F7019C800053C84 /* Solarized Darcula */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Solarized Darcula"; sourceTree = "<group>"; };
+		49E686202F7019C800053C84 /* Solarized Dark Higher Contrast */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Solarized Dark Higher Contrast"; sourceTree = "<group>"; };
+		49E686212F7019C800053C84 /* Solarized Dark Patched */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Solarized Dark Patched"; sourceTree = "<group>"; };
+		49E686222F7019C800053C84 /* Solarized Osaka Night */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Solarized Osaka Night"; sourceTree = "<group>"; };
+		49E686232F7019C800053C84 /* Sonokai */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sonokai; sourceTree = "<group>"; };
+		49E686242F7019C800053C84 /* Spacedust */ = {isa = PBXFileReference; lastKnownFileType = text; path = Spacedust; sourceTree = "<group>"; };
+		49E686252F7019C800053C84 /* Spacegray */ = {isa = PBXFileReference; lastKnownFileType = text; path = Spacegray; sourceTree = "<group>"; };
+		49E686262F7019C800053C84 /* Spacegray Bright */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Spacegray Bright"; sourceTree = "<group>"; };
+		49E686272F7019C800053C84 /* Spacegray Eighties */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Spacegray Eighties"; sourceTree = "<group>"; };
+		49E686282F7019C800053C84 /* Spacegray Eighties Dull */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Spacegray Eighties Dull"; sourceTree = "<group>"; };
+		49E686292F7019C800053C84 /* Spiderman */ = {isa = PBXFileReference; lastKnownFileType = text; path = Spiderman; sourceTree = "<group>"; };
+		49E6862A2F7019C800053C84 /* Spring */ = {isa = PBXFileReference; lastKnownFileType = text; path = Spring; sourceTree = "<group>"; };
+		49E6862B2F7019C800053C84 /* Square */ = {isa = PBXFileReference; lastKnownFileType = text; path = Square; sourceTree = "<group>"; };
+		49E6862C2F7019C800053C84 /* Squirrelsong Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Squirrelsong Dark"; sourceTree = "<group>"; };
+		49E6862D2F7019C800053C84 /* Srcery */ = {isa = PBXFileReference; lastKnownFileType = text; path = Srcery; sourceTree = "<group>"; };
+		49E6862E2F7019C800053C84 /* Starlight */ = {isa = PBXFileReference; lastKnownFileType = text; path = Starlight; sourceTree = "<group>"; };
+		49E6862F2F7019C800053C84 /* Sublette */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sublette; sourceTree = "<group>"; };
+		49E686302F7019C800053C84 /* Subliminal */ = {isa = PBXFileReference; lastKnownFileType = text; path = Subliminal; sourceTree = "<group>"; };
+		49E686312F7019C800053C84 /* Sugarplum */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sugarplum; sourceTree = "<group>"; };
+		49E686322F7019C800053C84 /* Sundried */ = {isa = PBXFileReference; lastKnownFileType = text; path = Sundried; sourceTree = "<group>"; };
+		49E686332F7019C800053C84 /* Sunset Drive */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Sunset Drive"; sourceTree = "<group>"; };
+		49E686342F7019C800053C84 /* Symfonic */ = {isa = PBXFileReference; lastKnownFileType = text; path = Symfonic; sourceTree = "<group>"; };
+		49E686352F7019C800053C84 /* Synthwave */ = {isa = PBXFileReference; lastKnownFileType = text; path = Synthwave; sourceTree = "<group>"; };
+		49E686362F7019C800053C84 /* Synthwave Alpha */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Synthwave Alpha"; sourceTree = "<group>"; };
+		49E686372F7019C800053C84 /* Synthwave Everything */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Synthwave Everything"; sourceTree = "<group>"; };
+		49E686382F7019C800053C84 /* Tango Adapted */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tango Adapted"; sourceTree = "<group>"; };
+		49E686392F7019C800053C84 /* Tango Half Adapted */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tango Half Adapted"; sourceTree = "<group>"; };
+		49E6863A2F7019C800053C84 /* Tearout */ = {isa = PBXFileReference; lastKnownFileType = text; path = Tearout; sourceTree = "<group>"; };
+		49E6863B2F7019C800053C84 /* Teerb */ = {isa = PBXFileReference; lastKnownFileType = text; path = Teerb; sourceTree = "<group>"; };
+		49E6863C2F7019C800053C84 /* Terafox */ = {isa = PBXFileReference; lastKnownFileType = text; path = Terafox; sourceTree = "<group>"; };
+		49E6863D2F7019C800053C84 /* Terminal Basic */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Terminal Basic"; sourceTree = "<group>"; };
+		49E6863E2F7019C800053C84 /* Terminal Basic Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Terminal Basic Dark"; sourceTree = "<group>"; };
+		49E6863F2F7019C800053C84 /* Thayer Bright */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Thayer Bright"; sourceTree = "<group>"; };
+		49E686402F7019C800053C84 /* The Hulk */ = {isa = PBXFileReference; lastKnownFileType = text; path = "The Hulk"; sourceTree = "<group>"; };
+		49E686412F7019C800053C84 /* Tinacious Design Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tinacious Design Dark"; sourceTree = "<group>"; };
+		49E686422F7019C800053C84 /* Tinacious Design Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tinacious Design Light"; sourceTree = "<group>"; };
+		49E686432F7019C800053C84 /* TokyoNight */ = {isa = PBXFileReference; lastKnownFileType = text; path = TokyoNight; sourceTree = "<group>"; };
+		49E686442F7019C800053C84 /* TokyoNight Day */ = {isa = PBXFileReference; lastKnownFileType = text; path = "TokyoNight Day"; sourceTree = "<group>"; };
+		49E686452F7019C800053C84 /* TokyoNight Moon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "TokyoNight Moon"; sourceTree = "<group>"; };
+		49E686462F7019C800053C84 /* TokyoNight Night */ = {isa = PBXFileReference; lastKnownFileType = text; path = "TokyoNight Night"; sourceTree = "<group>"; };
+		49E686472F7019C800053C84 /* TokyoNight Storm */ = {isa = PBXFileReference; lastKnownFileType = text; path = "TokyoNight Storm"; sourceTree = "<group>"; };
+		49E686482F7019C800053C84 /* Tomorrow */ = {isa = PBXFileReference; lastKnownFileType = text; path = Tomorrow; sourceTree = "<group>"; };
+		49E686492F7019C800053C84 /* Tomorrow Night */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tomorrow Night"; sourceTree = "<group>"; };
+		49E6864A2F7019C800053C84 /* Tomorrow Night Blue */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tomorrow Night Blue"; sourceTree = "<group>"; };
+		49E6864B2F7019C800053C84 /* Tomorrow Night Bright */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tomorrow Night Bright"; sourceTree = "<group>"; };
+		49E6864C2F7019C800053C84 /* Tomorrow Night Burns */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tomorrow Night Burns"; sourceTree = "<group>"; };
+		49E6864D2F7019C800053C84 /* Tomorrow Night Eighties */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Tomorrow Night Eighties"; sourceTree = "<group>"; };
+		49E6864E2F7019C800053C84 /* Toy Chest */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Toy Chest"; sourceTree = "<group>"; };
+		49E6864F2F7019C800053C84 /* traffic */ = {isa = PBXFileReference; lastKnownFileType = text; path = traffic; sourceTree = "<group>"; };
+		49E686502F7019C800053C84 /* Treehouse */ = {isa = PBXFileReference; lastKnownFileType = text; path = Treehouse; sourceTree = "<group>"; };
+		49E686512F7019C800053C84 /* Twilight */ = {isa = PBXFileReference; lastKnownFileType = text; path = Twilight; sourceTree = "<group>"; };
+		49E686522F7019C800053C84 /* Ubuntu */ = {isa = PBXFileReference; lastKnownFileType = text; path = Ubuntu; sourceTree = "<group>"; };
+		49E686532F7019C800053C84 /* Ultra Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Ultra Dark"; sourceTree = "<group>"; };
+		49E686542F7019C800053C84 /* Ultra Violent */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Ultra Violent"; sourceTree = "<group>"; };
+		49E686552F7019C800053C84 /* Under The Sea */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Under The Sea"; sourceTree = "<group>"; };
+		49E686562F7019C800053C84 /* Unikitty */ = {isa = PBXFileReference; lastKnownFileType = text; path = Unikitty; sourceTree = "<group>"; };
+		49E686572F7019C800053C84 /* urban */ = {isa = PBXFileReference; lastKnownFileType = text; path = urban; sourceTree = "<group>"; };
+		49E686582F7019C800053C84 /* Urple */ = {isa = PBXFileReference; lastKnownFileType = text; path = Urple; sourceTree = "<group>"; };
+		49E686592F7019C800053C84 /* Vague */ = {isa = PBXFileReference; lastKnownFileType = text; path = Vague; sourceTree = "<group>"; };
+		49E6865A2F7019C800053C84 /* Vaughn */ = {isa = PBXFileReference; lastKnownFileType = text; path = Vaughn; sourceTree = "<group>"; };
+		49E6865B2F7019C800053C84 /* Vercel */ = {isa = PBXFileReference; lastKnownFileType = text; path = Vercel; sourceTree = "<group>"; };
+		49E6865C2F7019C800053C84 /* Vesper */ = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper; sourceTree = "<group>"; };
+		49E6865D2F7019C800053C84 /* Vibrant Ink */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Vibrant Ink"; sourceTree = "<group>"; };
+		49E6865E2F7019C800053C84 /* Vimbones */ = {isa = PBXFileReference; lastKnownFileType = text; path = Vimbones; sourceTree = "<group>"; };
+		49E6865F2F7019C800053C84 /* Violet Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Violet Dark"; sourceTree = "<group>"; };
+		49E686602F7019C800053C84 /* Violet Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Violet Light"; sourceTree = "<group>"; };
+		49E686612F7019C800053C84 /* Violite */ = {isa = PBXFileReference; lastKnownFileType = text; path = Violite; sourceTree = "<group>"; };
+		49E686622F7019C800053C84 /* Warm Neon */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Warm Neon"; sourceTree = "<group>"; };
+		49E686632F7019C800053C84 /* Wez */ = {isa = PBXFileReference; lastKnownFileType = text; path = Wez; sourceTree = "<group>"; };
+		49E686642F7019C800053C84 /* Whimsy */ = {isa = PBXFileReference; lastKnownFileType = text; path = Whimsy; sourceTree = "<group>"; };
+		49E686652F7019C800053C84 /* Wild Cherry */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Wild Cherry"; sourceTree = "<group>"; };
+		49E686662F7019C800053C84 /* Wilmersdorf */ = {isa = PBXFileReference; lastKnownFileType = text; path = Wilmersdorf; sourceTree = "<group>"; };
+		49E686672F7019C800053C84 /* Wombat */ = {isa = PBXFileReference; lastKnownFileType = text; path = Wombat; sourceTree = "<group>"; };
+		49E686682F7019C800053C84 /* Wryan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Wryan; sourceTree = "<group>"; };
+		49E686692F7019C800053C84 /* Xcode Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Xcode Dark"; sourceTree = "<group>"; };
+		49E6866A2F7019C800053C84 /* Xcode Dark hc */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Xcode Dark hc"; sourceTree = "<group>"; };
+		49E6866B2F7019C800053C84 /* Xcode Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Xcode Light"; sourceTree = "<group>"; };
+		49E6866C2F7019C800053C84 /* Xcode Light hc */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Xcode Light hc"; sourceTree = "<group>"; };
+		49E6866D2F7019C800053C84 /* Xcode WWDC */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Xcode WWDC"; sourceTree = "<group>"; };
+		49E6866E2F7019C800053C84 /* Zenbones */ = {isa = PBXFileReference; lastKnownFileType = text; path = Zenbones; sourceTree = "<group>"; };
+		49E6866F2F7019C800053C84 /* Zenbones Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Zenbones Dark"; sourceTree = "<group>"; };
+		49E686702F7019C800053C84 /* Zenbones Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Zenbones Light"; sourceTree = "<group>"; };
+		49E686712F7019C800053C84 /* Zenburn */ = {isa = PBXFileReference; lastKnownFileType = text; path = Zenburn; sourceTree = "<group>"; };
+		49E686722F7019C800053C84 /* Zenburned */ = {isa = PBXFileReference; lastKnownFileType = text; path = Zenburned; sourceTree = "<group>"; };
+		49E686732F7019C800053C84 /* Zenwritten Dark */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Zenwritten Dark"; sourceTree = "<group>"; };
+		49E686742F7019C800053C84 /* Zenwritten Light */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Zenwritten Light"; sourceTree = "<group>"; };
+		49E686772F7019C800053C84 /* .zlogin */ = {isa = PBXFileReference; lastKnownFileType = text; path = .zlogin; sourceTree = "<group>"; };
+		49E686782F7019C800053C84 /* .zprofile */ = {isa = PBXFileReference; lastKnownFileType = text; path = .zprofile; sourceTree = "<group>"; };
+		49E686792F7019C800053C84 /* .zshenv */ = {isa = PBXFileReference; lastKnownFileType = text; path = .zshenv; sourceTree = "<group>"; };
+		49E6867A2F7019C800053C84 /* .zshrc */ = {isa = PBXFileReference; lastKnownFileType = text; path = .zshrc; sourceTree = "<group>"; };
+		49E6867B2F7019C800053C84 /* cmux-bash-integration.bash */ = {isa = PBXFileReference; lastKnownFileType = text; path = "cmux-bash-integration.bash"; sourceTree = "<group>"; };
+		49E6867C2F7019C800053C84 /* cmux-zsh-integration.zsh */ = {isa = PBXFileReference; lastKnownFileType = text; path = "cmux-zsh-integration.zsh"; sourceTree = "<group>"; };
+		49E6867E2F7019C800053C84 /* ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = ghostty; sourceTree = "<group>"; };
+		49E686802F7019C800053C84 /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "xterm-ghostty"; sourceTree = "<group>"; };
+		49E686822F7019C800053C84 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		49E686842F7019C800053C84 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = cmux.sdef; sourceTree = "<group>"; };
+		49E686852F7019C800053C84 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		49E686862F7019C800053C84 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		49E686872F7019C800053C84 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		49E688682F7019EA00053C84 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
+		49E688692F7019EA00053C84 /* ghostty.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ghostty.h; sourceTree = "<group>"; };
+		49E6886A2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateShortcutRoutingTests.swift; sourceTree = "<group>"; };
+		49E6886B2F701A0A00053C84 /* BrowserConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserConfigTests.swift; sourceTree = "<group>"; };
+		49E6886C2F701A0A00053C84 /* BrowserFindJavaScriptTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScriptTests.swift; sourceTree = "<group>"; };
+		49E6886D2F701A0A00053C84 /* BrowserImportMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportMappingTests.swift; sourceTree = "<group>"; };
+		49E6886E2F701A0A00053C84 /* BrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelTests.swift; sourceTree = "<group>"; };
+		49E6886F2F701A0A00053C84 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
+		49E688702F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteSearchEngineTests.swift; sourceTree = "<group>"; };
+		49E688712F701A0A00053C84 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
+		49E688722F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyEnsureFocusWindowActivationTests.swift; sourceTree = "<group>"; };
+		49E688732F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
+		49E688742F701A0A00053C84 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
+		49E688752F701A0A00053C84 /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
+		49E688762F701A0A00053C84 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		49E688772F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
+		49E688782F701A0A00053C84 /* SidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarOrderingTests.swift; sourceTree = "<group>"; };
+		49E688792F701A0A00053C84 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
+		49E6887A2F701A0A00053C84 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
+		49E6887B2F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		49E6887C2F701A0A00053C84 /* TabManagerUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerUnitTests.swift; sourceTree = "<group>"; };
+		49E6887D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
+		49E6887E2F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
+		49E6887F2F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
+		49E688802F701A0A00053C84 /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
+		49E688812F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentViewVisibilityTests.swift; sourceTree = "<group>"; };
+		49E688822F701A0A00053C84 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
+		49E688832F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePullRequestSidebarTests.swift; sourceTree = "<group>"; };
+		49E688842F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceRemoteConnectionTests.swift; sourceTree = "<group>"; };
+		49E688852F701A0A00053C84 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
+		49E688862F701A0A00053C84 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
+		49E688A52F701A4700053C84 /* AutomationSocketUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationSocketUITests.swift; sourceTree = "<group>"; };
+		49E688A62F701A4700053C84 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
+		49E688A72F701A4700053C84 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
+		49E688A82F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
+		49E688A92F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
+		49E688AA2F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
+		49E688AB2F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
+		49E688AC2F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceConfirmDialogUITests.swift; sourceTree = "<group>"; };
+		49E688AD2F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspacesConfirmDialogUITests.swift; sourceTree = "<group>"; };
+		49E688AE2F701A4700053C84 /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
+		49E688AF2F701A4700053C84 /* JumpToUnreadUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JumpToUnreadUITests.swift; sourceTree = "<group>"; };
+		49E688B02F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+		49E688B12F701A4700053C84 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
+		49E688B22F701A4700053C84 /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
+		49E688B32F701A4700053C84 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
+		49E688B42F701A4700053C84 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
+		49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = THIRD_PARTY_LICENSES.md; path = ../../../THIRD_PARTY_LICENSES.md; sourceTree = "<group>"; };
+		49E688CA2F70279900053C84 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/AppIcon.icon"; sourceTree = "<absolute>"; };
+		49E688CB2F70279900053C84 /* cmux.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = cmux.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux.icon"; sourceTree = "<absolute>"; };
+		49E688CC2F70279900053C84 /* cmux-icon-chevron.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "cmux-icon-chevron.png"; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux-icon-chevron.png"; sourceTree = "<absolute>"; };
+		7E7E6EF344A568AC7FEE3715 /* UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A5001000 /* cmux DEV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux DEV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1000002A1B2C3D4E5F60718 /* Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A5001030 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				49E684212F70186E00053C84 /* Bonsplit in Frameworks */,
+				A5001230 /* Sparkle in Frameworks */,
+				A5001250 /* Sentry in Frameworks */,
+				A5001270 /* PostHog in Frameworks */,
+				A5001290 /* MarkdownUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AB408954939A11B8A87BB5DE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B900000CA1B2C3D4E5F60719 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1000006A1B2C3D4E5F60718 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		49E684262F7018EB00053C84 /* Find */ = {
+			isa = PBXGroup;
+			children = (
+				49E684232F7018EB00053C84 /* BrowserFindJavaScript.swift */,
+				49E684242F7018EB00053C84 /* BrowserSearchOverlay.swift */,
+				49E684252F7018EB00053C84 /* SurfaceSearchOverlay.swift */,
+			);
+			path = Find;
+			sourceTree = "<group>";
+		};
+		49E684312F7018EB00053C84 /* Panels */ = {
+			isa = PBXGroup;
+			children = (
+				49E684272F7018EB00053C84 /* BrowserPanel.swift */,
+				49E684282F7018EB00053C84 /* BrowserPanelView.swift */,
+				49E684292F7018EB00053C84 /* BrowserPopupWindowController.swift */,
+				49E6842A2F7018EB00053C84 /* CmuxWebView.swift */,
+				49E6842B2F7018EB00053C84 /* MarkdownPanel.swift */,
+				49E6842C2F7018EB00053C84 /* MarkdownPanelView.swift */,
+				49E6842D2F7018EB00053C84 /* Panel.swift */,
+				49E6842E2F7018EB00053C84 /* PanelContentView.swift */,
+				49E6842F2F7018EB00053C84 /* TerminalPanel.swift */,
+				49E684302F7018EB00053C84 /* TerminalPanelView.swift */,
+			);
+			path = Panels;
+			sourceTree = "<group>";
+		};
+		49E6843E2F7018EB00053C84 /* Update */ = {
+			isa = PBXGroup;
+			children = (
+				49E684322F7018EB00053C84 /* UpdateBadge.swift */,
+				49E684332F7018EB00053C84 /* UpdateController.swift */,
+				49E684342F7018EB00053C84 /* UpdateDelegate.swift */,
+				49E684352F7018EB00053C84 /* UpdateDriver.swift */,
+				49E684362F7018EB00053C84 /* UpdateLogStore.swift */,
+				49E684372F7018EB00053C84 /* UpdatePill.swift */,
+				49E684382F7018EB00053C84 /* UpdatePopoverView.swift */,
+				49E684392F7018EB00053C84 /* UpdateTestSupport.swift */,
+				49E6843A2F7018EB00053C84 /* UpdateTestURLProtocol.swift */,
+				49E6843B2F7018EB00053C84 /* UpdateTiming.swift */,
+				49E6843C2F7018EB00053C84 /* UpdateTitlebarAccessory.swift */,
+				49E6843D2F7018EB00053C84 /* UpdateViewModel.swift */,
+			);
+			path = Update;
+			sourceTree = "<group>";
+		};
+		49E6845F2F7018EB00053C84 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				49E684262F7018EB00053C84 /* Find */,
+				49E684312F7018EB00053C84 /* Panels */,
+				49E6843E2F7018EB00053C84 /* Update */,
+				49E6843F2F7018EB00053C84 /* AppDelegate.swift */,
+				49E684402F7018EB00053C84 /* AppleScriptSupport.swift */,
+				49E684412F7018EB00053C84 /* Backport.swift */,
+				49E684422F7018EB00053C84 /* BrowserWindowPortal.swift */,
+				49E684432F7018EB00053C84 /* cmuxApp.swift */,
+				49E684442F7018EB00053C84 /* ContentView.swift */,
+				49E684452F7018EB00053C84 /* GhosttyConfig.swift */,
+				49E684462F7018EB00053C84 /* GhosttyTerminalView.swift */,
+				49E684472F7018EB00053C84 /* KeyboardLayout.swift */,
+				49E684482F7018EB00053C84 /* KeyboardShortcutSettings.swift */,
+				49E684492F7018EB00053C84 /* NotificationsPage.swift */,
+				49E6844A2F7018EB00053C84 /* PortScanner.swift */,
+				49E6844B2F7018EB00053C84 /* PostHogAnalytics.swift */,
+				49E6844C2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift */,
+				49E6844D2F7018EB00053C84 /* SentryHelper.swift */,
+				49E6844E2F7018EB00053C84 /* SessionPersistence.swift */,
+				49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */,
+				49E684502F7018EB00053C84 /* SocketControlSettings.swift */,
+				49E684512F7018EB00053C84 /* TabManager.swift */,
+				49E684522F7018EB00053C84 /* TerminalController.swift */,
+				49E684532F7018EB00053C84 /* TerminalImageTransfer.swift */,
+				49E684542F7018EB00053C84 /* TerminalNotificationStore.swift */,
+				49E684552F7018EB00053C84 /* TerminalSSHSessionDetector.swift */,
+				49E684562F7018EB00053C84 /* TerminalView.swift */,
+				49E684572F7018EB00053C84 /* TerminalWindowPortal.swift */,
+				49E684582F7018EB00053C84 /* UITestRecorder.swift */,
+				49E684592F7018EB00053C84 /* WindowAccessor.swift */,
+				49E6845A2F7018EB00053C84 /* WindowDecorationsController.swift */,
+				49E6845B2F7018EB00053C84 /* WindowDragHandleView.swift */,
+				49E6845C2F7018EB00053C84 /* WindowToolbarController.swift */,
+				49E6845D2F7018EB00053C84 /* Workspace.swift */,
+				49E6845E2F7018EB00053C84 /* WorkspaceContentView.swift */,
+				49E688682F7019EA00053C84 /* cmux-Bridging-Header.h */,
+				49E688692F7019EA00053C84 /* ghostty.h */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		49E6849A2F70191100053C84 /* CLI */ = {
+			isa = PBXGroup;
+			children = (
+				49E684992F70191100053C84 /* cmux.swift */,
+			);
+			path = CLI;
+			sourceTree = "<group>";
+		};
+		49E684A22F7019C800053C84 /* bin */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A02F7019C800053C84 /* claude */,
+				49E684A12F7019C800053C84 /* open */,
+			);
+			path = bin;
+			sourceTree = "<group>";
+		};
+		49E684A42F7019C800053C84 /* 78 */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A32F7019C800053C84 /* xterm-ghostty */,
+			);
+			path = 78;
+			sourceTree = "<group>";
+		};
+		49E684A52F7019C800053C84 /* terminfo */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A42F7019C800053C84 /* 78 */,
+			);
+			path = terminfo;
+			sourceTree = "<group>";
+		};
+		49E686752F7019C800053C84 /* themes */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A62F7019C800053C84 /* 0x96f */,
+				49E684A72F7019C800053C84 /* 12-bit Rainbow */,
+				49E684A82F7019C800053C84 /* 3024 Day */,
+				49E684A92F7019C800053C84 /* 3024 Night */,
+				49E684AA2F7019C800053C84 /* Aardvark Blue */,
+				49E684AB2F7019C800053C84 /* Abernathy */,
+				49E684AC2F7019C800053C84 /* Adventure */,
+				49E684AD2F7019C800053C84 /* Adventure Time */,
+				49E684AE2F7019C800053C84 /* Adwaita */,
+				49E684AF2F7019C800053C84 /* Adwaita Dark */,
+				49E684B02F7019C800053C84 /* Afterglow */,
+				49E684B12F7019C800053C84 /* Aizen Dark */,
+				49E684B22F7019C800053C84 /* Aizen Light */,
+				49E684B32F7019C800053C84 /* Alabaster */,
+				49E684B42F7019C800053C84 /* Alien Blood */,
+				49E684B52F7019C800053C84 /* Andromeda */,
+				49E684B62F7019C800053C84 /* Apple Classic */,
+				49E684B72F7019C800053C84 /* Apple System Colors */,
+				49E684B82F7019C800053C84 /* Apple System Colors Light */,
+				49E684B92F7019C800053C84 /* Arcoiris */,
+				49E684BA2F7019C800053C84 /* Ardoise */,
+				49E684BB2F7019C800053C84 /* Argonaut */,
+				49E684BC2F7019C800053C84 /* Arthur */,
+				49E684BD2F7019C800053C84 /* Atelier Sulphurpool */,
+				49E684BE2F7019C800053C84 /* Atom */,
+				49E684BF2F7019C800053C84 /* Atom One Dark */,
+				49E684C02F7019C800053C84 /* Atom One Light */,
+				49E684C12F7019C800053C84 /* Aura */,
+				49E684C22F7019C800053C84 /* Aurora */,
+				49E684C32F7019C800053C84 /* Ayu */,
+				49E684C42F7019C800053C84 /* Ayu Light */,
+				49E684C52F7019C800053C84 /* Ayu Mirage */,
+				49E684C62F7019C800053C84 /* Banana Blueberry */,
+				49E684C72F7019C800053C84 /* Batman */,
+				49E684C82F7019C800053C84 /* Belafonte Day */,
+				49E684C92F7019C800053C84 /* Belafonte Night */,
+				49E684CA2F7019C800053C84 /* Birds Of Paradise */,
+				49E684CB2F7019C800053C84 /* Black Metal */,
+				49E684CC2F7019C800053C84 /* Black Metal (Bathory) */,
+				49E684CD2F7019C800053C84 /* Black Metal (Burzum) */,
+				49E684CE2F7019C800053C84 /* Black Metal (Dark Funeral) */,
+				49E684CF2F7019C800053C84 /* Black Metal (Gorgoroth) */,
+				49E684D02F7019C800053C84 /* Black Metal (Immortal) */,
+				49E684D12F7019C800053C84 /* Black Metal (Khold) */,
+				49E684D22F7019C800053C84 /* Black Metal (Marduk) */,
+				49E684D32F7019C800053C84 /* Black Metal (Mayhem) */,
+				49E684D42F7019C800053C84 /* Black Metal (Nile) */,
+				49E684D52F7019C800053C84 /* Black Metal (Venom) */,
+				49E684D62F7019C800053C84 /* Blazer */,
+				49E684D72F7019C800053C84 /* Blue Berry Pie */,
+				49E684D82F7019C800053C84 /* Blue Dolphin */,
+				49E684D92F7019C800053C84 /* Blue Matrix */,
+				49E684DA2F7019C800053C84 /* Bluloco Dark */,
+				49E684DB2F7019C800053C84 /* Bluloco Light */,
+				49E684DC2F7019C800053C84 /* Borland */,
+				49E684DD2F7019C800053C84 /* Box */,
+				49E684DE2F7019C800053C84 /* branch */,
+				49E684DF2F7019C800053C84 /* Breadog */,
+				49E684E02F7019C800053C84 /* Breeze */,
+				49E684E12F7019C800053C84 /* Bright Lights */,
+				49E684E22F7019C800053C84 /* Broadcast */,
+				49E684E32F7019C800053C84 /* Brogrammer */,
+				49E684E42F7019C800053C84 /* Builtin Dark */,
+				49E684E52F7019C800053C84 /* Builtin Light */,
+				49E684E62F7019C800053C84 /* Builtin Pastel Dark */,
+				49E684E72F7019C800053C84 /* Builtin Tango Dark */,
+				49E684E82F7019C800053C84 /* Builtin Tango Light */,
+				49E684E92F7019C800053C84 /* C64 */,
+				49E684EA2F7019C800053C84 /* Calamity */,
+				49E684EB2F7019C800053C84 /* Carbonfox */,
+				49E684EC2F7019C800053C84 /* Catppuccin Frappe */,
+				49E684ED2F7019C800053C84 /* Catppuccin Latte */,
+				49E684EE2F7019C800053C84 /* Catppuccin Macchiato */,
+				49E684EF2F7019C800053C84 /* Catppuccin Mocha */,
+				49E684F02F7019C800053C84 /* CGA */,
+				49E684F12F7019C800053C84 /* Chalk */,
+				49E684F22F7019C800053C84 /* Chalkboard */,
+				49E684F32F7019C800053C84 /* Challenger Deep */,
+				49E684F42F7019C800053C84 /* Chester */,
+				49E684F52F7019C800053C84 /* Ciapre */,
+				49E684F62F7019C800053C84 /* Citruszest */,
+				49E684F72F7019C800053C84 /* CLRS */,
+				49E684F82F7019C800053C84 /* Cobalt Neon */,
+				49E684F92F7019C800053C84 /* Cobalt Next */,
+				49E684FA2F7019C800053C84 /* Cobalt Next Dark */,
+				49E684FB2F7019C800053C84 /* Cobalt Next Minimal */,
+				49E684FC2F7019C800053C84 /* Cobalt2 */,
+				49E684FD2F7019C800053C84 /* Coffee Theme */,
+				49E684FE2F7019C800053C84 /* Crayon Pony Fish */,
+				49E684FF2F7019C800053C84 /* Cursor Dark */,
+				49E685002F7019C800053C84 /* Cutie Pro */,
+				49E685012F7019C800053C84 /* Cyberdyne */,
+				49E685022F7019C800053C84 /* Cyberpunk */,
+				49E685032F7019C800053C84 /* Cyberpunk Scarlet Protocol */,
+				49E685042F7019C800053C84 /* Dark Modern */,
+				49E685052F7019C800053C84 /* Dark Pastel */,
+				49E685062F7019C800053C84 /* Dark+ */,
+				49E685072F7019C800053C84 /* Darkermatrix */,
+				49E685082F7019C800053C84 /* Darkmatrix */,
+				49E685092F7019C800053C84 /* Darkside */,
+				49E6850A2F7019C800053C84 /* Dawnfox */,
+				49E6850B2F7019C800053C84 /* Dayfox */,
+				49E6850C2F7019C800053C84 /* Deep */,
+				49E6850D2F7019C800053C84 /* Desert */,
+				49E6850E2F7019C800053C84 /* Detuned */,
+				49E6850F2F7019C800053C84 /* Dimidium */,
+				49E685102F7019C800053C84 /* Dimmed Monokai */,
+				49E685112F7019C800053C84 /* Django */,
+				49E685122F7019C800053C84 /* Django Reborn Again */,
+				49E685132F7019C800053C84 /* Django Smooth */,
+				49E685142F7019C800053C84 /* Doom One */,
+				49E685152F7019C800053C84 /* Doom Peacock */,
+				49E685162F7019C800053C84 /* Dot Gov */,
+				49E685172F7019C800053C84 /* Dracula */,
+				49E685182F7019C800053C84 /* Dracula+ */,
+				49E685192F7019C800053C84 /* Duckbones */,
+				49E6851A2F7019C800053C84 /* Duotone Dark */,
+				49E6851B2F7019C800053C84 /* Duskfox */,
+				49E6851C2F7019C800053C84 /* Earthsong */,
+				49E6851D2F7019C800053C84 /* Electron Highlighter */,
+				49E6851E2F7019C800053C84 /* Elegant */,
+				49E6851F2F7019C800053C84 /* Elemental */,
+				49E685202F7019C800053C84 /* Elementary */,
+				49E685212F7019C800053C84 /* Embark */,
+				49E685222F7019C800053C84 /* Embers Dark */,
+				49E685232F7019C800053C84 /* ENCOM */,
+				49E685242F7019C800053C84 /* Espresso */,
+				49E685252F7019C800053C84 /* Espresso Libre */,
+				49E685262F7019C800053C84 /* Everblush */,
+				49E685272F7019C800053C84 /* Everforest Dark Hard */,
+				49E685282F7019C800053C84 /* Everforest Light Med */,
+				49E685292F7019C800053C84 /* Fahrenheit */,
+				49E6852A2F7019C800053C84 /* Fairyfloss */,
+				49E6852B2F7019C800053C84 /* Farmhouse Dark */,
+				49E6852C2F7019C800053C84 /* Farmhouse Light */,
+				49E6852D2F7019C800053C84 /* Fideloper */,
+				49E6852E2F7019C800053C84 /* Firefly Traditional */,
+				49E6852F2F7019C800053C84 /* Firefox Dev */,
+				49E685302F7019C800053C84 /* Firewatch */,
+				49E685312F7019C800053C84 /* Fish Tank */,
+				49E685322F7019C800053C84 /* Flat */,
+				49E685332F7019C800053C84 /* Flatland */,
+				49E685342F7019C800053C84 /* Flexoki Dark */,
+				49E685352F7019C800053C84 /* Flexoki Light */,
+				49E685362F7019C800053C84 /* Floraverse */,
+				49E685372F7019C800053C84 /* Forest Blue */,
+				49E685382F7019C800053C84 /* Framer */,
+				49E685392F7019C800053C84 /* Front End Delight */,
+				49E6853A2F7019C800053C84 /* Fun Forrest */,
+				49E6853B2F7019C800053C84 /* Galaxy */,
+				49E6853C2F7019C800053C84 /* Galizur */,
+				49E6853D2F7019C800053C84 /* Ghostty Default Style Dark */,
+				49E6853E2F7019C800053C84 /* GitHub */,
+				49E6853F2F7019C800053C84 /* GitHub Dark */,
+				49E685402F7019C800053C84 /* GitHub Dark Colorblind */,
+				49E685412F7019C800053C84 /* GitHub Dark Default */,
+				49E685422F7019C800053C84 /* GitHub Dark Dimmed */,
+				49E685432F7019C800053C84 /* GitHub Dark High Contrast */,
+				49E685442F7019C800053C84 /* GitHub Light Colorblind */,
+				49E685452F7019C800053C84 /* GitHub Light Default */,
+				49E685462F7019C800053C84 /* GitHub Light High Contrast */,
+				49E685472F7019C800053C84 /* GitLab Dark */,
+				49E685482F7019C800053C84 /* GitLab Dark Grey */,
+				49E685492F7019C800053C84 /* GitLab Light */,
+				49E6854A2F7019C800053C84 /* Glacier */,
+				49E6854B2F7019C800053C84 /* Grape */,
+				49E6854C2F7019C800053C84 /* Grass */,
+				49E6854D2F7019C800053C84 /* Grey Green */,
+				49E6854E2F7019C800053C84 /* Gruber Darker */,
+				49E6854F2F7019C800053C84 /* Gruvbox Dark */,
+				49E685502F7019C800053C84 /* Gruvbox Dark Hard */,
+				49E685512F7019C800053C84 /* Gruvbox Light */,
+				49E685522F7019C800053C84 /* Gruvbox Light Hard */,
+				49E685532F7019C800053C84 /* Gruvbox Material */,
+				49E685542F7019C800053C84 /* Gruvbox Material Dark */,
+				49E685552F7019C800053C84 /* Gruvbox Material Light */,
+				49E685562F7019C800053C84 /* Guezwhoz */,
+				49E685572F7019C800053C84 /* Hacktober */,
+				49E685582F7019C800053C84 /* Hardcore */,
+				49E685592F7019C800053C84 /* Harper */,
+				49E6855A2F7019C800053C84 /* Havn Daggry */,
+				49E6855B2F7019C800053C84 /* Havn Skumring */,
+				49E6855C2F7019C800053C84 /* HaX0R Blue */,
+				49E6855D2F7019C800053C84 /* HaX0R Gr33N */,
+				49E6855E2F7019C800053C84 /* HaX0R R3D */,
+				49E6855F2F7019C800053C84 /* Heeler */,
+				49E685602F7019C800053C84 /* Highway */,
+				49E685612F7019C800053C84 /* Hipster Green */,
+				49E685622F7019C800053C84 /* Hivacruz */,
+				49E685632F7019C800053C84 /* Homebrew */,
+				49E685642F7019C800053C84 /* Hopscotch */,
+				49E685652F7019C800053C84 /* Hopscotch.256 */,
+				49E685662F7019C800053C84 /* Horizon */,
+				49E685672F7019C800053C84 /* Horizon Bright */,
+				49E685682F7019C800053C84 /* Hot Dog Stand */,
+				49E685692F7019C800053C84 /* Hot Dog Stand (Mustard) */,
+				49E6856A2F7019C800053C84 /* Hurtado */,
+				49E6856B2F7019C800053C84 /* Hybrid */,
+				49E6856C2F7019C800053C84 /* IBM 5153 CGA */,
+				49E6856D2F7019C800053C84 /* IBM 5153 CGA (Black) */,
+				49E6856E2F7019C800053C84 /* IC Green PPL */,
+				49E6856F2F7019C800053C84 /* IC Orange PPL */,
+				49E685702F7019C800053C84 /* Iceberg Dark */,
+				49E685712F7019C800053C84 /* Iceberg Light */,
+				49E685722F7019C800053C84 /* Idea */,
+				49E685732F7019C800053C84 /* Idle Toes */,
+				49E685742F7019C800053C84 /* IR Black */,
+				49E685752F7019C800053C84 /* IRIX Console */,
+				49E685762F7019C800053C84 /* IRIX Terminal */,
+				49E685772F7019C800053C84 /* iTerm2 Dark Background */,
+				49E685782F7019C800053C84 /* iTerm2 Default */,
+				49E685792F7019C800053C84 /* iTerm2 Light Background */,
+				49E6857A2F7019C800053C84 /* iTerm2 Pastel Dark Background */,
+				49E6857B2F7019C800053C84 /* iTerm2 Smoooooth */,
+				49E6857C2F7019C800053C84 /* iTerm2 Solarized Dark */,
+				49E6857D2F7019C800053C84 /* iTerm2 Solarized Light */,
+				49E6857E2F7019C800053C84 /* iTerm2 Tango Dark */,
+				49E6857F2F7019C800053C84 /* iTerm2 Tango Light */,
+				49E685802F7019C800053C84 /* Jackie Brown */,
+				49E685812F7019C800053C84 /* Japanesque */,
+				49E685822F7019C800053C84 /* Jellybeans */,
+				49E685832F7019C800053C84 /* JetBrains Darcula */,
+				49E685842F7019C800053C84 /* Jubi */,
+				49E685852F7019C800053C84 /* Kanagawa Dragon */,
+				49E685862F7019C800053C84 /* Kanagawa Lotus */,
+				49E685872F7019C800053C84 /* Kanagawa Wave */,
+				49E685882F7019C800053C84 /* Kanagawabones */,
+				49E685892F7019C800053C84 /* Kanso Ink */,
+				49E6858A2F7019C800053C84 /* Kanso Mist */,
+				49E6858B2F7019C800053C84 /* Kanso Pearl */,
+				49E6858C2F7019C800053C84 /* Kanso Zen */,
+				49E6858D2F7019C800053C84 /* Kibble */,
+				49E6858E2F7019C800053C84 /* Kitty Default */,
+				49E6858F2F7019C800053C84 /* Kitty Low Contrast */,
+				49E685902F7019C800053C84 /* Kolorit */,
+				49E685912F7019C800053C84 /* Konsolas */,
+				49E685922F7019C800053C84 /* Kurokula */,
+				49E685932F7019C800053C84 /* Lab Fox */,
+				49E685942F7019C800053C84 /* Laser */,
+				49E685952F7019C800053C84 /* Later This Evening */,
+				49E685962F7019C800053C84 /* Lavandula */,
+				49E685972F7019C800053C84 /* Light Owl */,
+				49E685982F7019C800053C84 /* Liquid Carbon */,
+				49E685992F7019C800053C84 /* Liquid Carbon Transparent */,
+				49E6859A2F7019C800053C84 /* Lovelace */,
+				49E6859B2F7019C800053C84 /* Man Page */,
+				49E6859C2F7019C800053C84 /* Mariana */,
+				49E6859D2F7019C800053C84 /* Material */,
+				49E6859E2F7019C800053C84 /* Material Dark */,
+				49E6859F2F7019C800053C84 /* Material Darker */,
+				49E685A02F7019C800053C84 /* Material Design Colors */,
+				49E685A12F7019C800053C84 /* Material Ocean */,
+				49E685A22F7019C800053C84 /* Mathias */,
+				49E685A32F7019C800053C84 /* Matrix */,
+				49E685A42F7019C800053C84 /* Matte Black */,
+				49E685A52F7019C800053C84 /* Medallion */,
+				49E685A62F7019C800053C84 /* Melange Dark */,
+				49E685A72F7019C800053C84 /* Melange Light */,
+				49E685A82F7019C800053C84 /* Mellifluous */,
+				49E685A92F7019C800053C84 /* Mellow */,
+				49E685AA2F7019C800053C84 /* Miasma */,
+				49E685AB2F7019C800053C84 /* Midnight In Mojave */,
+				49E685AC2F7019C800053C84 /* Mirage */,
+				49E685AD2F7019C800053C84 /* Misterioso */,
+				49E685AE2F7019C800053C84 /* Modus Operandi */,
+				49E685AF2F7019C800053C84 /* Modus Operandi Tinted */,
+				49E685B02F7019C800053C84 /* Modus Vivendi */,
+				49E685B12F7019C800053C84 /* Modus Vivendi Tinted */,
+				49E685B22F7019C800053C84 /* Molokai */,
+				49E685B32F7019C800053C84 /* Mona Lisa */,
+				49E685B42F7019C800053C84 /* Monokai Classic */,
+				49E685B52F7019C800053C84 /* Monokai Pro */,
+				49E685B62F7019C800053C84 /* Monokai Pro Light */,
+				49E685B72F7019C800053C84 /* Monokai Pro Light Sun */,
+				49E685B82F7019C800053C84 /* Monokai Pro Machine */,
+				49E685B92F7019C800053C84 /* Monokai Pro Octagon */,
+				49E685BA2F7019C800053C84 /* Monokai Pro Ristretto */,
+				49E685BB2F7019C800053C84 /* Monokai Pro Spectrum */,
+				49E685BC2F7019C800053C84 /* Monokai Remastered */,
+				49E685BD2F7019C800053C84 /* Monokai Soda */,
+				49E685BE2F7019C800053C84 /* Monokai Vivid */,
+				49E685BF2F7019C800053C84 /* Moonfly */,
+				49E685C02F7019C800053C84 /* N0Tch2K */,
+				49E685C12F7019C800053C84 /* Neobones Dark */,
+				49E685C22F7019C800053C84 /* Neobones Light */,
+				49E685C32F7019C800053C84 /* Neon */,
+				49E685C42F7019C800053C84 /* Neopolitan */,
+				49E685C52F7019C800053C84 /* Neutron */,
+				49E685C62F7019C800053C84 /* Night Lion V1 */,
+				49E685C72F7019C800053C84 /* Night Lion V2 */,
+				49E685C82F7019C800053C84 /* Night Owl */,
+				49E685C92F7019C800053C84 /* Night Owlish Light */,
+				49E685CA2F7019C800053C84 /* Nightfox */,
+				49E685CB2F7019C800053C84 /* Niji */,
+				49E685CC2F7019C800053C84 /* No Clown Fiesta */,
+				49E685CD2F7019C800053C84 /* No Clown Fiesta Light */,
+				49E685CE2F7019C800053C84 /* Nocturnal Winter */,
+				49E685CF2F7019C800053C84 /* Nord */,
+				49E685D02F7019C800053C84 /* Nord Light */,
+				49E685D12F7019C800053C84 /* Nord Wave */,
+				49E685D22F7019C800053C84 /* Nordfox */,
+				49E685D32F7019C800053C84 /* Novel */,
+				49E685D42F7019C800053C84 /* novmbr */,
+				49E685D52F7019C800053C84 /* Nvim Dark */,
+				49E685D62F7019C800053C84 /* Nvim Light */,
+				49E685D72F7019C800053C84 /* Obsidian */,
+				49E685D82F7019C800053C84 /* Ocean */,
+				49E685D92F7019C800053C84 /* Oceanic Material */,
+				49E685DA2F7019C800053C84 /* Oceanic Next */,
+				49E685DB2F7019C800053C84 /* Ollie */,
+				49E685DC2F7019C800053C84 /* One Dark Two */,
+				49E685DD2F7019C800053C84 /* One Double Dark */,
+				49E685DE2F7019C800053C84 /* One Double Light */,
+				49E685DF2F7019C800053C84 /* One Half Dark */,
+				49E685E02F7019C800053C84 /* One Half Light */,
+				49E685E12F7019C800053C84 /* Onenord */,
+				49E685E22F7019C800053C84 /* Onenord Light */,
+				49E685E32F7019C800053C84 /* Operator Mono Dark */,
+				49E685E42F7019C800053C84 /* Overnight Slumber */,
+				49E685E52F7019C800053C84 /* owl */,
+				49E685E62F7019C800053C84 /* Oxocarbon */,
+				49E685E72F7019C800053C84 /* Pale Night Hc */,
+				49E685E82F7019C800053C84 /* Pandora */,
+				49E685E92F7019C800053C84 /* Paraiso Dark */,
+				49E685EA2F7019C800053C84 /* Paul Millr */,
+				49E685EB2F7019C800053C84 /* Pencil Dark */,
+				49E685EC2F7019C800053C84 /* Pencil Light */,
+				49E685ED2F7019C800053C84 /* Peppermint */,
+				49E685EE2F7019C800053C84 /* Phala Green Dark */,
+				49E685EF2F7019C800053C84 /* Piatto Light */,
+				49E685F02F7019C800053C84 /* Pnevma */,
+				49E685F12F7019C800053C84 /* Poimandres */,
+				49E685F22F7019C800053C84 /* Poimandres Darker */,
+				49E685F32F7019C800053C84 /* Poimandres Storm */,
+				49E685F42F7019C800053C84 /* Poimandres White */,
+				49E685F52F7019C800053C84 /* Popping And Locking */,
+				49E685F62F7019C800053C84 /* Powershell */,
+				49E685F72F7019C800053C84 /* Primary */,
+				49E685F82F7019C800053C84 /* Pro */,
+				49E685F92F7019C800053C84 /* Pro Light */,
+				49E685FA2F7019C800053C84 /* Purple Rain */,
+				49E685FB2F7019C800053C84 /* Purplepeter */,
+				49E685FC2F7019C800053C84 /* Rapture */,
+				49E685FD2F7019C800053C84 /* Raycast Dark */,
+				49E685FE2F7019C800053C84 /* Raycast Light */,
+				49E685FF2F7019C800053C84 /* Rebecca */,
+				49E686002F7019C800053C84 /* Red Alert */,
+				49E686012F7019C800053C84 /* Red Planet */,
+				49E686022F7019C800053C84 /* Red Sands */,
+				49E686032F7019C800053C84 /* Relaxed */,
+				49E686042F7019C800053C84 /* Retro */,
+				49E686052F7019C800053C84 /* Retro Legends */,
+				49E686062F7019C800053C84 /* Rippedcasts */,
+				49E686072F7019C800053C84 /* Rose Pine */,
+				49E686082F7019C800053C84 /* Rose Pine Dawn */,
+				49E686092F7019C800053C84 /* Rose Pine Moon */,
+				49E6860A2F7019C800053C84 /* Rouge 2 */,
+				49E6860B2F7019C800053C84 /* Royal */,
+				49E6860C2F7019C800053C84 /* Ryuuko */,
+				49E6860D2F7019C800053C84 /* Sakura */,
+				49E6860E2F7019C800053C84 /* Scarlet Protocol */,
+				49E6860F2F7019C800053C84 /* Sea Shells */,
+				49E686102F7019C800053C84 /* Seafoam Pastel */,
+				49E686112F7019C800053C84 /* Selenized Black */,
+				49E686122F7019C800053C84 /* Selenized Dark */,
+				49E686132F7019C800053C84 /* Selenized Light */,
+				49E686142F7019C800053C84 /* Seoulbones Dark */,
+				49E686152F7019C800053C84 /* Seoulbones Light */,
+				49E686162F7019C800053C84 /* Seti */,
+				49E686172F7019C800053C84 /* Shades Of Purple */,
+				49E686182F7019C800053C84 /* Shaman */,
+				49E686192F7019C800053C84 /* Slate */,
+				49E6861A2F7019C800053C84 /* Sleepy Hollow */,
+				49E6861B2F7019C800053C84 /* Smyck */,
+				49E6861C2F7019C800053C84 /* Snazzy */,
+				49E6861D2F7019C800053C84 /* Snazzy Soft */,
+				49E6861E2F7019C800053C84 /* Soft Server */,
+				49E6861F2F7019C800053C84 /* Solarized Darcula */,
+				49E686202F7019C800053C84 /* Solarized Dark Higher Contrast */,
+				49E686212F7019C800053C84 /* Solarized Dark Patched */,
+				49E686222F7019C800053C84 /* Solarized Osaka Night */,
+				49E686232F7019C800053C84 /* Sonokai */,
+				49E686242F7019C800053C84 /* Spacedust */,
+				49E686252F7019C800053C84 /* Spacegray */,
+				49E686262F7019C800053C84 /* Spacegray Bright */,
+				49E686272F7019C800053C84 /* Spacegray Eighties */,
+				49E686282F7019C800053C84 /* Spacegray Eighties Dull */,
+				49E686292F7019C800053C84 /* Spiderman */,
+				49E6862A2F7019C800053C84 /* Spring */,
+				49E6862B2F7019C800053C84 /* Square */,
+				49E6862C2F7019C800053C84 /* Squirrelsong Dark */,
+				49E6862D2F7019C800053C84 /* Srcery */,
+				49E6862E2F7019C800053C84 /* Starlight */,
+				49E6862F2F7019C800053C84 /* Sublette */,
+				49E686302F7019C800053C84 /* Subliminal */,
+				49E686312F7019C800053C84 /* Sugarplum */,
+				49E686322F7019C800053C84 /* Sundried */,
+				49E686332F7019C800053C84 /* Sunset Drive */,
+				49E686342F7019C800053C84 /* Symfonic */,
+				49E686352F7019C800053C84 /* Synthwave */,
+				49E686362F7019C800053C84 /* Synthwave Alpha */,
+				49E686372F7019C800053C84 /* Synthwave Everything */,
+				49E686382F7019C800053C84 /* Tango Adapted */,
+				49E686392F7019C800053C84 /* Tango Half Adapted */,
+				49E6863A2F7019C800053C84 /* Tearout */,
+				49E6863B2F7019C800053C84 /* Teerb */,
+				49E6863C2F7019C800053C84 /* Terafox */,
+				49E6863D2F7019C800053C84 /* Terminal Basic */,
+				49E6863E2F7019C800053C84 /* Terminal Basic Dark */,
+				49E6863F2F7019C800053C84 /* Thayer Bright */,
+				49E686402F7019C800053C84 /* The Hulk */,
+				49E686412F7019C800053C84 /* Tinacious Design Dark */,
+				49E686422F7019C800053C84 /* Tinacious Design Light */,
+				49E686432F7019C800053C84 /* TokyoNight */,
+				49E686442F7019C800053C84 /* TokyoNight Day */,
+				49E686452F7019C800053C84 /* TokyoNight Moon */,
+				49E686462F7019C800053C84 /* TokyoNight Night */,
+				49E686472F7019C800053C84 /* TokyoNight Storm */,
+				49E686482F7019C800053C84 /* Tomorrow */,
+				49E686492F7019C800053C84 /* Tomorrow Night */,
+				49E6864A2F7019C800053C84 /* Tomorrow Night Blue */,
+				49E6864B2F7019C800053C84 /* Tomorrow Night Bright */,
+				49E6864C2F7019C800053C84 /* Tomorrow Night Burns */,
+				49E6864D2F7019C800053C84 /* Tomorrow Night Eighties */,
+				49E6864E2F7019C800053C84 /* Toy Chest */,
+				49E6864F2F7019C800053C84 /* traffic */,
+				49E686502F7019C800053C84 /* Treehouse */,
+				49E686512F7019C800053C84 /* Twilight */,
+				49E686522F7019C800053C84 /* Ubuntu */,
+				49E686532F7019C800053C84 /* Ultra Dark */,
+				49E686542F7019C800053C84 /* Ultra Violent */,
+				49E686552F7019C800053C84 /* Under The Sea */,
+				49E686562F7019C800053C84 /* Unikitty */,
+				49E686572F7019C800053C84 /* urban */,
+				49E686582F7019C800053C84 /* Urple */,
+				49E686592F7019C800053C84 /* Vague */,
+				49E6865A2F7019C800053C84 /* Vaughn */,
+				49E6865B2F7019C800053C84 /* Vercel */,
+				49E6865C2F7019C800053C84 /* Vesper */,
+				49E6865D2F7019C800053C84 /* Vibrant Ink */,
+				49E6865E2F7019C800053C84 /* Vimbones */,
+				49E6865F2F7019C800053C84 /* Violet Dark */,
+				49E686602F7019C800053C84 /* Violet Light */,
+				49E686612F7019C800053C84 /* Violite */,
+				49E686622F7019C800053C84 /* Warm Neon */,
+				49E686632F7019C800053C84 /* Wez */,
+				49E686642F7019C800053C84 /* Whimsy */,
+				49E686652F7019C800053C84 /* Wild Cherry */,
+				49E686662F7019C800053C84 /* Wilmersdorf */,
+				49E686672F7019C800053C84 /* Wombat */,
+				49E686682F7019C800053C84 /* Wryan */,
+				49E686692F7019C800053C84 /* Xcode Dark */,
+				49E6866A2F7019C800053C84 /* Xcode Dark hc */,
+				49E6866B2F7019C800053C84 /* Xcode Light */,
+				49E6866C2F7019C800053C84 /* Xcode Light hc */,
+				49E6866D2F7019C800053C84 /* Xcode WWDC */,
+				49E6866E2F7019C800053C84 /* Zenbones */,
+				49E6866F2F7019C800053C84 /* Zenbones Dark */,
+				49E686702F7019C800053C84 /* Zenbones Light */,
+				49E686712F7019C800053C84 /* Zenburn */,
+				49E686722F7019C800053C84 /* Zenburned */,
+				49E686732F7019C800053C84 /* Zenwritten Dark */,
+				49E686742F7019C800053C84 /* Zenwritten Light */,
+			);
+			path = themes;
+			sourceTree = "<group>";
+		};
+		49E686762F7019C800053C84 /* ghostty */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A52F7019C800053C84 /* terminfo */,
+				49E686752F7019C800053C84 /* themes */,
+			);
+			path = ghostty;
+			sourceTree = "<group>";
+		};
+		49E6867D2F7019C800053C84 /* shell-integration */ = {
+			isa = PBXGroup;
+			children = (
+				49E686772F7019C800053C84 /* .zlogin */,
+				49E686782F7019C800053C84 /* .zprofile */,
+				49E686792F7019C800053C84 /* .zshenv */,
+				49E6867A2F7019C800053C84 /* .zshrc */,
+				49E6867B2F7019C800053C84 /* cmux-bash-integration.bash */,
+				49E6867C2F7019C800053C84 /* cmux-zsh-integration.zsh */,
+			);
+			path = "shell-integration";
+			sourceTree = "<group>";
+		};
+		49E6867F2F7019C800053C84 /* 67 */ = {
+			isa = PBXGroup;
+			children = (
+				49E6867E2F7019C800053C84 /* ghostty */,
+			);
+			path = 67;
+			sourceTree = "<group>";
+		};
+		49E686812F7019C800053C84 /* 78 */ = {
+			isa = PBXGroup;
+			children = (
+				49E686802F7019C800053C84 /* xterm-ghostty */,
+			);
+			path = 78;
+			sourceTree = "<group>";
+		};
+		49E686832F7019C800053C84 /* terminfo-overlay */ = {
+			isa = PBXGroup;
+			children = (
+				49E6867F2F7019C800053C84 /* 67 */,
+				49E686812F7019C800053C84 /* 78 */,
+				49E686822F7019C800053C84 /* README.md */,
+			);
+			path = "terminfo-overlay";
+			sourceTree = "<group>";
+		};
+		49E686882F7019C800053C84 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				49E684A22F7019C800053C84 /* bin */,
+				49E686762F7019C800053C84 /* ghostty */,
+				49E6867D2F7019C800053C84 /* shell-integration */,
+				49E686832F7019C800053C84 /* terminfo-overlay */,
+				49E688CA2F70279900053C84 /* AppIcon.icon */,
+				49E688CB2F70279900053C84 /* cmux.icon */,
+				49E688CC2F70279900053C84 /* cmux-icon-chevron.png */,
+				49E686842F7019C800053C84 /* cmux.sdef */,
+				49E686852F7019C800053C84 /* Info.plist */,
+				49E686862F7019C800053C84 /* InfoPlist.xcstrings */,
+				49E686872F7019C800053C84 /* Localizable.xcstrings */,
+				49E6849C2F70197700053C84 /* Assets.xcassets */,
+				49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		49E688872F701A0A00053C84 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				49E6886A2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift */,
+				49E6886B2F701A0A00053C84 /* BrowserConfigTests.swift */,
+				49E6886C2F701A0A00053C84 /* BrowserFindJavaScriptTests.swift */,
+				49E6886D2F701A0A00053C84 /* BrowserImportMappingTests.swift */,
+				49E6886E2F701A0A00053C84 /* BrowserPanelTests.swift */,
+				49E6886F2F701A0A00053C84 /* CJKIMEInputTests.swift */,
+				49E688702F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift */,
+				49E688712F701A0A00053C84 /* GhosttyConfigTests.swift */,
+				49E688722F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift */,
+				49E688732F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift */,
+				49E688742F701A0A00053C84 /* NotificationAndMenuBarTests.swift */,
+				49E688752F701A0A00053C84 /* OmnibarAndToolsTests.swift */,
+				49E688762F701A0A00053C84 /* SessionPersistenceTests.swift */,
+				49E688772F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift */,
+				49E688782F701A0A00053C84 /* SidebarOrderingTests.swift */,
+				49E688792F701A0A00053C84 /* SidebarWidthPolicyTests.swift */,
+				49E6887A2F701A0A00053C84 /* SocketControlPasswordStoreTests.swift */,
+				49E6887B2F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift */,
+				49E6887C2F701A0A00053C84 /* TabManagerUnitTests.swift */,
+				49E6887D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift */,
+				49E6887E2F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift */,
+				49E6887F2F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift */,
+				49E688802F701A0A00053C84 /* WindowAndDragTests.swift */,
+				49E688812F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift */,
+				49E688822F701A0A00053C84 /* WorkspaceManualUnreadTests.swift */,
+				49E688832F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift */,
+				49E688842F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift */,
+				49E688852F701A0A00053C84 /* WorkspaceStressProfileTests.swift */,
+				49E688862F701A0A00053C84 /* WorkspaceUnitTests.swift */,
+			);
+			path = Tests;
+			sourceTree = "<group>";
+		};
+		49E688B52F701A4700053C84 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				49E688A52F701A4700053C84 /* AutomationSocketUITests.swift */,
+				49E688A62F701A4700053C84 /* BonsplitTabDragUITests.swift */,
+				49E688A72F701A4700053C84 /* BrowserImportProfilesUITests.swift */,
+				49E688A82F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift */,
+				49E688A92F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift */,
+				49E688AA2F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift */,
+				49E688AB2F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift */,
+				49E688AC2F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift */,
+				49E688AD2F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift */,
+				49E688AE2F701A4700053C84 /* DisplayResolutionRegressionUITests.swift */,
+				49E688AF2F701A4700053C84 /* JumpToUnreadUITests.swift */,
+				49E688B02F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift */,
+				49E688B12F701A4700053C84 /* MultiWindowNotificationsUITests.swift */,
+				49E688B22F701A4700053C84 /* SidebarHelpMenuUITests.swift */,
+				49E688B32F701A4700053C84 /* SidebarResizeUITests.swift */,
+				49E688B42F701A4700053C84 /* UpdatePillUITests.swift */,
+			);
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		A5001040 = {
+			isa = PBXGroup;
+			children = (
+				49E6845F2F7018EB00053C84 /* Sources */,
+				49E6849A2F70191100053C84 /* CLI */,
+				49E686882F7019C800053C84 /* Resources */,
+				49E688872F701A0A00053C84 /* Tests */,
+				49E688B52F701A4700053C84 /* UITests */,
+				A5001042 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A5001042 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A5001000 /* cmux DEV.app */,
+				B9000004A1B2C3D4E5F60719 /* cmux */,
+				7E7E6EF344A568AC7FEE3715 /* UITests.xctest */,
+				F1000002A1B2C3D4E5F60718 /* Tests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A5001050 /* GhosttyTabs */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */;
+			buildPhases = (
+				A5001051 /* Sources */,
+				A5001030 /* Frameworks */,
+				A5001102 /* Resources */,
+				A5001020 /* Embed Frameworks */,
+				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
+				A5001300A1B2C3D4E5F60719 /* ShellScript */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */,
+			);
+			name = GhosttyTabs;
+			packageProductDependencies = (
+				A5001231 /* Sparkle */,
+				A5001251 /* Sentry */,
+				A5001271 /* PostHog */,
+				A5001261 /* Bonsplit */,
+				A5001291 /* MarkdownUI */,
+			);
+			productName = GhosttyTabs;
+			productReference = A5001000 /* cmux DEV.app */;
+			productType = "com.apple.product-type.application";
+		};
+		B9000005A1B2C3D4E5F60719 /* cmux-cli */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B9000007A1B2C3D4E5F60719 /* Build configuration list for PBXNativeTarget "cmux-cli" */;
+			buildPhases = (
+				B9000006A1B2C3D4E5F60719 /* Sources */,
+				B900000CA1B2C3D4E5F60719 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "cmux-cli";
+			packageProductDependencies = (
+				A5001251 /* Sentry */,
+			);
+			productName = cmux;
+			productReference = B9000004A1B2C3D4E5F60719 /* cmux */;
+			productType = "com.apple.product-type.tool";
+		};
+		CB450DF0F0B3839599082C4D /* UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "UITests" */;
+			buildPhases = (
+				E436EF0BA8EC9E6721A42F79 /* Sources */,
+				AB408954939A11B8A87BB5DE /* Frameworks */,
+				EC1BC8BE24F703F6BBEAA1DE /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				32568B0DCFC8656BA952468E /* PBXTargetDependency */,
+			);
+			name = UITests;
+			productName = cmuxUITests;
+			productReference = 7E7E6EF344A568AC7FEE3715 /* UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		F1000004A1B2C3D4E5F60718 /* Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "Tests" */;
+			buildPhases = (
+				F1000005A1B2C3D4E5F60718 /* Sources */,
+				F1000006A1B2C3D4E5F60718 /* Frameworks */,
+				F1000007A1B2C3D4E5F60718 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */,
+			);
+			name = Tests;
+			productName = cmuxTests;
+			productReference = F1000002A1B2C3D4E5F60718 /* Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A5001070 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					CB450DF0F0B3839599082C4D = {
+						TestTargetID = A5001050;
+					};
+				};
+			};
+			buildConfigurationList = A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+				ja,
+				ar,
+				bs,
+				da,
+				de,
+				es,
+				fr,
+				it,
+				ko,
+				nb,
+				pl,
+				"pt-BR",
+				ru,
+				th,
+				tr,
+				"zh-Hans",
+				"zh-Hant",
+			);
+			mainGroup = A5001040;
+			packageReferences = (
+				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
+				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
+				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */,
+			);
+			productRefGroup = A5001042 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A5001050 /* GhosttyTabs */,
+				B9000005A1B2C3D4E5F60719 /* cmux-cli */,
+				F1000004A1B2C3D4E5F60718 /* Tests */,
+				CB450DF0F0B3839599082C4D /* UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A5001102 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				49E688C72F701F7500053C84 /* THIRD_PARTY_LICENSES.md in Resources */,
+				49E6849D2F70197700053C84 /* Assets.xcassets in Resources */,
+				49E686A22F7019C800053C84 /* xterm-ghostty in Resources */,
+				49E687D32F7019C800053C84 /* InfoPlist.xcstrings in Resources */,
+				49E688CD2F70279900053C84 /* AppIcon.icon in Resources */,
+				49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */,
+				49E688CF2F70279900053C84 /* cmux.icon in Resources */,
+				49E687F92F7019C800053C84 /* cmux.sdef in Resources */,
+				49E688432F7019C800053C84 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EC1BC8BE24F703F6BBEAA1DE /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1000007A1B2C3D4E5F60718 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A5001051 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				49E684602F7018EB00053C84 /* BrowserPanelView.swift in Sources */,
+				49E688B62F701A4700053C84 /* AutomationSocketUITests.swift in Sources */,
+				49E688B72F701A4700053C84 /* CloseWindowConfirmDialogUITests.swift in Sources */,
+				49E688B82F701A4700053C84 /* CloseWorkspaceConfirmDialogUITests.swift in Sources */,
+				49E688B92F701A4700053C84 /* DisplayResolutionRegressionUITests.swift in Sources */,
+				49E688BA2F701A4700053C84 /* JumpToUnreadUITests.swift in Sources */,
+				49E688BB2F701A4700053C84 /* UpdatePillUITests.swift in Sources */,
+				49E688BC2F701A4700053C84 /* BonsplitTabDragUITests.swift in Sources */,
+				49E688BD2F701A4700053C84 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
+				49E688BE2F701A4700053C84 /* SidebarResizeUITests.swift in Sources */,
+				49E688BF2F701A4700053C84 /* MultiWindowNotificationsUITests.swift in Sources */,
+				49E688C02F701A4700053C84 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+				49E688C12F701A4700053C84 /* CloseWorkspaceCmdDUITests.swift in Sources */,
+				49E688C22F701A4700053C84 /* BrowserImportProfilesUITests.swift in Sources */,
+				49E688C32F701A4700053C84 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */,
+				49E688C42F701A4700053C84 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
+				49E688C52F701A4700053C84 /* SidebarHelpMenuUITests.swift in Sources */,
+				49E684612F7018EB00053C84 /* UpdateController.swift in Sources */,
+				49E684622F7018EB00053C84 /* SidebarSelectionState.swift in Sources */,
+				49E684632F7018EB00053C84 /* TerminalController.swift in Sources */,
+				49E684642F7018EB00053C84 /* UpdateTestURLProtocol.swift in Sources */,
+				49E684652F7018EB00053C84 /* PortScanner.swift in Sources */,
+				49E684662F7018EB00053C84 /* BrowserFindJavaScript.swift in Sources */,
+				49E684672F7018EB00053C84 /* WorkspaceContentView.swift in Sources */,
+				49E684682F7018EB00053C84 /* TerminalWindowPortal.swift in Sources */,
+				49E684692F7018EB00053C84 /* UpdateTitlebarAccessory.swift in Sources */,
+				49E6846A2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift in Sources */,
+				49E688882F701A0A00053C84 /* NotificationAndMenuBarTests.swift in Sources */,
+				49E688892F701A0A00053C84 /* BrowserConfigTests.swift in Sources */,
+				49E6888A2F701A0A00053C84 /* WorkspaceStressProfileTests.swift in Sources */,
+				49E6888B2F701A0A00053C84 /* CJKIMEInputTests.swift in Sources */,
+				49E6888C2F701A0A00053C84 /* SidebarWidthPolicyTests.swift in Sources */,
+				49E6888D2F701A0A00053C84 /* TerminalAndGhosttyTests.swift in Sources */,
+				49E6888E2F701A0A00053C84 /* BrowserPanelTests.swift in Sources */,
+				49E6888F2F701A0A00053C84 /* WorkspaceUnitTests.swift in Sources */,
+				49E688902F701A0A00053C84 /* UpdatePillReleaseVisibilityTests.swift in Sources */,
+				49E688912F701A0A00053C84 /* WorkspaceContentViewVisibilityTests.swift in Sources */,
+				49E688922F701A0A00053C84 /* InactivePaneFirstClickFocusTests.swift in Sources */,
+				49E688932F701A0A00053C84 /* WorkspaceRemoteConnectionTests.swift in Sources */,
+				49E688942F701A0A00053C84 /* GhosttyConfigTests.swift in Sources */,
+				49E688952F701A0A00053C84 /* SidebarOrderingTests.swift in Sources */,
+				49E688962F701A0A00053C84 /* SocketControlPasswordStoreTests.swift in Sources */,
+				49E688972F701A0A00053C84 /* TabManagerUnitTests.swift in Sources */,
+				49E688982F701A0A00053C84 /* BrowserFindJavaScriptTests.swift in Sources */,
+				49E688992F701A0A00053C84 /* TerminalControllerSocketSecurityTests.swift in Sources */,
+				49E6889A2F701A0A00053C84 /* WorkspaceManualUnreadTests.swift in Sources */,
+				49E6889B2F701A0A00053C84 /* AppDelegateShortcutRoutingTests.swift in Sources */,
+				49E6889C2F701A0A00053C84 /* SessionPersistenceTests.swift in Sources */,
+				49E6889D2F701A0A00053C84 /* BrowserImportMappingTests.swift in Sources */,
+				49E6889E2F701A0A00053C84 /* WorkspacePullRequestSidebarTests.swift in Sources */,
+				49E6889F2F701A0A00053C84 /* ShortcutAndCommandPaletteTests.swift in Sources */,
+				49E688A02F701A0A00053C84 /* CommandPaletteSearchEngineTests.swift in Sources */,
+				49E688A12F701A0A00053C84 /* OmnibarAndToolsTests.swift in Sources */,
+				49E688A22F701A0A00053C84 /* TabManagerSessionSnapshotTests.swift in Sources */,
+				49E688A32F701A0A00053C84 /* GhosttyEnsureFocusWindowActivationTests.swift in Sources */,
+				49E688A42F701A0A00053C84 /* WindowAndDragTests.swift in Sources */,
+				49E6846B2F7018EB00053C84 /* Panel.swift in Sources */,
+				49E6846C2F7018EB00053C84 /* NotificationsPage.swift in Sources */,
+				49E6846D2F7018EB00053C84 /* UpdateBadge.swift in Sources */,
+				49E6846E2F7018EB00053C84 /* ContentView.swift in Sources */,
+				49E6846F2F7018EB00053C84 /* UpdateTestSupport.swift in Sources */,
+				49E684702F7018EB00053C84 /* Workspace.swift in Sources */,
+				49E684712F7018EB00053C84 /* PanelContentView.swift in Sources */,
+				49E684722F7018EB00053C84 /* SentryHelper.swift in Sources */,
+				49E684732F7018EB00053C84 /* WindowAccessor.swift in Sources */,
+				49E684742F7018EB00053C84 /* UpdateDriver.swift in Sources */,
+				49E684752F7018EB00053C84 /* TerminalView.swift in Sources */,
+				49E684762F7018EB00053C84 /* MarkdownPanel.swift in Sources */,
+				49E684772F7018EB00053C84 /* SessionPersistence.swift in Sources */,
+				49E684782F7018EB00053C84 /* SocketControlSettings.swift in Sources */,
+				49E684792F7018EB00053C84 /* MarkdownPanelView.swift in Sources */,
+				49E6847A2F7018EB00053C84 /* UpdateLogStore.swift in Sources */,
+				49E6847B2F7018EB00053C84 /* KeyboardShortcutSettings.swift in Sources */,
+				49E6847C2F7018EB00053C84 /* WindowToolbarController.swift in Sources */,
+				49E6847D2F7018EB00053C84 /* TabManager.swift in Sources */,
+				49E6847E2F7018EB00053C84 /* PostHogAnalytics.swift in Sources */,
+				49E6847F2F7018EB00053C84 /* GhosttyTerminalView.swift in Sources */,
+				49E684802F7018EB00053C84 /* TerminalPanel.swift in Sources */,
+				49E684812F7018EB00053C84 /* UpdatePopoverView.swift in Sources */,
+				49E684822F7018EB00053C84 /* CmuxWebView.swift in Sources */,
+				49E684832F7018EB00053C84 /* SurfaceSearchOverlay.swift in Sources */,
+				49E6849B2F70191100053C84 /* cmux.swift in Sources */,
+				49E684842F7018EB00053C84 /* UITestRecorder.swift in Sources */,
+				49E684852F7018EB00053C84 /* GhosttyConfig.swift in Sources */,
+				49E684862F7018EB00053C84 /* KeyboardLayout.swift in Sources */,
+				49E684872F7018EB00053C84 /* BrowserPanel.swift in Sources */,
+				49E684882F7018EB00053C84 /* BrowserPopupWindowController.swift in Sources */,
+				49E684892F7018EB00053C84 /* cmuxApp.swift in Sources */,
+				49E6848A2F7018EB00053C84 /* TerminalPanelView.swift in Sources */,
+				49E6848B2F7018EB00053C84 /* WindowDragHandleView.swift in Sources */,
+				49E6848C2F7018EB00053C84 /* BrowserWindowPortal.swift in Sources */,
+				49E6848D2F7018EB00053C84 /* TerminalImageTransfer.swift in Sources */,
+				49E6848E2F7018EB00053C84 /* BrowserSearchOverlay.swift in Sources */,
+				49E6848F2F7018EB00053C84 /* UpdateDelegate.swift in Sources */,
+				49E684902F7018EB00053C84 /* UpdateViewModel.swift in Sources */,
+				49E684912F7018EB00053C84 /* AppDelegate.swift in Sources */,
+				49E684922F7018EB00053C84 /* WindowDecorationsController.swift in Sources */,
+				49E684932F7018EB00053C84 /* UpdateTiming.swift in Sources */,
+				49E684942F7018EB00053C84 /* UpdatePill.swift in Sources */,
+				49E684952F7018EB00053C84 /* Backport.swift in Sources */,
+				49E684962F7018EB00053C84 /* TerminalSSHSessionDetector.swift in Sources */,
+				49E684972F7018EB00053C84 /* TerminalNotificationStore.swift in Sources */,
+				49E684982F7018EB00053C84 /* AppleScriptSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B9000006A1B2C3D4E5F60719 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E436EF0BA8EC9E6721A42F79 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F1000005A1B2C3D4E5F60718 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		32568B0DCFC8656BA952468E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A5001050 /* GhosttyTabs */;
+			targetProxy = 738BF3D3196765B250928A93 /* PBXContainerItemProxy */;
+		};
+		B900000EA1B2C3D4E5F60719 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B9000005A1B2C3D4E5F60719 /* cmux-cli */;
+			targetProxy = B900000DA1B2C3D4E5F60719 /* PBXContainerItemProxy */;
+		};
+		F1000009A1B2C3D4E5F60718 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A5001050 /* GhosttyTabs */;
+			targetProxy = F1000008A1B2C3D4E5F60718 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		442A6A86CAC6E8AD27FDD8F2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.62.2;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = GhosttyTabs;
+			};
+			name = Release;
+		};
+		A5001080 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		A5001081 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_LOCALIZABILITY_NONLOCALIZED = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = NO;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		A5001082 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.62.2;
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
+				PRODUCT_NAME = "cmux DEV";
+				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A5001083 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.62.2;
+				ONLY_ACTIVE_ARCH = NO;
+				OTHER_LDFLAGS = (
+					"-lc++",
+					"-framework",
+					Metal,
+					"-framework",
+					QuartzCore,
+					"-framework",
+					IOSurface,
+					"-framework",
+					UniformTypeIdentifiers,
+					"-framework",
+					Carbon,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
+				PRODUCT_NAME = cmux;
+				SPARKLE_PUBLIC_KEY = "avjcgKibf1FTvhIjLBxhd+0HSpsXU4D0IGlVk8cgqRc=";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		B9000008A1B2C3D4E5F60719 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_MODULE_NAME = cmux_cli;
+				PRODUCT_NAME = cmux;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		B9000009A1B2C3D4E5F60719 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEAD_CODE_STRIPPING = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_MODULE_NAME = cmux_cli;
+				PRODUCT_NAME = cmux;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		C117776A77E71D1432F570D7 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.62.2;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.appuitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = GhosttyTabs;
+			};
+			name = Debug;
+		};
+		F1000011A1B2C3D4E5F60718 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.62.2;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux DEV.app/Contents/MacOS/cmux DEV";
+				TEST_TARGET_NAME = GhosttyTabs;
+			};
+			name = Debug;
+		};
+		F1000012A1B2C3D4E5F60718 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 77;
+				DEAD_CODE_STRIPPING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.62.2;
+				ONLY_ACTIVE_ARCH = NO;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.apptests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/cmux.app/Contents/MacOS/cmux";
+				TEST_TARGET_NAME = GhosttyTabs;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A5001060 /* Build configuration list for PBXNativeTarget "GhosttyTabs" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A5001082 /* Debug */,
+				A5001083 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A5001071 /* Build configuration list for PBXProject "GhosttyTabs" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A5001080 /* Debug */,
+				A5001081 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AD2C7ED08993D3CD4910A1FF /* Build configuration list for PBXNativeTarget "UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C117776A77E71D1432F570D7 /* Debug */,
+				442A6A86CAC6E8AD27FDD8F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B9000007A1B2C3D4E5F60719 /* Build configuration list for PBXNativeTarget "cmux-cli" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B9000008A1B2C3D4E5F60719 /* Debug */,
+				B9000009A1B2C3D4E5F60719 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F1000010A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1000011A1B2C3D4E5F60718 /* Debug */,
+				F1000012A1B2C3D4E5F60718 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = vendor/bonsplit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
+		A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/getsentry/sentry-cocoa.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.3.0;
+			};
+		};
+		A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/PostHog/posthog-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.41.0;
+			};
+		};
+		A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A5001231 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+		A5001251 /* Sentry */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */;
+			productName = Sentry;
+		};
+		A5001261 /* Bonsplit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */;
+			productName = Bonsplit;
+		};
+		A5001271 /* PostHog */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
+			productName = PostHog;
+		};
+		A5001291 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
+			productName = MarkdownUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A5001070 /* Project object */;
+}
