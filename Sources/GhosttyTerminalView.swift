@@ -1040,8 +1040,9 @@ class GhosttyApp {
         let line = "[\(timestamp)] \(message)\n"
         if let handle = FileHandle(forWritingAtPath: initLogPath) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: line.data(using: .utf8)!)
+            if let _ = try? handle.seekToEnd() {
+                try? handle.write(contentsOf: line.data(using: .utf8)!)
+            }
         } else {
             FileManager.default.createFile(atPath: initLogPath, contents: line.data(using: .utf8))
         }
@@ -3127,8 +3128,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let line = "[\(timestamp)] \(message)\n"
         if let handle = FileHandle(forWritingAtPath: surfaceLogPath) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: line.data(using: .utf8)!)
+            if let _ = try? handle.seekToEnd() {
+                try? handle.write(contentsOf: line.data(using: .utf8)!)
+            }
         } else {
             FileManager.default.createFile(atPath: surfaceLogPath, contents: line.data(using: .utf8))
         }
@@ -3141,8 +3143,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let line = "[\(timestamp)] \(message)\n"
         if let handle = FileHandle(forWritingAtPath: sizeLogPath) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: line.data(using: .utf8)!)
+            if let _ = try? handle.seekToEnd() {
+                try? handle.write(contentsOf: line.data(using: .utf8)!)
+            }
         } else {
             FileManager.default.createFile(atPath: sizeLogPath, contents: line.data(using: .utf8))
         }

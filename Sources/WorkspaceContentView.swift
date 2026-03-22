@@ -305,8 +305,9 @@ extension WorkspaceContentView {
             let logPath = "/tmp/cmux-panel-debug.log"
             if let handle = FileHandle(forWritingAtPath: logPath) {
                 defer { try? handle.close() }
-                try? handle.seekToEnd()
-                try? handle.write(contentsOf: line.data(using: .utf8)!)
+                if let _ = try? handle.seekToEnd() {
+                    try? handle.write(contentsOf: line.data(using: .utf8)!)
+                }
             } else {
                 FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
             }
