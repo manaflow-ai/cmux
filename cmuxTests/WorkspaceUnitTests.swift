@@ -1342,18 +1342,16 @@ final class WorkspaceTerminalZoomInheritanceTests: XCTestCase {
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 
-        if panel.surface.surface != nil {
-            drainMainQueue()
-            return
-        }
-
         let ready = testCase.expectation(description: "terminal surface ready \(panel.id)")
+        var didFulfillReady = false
         var observer: NSObjectProtocol?
         observer = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: panel.surface,
             queue: .main
         ) { _ in
+            guard !didFulfillReady else { return }
+            didFulfillReady = true
             ready.fulfill()
         }
 
@@ -1361,6 +1359,11 @@ final class WorkspaceTerminalZoomInheritanceTests: XCTestCase {
             if let observer {
                 NotificationCenter.default.removeObserver(observer)
             }
+        }
+
+        if panel.surface.surface != nil, !didFulfillReady {
+            didFulfillReady = true
+            ready.fulfill()
         }
 
         wait(for: [ready], timeout: 5.0)
@@ -1482,6 +1485,78 @@ final class WorkspaceTerminalZoomInheritanceTests: XCTestCase {
             23,
             accuracy: 0.6,
             "Expected split creation to use the latest live zoom without requiring a refocus first"
+        )
+    }
+
+    func testNewTerminalSplitUsesLatestZoomWhenRememberedSourceZoomIsStale() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:20"),
+            "Expected source terminal to accept the initial font-size binding action"
+        )
+        drainMainQueue()
+        workspace.focusPanel(sourcePanel.id)
+        drainMainQueue()
+
+        let rememberedBeforeLiveZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertEqual(
+            Double(rememberedBeforeLiveZoom ?? 0),
+            20,
+            accuracy: 0.6,
+            "Expected focusing the source terminal to seed the remembered zoom lineage"
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept the updated font-size binding action"
+        )
+        drainMainQueue()
+
+        let rememberedAfterLiveZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertEqual(
+            Double(rememberedAfterLiveZoom ?? 0),
+            20,
+            accuracy: 0.6,
+            "Expected the remembered source zoom to remain stale until another explicit inheritance update occurs"
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(from: sourcePanel.id, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            splitPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        workspace.focusPanel(splitPanel.id)
+        drainMainQueue()
+
+        let rememberedSplitZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertEqual(
+            Double(rememberedSplitZoom ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected split creation to prefer the latest live zoom over stale remembered lineage"
         )
     }
 }

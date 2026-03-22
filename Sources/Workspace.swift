@@ -7136,6 +7136,10 @@ final class Workspace: Identifiable, ObservableObject {
         inheritedConfig: ghostty_surface_config_s
     ) -> Float? {
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
+            if inheritedConfig.font_size > 0,
+               abs(inheritedConfig.font_size - rooted) > 0.05 {
+                return inheritedConfig.font_size
+            }
             return rooted
         }
         if inheritedConfig.font_size > 0 {
