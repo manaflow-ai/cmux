@@ -3790,6 +3790,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserZoomSettings.defaultPageZoomKey) private var browserDefaultPageZoom = BrowserZoomSettings.defaultPageZoom.rawValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5074,6 +5075,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsPickerRow(
+                            String(localized: "settings.browser.defaultZoom", defaultValue: "Default Browser Zoom"),
+                            subtitle: String(localized: "settings.browser.defaultZoom.subtitle", defaultValue: "Zoom level applied when opening a new browser pane."),
+                            controlWidth: pickerColumnWidth,
+                            selection: $browserDefaultPageZoom
+                        ) {
+                            ForEach(BrowserDefaultZoomLevel.allCases) { level in
+                                Text(level.displayName).tag(level.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
                             subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
@@ -5535,6 +5549,7 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+        browserDefaultPageZoom = BrowserZoomSettings.defaultPageZoom.rawValue
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
