@@ -87,8 +87,12 @@ def _preferred_worktree_slug():
 
 
 def _derived_app_candidates_for_current_worktree():
+    repo_root = os.path.realpath(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+    ))
     project_path = os.path.realpath(os.path.join(
-        os.getcwd(),
+        repo_root,
         "Apps",
         "cmux-macOS",
         "GhosttyTabs.xcodeproj",

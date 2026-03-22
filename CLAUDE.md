@@ -197,7 +197,7 @@ git push manaflow main
 Then update the parent repo with the new submodule SHA:
 
 ```bash
-cd ..
+cd ../..
 git add vendor/ghostty
 git commit -m "Update ghostty submodule"
 ```

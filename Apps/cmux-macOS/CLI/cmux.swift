@@ -7209,12 +7209,15 @@ struct CMUXCLI {
     }
 
     // The project marker lives under Apps/cmux-macOS; repo-level content such as
-    // vendor/ghostty is rooted at that directory's parent.
+    // vendor/ghostty is rooted at that directory's grandparent.
     private func repoRootURL() -> URL? {
         guard let projectDirectory = repoProjectDirectory() else {
             return nil
         }
-        return parentSearchURL(for: projectDirectory)
+        guard let appsDirectory = parentSearchURL(for: projectDirectory) else {
+            return nil
+        }
+        return parentSearchURL(for: appsDirectory)
     }
 
     private func bundledHelperURL(named helperName: String) -> URL? {

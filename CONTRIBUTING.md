@@ -89,7 +89,7 @@ git push manaflow main
 Then update the parent repo:
 
 ```bash
-cd ..
+cd ../..
 git add vendor/ghostty
 git commit -m "Update ghostty submodule"
 ```

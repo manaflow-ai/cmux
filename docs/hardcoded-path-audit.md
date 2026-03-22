@@ -72,23 +72,10 @@ Treat these as suspicious by default:
 
 ### Hidden helper docs
 
-These still assume old repo-root locations and should be updated in a future
-cleanup pass:
+The earlier stale helper-doc path cluster under `.claude/commands/` has been
+repaired.
 
-- `.claude/commands/release.md`
-- `.claude/commands/release-nightly.md`
-- `.claude/commands/release-local.md`
-- `.claude/commands/sync-branch.md`
-- `.claude/commands/pull.md`
-
-Common stale patterns in those files:
-
-- `GhosttyTabs.xcodeproj/project.pbxproj` used as if it lives at repo root
-- `cd homebrew-cmux`
-- `git add ghostty`
-- `git add homebrew-cmux`
-
-These should be rewritten to the settled layout:
+Those files now use the settled layout:
 
 - `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj`
 - `vendor/ghostty`
@@ -110,27 +97,10 @@ Current settled examples:
 - Ghostty submodule workflow docs now use `vendor/ghostty`
 - VM test runner examples now use `/Users/cmux/cmux`
 
-### Likely real code bug in CLI fallback logic
+### CLI fallback logic
 
-`Apps/cmux-macOS/CLI/cmux.swift` contains one repo-fallback path family that
-looks stale rather than merely literal:
-
-- `bundledHelperURL(named:)` searches for a dev helper under
-  `current/ghostty/zig-out/bin/...` after finding the stable project marker
-
-Representative lines:
-
-- `Apps/cmux-macOS/CLI/cmux.swift:7210`
-- `Apps/cmux-macOS/CLI/cmux.swift:7212`
-
-Why this is likely stale:
-
-- the project marker is checked relative to the current directory
-- the settled ghostty location is `vendor/ghostty`
-- when the marker resolves at `Apps/cmux-macOS`, `current/ghostty/...` does not
-  match the moved layout
-
-This should be investigated and likely repaired in code, not just documented.
+The earlier stale helper fallback in `Apps/cmux-macOS/CLI/cmux.swift` has been
+repaired so the repo-level helper lookup now targets `vendor/ghostty`.
 
 ## Audit And Justify
 
@@ -151,17 +121,15 @@ Current judgment:
   `Apps/cmux-macOS`
 - `repoResources` and `repoThemes` app-local resource lookups are likely still
   justified when the ancestor is `Apps/cmux-macOS`
-- `repoHelper` lookup under `ghostty/zig-out/bin` is the only member of this
-  family that currently looks stale
+- `repoHelper` lookup now follows the settled `vendor/ghostty/zig-out/bin`
+  path contract
 
 ## Recommended Follow-Up Pass
 
 A future cleanup pass should:
 
-1. Update the stale hidden helper docs under `.claude/commands/`.
-2. Update the stale user-facing docs and skill instructions listed above.
-3. Review and likely fix `bundledHelperURL(named:)` in
-   `Apps/cmux-macOS/CLI/cmux.swift` so the repo fallback uses the settled
-   `vendor/ghostty` path contract.
-4. Re-run the same search patterns and keep this document in sync so intentional
+1. Verify the repaired hidden helper docs remain aligned with the settled layout.
+2. Verify the repaired user-facing docs and skill instructions listed above
+   remain aligned with the settled layout.
+3. Re-run the same search patterns and keep this document in sync so intentional
    literals remain documented rather than rediscovered.
