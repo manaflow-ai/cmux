@@ -5027,11 +5027,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Allow macOS system window arrangement shortcuts (e.g. Fn+Ctrl+Arrow
         // for window tiling in macOS Sequoia+) to pass through to the system.
-        // The .function modifier indicates a Fn-key combination intended for the
-        // OS, not terminal input.
-        let systemModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if systemModifiers.contains(.function) && systemModifiers.contains(.control)
-            && !systemModifiers.contains(.command) {
+        // Fn+Arrow produces Home/End/PageUp/PageDown key codes (115/119/121/116)
+        // which differ from plain arrow key codes (123/124/125/126). We only pass
+        // through the Fn-translated key codes with Control, so plain Ctrl+Arrow
+        // (terminal word navigation) continues to work.
+        let fnNavKeyCodes: Set<UInt16> = [115, 119, 121, 116, 105] // Home, End, PgDn, PgUp, F13(Fn+F)
+        if fnNavKeyCodes.contains(event.keyCode)
+            && event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.control)
+            && !event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
             return false
         }
 
