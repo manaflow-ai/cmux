@@ -6,7 +6,7 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 
 ### 1. Determine the new version number
 
-- Get the current version from `GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
+- Get the current version from `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj` (look for `MARKETING_VERSION`)
 - Bump the minor version unless the user specifies otherwise (e.g., 0.54.0 → 0.55.0)
 
 ### 2. Gather changes and contributors since the last release
@@ -40,7 +40,7 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 
 ### 5. Commit, tag, and push
 
-- Stage: `CHANGELOG.md`, `GhosttyTabs.xcodeproj/project.pbxproj`
+- Stage: `CHANGELOG.md`, `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj`
 - Commit message: `Bump version to X.Y.Z`
 - Create tag: `git tag vX.Y.Z`
 - Push: `git push origin main && git push origin vX.Y.Z`
@@ -58,7 +58,7 @@ If the script fails, run `say "cmux release failed"`.
 ### 7. Verify homebrew cask
 
 - Run `bash tests/test_homebrew_sha.sh` to confirm the cask SHA matches the release DMG
-- Update the homebrew-cmux submodule pointer: `git add homebrew-cmux && git commit -m "Update homebrew-cmux submodule to latest" && git push origin main`
+- Update the tap submodule pointer if it changed locally: `git add vendor/homebrew-cmux && git commit -m "Update homebrew-cmux submodule to latest" && git push origin main`
 
 ## Changelog Guidelines
 
