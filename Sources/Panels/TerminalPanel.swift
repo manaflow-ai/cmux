@@ -22,6 +22,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Published directory from the terminal
     @Published private(set) var directory: String = ""
 
+    @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
+
     /// Search state for find functionality
     @Published var searchState: TerminalSurface.SearchState? {
         didSet {
@@ -35,6 +37,8 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Without this, certain pane-close sequences can leave terminal views detached
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
+
+    var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -125,6 +129,11 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.updateWorkspaceId(newWorkspaceId)
     }
 
+    func updateTmuxLayoutReport(_ report: TmuxPaneLayoutReport?) {
+        guard tmuxLayoutReport != report else { return }
+        tmuxLayoutReport = report
+    }
+
     func focus() {
         surface.setFocus(true)
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
@@ -200,14 +209,23 @@ final class TerminalPanel: Panel, ObservableObject {
         !surface.needsConfirmClose()
     }
 
-    func triggerFlash() {
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
-        hostedView.triggerFlash()
+
+        switch TmuxOverlayExperimentSettings.target() {
+        case .bonsplitPane:
+            if let onRequestWorkspacePaneFlash {
+                onRequestWorkspacePaneFlash(reason)
+                return
+            }
+            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+        case .surface, .tmuxActivePane:
+            hostedView.triggerFlash(style: GhosttySurfaceScrollView.flashStyle(for: reason))
+        }
     }
 
     func triggerNotificationDismissFlash() {
-        guard NotificationPaneFlashSettings.isEnabled() else { return }
-        hostedView.triggerFlash(style: .notificationDismiss)
+        triggerFlash(reason: .notificationDismiss)
     }
 
     func applyWindowBackgroundIfActive() {

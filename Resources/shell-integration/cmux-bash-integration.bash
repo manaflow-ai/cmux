@@ -54,6 +54,129 @@ _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
+_CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
+_CMUX_TMUX_PULL_SIGNATURE="${_CMUX_TMUX_PULL_SIGNATURE:-}"
+_CMUX_TMUX_SYNC_KEYS=(
+    CMUX_BUNDLED_CLI_PATH
+    CMUX_BUNDLE_ID
+    CMUXD_UNIX_PATH
+    CMUXTERM_REPO_ROOT
+    CMUX_DEBUG_LOG
+    CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
+    CMUX_PORT
+    CMUX_PORT_END
+    CMUX_PORT_RANGE
+    CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD
+    CMUX_SHELL_INTEGRATION
+    CMUX_SHELL_INTEGRATION_DIR
+    CMUX_SOCKET_ENABLE
+    CMUX_SOCKET_MODE
+    CMUX_SOCKET_PATH
+    CMUX_TAB_ID
+    CMUX_TAG
+    CMUX_WORKSPACE_ID
+)
+_CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_PANEL_ID
+    CMUX_SURFACE_ID
+)
+
+_cmux_tmux_sync_key_is_managed() {
+    local candidate="$1"
+    local key
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        [[ "$key" == "$candidate" ]] && return 0
+    done
+    return 1
+}
+
+_cmux_tmux_shell_env_signature() {
+    local key value first=1
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${!key}"
+        [[ -n "$value" ]] || continue
+        if (( first )); then
+            printf '%s=%s' "$key" "$value"
+            first=0
+        else
+            printf '\037%s=%s' "$key" "$value"
+        fi
+    done
+}
+
+_cmux_tmux_publish_cmux_environment() {
+    [[ -z "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local signature
+    signature="$(_cmux_tmux_shell_env_signature)"
+    [[ -n "$signature" ]] || return 0
+    [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
+
+    local key value
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${!key}"
+        [[ -n "$value" ]] || continue
+        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+    done
+
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
+    done
+
+    _CMUX_TMUX_PUSH_SIGNATURE="$signature"
+}
+
+_cmux_tmux_refresh_cmux_environment() {
+    [[ -n "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local output filtered line key value did_change=0
+    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        filtered+="${line}"$'\n'
+    done <<< "$output"
+
+    [[ -n "$filtered" ]] || return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        value="${line#*=}"
+        if [[ "${!key}" != "$value" ]]; then
+            printf -v "$key" '%s' "$value"
+            export "$key"
+            did_change=1
+        fi
+    done <<< "$filtered"
+
+    _CMUX_TMUX_PULL_SIGNATURE="$filtered"
+    if (( did_change )); then
+        _CMUX_TTY_REPORTED=0
+        _CMUX_SHELL_ACTIVITY_LAST=""
+        _CMUX_PWD_LAST_PWD=""
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
+        _CMUX_GIT_HEAD_SIGNATURE=""
+        _CMUX_PR_FORCE=1
+        _cmux_stop_pr_poll_loop
+    fi
+}
+
+_cmux_tmux_sync_cmux_environment() {
+    if [[ -n "$TMUX" ]]; then
+        _cmux_tmux_refresh_cmux_environment
+    else
+        _cmux_tmux_publish_cmux_environment
+    fi
+}
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -90,17 +213,32 @@ _cmux_git_head_signature() {
     printf '%s\n' "$line"
 }
 
+_cmux_report_tty_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload="report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID"
+    if [[ -z "$TMUX" ]]; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    printf '%s\n' "$payload"
+}
+
 _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tty_payload)"
+    [[ -n "$payload" ]] || return 0
+
     _CMUX_TTY_REPORTED=1
     {
-        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        _cmux_send "$payload"
     } >/dev/null 2>&1 & disown
 }
 
@@ -348,6 +486,8 @@ _cmux_bash_cleanup() {
 }
 
 _cmux_preexec_command() {
+    _cmux_tmux_sync_cmux_environment
+
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -370,6 +510,8 @@ _cmux_bash_preexec_hook() {
 }
 
 _cmux_prompt_command() {
+    _cmux_tmux_sync_cmux_environment
+
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0

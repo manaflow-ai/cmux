@@ -6510,13 +6510,32 @@ func shouldAllowEnsureFocusWindowActivation(
 
 final class GhosttySurfaceScrollView: NSView {
     enum FlashStyle {
-        case standardFocus
-        case notificationDismiss
+        case navigation
+        case notification
+    }
+
+    static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> FlashStyle {
+        switch reason {
+        case .navigation:
+            return .navigation
+        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+            return .notification
+        }
+    }
+
+    private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
+        switch style {
+        case .navigation:
+            return WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
+        case .notification:
+            return WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
+        }
     }
 
     private enum NotificationRingMetrics {
-        static let inset: CGFloat = 2
-        static let cornerRadius: CGFloat = 6
+        static let inset = PanelOverlayRingMetrics.inset
+        static let cornerRadius = PanelOverlayRingMetrics.cornerRadius
+        static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
     private let backgroundView: NSView
@@ -6529,6 +6548,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
@@ -6783,7 +6803,7 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.autoresizingMask = [.width, .height]
         notificationRingLayer.fillColor = NSColor.clear.cgColor
         notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
-        notificationRingLayer.lineWidth = 2.5
+        notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
         notificationRingLayer.lineJoin = .round
         notificationRingLayer.lineCap = .round
         notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
@@ -6799,13 +6819,13 @@ final class GhosttySurfaceScrollView: NSView {
         flashOverlayView.layer?.masksToBounds = false
         flashOverlayView.autoresizingMask = [.width, .height]
         flashLayer.fillColor = NSColor.clear.cgColor
-        flashLayer.strokeColor = NSColor.systemBlue.cgColor
-        flashLayer.lineWidth = 3
+        flashLayer.strokeColor = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.cgColor
+        flashLayer.lineWidth = NotificationRingMetrics.lineWidth
         flashLayer.lineJoin = .round
         flashLayer.lineCap = .round
-        flashLayer.shadowColor = NSColor.systemBlue.cgColor
-        flashLayer.shadowOpacity = 0.6
-        flashLayer.shadowRadius = 6
+        flashLayer.shadowColor = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.cgColor
+        flashLayer.shadowOpacity = Float(WorkspaceAttentionCoordinator.flashStyle(for: .navigation).glowOpacity)
+        flashLayer.shadowRadius = WorkspaceAttentionCoordinator.flashStyle(for: .navigation).glowRadius
         flashLayer.shadowOffset = .zero
         flashLayer.opacity = 0
         flashOverlayView.layer?.addSublayer(flashLayer)
@@ -7109,7 +7129,8 @@ final class GhosttySurfaceScrollView: NSView {
         // which makes interactive width changes arrive a queue turn late on Sequoia.
         scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
-        updateFlashPath(style: .standardFocus)
+        updateFlashPath(style: lastFlashStyle)
+        updateFlashAppearance(style: lastFlashStyle)
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
@@ -7841,15 +7862,17 @@ final class GhosttySurfaceScrollView: NSView {
     }
 #endif
 
-    func triggerFlash(style: FlashStyle = .standardFocus) {
+    func triggerFlash(style: FlashStyle = .navigation) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-#if DEBUG
+            self.lastFlashStyle = style
+            #if DEBUG
             if let surfaceId = self.surfaceView.terminalSurface?.id {
                 Self.recordFlash(for: surfaceId)
             }
 #endif
             self.updateFlashPath(style: style)
+            self.updateFlashAppearance(style: style)
             self.flashLayer.removeAllAnimations()
             self.flashLayer.opacity = 0
             let animation = CAKeyframeAnimation(keyPath: "opacity")
@@ -8913,10 +8936,7 @@ final class GhosttySurfaceScrollView: NSView {
         let inset: CGFloat
         let radius: CGFloat
         switch style {
-        case .standardFocus:
-            inset = CGFloat(FocusFlashPattern.ringInset)
-            radius = CGFloat(FocusFlashPattern.ringCornerRadius)
-        case .notificationDismiss:
+        case .navigation, .notification:
             inset = NotificationRingMetrics.inset
             radius = NotificationRingMetrics.cornerRadius
         }
@@ -8926,6 +8946,15 @@ final class GhosttySurfaceScrollView: NSView {
             inset: inset,
             radius: radius
         )
+    }
+
+    private func updateFlashAppearance(style: FlashStyle) {
+        let presentation = Self.flashPresentation(for: style)
+        let strokeColor = presentation.accent.strokeColor
+        flashLayer.strokeColor = strokeColor.cgColor
+        flashLayer.shadowColor = strokeColor.cgColor
+        flashLayer.shadowOpacity = Float(presentation.glowOpacity)
+        flashLayer.shadowRadius = presentation.glowRadius
     }
 
     private func updateOverlayRingPath(
@@ -8939,7 +8968,7 @@ final class GhosttySurfaceScrollView: NSView {
             layer.path = nil
             return
         }
-        let rect = bounds.insetBy(dx: inset, dy: inset)
+        let rect = PanelOverlayRingMetrics.pathRect(in: bounds)
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
