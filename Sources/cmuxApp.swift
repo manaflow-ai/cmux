@@ -3703,12 +3703,15 @@ final class AppIconAppearanceObserver: NSObject {
     static let shared = AppIconAppearanceObserver()
     private var observation: NSKeyValueObservation?
 
+    private override init() { super.init() }
+
     func startObserving() {
         applyIconForCurrentAppearance()
         guard observation == nil else { return }
-        observation = NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
             DispatchQueue.main.async {
-                self?.applyIconForCurrentAppearance()
+                guard let self, self.observation != nil else { return }
+                self.applyIconForCurrentAppearance()
             }
         }
     }
