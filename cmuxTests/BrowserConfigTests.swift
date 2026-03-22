@@ -2547,7 +2547,9 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
+/// Tests for browser zoom settings behavior.
 final class BrowserZoomSettingsTests: XCTestCase {
+    /// Creates an isolated UserDefaults instance for testing.
     private func makeIsolatedDefaults() -> UserDefaults {
         let suiteName = "BrowserZoomSettingsTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -2558,11 +2560,13 @@ final class BrowserZoomSettingsTests: XCTestCase {
         return defaults
     }
 
+    /// Verifies default zoom is 100% when no value is set.
     func testDefaultsToHundredPercentWhenUnset() {
         let defaults = makeIsolatedDefaults()
         XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), 1.0)
     }
 
+    /// Verifies persisted zoom values are correctly read.
     func testReadsPersistedValue() {
         let defaults = makeIsolatedDefaults()
         defaults.set(BrowserDefaultZoomLevel.hundredFifteen.rawValue, forKey: BrowserZoomSettings.defaultPageZoomKey)
@@ -2572,6 +2576,7 @@ final class BrowserZoomSettingsTests: XCTestCase {
         XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), 2.50)
     }
 
+    /// Verifies invalid zoom values fall back to the default.
     func testFallsBackToDefaultForUnrecognizedValue() {
         let defaults = makeIsolatedDefaults()
         defaults.set(1.33, forKey: BrowserZoomSettings.defaultPageZoomKey)
@@ -2581,6 +2586,7 @@ final class BrowserZoomSettingsTests: XCTestCase {
         XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), BrowserZoomSettings.defaultPageZoom.rawValue)
     }
 
+    /// Verifies all preset zoom levels are within the supported range.
     func testAllPresetsAreWithinSupportedZoomRange() {
         for level in BrowserDefaultZoomLevel.allCases {
             XCTAssertGreaterThanOrEqual(level.rawValue, 0.25)

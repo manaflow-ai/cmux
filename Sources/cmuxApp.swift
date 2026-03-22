@@ -3955,6 +3955,21 @@ struct SettingsView: View {
         )
     }
 
+    /// Binding for the browser default zoom level.
+    private var browserDefaultPageZoomSelection: Binding<Double> {
+        Binding(
+            get: {
+                BrowserDefaultZoomLevel(rawValue: browserDefaultPageZoom)?.rawValue
+                    ?? BrowserZoomSettings.defaultPageZoom.rawValue
+            },
+            set: { newValue in
+                browserDefaultPageZoom =
+                    BrowserDefaultZoomLevel(rawValue: newValue)?.rawValue
+                    ?? BrowserZoomSettings.defaultPageZoom.rawValue
+            }
+        )
+    }
+
     private var browserImportHintVariant: BrowserImportHintVariant {
         BrowserImportHintSettings.variant(for: browserImportHintVariantRaw)
     }
@@ -5079,7 +5094,7 @@ struct SettingsView: View {
                             String(localized: "settings.browser.defaultZoom", defaultValue: "Default Browser Zoom"),
                             subtitle: String(localized: "settings.browser.defaultZoom.subtitle", defaultValue: "Zoom level applied when opening a new browser pane."),
                             controlWidth: pickerColumnWidth,
-                            selection: $browserDefaultPageZoom
+                            selection: browserDefaultPageZoomSelection
                         ) {
                             ForEach(BrowserDefaultZoomLevel.allCases) { level in
                                 Text(level.displayName).tag(level.rawValue)

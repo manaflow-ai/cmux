@@ -890,6 +890,7 @@ func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     return bundleIdentifier
 }
 
+/// Represents the supported browser zoom levels.
 enum BrowserDefaultZoomLevel: Double, CaseIterable, Identifiable {
     case fifty = 0.50
     case seventyFive = 0.75
@@ -905,15 +906,25 @@ enum BrowserDefaultZoomLevel: Double, CaseIterable, Identifiable {
 
     var id: Double { rawValue }
 
+    /// Display name for UI (e.g., "100%").
     var displayName: String {
-        "\(Int((rawValue * 100).rounded()))%"
+        String(
+            format: String(localized: "browser.zoom.level.percent", defaultValue: "%ld%%"),
+            locale: .current,
+            Int((rawValue * 100).rounded())
+        )
     }
 }
 
+
+/// Provides access and defaults for browser zoom settings.
 enum BrowserZoomSettings {
+    /// UserDefaults key for storing default page zoom.
     static let defaultPageZoomKey = "browserDefaultPageZoom"
+    /// The default zoom level used when no value is set.
     static let defaultPageZoom: BrowserDefaultZoomLevel = .hundred
 
+    /// Returns the current page zoom, falling back to default if unset or invalid.
     static func pageZoom(defaults: UserDefaults = .standard) -> CGFloat {
         guard let raw = defaults.object(forKey: defaultPageZoomKey) as? Double,
               let level = BrowserDefaultZoomLevel(rawValue: raw) else {
