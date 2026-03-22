@@ -122,6 +122,7 @@
 		49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CC2F70279900053C84 /* cmux-icon-chevron.png */; };
 		49E688CF2F70279900053C84 /* cmux.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CB2F70279900053C84 /* cmux.icon */; };
 		49E688D22F70303800053C84 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = 49E688D12F70303800053C84 /* Bonsplit */; };
+		49E688D52F70361C00053C84 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49E688D42F70361C00053C84 /* GhosttyKit.xcframework */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A5001250 /* Sentry in Frameworks */ = {isa = PBXBuildFile; productRef = A5001251 /* Sentry */; };
 		A5001270 /* PostHog in Frameworks */ = {isa = PBXBuildFile; productRef = A5001271 /* PostHog */; };
@@ -155,16 +156,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		A5001020 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		B900000AA1B2C3D4E5F60719 /* Copy CLI */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -770,6 +761,8 @@
 		49E688CA2F70279900053C84 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/AppIcon.icon"; sourceTree = "<absolute>"; };
 		49E688CB2F70279900053C84 /* cmux.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = cmux.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux.icon"; sourceTree = "<absolute>"; };
 		49E688CC2F70279900053C84 /* cmux-icon-chevron.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "cmux-icon-chevron.png"; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux-icon-chevron.png"; sourceTree = "<absolute>"; };
+		49E688D42F70361C00053C84 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = ../../../../../.cache/cmux/ghosttykit/bc9be90a21997a4e5f06bf15ae2ec0f937c2dc42/GhosttyKit.xcframework; sourceTree = "<group>"; };
+		49E688D72F70375800053C84 /* cmux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cmux.entitlements; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001000 /* cmux DEV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "cmux DEV.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B9000004A1B2C3D4E5F60719 /* cmux */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cmux; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -786,6 +779,7 @@
 				49E688D22F70303800053C84 /* Bonsplit in Frameworks */,
 				A5001270 /* PostHog in Frameworks */,
 				A5001290 /* MarkdownUI in Frameworks */,
+				49E688D52F70361C00053C84 /* GhosttyKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1471,6 +1465,7 @@
 				49E686872F7019C800053C84 /* Localizable.xcstrings */,
 				49E6849C2F70197700053C84 /* Assets.xcassets */,
 				49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */,
+				49E688D72F70375800053C84 /* cmux.entitlements */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -1534,6 +1529,14 @@
 			path = UITests;
 			sourceTree = "<group>";
 		};
+		49E688D32F70361C00053C84 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				49E688D42F70361C00053C84 /* GhosttyKit.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		A5001040 = {
 			isa = PBXGroup;
 			children = (
@@ -1542,6 +1545,7 @@
 				49E686882F7019C800053C84 /* Resources */,
 				49E688872F701A0A00053C84 /* Tests */,
 				49E688B52F701A4700053C84 /* UITests */,
+				49E688D32F70361C00053C84 /* Frameworks */,
 				A5001042 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -1567,7 +1571,6 @@
 				A5001051 /* Sources */,
 				A5001030 /* Frameworks */,
 				A5001102 /* Resources */,
-				A5001020 /* Embed Frameworks */,
 				B900000AA1B2C3D4E5F60719 /* Copy CLI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
 			);
@@ -2036,7 +2039,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = "AppIcon-Debug";
-				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
+				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 77;
@@ -2077,7 +2081,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "";
+				CODE_SIGN_ENTITLEMENTS = Resources/cmux.entitlements;
+				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 77;
