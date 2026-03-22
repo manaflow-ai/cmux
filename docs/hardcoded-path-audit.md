@@ -1,0 +1,175 @@
+# Hardcoded Path Audit
+
+Audit date: 2026-03-22
+
+This document records the current repo-wide classification of hardcoded path
+mentions after the Stage 3 path-repair pass.
+
+The goal is to separate:
+
+- intentional stable literals
+- stale path assumptions that should be repaired
+- code paths that need explicit justification before future cleanup work touches
+  them
+
+## Decision Rules
+
+Treat these as intentional by default:
+
+- the stable project filename `GhosttyTabs.xcodeproj`
+- the settled filesystem path `Apps/cmux-macOS/GhosttyTabs.xcodeproj`
+- workflow-local checkout paths created inside a workflow, such as
+  `path: homebrew-cmux`
+- runtime and test socket/tmp paths under `/tmp/cmux*` when they are part of
+  the supported debug, UI-test, or automation contract
+- Xcode-owned internals such as scheme container names and project-file
+  entitlements entries
+
+Treat these as suspicious by default:
+
+- repo-root `GhosttyTabs.xcodeproj` usage outside Xcode-owned internals
+- repo-root `ghostty` or `homebrew-cmux` usage when referring to this repo's
+  on-disk layout
+- VM examples that still use `/Users/cmux/GhosttyTabs`
+- shell examples that still `cd ghostty` or `git add ghostty` from the parent
+  repo
+
+## Intentional / Stable Literals
+
+### Workflows and scripts
+
+- Workflow `hashFiles(...)` expressions that use
+  `Apps/cmux-macOS/GhosttyTabs.xcodeproj/...` are correct and must stay literal
+  because Actions expressions cannot source `cmux-paths.sh`.
+- `daemon/remote` in workflows is correct and matches the settled layout.
+- `path: homebrew-cmux` in `update-homebrew.yml` is intentional because the
+  workflow checks out an external repository into that temporary directory.
+- `scripts/lib/cmux-paths.sh` is the source of truth for shell-side path
+  resolution, including `CMUX_XCODE_PROJECT_PATH`,
+  `CMUX_APP_ENTITLEMENTS_PATH`, `CMUX_GHOSTTY_DIR`, and
+  `CMUX_HOMEBREW_TAP_DIR`.
+
+### App and project internals
+
+- `Apps/cmux-macOS/Sources/Workspace.swift` uses
+  `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj` as a repo-root
+  marker. This is intentional and matches the settled layout.
+- `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj` references
+  `cmux.entitlements` and `Resources/cmux.entitlements`. Those are Xcode-owned
+  project internals and should not be treated as stale literals.
+- Xcode scheme files that reference `container:GhosttyTabs.xcodeproj` are
+  intentional and should not be renamed just because the project moved.
+
+### Runtime and test contracts
+
+- `/tmp/cmux-debug.sock`, `/tmp/cmux-debug-<tag>.sock`, `/tmp/cmux-last-*`,
+  and related `/tmp/cmux-*` sockets, manifests, logs, and screenshots are part
+  of the current automation and diagnostics contract.
+- `/Applications/cmux.app/Contents/Resources/bin/cmux` remains a valid stable
+  installed-app path and should not be treated as a reorg bug by default.
+
+## Stale / Needs Repair
+
+### Hidden helper docs
+
+These still assume old repo-root locations and should be updated in a future
+cleanup pass:
+
+- `.claude/commands/release.md`
+- `.claude/commands/release-nightly.md`
+- `.claude/commands/release-local.md`
+- `.claude/commands/sync-branch.md`
+- `.claude/commands/pull.md`
+
+Common stale patterns in those files:
+
+- `GhosttyTabs.xcodeproj/project.pbxproj` used as if it lives at repo root
+- `cd homebrew-cmux`
+- `git add ghostty`
+- `git add homebrew-cmux`
+
+These should be rewritten to the settled layout:
+
+- `Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj`
+- `vendor/ghostty`
+- `vendor/homebrew-cmux`
+
+### User-facing docs and skills
+
+These still contain old VM paths or old submodule paths:
+
+- `CLAUDE.md`
+- `docs/ghostty-fork.md`
+- `docs/agent-browser-port-spec.md`
+- `docs/v2-api-migration.md`
+- `skills/cmux-debug-windows/SKILL.md`
+
+Known stale examples:
+
+- `xcodebuild -project GhosttyTabs.xcodeproj ...` in `CLAUDE.md` and the skill
+  doc
+- `cd ghostty` and `git add ghostty` in `CLAUDE.md` and `docs/ghostty-fork.md`
+- `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ...'` in the long-form docs
+
+These should be updated to:
+
+- `Apps/cmux-macOS/GhosttyTabs.xcodeproj`
+- `vendor/ghostty`
+- `/Users/cmux/cmux` or whatever the current documented VM repo root is meant to
+  be
+
+### Likely real code bug in CLI fallback logic
+
+`Apps/cmux-macOS/CLI/cmux.swift` contains one repo-fallback path family that
+looks stale rather than merely literal:
+
+- `bundledHelperURL(named:)` searches for a dev helper under
+  `current/ghostty/zig-out/bin/...` after finding the stable project marker
+
+Representative lines:
+
+- `Apps/cmux-macOS/CLI/cmux.swift:7210`
+- `Apps/cmux-macOS/CLI/cmux.swift:7212`
+
+Why this is likely stale:
+
+- the project marker is checked relative to the current directory
+- the settled ghostty location is `vendor/ghostty`
+- when the marker resolves at `Apps/cmux-macOS`, `current/ghostty/...` does not
+  match the moved layout
+
+This should be investigated and likely repaired in code, not just documented.
+
+## Audit And Justify
+
+These should stay in future searches, but they are not immediate cleanup
+targets:
+
+- `Apps/cmux-macOS/CLI/cmux.swift:7271`, `:7610`, `:10903`, `:11032`
+
+These usages rely on the stable project filename as an ancestor marker and then
+search for app-local resources or metadata. They should only be changed if the
+follow-up code review proves the resolved sibling paths are wrong for the moved
+layout.
+
+Current judgment:
+
+- `projectFile` lookup for version extraction is justified
+- `repoInfo` lookup for `Resources/Info.plist` is justified when the ancestor is
+  `Apps/cmux-macOS`
+- `repoResources` and `repoThemes` app-local resource lookups are likely still
+  justified when the ancestor is `Apps/cmux-macOS`
+- `repoHelper` lookup under `ghostty/zig-out/bin` is the only member of this
+  family that currently looks stale
+
+## Recommended Follow-Up Pass
+
+A future cleanup pass should:
+
+1. Update the stale hidden helper docs under `.claude/commands/`.
+2. Update the stale user-facing docs and skill instructions listed above.
+3. Review and likely fix `bundledHelperURL(named:)` in
+   `Apps/cmux-macOS/CLI/cmux.swift` so the repo fallback uses the settled
+   `vendor/ghostty` path contract.
+4. Re-run the same search patterns and keep this document in sync so intentional
+   literals remain documented rather than rediscovered.
