@@ -304,9 +304,9 @@ extension WorkspaceContentView {
             let line = "[\(ts)] PANEL NOT FOUND for tabId=\(tab.id) ws=\(workspace.id) panelCount=\(workspace.panels.count)\n"
             let logPath = "/tmp/cmux-panel-debug.log"
             if let handle = FileHandle(forWritingAtPath: logPath) {
-                handle.seekToEndOfFile()
-                handle.write(line.data(using: .utf8)!)
-                handle.closeFile()
+                defer { try? handle.close() }
+                try? handle.seekToEnd()
+                try? handle.write(contentsOf: line.data(using: .utf8)!)
             } else {
                 FileManager.default.createFile(atPath: logPath, contents: line.data(using: .utf8))
             }
