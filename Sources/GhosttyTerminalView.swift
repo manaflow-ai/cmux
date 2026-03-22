@@ -560,6 +560,38 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     return .external(fallback)
 }
 
+/// Opens a URL using the preferred external editor if configured and the URL is a file,
+/// otherwise falls back to the system default handler.
+@discardableResult
+func openURLWithPreferredEditor(_ url: URL) -> Bool {
+    let editorPath = BrowserLinkOpenSettings.externalFileEditorPath()
+
+    // Only use custom editor for file URLs and when editor path is set
+    if url.isFileURL, !editorPath.isEmpty {
+        let editorURL = URL(fileURLWithPath: editorPath)
+        guard FileManager.default.fileExists(atPath: editorPath) else {
+            #if DEBUG
+            dlog("link.openWithEditor editorPath not found, falling back to system default path=\(editorPath)")
+            #endif
+            return NSWorkspace.shared.open(url)
+        }
+        #if DEBUG
+        dlog("link.openWithEditor opening with custom editor=\(editorPath) file=\(url.path)")
+        #endif
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([url], withApplicationAt: editorURL, configuration: configuration) { _, error in
+            #if DEBUG
+            if let error {
+                dlog("link.openWithEditor failed error=\(error)")
+            }
+            #endif
+        }
+        return true
+    }
+
+    return NSWorkspace.shared.open(url)
+}
+
 enum TerminalKeyboardCopyModeSelectionMove: String, Equatable {
     case left
     case right
@@ -2440,6 +2472,11 @@ class GhosttyApp {
             #if DEBUG
             dlog("link.openURL raw=\(urlString)")
             #endif
+
+            // Capture IDs for main-thread workspace lookup
+            let sourceTabId = callbackTabId ?? surfaceView.tabId
+            let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+
             guard let target = resolveTerminalOpenURLTarget(urlString) else {
                 #if DEBUG
                 dlog("link.openURL resolve failed, returning false")
@@ -2451,7 +2488,7 @@ class GhosttyApp {
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
                 return performOnMain {
-                    NSWorkspace.shared.open(target.url)
+                    openURLWithPreferredEditor(target.url)
                 }
             }
             switch target {
@@ -2460,9 +2497,40 @@ class GhosttyApp {
                 dlog("link.openURL target=external, opening externally url=\(url)")
                 #endif
                 return performOnMain {
-                    NSWorkspace.shared.open(url)
+                    openURLWithPreferredEditor(url)
                 }
             case let .embeddedBrowser(url):
+                // Check if this might be a relative file path that got misinterpreted as a URL
+                if BrowserLinkOpenSettings.openRelativeFilePathsExternally() {
+                    let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // If the original string doesn't look like a URL scheme, it might be a relative path
+                    if !trimmed.hasPrefix("http://") && !trimmed.hasPrefix("https://") && !trimmed.hasPrefix("/") {
+                        return performOnMain {
+                            // Get working directory from workspace
+                            guard let app = AppDelegate.shared,
+                                  let tabId = sourceTabId,
+                                  let panelId = sourcePanelId,
+                                  let resolved = app.workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: tabId) else {
+                                #if DEBUG
+                                dlog("link.openURL relativeFile check: workspace lookup failed, falling back to browser")
+                                #endif
+                                return NSWorkspace.shared.open(url)
+                            }
+                            let workingDirectory = resolved.workspace.panelDirectories[panelId] ?? resolved.workspace.currentDirectory
+                            let fullPath = (workingDirectory as NSString).appendingPathComponent(trimmed)
+                            if FileManager.default.fileExists(atPath: fullPath) {
+                                #if DEBUG
+                                dlog("link.openURL opening as relative file path=\(fullPath)")
+                                #endif
+                                return openURLWithPreferredEditor(URL(fileURLWithPath: fullPath))
+                            }
+                            #if DEBUG
+                            dlog("link.openURL relativeFile not found at path=\(fullPath), falling back to browser")
+                            #endif
+                            return NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
                 if BrowserLinkOpenSettings.shouldOpenExternally(url) {
                     #if DEBUG
                     dlog("link.openURL target=embedded but shouldOpenExternally=true url=\(url)")
@@ -5848,6 +5916,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
+
+        // Semantic history: Cmd+click on any word that exists as a file opens it
+        if BrowserLinkOpenSettings.openRelativeFilePathsExternally(),
+           event.modifierFlags.contains(.command) {
+            // Update mouse position so quicklook_word knows where to look
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+
+            // Get the word under the cursor
+            var textResult = ghostty_text_s()
+            if ghostty_surface_quicklook_word(surface, &textResult) {
+                defer { ghostty_surface_free_text(surface, &textResult) }
+                if let ptr = textResult.text, textResult.text_len > 0 {
+                    let word = String(
+                        data: Data(bytes: ptr, count: Int(textResult.text_len)),
+                        encoding: .utf8
+                    ) ?? ""
+                    let trimmedWord = word.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+
+                    if !trimmedWord.isEmpty {
+                        // Get working directory from workspace
+                        if let app = AppDelegate.shared,
+                           let tabId = terminalSurface?.tabId,
+                           let panelId = terminalSurface?.id,
+                           let resolved = app.workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: tabId) {
+                            let workingDirectory = resolved.workspace.panelDirectories[panelId] ?? resolved.workspace.currentDirectory
+                            let fullPath = (workingDirectory as NSString).appendingPathComponent(trimmedWord)
+
+                            // Check if the word is an existing file
+                            if FileManager.default.fileExists(atPath: fullPath) {
+                                #if DEBUG
+                                dlog("terminal.mouseDown semanticHistory opening file=\(fullPath)")
+                                #endif
+                                _ = openURLWithPreferredEditor(URL(fileURLWithPath: fullPath))
+                                return // Don't pass click to Ghostty
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
