@@ -51,7 +51,7 @@ fi
 
 TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
-ENTITLEMENTS="$CMUX_APP_ROOT/cmux.entitlements"
+ENTITLEMENTS="$CMUX_APP_ENTITLEMENTS_PATH"
 APP_PATH="build/Build/Products/Release/cmux.app"
 
 cd "$CMUX_REPO_ROOT"
@@ -65,12 +65,23 @@ done
 echo "Pre-flight checks passed"
 
 # --- Build GhosttyKit (if needed) ---
-if [ ! -d "$CMUX_GHOSTTYKIT_PATH" ]; then
+GHOSTTY_SHA="$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)"
+LOCAL_XCFRAMEWORK="$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework"
+LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
+APP_SHA_STAMP="$CMUX_GHOSTTYKIT_PATH/.ghostty_sha"
+APP_GHOSTTY_SHA=""
+
+if [ -f "$APP_SHA_STAMP" ]; then
+  APP_GHOSTTY_SHA="$(cat "$APP_SHA_STAMP")"
+fi
+
+if [ ! -d "$CMUX_GHOSTTYKIT_PATH" ] || [ "$APP_GHOSTTY_SHA" != "$GHOSTTY_SHA" ]; then
   echo "Building GhosttyKit..."
   (
     cd "$CMUX_GHOSTTY_DIR"
     zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
   )
+  echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
   rm -rf "$CMUX_GHOSTTYKIT_PATH"
   cp -R "$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework" "$CMUX_GHOSTTYKIT_PATH"
 else

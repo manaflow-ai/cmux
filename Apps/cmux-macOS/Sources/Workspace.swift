@@ -4384,7 +4384,6 @@ final class WorkspaceRemoteSessionController {
 
     private static let repoRootMarkers = [
         "daemon/remote/go.mod",
-        "GhosttyTabs.xcodeproj/project.pbxproj",
         "Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.pbxproj",
     ]
     private static let remoteDaemonRelativePaths = [

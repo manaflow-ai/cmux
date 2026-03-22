@@ -28,6 +28,9 @@ cmux_paths_init() {
   if [[ -z "${CMUX_APP_RESOURCES_DIR:-}" ]]; then
     CMUX_APP_RESOURCES_DIR="$CMUX_APP_ROOT/Resources"
   fi
+  if [[ -z "${CMUX_APP_ENTITLEMENTS_PATH:-}" ]]; then
+    CMUX_APP_ENTITLEMENTS_PATH="$CMUX_APP_RESOURCES_DIR/cmux.entitlements"
+  fi
   if [[ -z "${CMUX_XCODE_PROJECT_PATH:-}" ]]; then
     CMUX_XCODE_PROJECT_PATH="$CMUX_REPO_ROOT/Apps/cmux-macOS/GhosttyTabs.xcodeproj"
   fi
