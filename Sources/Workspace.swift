@@ -5332,21 +5332,34 @@ final class Workspace: Identifiable, ObservableObject {
         .init(backgroundHex: backgroundColor.hexString())
     }
 
+    private static var isSystemDarkMode: Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
+    /// Returns the chrome hex for the current appearance. In light mode, returns
+    /// nil so Bonsplit falls back to the system window background color.
+    private static func resolvedChromeHex(
+        backgroundColor: NSColor,
+        backgroundOpacity: Double
+    ) -> String? {
+        guard isSystemDarkMode else { return nil }
+        return bonsplitChromeHex(
+            backgroundColor: backgroundColor,
+            backgroundOpacity: backgroundOpacity
+        )
+    }
+
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
         backgroundOpacity: Double
     ) -> BonsplitConfiguration.Appearance {
-        // In light mode, leave backgroundHex nil so the tab bar uses the
-        // system window background color, which respects appearance changes.
-        let isDarkMode = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let chromeHex: String? = isDarkMode ? Self.bonsplitChromeHex(
-            backgroundColor: backgroundColor,
-            backgroundOpacity: backgroundOpacity
-        ) : nil
-        return BonsplitConfiguration.Appearance(
+        BonsplitConfiguration.Appearance(
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
-            chromeColors: .init(backgroundHex: chromeHex)
+            chromeColors: .init(backgroundHex: resolvedChromeHex(
+                backgroundColor: backgroundColor,
+                backgroundOpacity: backgroundOpacity
+            ))
         )
     }
 
@@ -5359,14 +5372,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
-        // In light mode, use nil to fall back to system window background color
-        // which automatically respects appearance changes. Only apply the custom
-        // Ghostty theme color in dark mode.
-        let isDarkMode = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let nextHex: String? = isDarkMode ? Self.bonsplitChromeHex(
+        let nextHex: String? = Self.resolvedChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity
-        ) : nil
+        )
         let currentChromeColors = bonsplitController.configuration.appearance.chromeColors
         let isNoOp = currentChromeColors.backgroundHex == nextHex
 
