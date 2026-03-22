@@ -5025,6 +5025,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               fr === self || fr.isDescendant(of: self) else { return false }
         guard let surface = ensureSurfaceReadyForInput() else { return false }
 
+        // Allow macOS system window arrangement shortcuts (e.g. Fn+Ctrl+Arrow
+        // for window tiling in macOS Sequoia+) to pass through to the system.
+        // The .function modifier indicates a Fn-key combination intended for the
+        // OS, not terminal input.
+        let systemModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if systemModifiers.contains(.function) && systemModifiers.contains(.control)
+            && !systemModifiers.contains(.command) {
+            return false
+        }
+
         // If the IME is composing (marked text present) and the key has no Cmd
         // modifier, don't intercept — let it flow through to keyDown so the input
         // method can process it normally. Cmd-based shortcuts should still work
