@@ -503,13 +503,15 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
-    func testShortcutHintRequiresEnabledCommandOnlyModifier() {
+    func testShortcutHintRequiresConfiguredModifiers() {
         withDefaultsSuite { defaults in
             defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
+            // Default workspace=Command, surface=Control both trigger hints.
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [], defaults: defaults))
+            // Combos that don't exactly match either configured modifier are rejected.
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .option], defaults: defaults))
@@ -531,8 +533,9 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         withDefaultsSuite { defaults in
             defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
+            // Both default modifiers trigger hints when the setting hasn't been explicitly set.
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
@@ -606,7 +609,8 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
                 )
             )
 
-            XCTAssertFalse(
+            // Control is the default surface modifier, so it also triggers hints.
+            XCTAssertTrue(
                 ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.control],
                     hostWindowNumber: 42,

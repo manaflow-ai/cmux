@@ -57395,13 +57395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Cmd/Ctrl-Hold Shortcut Hints"
+            "value": "Show Modifier-Hold Shortcut Hints"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd/Ctrl長押しのショートカットヒントを表示"
+            "state": "needs_review",
+            "value": "修飾キー長押しのショートカットヒントを表示"
           }
         },
         "zh-Hans": {
@@ -57508,13 +57508,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Holding Cmd or Ctrl keeps shortcut hint pills hidden."
+            "value": "Modifier-hold shortcut hint pills are hidden."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CmdまたはCtrlを長押ししてもショートカットヒントピルは非表示のままです。"
+            "state": "needs_review",
+            "value": "修飾キーを長押ししてもショートカットヒントピルは非表示のままです。"
           }
         },
         "zh-Hans": {
@@ -57621,13 +57621,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills."
+            "value": "Holding the workspace or surface modifier key shows shortcut hint pills."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cmd（サイドバー/タイトルバー）またはCtrl/Cmd（ペインタブ）を長押しするとショートカットヒントピルが表示されます。"
+            "state": "needs_review",
+            "value": "ワークスペースまたはサーフェスの修飾キーを長押しするとショートカットヒントピルが表示されます。"
           }
         },
         "zh-Hans": {
@@ -57724,6 +57724,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd (kenar çubuğu/başlık çubuğu) veya Ctrl/Cmd (bölme sekmeleri) basılı tutulduğunda kısayol ipucu rozetleri gösterilir."
+          }
+        }
+      }
+    },
+    "settings.shortcuts.workspaceDigitModifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace 1-9 Modifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース 1-9 修飾キー"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.workspaceDigitModifier.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier key(s) for jumping to workspace by number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "番号でワークスペースに移動する修飾キー。"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.surfaceDigitModifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface 1-9 Modifier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス 1-9 修飾キー"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.surfaceDigitModifier.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier key(s) for jumping to surface by number."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "番号でサーフェスに移動する修飾キー。"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.digitModifierConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning: same modifier as workspace shortcuts. Both will fire on the same key."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "警告: ワークスペースのショートカットと同じ修飾キーです。同じキーで両方が発動します。"
+          }
+        }
+      }
+    },
+    "shortcut.pressModifier.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press modifier…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修飾キーを押す…"
           }
         }
       }

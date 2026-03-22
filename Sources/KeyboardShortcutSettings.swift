@@ -274,6 +274,235 @@ enum KeyboardShortcutSettings {
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
+// MARK: - Digit Shortcut Modifier Flags (configurable modifier combo for 1-9 shortcuts)
+
+enum DigitShortcutModifierSettings {
+    static let workspaceModifierKey = "digitShortcutWorkspaceModifierFlags"
+    static let surfaceModifierKey = "digitShortcutSurfaceModifierFlags"
+    /// Stored as `Int(NSEvent.ModifierFlags.rawValue)`. Zero means "use default".
+    static let defaultWorkspaceFlags: NSEvent.ModifierFlags = [.command]
+    static let defaultSurfaceFlags: NSEvent.ModifierFlags = [.control]
+    static let defaultWorkspaceStored: Int = Int(defaultWorkspaceFlags.rawValue)
+    static let defaultSurfaceStored: Int = Int(defaultSurfaceFlags.rawValue)
+    static let didChangeNotification = Notification.Name("cmux.digitShortcutModifierDidChange")
+
+    static func workspaceFlags(defaults: UserDefaults = .standard) -> NSEvent.ModifierFlags {
+        flagsFor(key: workspaceModifierKey, fallback: defaultWorkspaceFlags, defaults: defaults)
+    }
+
+    static func surfaceFlags(defaults: UserDefaults = .standard) -> NSEvent.ModifierFlags {
+        flagsFor(key: surfaceModifierKey, fallback: defaultSurfaceFlags, defaults: defaults)
+    }
+
+    private static func flagsFor(
+        key: String,
+        fallback: NSEvent.ModifierFlags,
+        defaults: UserDefaults
+    ) -> NSEvent.ModifierFlags {
+        let raw = defaults.integer(forKey: key)
+        guard raw > 0 else { return fallback }
+        return NSEvent.ModifierFlags(rawValue: UInt(raw))
+            .intersection(.deviceIndependentFlagsMask)
+    }
+
+    // MARK: Display helpers
+
+    static func symbolString(for flags: NSEvent.ModifierFlags) -> String {
+        var parts: [String] = []
+        if flags.contains(.control) { parts.append("⌃") }
+        if flags.contains(.option) { parts.append("⌥") }
+        if flags.contains(.shift) { parts.append("⇧") }
+        if flags.contains(.command) { parts.append("⌘") }
+        return parts.joined()
+    }
+
+    static func displayName(for flags: NSEvent.ModifierFlags) -> String {
+        var parts: [String] = []
+        if flags.contains(.control) { parts.append("Control") }
+        if flags.contains(.option) { parts.append("Option") }
+        if flags.contains(.shift) { parts.append("Shift") }
+        if flags.contains(.command) { parts.append("Command") }
+        return parts.joined(separator: "+")
+    }
+
+    static func eventModifiers(for storedValue: Int, fallback: NSEvent.ModifierFlags) -> EventModifiers {
+        let flags = storedValue > 0
+            ? NSEvent.ModifierFlags(rawValue: UInt(storedValue)).intersection(.deviceIndependentFlagsMask)
+            : fallback
+        var modifiers: EventModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        return modifiers
+    }
+}
+
+// MARK: - Modifier Recorder (captures modifier key combos)
+
+struct ModifierRecorderRow: View {
+    let label: String
+    let subtitle: String?
+    @Binding var storedFlags: Int
+    let defaultFlags: NSEvent.ModifierFlags
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer()
+
+            ModifierRecorderButton(storedFlags: $storedFlags, defaultFlags: defaultFlags)
+                .frame(width: 120)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+    }
+}
+
+private struct ModifierRecorderButton: NSViewRepresentable {
+    @Binding var storedFlags: Int
+    let defaultFlags: NSEvent.ModifierFlags
+
+    func makeNSView(context: Context) -> ModifierRecorderNSButton {
+        let button = ModifierRecorderNSButton()
+        button.currentFlags = resolvedFlags
+        button.onModifierRecorded = { newFlags in
+            storedFlags = Int(newFlags.rawValue)
+        }
+        return button
+    }
+
+    func updateNSView(_ nsView: ModifierRecorderNSButton, context: Context) {
+        nsView.currentFlags = resolvedFlags
+        nsView.updateTitle()
+    }
+
+    private var resolvedFlags: NSEvent.ModifierFlags {
+        storedFlags > 0
+            ? NSEvent.ModifierFlags(rawValue: UInt(storedFlags)).intersection(.deviceIndependentFlagsMask)
+            : defaultFlags
+    }
+}
+
+private class ModifierRecorderNSButton: NSButton {
+    var currentFlags: NSEvent.ModifierFlags = [.command]
+    var onModifierRecorded: ((NSEvent.ModifierFlags) -> Void)?
+    private var isRecording = false
+    private var eventMonitor: Any?
+    private var pendingFlags: NSEvent.ModifierFlags = []
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setup()
+    }
+
+    private func setup() {
+        bezelStyle = .rounded
+        setButtonType(.momentaryPushIn)
+        target = self
+        action = #selector(buttonClicked)
+        updateTitle()
+    }
+
+    func updateTitle() {
+        if isRecording {
+            if pendingFlags.isEmpty {
+                title = String(localized: "shortcut.pressModifier.prompt", defaultValue: "Press modifier…")
+            } else {
+                title = DigitShortcutModifierSettings.symbolString(for: pendingFlags)
+            }
+        } else {
+            title = DigitShortcutModifierSettings.symbolString(for: currentFlags)
+        }
+    }
+
+    @objc private func buttonClicked() {
+        if isRecording {
+            stopRecording(commit: false)
+        } else {
+            startRecording()
+        }
+    }
+
+    private func startRecording() {
+        isRecording = true
+        pendingFlags = []
+        updateTitle()
+
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+            guard let self else { return event }
+
+            if event.type == .keyDown {
+                if event.keyCode == 53 { // Escape — cancel
+                    self.stopRecording(commit: false)
+                    return nil
+                }
+                // Consume other keyDown events while recording.
+                return nil
+            }
+
+            // flagsChanged
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                .intersection([.command, .shift, .option, .control])
+            if !flags.isEmpty {
+                // Union so releasing one key before another keeps the combo.
+                self.pendingFlags = self.pendingFlags.union(flags)
+                self.updateTitle()
+            } else if !self.pendingFlags.isEmpty {
+                // All modifiers released — commit the accumulated combo.
+                self.stopRecording(commit: true)
+            }
+            return event
+        }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(windowResigned),
+            name: NSWindow.didResignKeyNotification,
+            object: window
+        )
+    }
+
+    private func stopRecording(commit: Bool) {
+        let captured = pendingFlags
+        isRecording = false
+        pendingFlags = []
+
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+
+        if commit && !captured.isEmpty {
+            currentFlags = captured
+            onModifierRecorded?(captured)
+        }
+        updateTitle()
+    }
+
+    @objc private func windowResigned() {
+        stopRecording(commit: false)
+    }
+
+    deinit {
+        stopRecording(commit: false)
+    }
+}
+
 /// A keyboard shortcut that can be stored in UserDefaults
 struct StoredShortcut: Codable, Equatable {
     var key: String

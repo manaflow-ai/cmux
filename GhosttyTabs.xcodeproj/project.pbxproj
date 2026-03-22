@@ -114,6 +114,7 @@
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
 					063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 					1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */; };
+					A1B2C3D4E5F60718A9B0C1D2 /* DigitShortcutModifierTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E4F5A6B7C80D19E2F3A4B5 /* DigitShortcutModifierTests.swift */; };
 					CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */; };
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */; };
 					734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */; };
@@ -283,6 +284,7 @@
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
+					D3E4F5A6B7C80D19E2F3A4B5 /* DigitShortcutModifierTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigitShortcutModifierTests.swift; sourceTree = "<group>"; };
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarOrderingTests.swift; sourceTree = "<group>"; };
 				B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OmnibarAndToolsTests.swift; sourceTree = "<group>"; };
 				D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAndMenuBarTests.swift; sourceTree = "<group>"; };
@@ -538,6 +540,7 @@
 					71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
 					BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
 					6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
+						D3E4F5A6B7C80D19E2F3A4B5 /* DigitShortcutModifierTests.swift */,
 					BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
 					B09C007F42697761B5F1A2AB /* OmnibarAndToolsTests.swift */,
 					D2C075029771815DD5DA1332 /* NotificationAndMenuBarTests.swift */,
@@ -801,6 +804,7 @@
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
 					063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
 					1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
+						A1B2C3D4E5F60718A9B0C1D2 /* DigitShortcutModifierTests.swift in Sources */,
 					CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,
 					4378399A7C0245EF8186F306 /* OmnibarAndToolsTests.swift in Sources */,
 					734F49D37E543DD01C2F4FEF /* NotificationAndMenuBarTests.swift in Sources */,

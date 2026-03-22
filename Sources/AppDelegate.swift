@@ -2010,6 +2010,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var ghosttyConfigObserver: NSObjectProtocol?
+    private var workspaceDigitFlags: NSEvent.ModifierFlags = DigitShortcutModifierSettings.defaultWorkspaceFlags
+    private var surfaceDigitFlags: NSEvent.ModifierFlags = DigitShortcutModifierSettings.defaultSurfaceFlags
+    private var digitModifierObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
@@ -2341,6 +2344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
+        installDigitModifierObserver()
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -8684,6 +8688,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func installDigitModifierObserver() {
+        guard digitModifierObserver == nil else { return }
+        refreshDigitModifierFlags()
+        digitModifierObserver = NotificationCenter.default.addObserver(
+            forName: DigitShortcutModifierSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshDigitModifierFlags()
+        }
+    }
+
+    private func refreshDigitModifierFlags() {
+        workspaceDigitFlags = DigitShortcutModifierSettings.workspaceFlags()
+        surfaceDigitFlags = DigitShortcutModifierSettings.surfaceFlags()
+    }
+
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
     /// avoid mutating Bonsplit/SwiftUI-observed state during an active update pass.
     private func scheduleSplitButtonTooltipRefreshAcrossWorkspaces() {
@@ -9474,8 +9495,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
+        // Numeric shortcuts for specific sidebar tabs: modifier+1-9 (9 = last workspace)
+        if flags == workspaceDigitFlags,
            let manager = tabManager,
            let num = Int(chars),
            let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
@@ -9488,8 +9509,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
+        // Numeric shortcuts for surfaces within pane: modifier+1-9 (9 = last)
+        if flags == surfaceDigitFlags {
             if let num = Int(chars), num >= 1 && num <= 9 {
                 if num == 9 {
                     tabManager?.selectLastSurface()

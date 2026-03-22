@@ -8378,7 +8378,9 @@ enum ShortcutHintModifierPolicy {
         defaults: UserDefaults = .standard
     ) -> Bool {
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard normalized == [.command] else {
+        let workspaceFlags = DigitShortcutModifierSettings.workspaceFlags(defaults: defaults)
+        let surfaceFlags = DigitShortcutModifierSettings.surfaceFlags(defaults: defaults)
+        guard normalized == workspaceFlags || normalized == surfaceFlags else {
             return false
         }
         return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
@@ -10678,6 +10680,8 @@ private struct TabItemView: View, Equatable {
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
     @AppStorage(ShortcutHintDebugSettings.sidebarHintYKey) private var sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
+    @AppStorage(DigitShortcutModifierSettings.workspaceModifierKey)
+    private var workspaceDigitModifierStored = DigitShortcutModifierSettings.defaultWorkspaceStored
     @AppStorage("sidebarShowGitBranch") private var sidebarShowGitBranch = true
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
@@ -10772,7 +10776,11 @@ private struct TabItemView: View, Equatable {
 
     private var workspaceShortcutLabel: String? {
         guard let workspaceShortcutDigit else { return nil }
-        return "⌘\(workspaceShortcutDigit)"
+        let flags = workspaceDigitModifierStored > 0
+            ? NSEvent.ModifierFlags(rawValue: UInt(workspaceDigitModifierStored)).intersection(.deviceIndependentFlagsMask)
+            : DigitShortcutModifierSettings.defaultWorkspaceFlags
+        let symbol = DigitShortcutModifierSettings.symbolString(for: flags)
+        return "\(symbol)\(workspaceShortcutDigit)"
     }
 
     private var showsWorkspaceShortcutHint: Bool {

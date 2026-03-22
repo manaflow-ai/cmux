@@ -167,7 +167,13 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(DigitShortcutModifierSettings.workspaceModifierKey)
+    private var workspaceDigitModifierStored = DigitShortcutModifierSettings.defaultWorkspaceStored
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    private var workspaceDigitEventModifiers: EventModifiers {
+        DigitShortcutModifierSettings.eventModifiers(for: workspaceDigitModifierStored, fallback: DigitShortcutModifierSettings.defaultWorkspaceFlags)
+    }
 
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
@@ -799,7 +805,7 @@ struct cmuxApp: App {
 
                 Divider()
 
-                // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
+                // Modifier+1 through Modifier+9 for workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
@@ -807,7 +813,7 @@ struct cmuxApp: App {
                             manager.selectTab(at: targetIndex)
                         }
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: workspaceDigitEventModifiers)
                 }
 
                 Divider()
@@ -3834,6 +3840,10 @@ struct SettingsView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @AppStorage(ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
     private var showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+    @AppStorage(DigitShortcutModifierSettings.workspaceModifierKey)
+    private var settingsWorkspaceDigitModifier = DigitShortcutModifierSettings.defaultWorkspaceStored
+    @AppStorage(DigitShortcutModifierSettings.surfaceModifierKey)
+    private var settingsSurfaceDigitModifier = DigitShortcutModifierSettings.defaultSurfaceStored
     @AppStorage("sidebarShowSSH") private var sidebarShowSSH = true
     @AppStorage("sidebarShowPorts") private var sidebarShowPorts = true
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
@@ -5296,14 +5306,40 @@ struct SettingsView: View {
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
                         SettingsCardRow(
-                            String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
+                            String(localized: "settings.shortcuts.showHints", defaultValue: "Show Modifier-Hold Shortcut Hints"),
                             subtitle: showShortcutHintsOnCommandHold
-                                ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills.")
-                                : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Holding Cmd or Ctrl keeps shortcut hint pills hidden.")
+                                ? String(localized: "settings.shortcuts.showHints.subtitleOn", defaultValue: "Holding the workspace or surface modifier key shows shortcut hint pills.")
+                                : String(localized: "settings.shortcuts.showHints.subtitleOff", defaultValue: "Modifier-hold shortcut hint pills are hidden.")
                         ) {
                             Toggle("", isOn: $showShortcutHintsOnCommandHold)
                                 .labelsHidden()
                                 .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        ModifierRecorderRow(
+                            label: String(localized: "settings.shortcuts.workspaceDigitModifier", defaultValue: "Workspace 1-9 Modifier"),
+                            subtitle: String(localized: "settings.shortcuts.workspaceDigitModifier.subtitle", defaultValue: "Modifier key(s) for jumping to workspace by number."),
+                            storedFlags: $settingsWorkspaceDigitModifier,
+                            defaultFlags: DigitShortcutModifierSettings.defaultWorkspaceFlags
+                        )
+                        .onChange(of: settingsWorkspaceDigitModifier) { _ in
+                            NotificationCenter.default.post(name: DigitShortcutModifierSettings.didChangeNotification, object: nil)
+                        }
+
+                        SettingsCardDivider()
+
+                        ModifierRecorderRow(
+                            label: String(localized: "settings.shortcuts.surfaceDigitModifier", defaultValue: "Surface 1-9 Modifier"),
+                            subtitle: settingsSurfaceDigitModifier == settingsWorkspaceDigitModifier
+                                ? String(localized: "settings.shortcuts.digitModifierConflict", defaultValue: "Warning: same modifier as workspace shortcuts. Both will fire on the same key.")
+                                : String(localized: "settings.shortcuts.surfaceDigitModifier.subtitle", defaultValue: "Modifier key(s) for jumping to surface by number."),
+                            storedFlags: $settingsSurfaceDigitModifier,
+                            defaultFlags: DigitShortcutModifierSettings.defaultSurfaceFlags
+                        )
+                        .onChange(of: settingsSurfaceDigitModifier) { _ in
+                            NotificationCenter.default.post(name: DigitShortcutModifierSettings.didChangeNotification, object: nil)
                         }
 
                         SettingsCardDivider()
@@ -5578,6 +5614,9 @@ struct SettingsView: View {
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         showShortcutHintsOnCommandHold = ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
+        settingsWorkspaceDigitModifier = DigitShortcutModifierSettings.defaultWorkspaceStored
+        settingsSurfaceDigitModifier = DigitShortcutModifierSettings.defaultSurfaceStored
+        NotificationCenter.default.post(name: DigitShortcutModifierSettings.didChangeNotification, object: nil)
         sidebarShowSSH = true
         sidebarShowPorts = true
         sidebarShowLog = true
