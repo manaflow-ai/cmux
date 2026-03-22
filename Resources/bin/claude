@@ -91,6 +91,29 @@ HOOKS_JSON='{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
-    SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-    exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    # Verify that the resolved claude binary supports --session-id.
+    # Some environments (e.g. nvm not yet initialized in a fresh tab)
+    # may resolve to an older binary that rejects this flag (#1818).
+    # Cache the result per binary path+mtime so the --help subprocess
+    # only runs once per shell session or binary update.
+    _claude_real_mtime="$(stat -f '%m' "$REAL_CLAUDE" 2>/dev/null || stat -c '%Y' "$REAL_CLAUDE" 2>/dev/null || echo 0)"
+    _claude_cache_key="${REAL_CLAUDE}:${_claude_real_mtime}"
+    if [[ "${_CMUX_CLAUDE_SESSION_ID_CACHE_KEY:-}" == "$_claude_cache_key" ]]; then
+        _claude_has_session_id="$_CMUX_CLAUDE_SESSION_ID_CACHE_VAL"
+    else
+        if "$REAL_CLAUDE" --help 2>&1 | grep -q -- '--session-id'; then
+            _claude_has_session_id=1
+        else
+            _claude_has_session_id=0
+        fi
+        export _CMUX_CLAUDE_SESSION_ID_CACHE_KEY="$_claude_cache_key"
+        export _CMUX_CLAUDE_SESSION_ID_CACHE_VAL="$_claude_has_session_id"
+    fi
+    if [[ "$_claude_has_session_id" == "1" ]]; then
+        SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+        exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
+    else
+        # Fall back: inject hooks but skip session tracking.
+        exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
+    fi
 fi

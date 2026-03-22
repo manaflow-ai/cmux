@@ -784,10 +784,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
+    /// Box for deferred weak-self capture so the sidebar toggle closure
+    /// can resolve the window this accessory is attached to (#1779).
+    private final class WeakSelfBox {
+        weak var vc: TitlebarControlsAccessoryViewController?
+    }
+    private let weakSelfBox = WeakSelfBox()
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
-        let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
+        // Capture the box (which will hold a weak ref to self after super.init).
+        // This lets the sidebar toggle target the window this accessory belongs to
+        // rather than the currently focused/key window (#1779).
+        let box = weakSelfBox
+        let toggleSidebar = {
+            if let window = box.vc?.view.window {
+                _ = AppDelegate.shared?.toggleSidebarForWindow(window)
+            } else {
+                _ = AppDelegate.shared?.sidebarState?.toggle()
+            }
+        }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
         let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
 
@@ -803,6 +819,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         )
 
         super.init(nibName: nil, bundle: nil)
+        weakSelfBox.vc = self
 
         view = containerView
         containerView.translatesAutoresizingMaskIntoConstraints = true

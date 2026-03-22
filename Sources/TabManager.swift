@@ -3451,7 +3451,19 @@ class TabManager: ObservableObject {
                 return
             }
 
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
+            // Count the number of leaf panes along this split's axis
+            // on each side. For a tree A | (B | C) with all horizontal
+            // splits, the left side has 1 leaf and the right side has 2,
+            // so the divider should be 1/3 (not 0.5). Nested splits on
+            // the *other* axis count as 1, since they don't subdivide
+            // this axis further (#1622).
+            let orientation = splitNode.orientation.lowercased()
+            let leftLeaves = countLeaves(in: splitNode.first, along: orientation)
+            let rightLeaves = countLeaves(in: splitNode.second, along: orientation)
+            let total = leftLeaves + rightLeaves
+            let position = total > 0 ? Double(leftLeaves) / Double(total) : 0.5
+
+            if !controller.setDividerPosition(position, forSplit: splitId) {
                 allSucceeded = false
             }
 
@@ -3467,6 +3479,24 @@ class TabManager: ObservableObject {
                 foundSplit: &foundSplit,
                 allSucceeded: &allSucceeded
             )
+        }
+    }
+
+    /// Count the number of leaf panes that subdivide the given axis.
+    /// A nested split along the same axis expands into its children;
+    /// a nested split along the perpendicular axis counts as one unit.
+    private func countLeaves(in node: ExternalTreeNode, along axis: String) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let splitNode):
+            if splitNode.orientation.lowercased() == axis {
+                return countLeaves(in: splitNode.first, along: axis)
+                     + countLeaves(in: splitNode.second, along: axis)
+            } else {
+                // Perpendicular split: counts as a single unit on this axis.
+                return 1
+            }
         }
     }
 

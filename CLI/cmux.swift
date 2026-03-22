@@ -10127,7 +10127,23 @@ struct CMUXCLI {
                 "has_surface_flag": optionValue(hookArgs, name: "--surface") != nil
             ]
         )
-        let fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
+        // Best-effort workspace resolution: if TabManager is already torn
+        // down (app or workspace closing), lifecycle hooks (stop, session-end,
+        // etc.) should succeed silently rather than surfacing errors to the
+        // user (issues #1775, #1715).
+        let fallbackWorkspaceId: String
+        do {
+            fallbackWorkspaceId = try resolveWorkspaceIdForClaudeHook(workspaceArg, client: client)
+        } catch {
+            // If we can't resolve the workspace, lifecycle hooks are no-ops.
+            // Only session-start and active require a live workspace;
+            // for all others, print OK and return.
+            if subcommand != "session-start" && subcommand != "active" {
+                print("OK")
+                return
+            }
+            throw error
+        }
         let fallbackSurfaceId = try? resolveSurfaceId(surfaceArg, workspaceId: fallbackWorkspaceId, client: client)
 
         switch subcommand {
@@ -10199,19 +10215,23 @@ struct CMUXCLI {
             }
 
             if let completion {
-                let resolvedSurface = try resolveSurfaceIdForClaudeHook(
+                // Best-effort: TabManager may be torn down if workspace/app is
+                // closing while the Claude session ends (issues #1775, #1715).
+                if let resolvedSurface = try? resolveSurfaceIdForClaudeHook(
                     surfaceId,
                     workspaceId: workspaceId,
                     client: client
-                )
-                let title = "Claude Code"
-                let subtitle = sanitizeNotificationField(completion.subtitle)
-                let body = sanitizeNotificationField(completion.body)
-                let payload = "\(title)|\(subtitle)|\(body)"
-                _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
+                ) {
+                    let title = "Claude Code"
+                    let subtitle = sanitizeNotificationField(completion.subtitle)
+                    let body = sanitizeNotificationField(completion.body)
+                    let payload = "\(title)|\(subtitle)|\(body)"
+                    _ = try? sendV1Command("notify_target \(workspaceId) \(resolvedSurface) \(payload)", client: client)
+                }
             }
 
-            try setClaudeStatus(
+            // Best-effort: benign if TabManager is already torn down.
+            try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
                 value: "Idle",
@@ -10228,8 +10248,9 @@ struct CMUXCLI {
                let mappedWorkspace = try? resolveWorkspaceIdForClaudeHook(mapped.workspaceId, client: client) {
                 workspaceId = mappedWorkspace
             }
-            _ = try sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            try setClaudeStatus(
+            // Best-effort: benign if TabManager is already torn down.
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
                 value: "Running",
@@ -10257,11 +10278,15 @@ struct CMUXCLI {
                 }
             }
 
-            let surfaceId = try resolveSurfaceIdForClaudeHook(
+            // Best-effort: benign if TabManager is already torn down.
+            guard let surfaceId = try? resolveSurfaceIdForClaudeHook(
                 preferredSurface,
                 workspaceId: workspaceId,
                 client: client
-            )
+            ) else {
+                print("OK")
+                return
+            }
 
             let title = "Claude Code"
             let subtitle = sanitizeNotificationField(summary.subtitle)
@@ -10279,7 +10304,7 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = (try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)) ?? "OK"
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -10354,7 +10379,8 @@ struct CMUXCLI {
             } else {
                 statusValue = "Running"
             }
-            try setClaudeStatus(
+            // Best-effort: benign if TabManager is already torn down.
+            try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
                 value: statusValue,
@@ -10487,6 +10513,10 @@ struct CMUXCLI {
             if probe != nil {
                 return candidate
             }
+            // The specific workspace is gone. Don't fall back to
+            // workspace.current — that would target an unrelated workspace
+            // with notifications/status updates meant for this one.
+            throw CLIError(message: "Workspace no longer available: \(raw)")
         }
         return try resolveWorkspaceId(nil, client: client)
     }

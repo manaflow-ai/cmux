@@ -6797,7 +6797,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.surface,
+        if terminalPanel.surface.isSurfaceLive,
+           let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -6895,7 +6896,12 @@ final class Workspace: Identifiable, ObservableObject {
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            guard let sourceSurface = terminalPanel.surface.surface else { continue }
+            // Check both that the pointer is non-nil AND the surface lifecycle
+            // hasn't started teardown. Without this, we can pass a dangling
+            // pointer to ghostty_surface_inherited_config (use-after-free crash
+            // on Intel — issues #1558, #1608, #1767, #1815).
+            guard terminalPanel.surface.isSurfaceLive,
+                  let sourceSurface = terminalPanel.surface.surface else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -8191,6 +8197,12 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
+        // If a pane is zoomed, un-zoom before navigating so the target
+        // pane becomes visible — matches tmux behavior (#1605).
+        if bonsplitController.isSplitZoomed {
+            _ = clearSplitZoom(reason: "workspace.moveFocus")
+        }
+
         // Unfocus the currently-focused panel before navigating.
         if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
@@ -8260,8 +8272,28 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func clearSplitZoom() -> Bool {
-        bonsplitController.clearPaneZoom()
+    func clearSplitZoom(reason: String = "workspace.clearSplitZoom") -> Bool {
+        // Capture the zoomed pane's browser panel (if any) before clearing zoom,
+        // so we can prime its portal host replacement afterward.
+        let zoomedBrowser: (paneId: PaneID, panel: BrowserPanel)? = {
+            guard let zoomedPaneId = bonsplitController.zoomedPaneId,
+                  let tabId = bonsplitController.selectedTab(inPane: zoomedPaneId)?.id,
+                  let panelId = panelIdFromSurfaceId(tabId),
+                  let browser = browserPanel(for: panelId) else { return nil }
+            return (zoomedPaneId, browser)
+        }()
+
+        guard bonsplitController.clearPaneZoom() else { return false }
+        if let zoomedBrowser {
+            zoomedBrowser.panel.preparePortalHostReplacementForNextDistinctClaim(
+                inPane: zoomedBrowser.paneId,
+                reason: reason
+            )
+        }
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
+        return true
     }
 
     @discardableResult
@@ -8270,8 +8302,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let paneId = paneId(forPanelId: panelId) else { return false }
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
         focusPanel(panelId)
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        if !bonsplitController.isSplitZoomed {
+            // Un-zooming: use centralized reconciliation
+            reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+            reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
+        }
         if let browserPanel = browserPanel(for: panelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,

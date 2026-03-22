@@ -99,9 +99,12 @@ _cmux_report_tty_once() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ -n "$_CMUX_TTY_NAME" ]] || return 0
     _CMUX_TTY_REPORTED=1
-    {
+    # Subshell for process isolation + disown to remove from bash job table,
+    # preventing "[N]+ Done" notifications at the next prompt (#1565).
+    (
         _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null
 }
 
 _cmux_report_shell_activity_state() {
@@ -112,9 +115,10 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
+    (
         _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null
 }
 
 _cmux_ports_kick() {
@@ -124,9 +128,10 @@ _cmux_ports_kick() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _CMUX_PORTS_LAST_RUN=$SECONDS
-    {
+    (
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    ) >/dev/null 2>&1 &
+    disown 2>/dev/null
 }
 
 _cmux_clear_pr_for_panel() {
@@ -332,15 +337,15 @@ _cmux_start_pr_poll_loop() {
     _cmux_stop_pr_poll_loop
     _CMUX_PR_POLL_PWD="$watch_pwd"
 
-    {
+    (
         while :; do
             kill -0 "$watch_shell_pid" 2>/dev/null || break
             _cmux_run_pr_probe_with_timeout "$watch_pwd" || true
             sleep "$interval"
         done
-    } >/dev/null 2>&1 &
+    ) >/dev/null 2>&1 &
     _CMUX_PR_POLL_PID=$!
-    disown "$_CMUX_PR_POLL_PID" 2>/dev/null || disown
+    disown 2>/dev/null
 }
 
 _cmux_bash_cleanup() {
@@ -403,10 +408,11 @@ _cmux_prompt_command() {
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
+        (
             local qpwd="${pwd//\"/\\\"}"
             _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
+        ) >/dev/null 2>&1 &
+        disown 2>/dev/null
     fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
@@ -450,9 +456,9 @@ _cmux_prompt_command() {
     if [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
-        {
+        (
             # Skip git operations if not in a git repository to avoid TCC prompts
-            git rev-parse --git-dir >/dev/null 2>&1 || return 0
+            git rev-parse --git-dir >/dev/null 2>&1 || exit 0
             local branch dirty_opt=""
             branch=$(git branch --show-current 2>/dev/null)
             if [[ -n "$branch" ]]; then
@@ -463,9 +469,9 @@ _cmux_prompt_command() {
             else
                 _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
             fi
-        } >/dev/null 2>&1 &
+        ) >/dev/null 2>&1 &
         _CMUX_GIT_JOB_PID=$!
-        disown
+        disown 2>/dev/null
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 

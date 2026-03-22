@@ -366,12 +366,6 @@ struct cmuxApp: App {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
                 .keyboardShortcut(",", modifiers: .command)
-            }
-
-            CommandGroup(replacing: .appInfo) {
-                Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
-                    showAboutPanel()
-                }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
@@ -379,6 +373,12 @@ struct cmuxApp: App {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
                 }
                 .keyboardShortcut(",", modifiers: [.command, .shift])
+            }
+
+            CommandGroup(replacing: .appInfo) {
+                Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
+                    showAboutPanel()
+                }
                 Divider()
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)

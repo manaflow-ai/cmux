@@ -5357,6 +5357,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
 
+    /// Toggle the sidebar for the window identified by the given NSWindow.
+    /// Used by titlebar accessory buttons so they affect their own window
+    /// rather than the currently focused/key window (#1779).
+    func toggleSidebarForWindow(_ window: NSWindow?) -> Bool {
+        if let window {
+            guard let context = contextForMainTerminalWindow(window) else {
+                return false
+            }
+            context.sidebarState.toggle()
+            return true
+        }
+        return toggleSidebarInActiveMainWindow()
+    }
+
     @objc func openNewMainWindow(_ sender: Any?) {
         _ = createMainWindow()
     }
