@@ -3975,6 +3975,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var mouseHidden: Bool = false
+
+    /// Reveal the mouse cursor if it was hidden by mouse-hide-while-typing.
+    /// Must be called at the start of all pointer event handlers.
+    private func revealMouseIfNeeded() {
+        guard mouseHidden else { return }
+        NSCursor.setHiddenUntilMouseMoves(false)
+        mouseHidden = false
+    }
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -5183,6 +5192,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
+        // Hide mouse while typing (only when key produces actual text, not bare modifiers)
+        // Use GhosttyConfig.load() which has internal caching (invalidated on config reload)
+        // Use textForKeyEvent + shouldSendText to match the actual text sending logic
+        if GhosttyConfig.load().mouseHideWhileTyping && !mouseHidden {
+            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil }
+            if text != nil {
+                NSCursor.setHiddenUntilMouseMoves(true)
+                mouseHidden = true
+            }
+        }
         if let terminalSurface {
 #if DEBUG
             let dismissNotificationStart = ProcessInfo.processInfo.systemUptime
@@ -5831,6 +5850,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        revealMouseIfNeeded()
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         dlog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -5853,6 +5873,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseUp(with event: NSEvent) {
+        revealMouseIfNeeded()
         #if DEBUG
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
@@ -5861,6 +5882,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -5876,6 +5898,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseUp(with: event)
@@ -5886,6 +5909,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard event.buttonNumber == 2 else {
             super.otherMouseDown(with: event)
             return
@@ -5899,6 +5923,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard event.buttonNumber == 2 else {
             super.otherMouseUp(with: event)
             return
@@ -5992,6 +6017,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        revealMouseIfNeeded()
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -6000,6 +6026,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        revealMouseIfNeeded()
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
@@ -6032,12 +6059,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
     override func scrollWheel(with event: NSEvent) {
+        revealMouseIfNeeded()
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
