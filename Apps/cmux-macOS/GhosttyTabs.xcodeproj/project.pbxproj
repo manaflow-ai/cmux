@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		492F162A2F706D3A00A70A71 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684992F70191100053C84 /* cmux.swift */; };
 		492F162B2F706F2600A70A71 /* RemoteRelayZshBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844C2F7018EB00053C84 /* RemoteRelayZshBootstrap.swift */; };
+		492F162E2F70921300A70A71 /* cmux.icon in Resources */ = {isa = PBXBuildFile; fileRef = 492F162D2F70921300A70A71 /* cmux.icon */; };
+		492F162F2F70921300A70A71 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 492F162C2F70921300A70A71 /* AppIcon.icon */; };
 		49E684602F7018EB00053C84 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684282F7018EB00053C84 /* BrowserPanelView.swift */; };
 		49E684612F7018EB00053C84 /* UpdateController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E684332F7018EB00053C84 /* UpdateController.swift */; };
 		49E684622F7018EB00053C84 /* SidebarSelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E6844F2F7018EB00053C84 /* SidebarSelectionState.swift */; };
@@ -70,11 +72,6 @@
 		49E687F92F7019C800053C84 /* cmux.sdef in Resources */ = {isa = PBXBuildFile; fileRef = 49E686842F7019C800053C84 /* cmux.sdef */; };
 		49E688432F7019C800053C84 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 49E686872F7019C800053C84 /* Localizable.xcstrings */; };
 		49E688C72F701F7500053C84 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = 49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */; };
-		49E688C82F701FAF00053C84 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = 49E684A12F7019C800053C84 /* open */; };
-		49E688C92F701FB500053C84 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = 49E684A02F7019C800053C84 /* claude */; };
-		49E688CD2F70279900053C84 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CA2F70279900053C84 /* AppIcon.icon */; };
-		49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CC2F70279900053C84 /* cmux-icon-chevron.png */; };
-		49E688CF2F70279900053C84 /* cmux.icon in Resources */ = {isa = PBXBuildFile; fileRef = 49E688CB2F70279900053C84 /* cmux.icon */; };
 		49E688D22F70303800053C84 /* Bonsplit in Frameworks */ = {isa = PBXBuildFile; productRef = 49E688D12F70303800053C84 /* Bonsplit */; };
 		49E688D52F70361C00053C84 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49E688D42F70361C00053C84 /* GhosttyKit.xcframework */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
@@ -116,8 +113,6 @@
 			dstPath = bin;
 			dstSubfolderSpec = 7;
 			files = (
-				49E688C92F701FB500053C84 /* claude in Copy CLI */,
-				49E688C82F701FAF00053C84 /* open in Copy CLI */,
 				B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */,
 			);
 			name = "Copy CLI";
@@ -126,6 +121,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		492F162C2F70921300A70A71 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		492F162D2F70921300A70A71 /* cmux.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = cmux.icon; sourceTree = "<group>"; };
 		49E684232F7018EB00053C84 /* BrowserFindJavaScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserFindJavaScript.swift; sourceTree = "<group>"; };
 		49E684242F7018EB00053C84 /* BrowserSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSearchOverlay.swift; sourceTree = "<group>"; };
 		49E684252F7018EB00053C84 /* SurfaceSearchOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceSearchOverlay.swift; sourceTree = "<group>"; };
@@ -184,8 +181,6 @@
 		49E6845E2F7018EB00053C84 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		49E684992F70191100053C84 /* cmux.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift; sourceTree = "<group>"; };
 		49E6849C2F70197700053C84 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		49E684A02F7019C800053C84 /* claude */ = {isa = PBXFileReference; lastKnownFileType = text; path = claude; sourceTree = "<group>"; };
-		49E684A12F7019C800053C84 /* open */ = {isa = PBXFileReference; lastKnownFileType = text; path = open; sourceTree = "<group>"; };
 		49E684A32F7019C800053C84 /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "xterm-ghostty"; sourceTree = "<group>"; };
 		49E684A62F7019C800053C84 /* 0x96f */ = {isa = PBXFileReference; lastKnownFileType = text; path = 0x96f; sourceTree = "<group>"; };
 		49E684A72F7019C800053C84 /* 12-bit Rainbow */ = {isa = PBXFileReference; lastKnownFileType = text; path = "12-bit Rainbow"; sourceTree = "<group>"; };
@@ -711,9 +706,6 @@
 		49E688B32F701A4700053C84 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		49E688B42F701A4700053C84 /* UpdatePillUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillUITests.swift; sourceTree = "<group>"; };
 		49E688C62F701F7500053C84 /* THIRD_PARTY_LICENSES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = THIRD_PARTY_LICENSES.md; path = ../../../THIRD_PARTY_LICENSES.md; sourceTree = "<group>"; };
-		49E688CA2F70279900053C84 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = AppIcon.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/AppIcon.icon"; sourceTree = "<absolute>"; };
-		49E688CB2F70279900053C84 /* cmux.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; name = cmux.icon; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux.icon"; sourceTree = "<absolute>"; };
-		49E688CC2F70279900053C84 /* cmux-icon-chevron.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; name = "cmux-icon-chevron.png"; path = "/Users/galew/Workspace/manaflow-ai/wt-cmux-chore-directoryLayoutMove/design/cmux-icon-chevron.png"; sourceTree = "<absolute>"; };
 		49E688D42F70361C00053C84 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = GhosttyKit.xcframework; path = ../../../../../.cache/cmux/ghosttykit/bc9be90a21997a4e5f06bf15ae2ec0f937c2dc42/GhosttyKit.xcframework; sourceTree = "<group>"; };
 		49E688D72F70375800053C84 /* cmux.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = cmux.entitlements; sourceTree = "<group>"; };
 		7E7E6EF344A568AC7FEE3715 /* UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -856,15 +848,6 @@
 				49E684992F70191100053C84 /* cmux.swift */,
 			);
 			path = CLI;
-			sourceTree = "<group>";
-		};
-		49E684A22F7019C800053C84 /* bin */ = {
-			isa = PBXGroup;
-			children = (
-				49E684A02F7019C800053C84 /* claude */,
-				49E684A12F7019C800053C84 /* open */,
-			);
-			path = bin;
 			sourceTree = "<group>";
 		};
 		49E684A42F7019C800053C84 /* 78 */ = {
@@ -1404,13 +1387,11 @@
 		49E686882F7019C800053C84 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				49E684A22F7019C800053C84 /* bin */,
+				492F162C2F70921300A70A71 /* AppIcon.icon */,
+				492F162D2F70921300A70A71 /* cmux.icon */,
 				49E686762F7019C800053C84 /* ghostty */,
 				49E6867D2F7019C800053C84 /* shell-integration */,
 				49E686832F7019C800053C84 /* terminfo-overlay */,
-				49E688CA2F70279900053C84 /* AppIcon.icon */,
-				49E688CB2F70279900053C84 /* cmux.icon */,
-				49E688CC2F70279900053C84 /* cmux-icon-chevron.png */,
 				49E686842F7019C800053C84 /* cmux.sdef */,
 				49E686852F7019C800053C84 /* Info.plist */,
 				49E686862F7019C800053C84 /* InfoPlist.xcstrings */,
@@ -1664,12 +1645,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				49E688C72F701F7500053C84 /* THIRD_PARTY_LICENSES.md in Resources */,
+				492F162E2F70921300A70A71 /* cmux.icon in Resources */,
+				492F162F2F70921300A70A71 /* AppIcon.icon in Resources */,
 				49E6849D2F70197700053C84 /* Assets.xcassets in Resources */,
 				49E686A22F7019C800053C84 /* xterm-ghostty in Resources */,
 				49E687D32F7019C800053C84 /* InfoPlist.xcstrings in Resources */,
-				49E688CD2F70279900053C84 /* AppIcon.icon in Resources */,
-				49E688CE2F70279900053C84 /* cmux-icon-chevron.png in Resources */,
-				49E688CF2F70279900053C84 /* cmux.icon in Resources */,
 				49E687F92F7019C800053C84 /* cmux.sdef in Resources */,
 				49E688432F7019C800053C84 /* Localizable.xcstrings in Resources */,
 			);
