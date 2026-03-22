@@ -2547,6 +2547,47 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
+final class BrowserZoomSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "BrowserZoomSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock { defaults.removePersistentDomain(forName: suiteName) }
+        return defaults
+    }
+
+    func testDefaultsToHundredPercentWhenUnset() {
+        let defaults = makeIsolatedDefaults()
+        XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), 1.0)
+    }
+
+    func testReadsPersistedValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(BrowserDefaultZoomLevel.hundredFifteen.rawValue, forKey: BrowserZoomSettings.defaultPageZoomKey)
+        XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), 1.15)
+
+        defaults.set(BrowserDefaultZoomLevel.twoHundredFifty.rawValue, forKey: BrowserZoomSettings.defaultPageZoomKey)
+        XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), 2.50)
+    }
+
+    func testFallsBackToDefaultForUnrecognizedValue() {
+        let defaults = makeIsolatedDefaults()
+        defaults.set(1.33, forKey: BrowserZoomSettings.defaultPageZoomKey)
+        XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), BrowserZoomSettings.defaultPageZoom.rawValue)
+
+        defaults.set(99.0, forKey: BrowserZoomSettings.defaultPageZoomKey)
+        XCTAssertEqual(BrowserZoomSettings.pageZoom(defaults: defaults), BrowserZoomSettings.defaultPageZoom.rawValue)
+    }
+
+    func testAllPresetsAreWithinSupportedZoomRange() {
+        for level in BrowserDefaultZoomLevel.allCases {
+            XCTAssertGreaterThanOrEqual(level.rawValue, 0.25)
+            XCTAssertLessThanOrEqual(level.rawValue, 5.0)
+        }
+    }
+}
 
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {

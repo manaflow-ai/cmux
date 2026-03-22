@@ -890,6 +890,39 @@ func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     return bundleIdentifier
 }
 
+enum BrowserDefaultZoomLevel: Double, CaseIterable, Identifiable {
+    case fifty = 0.50
+    case seventyFive = 0.75
+    case eightyFive = 0.85
+    case hundred = 1.00
+    case hundredFifteen = 1.15
+    case hundredTwentyFive = 1.25
+    case hundredFifty = 1.50
+    case hundredSeventyFive = 1.75
+    case twoHundred = 2.00
+    case twoHundredFifty = 2.50
+    case threeHundred = 3.00
+
+    var id: Double { rawValue }
+
+    var displayName: String {
+        "\(Int((rawValue * 100).rounded()))%"
+    }
+}
+
+enum BrowserZoomSettings {
+    static let defaultPageZoomKey = "browserDefaultPageZoom"
+    static let defaultPageZoom: BrowserDefaultZoomLevel = .hundred
+
+    static func pageZoom(defaults: UserDefaults = .standard) -> CGFloat {
+        guard let raw = defaults.object(forKey: defaultPageZoomKey) as? Double,
+              let level = BrowserDefaultZoomLevel(rawValue: raw) else {
+            return defaultPageZoom.rawValue
+        }
+        return level.rawValue
+    }
+}
+
 @MainActor
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
@@ -2458,6 +2491,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
+        webView.pageZoom = BrowserZoomSettings.pageZoom()
         // Match the empty-page background to the terminal theme so newly-created browsers
         // don't flash white before content loads.
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
@@ -4709,7 +4743,7 @@ extension BrowserPanel {
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(1.0)
+        applyPageZoom(BrowserZoomSettings.pageZoom())
     }
 
     func currentPageZoomFactor() -> CGFloat {
