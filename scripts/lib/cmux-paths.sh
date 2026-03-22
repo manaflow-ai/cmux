@@ -25,6 +25,9 @@ cmux_paths_init() {
   if [[ -z "${CMUX_APP_ROOT:-}" ]]; then
     CMUX_APP_ROOT="$CMUX_REPO_ROOT/Apps/cmux-macOS"
   fi
+  if [[ -z "${CMUX_APP_RESOURCES_DIR:-}" ]]; then
+    CMUX_APP_RESOURCES_DIR="$CMUX_APP_ROOT/Resources"
+  fi
   if [[ -z "${CMUX_XCODE_PROJECT_PATH:-}" ]]; then
     CMUX_XCODE_PROJECT_PATH="$CMUX_REPO_ROOT/Apps/cmux-macOS/GhosttyTabs.xcodeproj"
   fi
@@ -38,7 +41,7 @@ cmux_paths_init() {
     CMUX_LOCAL_DAEMON_DIR="$CMUX_REPO_ROOT/cmuxd"
   fi
   if [[ -z "${CMUX_GHOSTTYKIT_PATH:-}" ]]; then
-    CMUX_GHOSTTYKIT_PATH="$CMUX_APP_ROOT/GhosttyKit.xcframework"
+    CMUX_GHOSTTYKIT_PATH="$CMUX_APP_RESOURCES_DIR/GhosttyKit.xcframework"
   fi
   if [[ -z "${CMUX_APP_SUPPORT_DIR:-}" ]]; then
     CMUX_APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"

@@ -80,6 +80,7 @@ else
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
+mkdir -p "$CMUX_APP_RESOURCES_DIR"
 ln -sfn "$CACHE_XCFRAMEWORK" "$CMUX_GHOSTTYKIT_PATH"
 
 echo "==> Setup complete!"
