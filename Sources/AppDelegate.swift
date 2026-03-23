@@ -1929,6 +1929,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.cachedIsRunningUnderXCTest
     }
 
+#if DEBUG
+    private var uiTestForegroundActivationInFlight = false
+#endif
+
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
         if env["XCTestBundlePath"] != nil { return true }
@@ -2365,6 +2369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
         if isRunningUnderXCTest {
+            scheduleUITestForegroundActivationIfNeeded(reason: "didFinishLaunching")
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
                     BrowserImportHintSettings.variant(for: rawVariant).rawValue,
@@ -2389,7 +2394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
-                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                self.scheduleUITestForegroundActivationIfNeeded(reason: "afterForceWindow")
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
@@ -2415,6 +2420,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+#if DEBUG
+        scheduleUITestForegroundActivationIfNeeded(reason: "willFinishLaunching")
+#endif
+    }
+
 #if DEBUG
     private func writeUITestDiagnosticsIfNeeded(stage: String) {
         let env = ProcessInfo.processInfo.environment
@@ -2433,6 +2444,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
         payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
         payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
+        payload["appIsActive"] = NSApp.isActive ? "1" : "0"
+        payload["activationPolicy"] = debugActivationPolicyDescription(NSApp.activationPolicy())
         payload["windowsCount"] = String(windows.count)
         payload["windowIdentifiers"] = ids
         payload["windowVisibleFlags"] = vis
@@ -2564,6 +2577,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func scheduleUITestForegroundActivationIfNeeded(reason: String) {
+        let env = ProcessInfo.processInfo.environment
+        guard isRunningUnderXCTest(env) else { return }
+        guard !uiTestForegroundActivationInFlight else { return }
+
+        uiTestForegroundActivationInFlight = true
+        attemptUITestForegroundActivation(reason: reason, attempt: 0)
+    }
+
+    private func attemptUITestForegroundActivation(reason: String, attempt: Int) {
+        let env = ProcessInfo.processInfo.environment
+        guard isRunningUnderXCTest(env) else {
+            uiTestForegroundActivationInFlight = false
+            return
+        }
+
+        if NSApp.activationPolicy() != .regular {
+            _ = NSApp.setActivationPolicy(.regular)
+        }
+        if NSApp.isHidden {
+            NSApp.unhide(nil)
+        }
+
+        let windows = NSApp.windows
+        if let window = windows.first {
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        writeUITestDiagnosticsIfNeeded(stage: "foreground.\(reason).\(attempt)")
+
+        if NSApp.isActive {
+            uiTestForegroundActivationInFlight = false
+            return
+        }
+        guard attempt < 20 else {
+            uiTestForegroundActivationInFlight = false
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.attemptUITestForegroundActivation(reason: reason, attempt: attempt + 1)
+        }
+    }
+
+    private func debugActivationPolicyDescription(_ policy: NSApplication.ActivationPolicy) -> String {
+        switch policy {
+        case .regular:
+            return "regular"
+        case .accessory:
+            return "accessory"
+        case .prohibited:
+            return "prohibited"
+        @unknown default:
+            return "unknown(\(policy.rawValue))"
+        }
+    }
+
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
         let env = ProcessInfo.processInfo.environment
         guard let rawDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"],
@@ -2604,6 +2677,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.setFrame(frame, display: true, animate: false)
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
+        scheduleUITestForegroundActivationIfNeeded(reason: "afterMoveToTargetDisplay")
         if window.screen?.cmuxDisplayID != targetDisplayID, attempt < 20 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
