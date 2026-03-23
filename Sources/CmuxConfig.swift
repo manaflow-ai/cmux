@@ -290,6 +290,7 @@ final class CmuxConfigStore: ObservableObject {
         let newPath: String?
         if let directory, !directory.isEmpty {
             newPath = findCmuxConfig(startingFrom: directory)
+                ?? (directory as NSString).appendingPathComponent("cmux.json")
         } else {
             newPath = nil
         }
