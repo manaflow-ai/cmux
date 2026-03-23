@@ -108,7 +108,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'vendor/ghostty') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -277,7 +277,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'vendor/ghostty') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
