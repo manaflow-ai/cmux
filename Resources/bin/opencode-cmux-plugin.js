@@ -11,11 +11,11 @@ function clip(value, limit = 160) {
 }
 
 function ensure(sessions, sessionID) {
-   const current = sessions.get(sessionID)
-   if (current) return current
-   const created = { state: "idle", waiting: "", error: "", completed: false }
-   sessions.set(sessionID, created)
-   return created
+  const current = sessions.get(sessionID)
+  if (current) return current
+  const created = { state: "idle", waiting: "", error: "", completed: false }
+  sessions.set(sessionID, created)
+  return created
 }
 
 function questionText(event) {
@@ -56,39 +56,39 @@ function errorText(event) {
 }
 
 function desiredStatus(sessions) {
-   const items = [...sessions.values()]
-   if (!items.length) return null
-   if (items.some((item) => item.error)) {
-     return { value: "Error", icon: "exclamationmark.triangle.fill", color: RED, attention: true }
-   }
-   if (items.some((item) => item.waiting)) {
-     return { value: "Needs input", icon: "bell.fill", color: BLUE, attention: true }
-   }
-   if (items.some((item) => item.state === "retry")) {
-     return { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: ORANGE, attention: false }
-   }
-   if (items.some((item) => item.state === "busy")) {
-     return { value: "Running", icon: "bolt.fill", color: BLUE, attention: false }
-   }
-   // Check for completed sessions (busy->idle transition that hasn't been acknowledged)
-   if (items.some((item) => item.completed)) {
-     return { value: "Done", icon: "checkmark.circle.fill", color: BLUE, attention: true }
-   }
-   return { value: "Idle", icon: "pause.circle.fill", color: GRAY, attention: false }
- }
+  const items = [...sessions.values()]
+  if (!items.length) return null
+  if (items.some((item) => item.error)) {
+    return { value: "Error", icon: "exclamationmark.triangle.fill", color: RED, attention: true }
+  }
+  if (items.some((item) => item.waiting)) {
+    return { value: "Needs input", icon: "bell.fill", color: BLUE, attention: true }
+  }
+  if (items.some((item) => item.state === "retry")) {
+    return { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: ORANGE, attention: false }
+  }
+  if (items.some((item) => item.state === "busy")) {
+    return { value: "Running", icon: "bolt.fill", color: BLUE, attention: false }
+  }
+  // Completion: show Idle with attention (blue ring) instead of a sixth state
+  if (items.some((item) => item.completed)) {
+    return { value: "Idle", icon: "pause.circle.fill", color: BLUE, attention: true }
+  }
+  return { value: "Idle", icon: "pause.circle.fill", color: GRAY, attention: false }
+}
 
 export const CmuxIntegrationPlugin = async ({ $ }) => {
-   const sessions = new Map()
-   let applied = ""
-   let attention = false
-   async function notify(subtitle, body) {
-     const text = clip(body)
-     if (!text) return
-     try {
-       await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`.quiet()
-       attention = true
-     } catch {}
-   }
+  const sessions = new Map()
+  let applied = ""
+  let attention = false
+  async function notify(subtitle, body) {
+    const text = clip(body)
+    if (!text) return
+    try {
+      await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`.quiet()
+      attention = true
+    } catch {}
+  }
 
   // NOTE: clear-notifications is workspace-global; cmux does not yet support
   // --pid scoping for clears. In practice each surface runs one OpenCode instance.
@@ -107,8 +107,8 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
     try {
       if (pid > 0) {
         await $`cmux set-status opencode ${value} --icon ${icon} --color ${color} --pid ${pid}`.quiet()
-       } else {
-         await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`.quiet()
+      } else {
+        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`.quiet()
       }
       applied = next
     } catch {}
@@ -160,12 +160,9 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
         const prevState = state.state
         state.state = event.properties?.status?.type || "idle"
         state.error = ""
-        // Reset completed flag when leaving idle state (starting new work)
+        // Reset completed flag and waiting text when leaving idle (starting new work)
         if (prevState === "idle" && state.state !== "idle") {
           state.completed = false
-        }
-        // Clear waiting text when leaving idle state (starting work/resuming from permission/question)
-        if (prevState === "idle" && state.state !== "idle") {
           state.waiting = ""
         }
         // Detect completion: busy -> idle transition (not initial idle)

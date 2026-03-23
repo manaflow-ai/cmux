@@ -5,7 +5,7 @@ _cmux_send() {
     if command -v ncat >/dev/null 2>&1; then
         printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
-        printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH"
+        printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
     elif command -v nc >/dev/null 2>&1; then
         # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
         #
@@ -54,6 +54,129 @@ _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
+_CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
+_CMUX_TMUX_PULL_SIGNATURE="${_CMUX_TMUX_PULL_SIGNATURE:-}"
+_CMUX_TMUX_SYNC_KEYS=(
+    CMUX_BUNDLED_CLI_PATH
+    CMUX_BUNDLE_ID
+    CMUXD_UNIX_PATH
+    CMUXTERM_REPO_ROOT
+    CMUX_DEBUG_LOG
+    CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
+    CMUX_PORT
+    CMUX_PORT_END
+    CMUX_PORT_RANGE
+    CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD
+    CMUX_SHELL_INTEGRATION
+    CMUX_SHELL_INTEGRATION_DIR
+    CMUX_SOCKET_ENABLE
+    CMUX_SOCKET_MODE
+    CMUX_SOCKET_PATH
+    CMUX_TAB_ID
+    CMUX_TAG
+    CMUX_WORKSPACE_ID
+)
+_CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_PANEL_ID
+    CMUX_SURFACE_ID
+)
+
+_cmux_tmux_sync_key_is_managed() {
+    local candidate="$1"
+    local key
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        [[ "$key" == "$candidate" ]] && return 0
+    done
+    return 1
+}
+
+_cmux_tmux_shell_env_signature() {
+    local key value first=1
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${!key}"
+        [[ -n "$value" ]] || continue
+        if (( first )); then
+            printf '%s=%s' "$key" "$value"
+            first=0
+        else
+            printf '\037%s=%s' "$key" "$value"
+        fi
+    done
+}
+
+_cmux_tmux_publish_cmux_environment() {
+    [[ -z "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local signature
+    signature="$(_cmux_tmux_shell_env_signature)"
+    [[ -n "$signature" ]] || return 0
+    [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
+
+    local key value
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${!key}"
+        [[ -n "$value" ]] || continue
+        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+    done
+
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
+    done
+
+    _CMUX_TMUX_PUSH_SIGNATURE="$signature"
+}
+
+_cmux_tmux_refresh_cmux_environment() {
+    [[ -n "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local output filtered line key value did_change=0
+    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        filtered+="${line}"$'\n'
+    done <<< "$output"
+
+    [[ -n "$filtered" ]] || return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        value="${line#*=}"
+        if [[ "${!key}" != "$value" ]]; then
+            printf -v "$key" '%s' "$value"
+            export "$key"
+            did_change=1
+        fi
+    done <<< "$filtered"
+
+    _CMUX_TMUX_PULL_SIGNATURE="$filtered"
+    if (( did_change )); then
+        _CMUX_TTY_REPORTED=0
+        _CMUX_SHELL_ACTIVITY_LAST=""
+        _CMUX_PWD_LAST_PWD=""
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
+        _CMUX_GIT_HEAD_SIGNATURE=""
+        _CMUX_PR_FORCE=1
+        _cmux_stop_pr_poll_loop
+    fi
+}
+
+_cmux_tmux_sync_cmux_environment() {
+    if [[ -n "$TMUX" ]]; then
+        _cmux_tmux_refresh_cmux_environment
+    else
+        _cmux_tmux_publish_cmux_environment
+    fi
+}
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
@@ -90,17 +213,32 @@ _cmux_git_head_signature() {
     printf '%s\n' "$line"
 }
 
+_cmux_report_tty_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload="report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID"
+    if [[ -z "$TMUX" ]]; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    printf '%s\n' "$payload"
+}
+
 _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tty_payload)"
+    [[ -n "$payload" ]] || return 0
+
     _CMUX_TTY_REPORTED=1
     {
-        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        _cmux_send "$payload"
     } >/dev/null 2>&1 & disown
 }
 
@@ -145,6 +283,40 @@ _cmux_pr_output_indicates_no_pull_request() {
         || "$output" == *"no pull request associated"* ]]
 }
 
+_cmux_github_repo_slug_for_path() {
+    local repo_path="$1"
+    local remote_url="" path_part=""
+    [[ -n "$repo_path" ]] || return 0
+
+    remote_url="$(git -C "$repo_path" remote get-url origin 2>/dev/null)"
+    [[ -n "$remote_url" ]] || return 0
+
+    case "$remote_url" in
+        git@github.com:*)
+            path_part="${remote_url#git@github.com:}"
+            ;;
+        ssh://git@github.com/*)
+            path_part="${remote_url#ssh://git@github.com/}"
+            ;;
+        https://github.com/*)
+            path_part="${remote_url#https://github.com/}"
+            ;;
+        http://github.com/*)
+            path_part="${remote_url#http://github.com/}"
+            ;;
+        git://github.com/*)
+            path_part="${remote_url#git://github.com/}"
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    path_part="${path_part%.git}"
+    [[ "$path_part" == */* ]] || return 0
+    printf '%s\n' "$path_part"
+}
+
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     [[ -n "$repo_path" ]] || {
@@ -159,18 +331,24 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
-    local branch gh_output gh_error="" err_file="" gh_status number state url status_opt=""
+    local branch repo_slug="" gh_output="" gh_error="" err_file="" gh_status number state url status_opt=""
+    local -a gh_repo_args=()
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
         _cmux_clear_pr_for_panel
         return 0
+    fi
+    repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
+    if [[ -n "$repo_slug" ]]; then
+        gh_repo_args=(--repo "$repo_slug")
     fi
 
     err_file="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/cmux-gh-pr-view.XXXXXX" 2>/dev/null || true)"
     [[ -n "$err_file" ]] || return 1
     gh_output="$(
         builtin cd "$repo_path" 2>/dev/null \
-            && gh pr view \
+            && gh pr view "$branch" \
+                "${gh_repo_args[@]}" \
                 --json number,state,url \
                 --jq '[.number, .state, .url] | @tsv' \
                 2>"$err_file"
@@ -180,18 +358,21 @@ _cmux_report_pr_for_path() {
         gh_error="$("/bin/cat" -- "$err_file" 2>/dev/null || true)"
         /bin/rm -f -- "$err_file" >/dev/null 2>&1 || true
     fi
-    if (( gh_status != 0 )); then
+
+    if (( gh_status != 0 )) || [[ -z "$gh_output" ]]; then
+        if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
+            _cmux_clear_pr_for_panel
+            return 0
+        fi
         if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
             _cmux_clear_pr_for_panel
             return 0
         fi
-        # Preserve the last-known PR badge when gh fails transiently, then retry
-        # on the next background poll instead of clearing visible state.
+
+        # Always scope PR detection to the exact current branch. Preserve the
+        # last-known PR badge when gh fails transiently, then retry on the next
+        # background poll instead of showing a mismatched PR.
         return 1
-    fi
-    if [[ -z "$gh_output" ]]; then
-        _cmux_clear_pr_for_panel
-        return 0
     fi
 
     IFS=$'\t' read -r number state url <<< "$gh_output"
@@ -206,7 +387,8 @@ _cmux_report_pr_for_path() {
         *) return 1 ;;
     esac
 
-    _cmux_send "report_pr $number $url $status_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    local quoted_branch="${branch//\"/\\\"}"
+    _cmux_send "report_pr $number $url $status_opt --branch=\"$quoted_branch\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_child_pids() {
@@ -263,11 +445,9 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" TERM
-        sleep 0.1
-        if kill -0 "$_CMUX_PR_POLL_PID" >/dev/null 2>&1; then
-            _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
-        fi
+        # Use SIGKILL directly to avoid blocking sleep in preexec.
+        # The poll loop is lightweight and safe to kill abruptly.
+        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
         _CMUX_PR_POLL_PID=""
     fi
 }
@@ -306,6 +486,8 @@ _cmux_bash_cleanup() {
 }
 
 _cmux_preexec_command() {
+    _cmux_tmux_sync_cmux_environment
+
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -328,6 +510,8 @@ _cmux_bash_preexec_hook() {
 }
 
 _cmux_prompt_command() {
+    _cmux_tmux_sync_cmux_environment
+
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -378,11 +562,18 @@ _cmux_prompt_command() {
     if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
         local head_signature
         head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
-        if [[ -n "$head_signature" && "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-            _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-            git_head_changed=1
-            # Also invalidate the PR poller so it refreshes with the new branch.
-            _CMUX_PR_FORCE=1
+        if [[ -n "$head_signature" ]]; then
+            if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                # The first observed HEAD value is just the session baseline.
+                # Treating it as a branch change clears restore-seeded PR badges
+                # before the first background probe can confirm the current PR.
+                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+            elif [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+                git_head_changed=1
+                # Also invalidate the PR poller so it refreshes with the new branch.
+                _CMUX_PR_FORCE=1
+            fi
         fi
     fi
 
@@ -402,6 +593,8 @@ _cmux_prompt_command() {
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
         {
+            # Skip git operations if not in a git repository to avoid TCC prompts
+            git rev-parse --git-dir >/dev/null 2>&1 || return 0
             local branch dirty_opt=""
             branch=$(git branch --show-current 2>/dev/null)
             if [[ -n "$branch" ]]; then

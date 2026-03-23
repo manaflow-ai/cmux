@@ -119,6 +119,22 @@ final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
 }
 
+extension Notification.Name {
+    static let cmuxNotificationsPopoverVisibilityDidChange = Notification.Name("cmux.notificationsPopoverVisibilityDidChange")
+}
+
+private enum NotificationsPopoverVisibilityUserInfoKey {
+    static let isShown = "isShown"
+}
+
+private func postNotificationsPopoverVisibilityDidChange(isShown: Bool) {
+    NotificationCenter.default.post(
+        name: .cmuxNotificationsPopoverVisibilityDidChange,
+        object: nil,
+        userInfo: [NotificationsPopoverVisibilityUserInfoKey.isShown: isShown]
+    )
+}
+
 struct NotificationsAnchorView: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
@@ -240,11 +256,14 @@ struct TitlebarControlsView: View {
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    let visibilityMode: TitlebarControlsVisibilityMode
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
+    @State private var isHoveringControls = false
+    @State private var isNotificationsPopoverShown = false
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
@@ -279,6 +298,13 @@ struct TitlebarControlsView: View {
         alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
     }
 
+    private var shouldShowControls: Bool {
+        if visibilityMode == .alwaysVisible {
+            return true
+        }
+        return isHoveringControls || isNotificationsPopoverShown || shouldShowTitlebarShortcutHints
+    }
+
     var body: some View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
@@ -288,14 +314,27 @@ struct TitlebarControlsView: View {
         controlsGroup(config: config)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
+            .contentShape(Rectangle())
+            .opacity(shouldShowControls ? 1 : 0)
+            .allowsHitTesting(shouldShowControls)
+            .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
                     modifierKeyMonitor.setHostWindow(window)
                 }
                 .frame(width: 0, height: 0)
             )
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+            .onHover { hovering in
+                isHoveringControls = hovering
+            }
+            .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
                 shortcutRefreshTick &+= 1
+            }
+            .onAppear {
+                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
+                isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
             }
             .onAppear {
                 modifierKeyMonitor.start()
@@ -508,6 +547,36 @@ struct TitlebarControlsView: View {
     }
 }
 
+struct HiddenTitlebarSidebarControlsView: View {
+    @ObservedObject var notificationStore: TerminalNotificationStore
+    @StateObject private var viewModel = TitlebarControlsViewModel()
+
+    private let hostWidth: CGFloat = 124
+    private let hostHeight: CGFloat = 28
+
+    var body: some View {
+        TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: { _ = AppDelegate.shared?.sidebarState?.toggle() },
+            onToggleNotifications: { [viewModel] in
+                AppDelegate.shared?.toggleNotificationsPopover(
+                    animated: true,
+                    anchorView: viewModel.notificationsAnchorView
+                )
+            },
+            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            visibilityMode: .onHover
+        )
+        .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+    }
+}
+
+enum TitlebarControlsVisibilityMode {
+    case alwaysVisible
+    case onHover
+}
+
 @MainActor
 private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
     @Published private(set) var isModifierPressed = false
@@ -714,6 +783,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
+    private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(notificationStore: TerminalNotificationStore) {
         self.notificationStore = notificationStore
@@ -727,7 +797,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
-                onNewTab: newTab
+                onNewTab: newTab,
+                visibilityMode: .alwaysVisible
             )
         )
 
@@ -749,9 +820,11 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.applyWorkspaceTitlebarVisibility()
             self?.scheduleSizeUpdate(invalidateFittingSize: true)
         }
 
+        applyWorkspaceTitlebarVisibility()
         scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
@@ -796,6 +869,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func updateSize() {
+        applyWorkspaceTitlebarVisibility()
+        guard showsWorkspaceTitlebar else { return }
         let contentSize: NSSize
         if fittingSizeNeedsRefresh || cachedFittingSize == nil {
             hostingView.invalidateIntrinsicContentSize()
@@ -806,9 +881,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         contentSize = cachedFittingSize ?? .zero
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        let titlebarHeight = view.window.map { window in
-            window.frame.height - window.contentLayoutRect.height
-        } ?? contentSize.height
+        // Use the traffic-light close button's superview height as the true
+        // titlebar height. This excludes the tab bar so the icons align with
+        // the traffic-light buttons (like Slack does) instead of centering in
+        // the full non-content area which includes the tab strip.
+        let titlebarHeight: CGFloat = {
+            if let window = view.window,
+               let closeButton = window.standardWindowButton(.closeButton),
+               let titlebarView = closeButton.superview,
+               titlebarView.frame.height > 0 {
+                return titlebarView.frame.height
+            }
+            // Fallback: derive from the window geometry.
+            return view.window.map { window in
+                window.frame.height - window.contentLayoutRect.height
+            } ?? contentSize.height
+        }()
         let containerHeight = max(contentSize.height, titlebarHeight)
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
@@ -826,6 +914,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
         containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
         hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+    }
+
+    private func applyWorkspaceTitlebarVisibility() {
+        let shouldShow = showsWorkspaceTitlebar
+        view.isHidden = !shouldShow
+        if !shouldShow {
+            preferredContentSize = .zero
+            containerView.frame = .zero
+            hostingView.frame = .zero
+        }
     }
 
     func toggleNotificationsPopover(animated: Bool = true, externalAnchor: NSView? = nil) {
@@ -861,6 +959,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+                postNotificationsPopoverVisibilityDidChange(isShown: true)
                 return
             }
         }
@@ -871,6 +970,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+                postNotificationsPopoverVisibilityDidChange(isShown: true)
                 return
             }
         }
@@ -880,6 +980,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
+        postNotificationsPopoverVisibilityDidChange(isShown: true)
     }
 
     func dismissNotificationsPopover() {
@@ -902,6 +1003,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     func popoverDidClose(_ notification: Notification) {
         // Clear the content view controller to stop SwiftUI observers when popover is hidden
         notificationsPopover.contentViewController = nil
+        postNotificationsPopoverVisibilityDidChange(isShown: false)
     }
 }
 
@@ -1090,6 +1192,7 @@ private struct NotificationPopoverRow: View {
     }
 }
 
+@MainActor
 final class UpdateTitlebarAccessoryController {
     private weak var updateViewModel: UpdateViewModel?
     private var didStart = false
@@ -1130,7 +1233,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            self?.attachIfNeeded(to: window)
+            Task { @MainActor [weak self] in
+                self?.attachIfNeeded(to: window)
+            }
         })
 
         observers.append(center.addObserver(
@@ -1139,7 +1244,9 @@ final class UpdateTitlebarAccessoryController {
             queue: .main
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
-            self?.attachIfNeeded(to: window)
+            Task { @MainActor [weak self] in
+                self?.attachIfNeeded(to: window)
+            }
         })
 
         // We intentionally do not rely on "window became visible" notifications here:
@@ -1159,7 +1266,9 @@ final class UpdateTitlebarAccessoryController {
         let delays: [TimeInterval] = [0.05, 0.15, 0.3, 0.6, 1.0, 2.0, 3.0]
         for delay in delays {
             let item = DispatchWorkItem { [weak self] in
-                self?.attachToExistingWindows()
+                Task { @MainActor [weak self] in
+                    self?.attachToExistingWindows()
+                }
 #if DEBUG
                 let env = ProcessInfo.processInfo.environment
                 if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1175,7 +1284,6 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachIfNeeded(to window: NSWindow) {
-        guard !attachedWindows.contains(window) else { return }
         guard !isSettingsWindow(window) else { return }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
@@ -1187,8 +1295,10 @@ final class UpdateTitlebarAccessoryController {
             if attempts < 40 {
                 pendingAttachRetries[key] = attempts + 1
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak window] in
-                    guard let self, let window else { return }
-                    self.attachIfNeeded(to: window)
+                    Task { @MainActor [weak self, weak window] in
+                        guard let self, let window else { return }
+                        self.attachIfNeeded(to: window)
+                    }
                 }
             } else {
                 pendingAttachRetries.removeValue(forKey: key)
@@ -1197,6 +1307,13 @@ final class UpdateTitlebarAccessoryController {
         }
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+
+        guard !WorkspacePresentationModeSettings.isMinimal() else {
+            removeAccessoryIfPresent(from: window)
+            return
+        }
+
+        guard !attachedWindows.contains(window) else { return }
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
@@ -1215,6 +1332,40 @@ final class UpdateTitlebarAccessoryController {
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
             UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+        }
+#endif
+    }
+
+    private func removeAccessoryIfPresent(from window: NSWindow) {
+        let matchingIndices = window.titlebarAccessoryViewControllers.indices.reversed().filter { index in
+            window.titlebarAccessoryViewControllers[index].view.identifier == controlsIdentifier
+        }
+        guard !matchingIndices.isEmpty || attachedWindows.contains(window) else { return }
+
+        for index in matchingIndices {
+            let accessory = window.titlebarAccessoryViewControllers[index]
+            if let controls = accessory as? TitlebarControlsAccessoryViewController {
+                controls.dismissNotificationsPopover()
+            }
+            window.removeTitlebarAccessoryViewController(at: index)
+        }
+
+        attachedWindows.remove(window)
+        pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+        DispatchQueue.main.async { [weak window] in
+            guard let window else { return }
+            window.contentView?.needsLayout = true
+            window.contentView?.superview?.needsLayout = true
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.contentView?.superview?.layoutSubtreeIfNeeded()
+            window.invalidateShadow()
+        }
+
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if env["CMUX_UI_TEST_MODE"] == "1" {
+            let ident = window.identifier?.rawValue ?? "<nil>"
+            UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
     }

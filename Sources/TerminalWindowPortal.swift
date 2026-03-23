@@ -243,8 +243,8 @@ final class WindowTerminalHostView: NSView {
             return false
         }
 
-        let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
-        let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
+        let regionMinX = dividerX - SidebarResizeInteraction.sidebarSideHitWidth
+        let regionMaxX = dividerX + SidebarResizeInteraction.contentSideHitWidth
         return point.x >= regionMinX && point.x <= regionMaxX
     }
 
@@ -567,6 +567,9 @@ private final class SplitDividerOverlayView: NSView {
 
 @MainActor
 final class WindowTerminalPortal: NSObject {
+#if DEBUG
+    static var isPointerDragActiveForTesting = false
+#endif
     private static let tinyHideThreshold: CGFloat = 1
     private static let minimumRevealWidth: CGFloat = 24
     private static let minimumRevealHeight: CGFloat = 18
@@ -677,13 +680,22 @@ final class WindowTerminalPortal: NSObject {
         geometryObservers.removeAll()
     }
 
-    private func scheduleExternalGeometrySynchronize() {
+    fileprivate func scheduleExternalGeometrySynchronize() {
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
+        let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.hasExternalGeometrySyncScheduled = false
-            self.synchronizeAllEntriesFromExternalGeometryChange()
+            let performSync = {
+                self.hasExternalGeometrySyncScheduled = false
+                self.synchronizeAllEntriesFromExternalGeometryChange()
+            }
+            if requiresSettledLayout {
+                DispatchQueue.main.async(execute: performSync)
+            } else {
+                performSync()
+            }
         }
     }
 
@@ -1118,6 +1130,10 @@ final class WindowTerminalPortal: NSObject {
 
         synchronizeHostedView(withId: hostedId)
         scheduleDeferredFullSynchronizeAll()
+        // Session/window restore can queue additional ancestor layout shifts (sidebar width,
+        // split positions) after the initial bind tick. Queue a later external sync so the
+        // portal catches that settled geometry instead of staying at the seeded frame.
+        scheduleExternalGeometrySynchronize()
         pruneDeadEntries()
     }
 
@@ -1419,22 +1435,23 @@ final class WindowTerminalPortal: NSObject {
 #endif
         }
 
-        if hasFiniteFrame && !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            hostedView.frame = targetFrame
-            CATransaction.commit()
-            hostedView.reconcileGeometryNow()
-            hostedView.refreshSurfaceNow(reason: "portal.frameChange")
-        }
-
         if hasFiniteFrame {
             let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
+            var geometryChanged = false
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            if !Self.rectApproximatelyEqual(oldFrame, targetFrame) {
+                hostedView.frame = targetFrame
+                geometryChanged = true
+            }
             if !Self.rectApproximatelyEqual(hostedView.bounds, expectedBounds) {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
                 hostedView.bounds = expectedBounds
-                CATransaction.commit()
+                geometryChanged = true
+            }
+            CATransaction.commit()
+            if geometryChanged {
+                hostedView.reconcileGeometryNow()
+                hostedView.refreshSurfaceNow(reason: "portal.frameChange")
             }
         }
 
@@ -1633,13 +1650,24 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+#if DEBUG
+    static var isPointerDragActiveForTesting = false
+#endif
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static var hasPendingExternalGeometrySyncForAllWindows = false
+    private static var interactiveGeometryResizeCount = 0
 #if DEBUG
     private static var blockedBindCount: Int = 0
     private static var blockedBindReasons: [String: Int] = [:]
 #endif
+
+    static var isInteractiveGeometryResizeActive: Bool {
+#if DEBUG
+        if Self.isPointerDragActiveForTesting { return true }
+#endif
+        return Self.interactiveGeometryResizeCount > 0
+    }
 
     private static func bindBlockReason(
         expectedSurfaceId: UUID?,
@@ -1723,6 +1751,15 @@ enum TerminalWindowPortalRegistry {
         return portal
     }
 
+    private static func existingPortal(for window: NSWindow) -> WindowTerminalPortal? {
+        if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
+            portalsByWindowId[ObjectIdentifier(window)] = existing
+            installWindowCloseObserverIfNeeded(for: window)
+            return existing
+        }
+        return portalsByWindowId[ObjectIdentifier(window)]
+    }
+
     static func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1781,13 +1818,33 @@ enum TerminalWindowPortalRegistry {
         portal.synchronizeHostedViewForAnchor(anchorView)
     }
 
+    static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
+        existingPortal(for: window)?.scheduleExternalGeometrySynchronize()
+    }
+
+    static func beginInteractiveGeometryResize() {
+        interactiveGeometryResizeCount += 1
+    }
+
+    static func endInteractiveGeometryResize() {
+        interactiveGeometryResizeCount = max(0, interactiveGeometryResizeCount - 1)
+    }
+
     static func scheduleExternalGeometrySynchronizeForAllWindows() {
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
+        let isDragEvent = Self.isInteractiveGeometryResizeActive
         DispatchQueue.main.async {
-            Self.hasPendingExternalGeometrySyncForAllWindows = false
-            for portal in Self.portalsByWindowId.values {
-                portal.synchronizeAllEntriesFromExternalGeometryChange()
+            let performSync = {
+                Self.hasPendingExternalGeometrySyncForAllWindows = false
+                for portal in Self.portalsByWindowId.values {
+                    portal.synchronizeAllEntriesFromExternalGeometryChange()
+                }
+            }
+            if isDragEvent {
+                performSync()
+            } else {
+                DispatchQueue.main.async(execute: performSync)
             }
         }
     }

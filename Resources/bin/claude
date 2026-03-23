@@ -57,7 +57,7 @@ REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&
 
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
-    mcp|config|api-key) exec "$REAL_CLAUDE" "$@" ;;
+    mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
 esac
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
