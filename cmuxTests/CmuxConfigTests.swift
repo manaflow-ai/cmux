@@ -460,6 +460,54 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         XCTAssertThrowsError(try decode(json))
     }
+
+    func testDecodeBlankNameThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "",
+            "command": "echo hi"
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeWhitespaceOnlyNameThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "   ",
+            "command": "echo hi"
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeBlankCommandThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "test",
+            "command": ""
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeWhitespaceOnlyCommandThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "test",
+            "command": "   "
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
 }
 
 // MARK: - Command identity

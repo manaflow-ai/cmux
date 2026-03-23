@@ -47,6 +47,24 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         command = try container.decodeIfPresent(String.self, forKey: .command)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
 
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command name must not be blank"
+                )
+            )
+        }
+        if let cmd = command,
+           cmd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: decoder.codingPath,
+                    debugDescription: "Command '\(name)' must not define a blank 'command'"
+                )
+            )
+        }
+
         if workspace != nil && command != nil {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
@@ -213,8 +231,6 @@ enum CmuxSurfaceType: String, Codable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
-    static let shared = CmuxConfigStore()
-
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -273,7 +289,7 @@ final class CmuxConfigStore: ObservableObject {
     private func updateLocalConfigPath(_ directory: String?) {
         let newPath: String?
         if let directory, !directory.isEmpty {
-            newPath = (directory as NSString).appendingPathComponent("cmux.json")
+            newPath = findCmuxConfig(startingFrom: directory)
         } else {
             newPath = nil
         }
@@ -285,6 +301,21 @@ final class CmuxConfigStore: ObservableObject {
             startLocalFileWatcher()
         }
         loadAll()
+    }
+
+    private func findCmuxConfig(startingFrom directory: String) -> String? {
+        var current = directory
+        let fs = FileManager.default
+        while true {
+            let candidate = (current as NSString).appendingPathComponent("cmux.json")
+            if fs.fileExists(atPath: candidate) {
+                return candidate
+            }
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+        return nil
     }
 
     func loadAll() {
