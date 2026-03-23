@@ -747,7 +747,7 @@ struct cmuxApp: App {
                     if manager.selectedTerminalPanel != nil {
                         if !manager.increaseFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        if !manager.zoomInFocusedBrowser() { NSSound.beep() }
+                        _ = manager.zoomInFocusedBrowser()
                     }
                 }
                 .keyboardShortcut("=", modifiers: .command)
@@ -757,7 +757,7 @@ struct cmuxApp: App {
                     if manager.selectedTerminalPanel != nil {
                         if !manager.decreaseFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        if !manager.zoomOutFocusedBrowser() { NSSound.beep() }
+                        _ = manager.zoomOutFocusedBrowser()
                     }
                 }
                 .keyboardShortcut("-", modifiers: .command)
@@ -767,7 +767,7 @@ struct cmuxApp: App {
                     if manager.selectedTerminalPanel != nil {
                         if !manager.resetFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        if !manager.resetZoomFocusedBrowser() { NSSound.beep() }
+                        _ = manager.resetZoomFocusedBrowser()
                     }
                 }
                 .keyboardShortcut("0", modifiers: .command)
