@@ -17,8 +17,19 @@ import Security
 // MARK: - Element Picker Message Handler
 
 /// Receives Option+Click element selection from the browser JS and sends
-/// sanitized summary to the first terminal in the workspace.
-/// Text is sanitized: control chars, newlines, ANSI escapes are stripped.
+/// sanitized summary to the focused terminal in the workspace.
+///
+/// Security notes (terminal stdin injection):
+/// - All text from web content is sanitized before terminal injection.
+/// - Control characters (U+0000–U+001F, U+007F–U+009F) are stripped to
+///   prevent ANSI escape sequence attacks and terminal command injection.
+/// - Newlines are removed so injected text cannot execute shell commands.
+/// - Text is truncated to 200 chars to prevent buffer overflow attempts.
+/// - Sanitization is applied on both the JS side (first pass) and the
+///   Swift side (defense in depth), since page JS can call postMessage
+///   directly with arbitrary payloads.
+/// - The `__cmuxPointedElement` global is defined as non-enumerable to
+///   reduce CAPTCHA/bot-detection fingerprinting surface.
 final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     private let workspaceId: UUID
 
@@ -27,7 +38,10 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
         super.init()
     }
 
-    /// Strip control characters, newlines, and ANSI escape sequences
+    /// Strip control characters, newlines, and ANSI escape sequences.
+    /// This is critical for security: web content is untrusted and is
+    /// injected into terminal stdin. Without sanitization, a malicious
+    /// page could embed shell commands via newlines or ANSI sequences.
     private func sanitize(_ text: String) -> String {
         let cleaned = text.unicodeScalars.filter { s in
             (s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F
@@ -1878,7 +1892,12 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             return '/' + parts.join('/');
           };
-          // Sanitize text: strip control chars, newlines, escape sequences
+          // Security: sanitize text before sending to terminal stdin.
+          // Strip control chars (U+0000-U+001F, U+007F-U+009F) to prevent:
+          // - Terminal command injection via embedded newlines
+          // - ANSI escape sequence attacks (cursor movement, title change)
+          // - Terminal control character exploitation
+          // This is the first pass; Swift side applies a second sanitization.
           const __sanitize = (str) => {
             return str.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
           };

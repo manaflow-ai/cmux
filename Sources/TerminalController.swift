@@ -232,7 +232,15 @@ class TerminalController {
     }
 
     /// Send picked element summary to the focused terminal in the workspace.
-    /// The summary is already sanitized (no control chars, newlines, or escape sequences).
+    ///
+    /// Security: the `summary` string has already been sanitized by
+    /// `BrowserPickerMessageHandler.sanitize()` which strips all control
+    /// characters (U+0000–U+001F, U+007F–U+009F), newlines, and ANSI escape
+    /// sequences. This prevents terminal command injection even if a malicious
+    /// page crafts element text containing shell commands. The text is also
+    /// truncated to 200 chars. Sanitization happens on both the JS side and
+    /// the Swift side (defense in depth) since `postMessage` can be called
+    /// directly by page scripts without a user click.
     private func sendPickedElementToTerminal(workspaceId: UUID, summary: String) {
         guard let tabManager = self.tabManager else { return }
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
