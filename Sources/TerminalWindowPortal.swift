@@ -7,6 +7,10 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
+private func portalRectSignature(_ rect: NSRect) -> String {
+    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
+}
+
 #if DEBUG
 private func portalDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }
@@ -15,7 +19,7 @@ private func portalDebugToken(_ view: NSView?) -> String {
 }
 
 private func portalDebugFrame(_ rect: NSRect) -> String {
-    String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
+    portalRectSignature(rect)
 }
 
 private func portalDebugFrameInWindow(_ view: NSView?) -> String {
@@ -588,10 +592,45 @@ final class WindowTerminalPortal: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
+    private var deferredFullSyncQueuedCoverage: FullSyncCoverage?
+    private var deferredFullSyncQueuedForce = false
+    private var externalGeometryQueuedCoverage: FullSyncCoverage?
+    private var lastSatisfiedFullSyncCoverage: FullSyncCoverage?
+    private var syncCoalescingEpoch: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
 #endif
+
+    private struct FullSyncCoverage {
+        let epoch: UInt64
+        let hostFrame: NSRect
+        let hostBounds: NSRect
+        let installTargetSignature: String
+        let anchorLayoutSignature: String
+    }
+
+    private struct SyncOutcome {
+        let anchorId: ObjectIdentifier
+        let rawFrame: NSRect
+        let targetFrame: NSRect
+        let hostBounds: NSRect
+        let shouldHide: Bool
+        let visibleInUI: Bool
+        let hostedHidden: Bool
+    }
+
+    private enum HostedSyncResult {
+        case settled
+        case transient
+        case skipped
+    }
+
+    private enum FullSyncPassResult: String {
+        case settled
+        case transient
+        case vacuous
+    }
 
     private struct Entry {
         weak var hostedView: GhosttySurfaceScrollView?
@@ -599,10 +638,29 @@ final class WindowTerminalPortal: NSObject {
         var visibleInUI: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+        var lastSynchronizedOutcome: SyncOutcome?
     }
 
     private var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
     private var hostedByAnchorId: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    private static func syncOutcomeApproximatelyEqual(_ lhs: SyncOutcome, _ rhs: SyncOutcome) -> Bool {
+        lhs.anchorId == rhs.anchorId &&
+            rectApproximatelyEqual(lhs.rawFrame, rhs.rawFrame) &&
+            rectApproximatelyEqual(lhs.targetFrame, rhs.targetFrame) &&
+            rectApproximatelyEqual(lhs.hostBounds, rhs.hostBounds) &&
+            lhs.shouldHide == rhs.shouldHide &&
+            lhs.visibleInUI == rhs.visibleInUI &&
+            lhs.hostedHidden == rhs.hostedHidden
+    }
+
+    private static func fullSyncCoverageSatisfies(_ lhs: FullSyncCoverage, _ rhs: FullSyncCoverage) -> Bool {
+        lhs.epoch >= rhs.epoch &&
+            rectApproximatelyEqual(lhs.hostFrame, rhs.hostFrame) &&
+            rectApproximatelyEqual(lhs.hostBounds, rhs.hostBounds) &&
+            lhs.installTargetSignature == rhs.installTargetSignature &&
+            lhs.anchorLayoutSignature == rhs.anchorLayoutSignature
+    }
 
     init(window: NSWindow) {
         self.window = window
@@ -680,16 +738,155 @@ final class WindowTerminalPortal: NSObject {
         geometryObservers.removeAll()
     }
 
+    private func markPortalStateMutated() {
+        syncCoalescingEpoch &+= 1
+    }
+
+    private func currentAnchorLayoutSignature() -> String {
+        let components = entriesByHostedId
+            .sorted { lhs, rhs in
+                String(describing: lhs.key) < String(describing: rhs.key)
+            }
+            .map { hostedId, entry -> String in
+                guard let anchorView = entry.anchorView else {
+                    return "\(hostedId):missing"
+                }
+                let anchorId = ObjectIdentifier(anchorView)
+                let frameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
+                let visible = entry.visibleInUI ? 1 : 0
+                return "\(hostedId):\(anchorId):\(portalRectSignature(frameInWindow)):\(visible)"
+            }
+        return components.joined(separator: "|")
+    }
+
+    private func currentInstallTargetSignature() -> String {
+        guard let window else { return "missing-window" }
+        guard let (container, reference) =
+            installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
+        else {
+            return "missing-target"
+        }
+        return "\(ObjectIdentifier(container)):\(ObjectIdentifier(reference))"
+    }
+
+    private func currentFullSyncCoverage() -> FullSyncCoverage {
+        FullSyncCoverage(
+            epoch: syncCoalescingEpoch,
+            hostFrame: hostView.frame,
+            hostBounds: hostView.bounds,
+            installTargetSignature: currentInstallTargetSignature(),
+            anchorLayoutSignature: currentAnchorLayoutSignature()
+        )
+    }
+
+    private func hasSatisfiedFullSync(for coverage: FullSyncCoverage) -> Bool {
+        guard let lastSatisfiedFullSyncCoverage else { return false }
+        return Self.fullSyncCoverageSatisfies(lastSatisfiedFullSyncCoverage, coverage)
+    }
+
+    private func hasQueuedDeferredFullSync(for coverage: FullSyncCoverage) -> Bool {
+        guard let deferredFullSyncQueuedCoverage else { return false }
+        return Self.fullSyncCoverageSatisfies(deferredFullSyncQueuedCoverage, coverage)
+    }
+
+    private func hasQueuedExternalGeometrySync(for coverage: FullSyncCoverage) -> Bool {
+        guard let externalGeometryQueuedCoverage else { return false }
+        return Self.fullSyncCoverageSatisfies(externalGeometryQueuedCoverage, coverage)
+    }
+
+    private func markFullSyncSatisfied() {
+        lastSatisfiedFullSyncCoverage = currentFullSyncCoverage()
+    }
+
     fileprivate func scheduleExternalGeometrySynchronize() {
-        guard !hasExternalGeometrySyncScheduled else { return }
+        let coverage = currentFullSyncCoverage()
+        if hasSatisfiedFullSync(for: coverage) {
+#if DEBUG
+            dlog(
+                "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=alreadySatisfied"
+            )
+#endif
+            return
+        }
+        if hasQueuedExternalGeometrySync(for: coverage) {
+#if DEBUG
+            dlog(
+                "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=alreadyQueued"
+            )
+#endif
+            return
+        }
+        if hasExternalGeometrySyncScheduled {
+            externalGeometryQueuedCoverage = coverage
+#if DEBUG
+            dlog(
+                "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=queueUpdated"
+            )
+#endif
+            return
+        }
         hasExternalGeometrySyncScheduled = true
+        externalGeometryQueuedCoverage = coverage
         let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
         let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
+#if DEBUG
+        dlog(
+            "portal.geometry.schedule host=\(portalDebugToken(hostView)) " +
+            "window=\(window?.windowNumber ?? -1) drag=\(isDragEvent ? 1 : 0) " +
+            "hostLiveResize=\(hostView.inLiveResize ? 1 : 0) " +
+            "windowLiveResize=\(window?.inLiveResize == true ? 1 : 0) " +
+            "settled=\(requiresSettledLayout ? 1 : 0)"
+        )
+#endif
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let performSync = {
+                let requestedCoverage = self.externalGeometryQueuedCoverage ?? coverage
                 self.hasExternalGeometrySyncScheduled = false
-                self.synchronizeAllEntriesFromExternalGeometryChange()
+                self.externalGeometryQueuedCoverage = nil
+                if self.hasSatisfiedFullSync(for: requestedCoverage) {
+#if DEBUG
+                    dlog(
+                        "portal.geometry.sync.skip host=\(portalDebugToken(self.hostView)) " +
+                        "window=\(self.window?.windowNumber ?? -1) reason=alreadySatisfied"
+                    )
+#endif
+                    return
+                }
+#if DEBUG
+                dlog(
+                    "portal.geometry.sync host=\(portalDebugToken(self.hostView)) " +
+                    "window=\(self.window?.windowNumber ?? -1)"
+                )
+#endif
+                let syncResult = self.synchronizeAllEntriesFromExternalGeometryChange()
+#if DEBUG
+                if syncResult == .transient {
+                    AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                        kind: "fullSyncTransient",
+                        fields: [
+                            "hostedId": portalDebugToken(self.hostView),
+                            "source": "externalGeometry",
+                            "windowNumber": String(self.window?.windowNumber ?? -1),
+                        ]
+                    )
+                } else if syncResult == .settled {
+                    AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                        kind: "fullSyncSettled",
+                        fields: [
+                            "hostedId": portalDebugToken(self.hostView),
+                            "source": "externalGeometry",
+                            "windowNumber": String(self.window?.windowNumber ?? -1),
+                        ]
+                    )
+                }
+#endif
+                if syncResult == .settled {
+                    self.markFullSyncSatisfied()
+                }
             }
             if requiresSettledLayout {
                 DispatchQueue.main.async(execute: performSync)
@@ -736,10 +933,11 @@ final class WindowTerminalPortal: NSObject {
         return frameInContainer.width > 1 && frameInContainer.height > 1
     }
 
-    fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
-        guard ensureInstalled() else { return }
+    private func synchronizeAllEntriesFromExternalGeometryChange() -> FullSyncPassResult {
+        guard ensureInstalled() else { return .vacuous }
         synchronizeLayoutHierarchy()
-        synchronizeAllHostedViews(excluding: nil)
+        let syncResult = synchronizeAllHostedViews(excluding: nil)
+        guard syncResult == .settled else { return syncResult }
 
         // During live resize, AppKit can deliver frame churn where host/container geometry
         // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
@@ -750,6 +948,7 @@ final class WindowTerminalPortal: NSObject {
                 hostedView.refreshSurfaceNow(reason: "portal.externalGeometrySync")
             }
         }
+        return .settled
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -978,6 +1177,7 @@ final class WindowTerminalPortal: NSObject {
 
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
+        markPortalStateMutated()
         if let anchor = entry.anchorView {
             hostedByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
         }
@@ -999,8 +1199,10 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard entry.visibleInUI else { return }
+        markPortalStateMutated()
         entry.visibleInUI = false
         entry.transientRecoveryRetriesRemaining = 0
+        entry.lastSynchronizedOutcome = nil
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
 #if DEBUG
@@ -1013,10 +1215,13 @@ final class WindowTerminalPortal: NSObject {
     /// won't hide a view that updateNSView has already marked as visible.
     func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
         guard var entry = entriesByHostedId[hostedId] else { return }
+        guard entry.visibleInUI != visibleInUI else { return }
+        markPortalStateMutated()
         entry.visibleInUI = visibleInUI
         if !visibleInUI {
             entry.transientRecoveryRetriesRemaining = 0
         }
+        entry.lastSynchronizedOutcome = nil
         entriesByHostedId[hostedId] = entry
     }
 
@@ -1046,6 +1251,35 @@ final class WindowTerminalPortal: NSObject {
             detachHostedView(withId: previousHostedId)
         }
 
+        let didChangeAnchor: Bool = {
+            guard let previousAnchor = previousEntry?.anchorView else { return true }
+            return previousAnchor !== anchorView
+        }()
+        let visibilityChanged = previousEntry?.visibleInUI != visibleInUI
+        let priorityChanged = previousEntry?.zPriority != zPriority
+        let requiresAttach = hostedView.superview !== hostView
+        let isIdempotentRebind =
+            previousEntry != nil &&
+            !didChangeAnchor &&
+            !visibilityChanged &&
+            !priorityChanged &&
+            !requiresAttach
+
+        if isIdempotentRebind {
+#if DEBUG
+            dlog(
+                "portal.bind.skip hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) reason=idempotent"
+            )
+#endif
+            ensureDividerOverlayOnTop()
+            _ = synchronizeHostedView(withId: hostedId)
+            pruneDeadEntries()
+            return
+        }
+
+        markPortalStateMutated()
+
         if let oldEntry = entriesByHostedId[hostedId],
            let oldAnchor = oldEntry.anchorView,
            oldAnchor !== anchorView {
@@ -1058,17 +1292,13 @@ final class WindowTerminalPortal: NSObject {
             anchorView: anchorView,
             visibleInUI: visibleInUI,
             zPriority: zPriority,
-            transientRecoveryRetriesRemaining: 0
+            transientRecoveryRetriesRemaining: 0,
+            lastSynchronizedOutcome: nil
         )
-
-        let didChangeAnchor: Bool = {
-            guard let previousAnchor = previousEntry?.anchorView else { return true }
-            return previousAnchor !== anchorView
-        }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
-        if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
+        if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || requiresAttach {
             dlog(
                 "portal.bind hosted=\(portalDebugToken(hostedView)) " +
                 "anchor=\(portalDebugToken(anchorView)) prevAnchor=\(portalDebugToken(previousEntry?.anchorView)) " +
@@ -1104,7 +1334,7 @@ final class WindowTerminalPortal: NSObject {
         // before the hosted view enters a window.
         hostedView.reconcileGeometryNow()
 
-        if hostedView.superview !== hostView {
+        if requiresAttach {
 #if DEBUG
             dlog(
                 "portal.reparent hosted=\(portalDebugToken(hostedView)) " +
@@ -1128,7 +1358,7 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        synchronizeHostedView(withId: hostedId)
+        _ = synchronizeHostedView(withId: hostedId)
         scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
@@ -1140,35 +1370,148 @@ final class WindowTerminalPortal: NSObject {
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
         if let primaryHostedId {
-            synchronizeHostedView(withId: primaryHostedId)
+            _ = synchronizeHostedView(withId: primaryHostedId)
         }
 
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        synchronizeAllHostedViews(excluding: primaryHostedId)
+        let syncResult = synchronizeAllHostedViews(excluding: primaryHostedId)
+#if DEBUG
+        if syncResult == .transient {
+            AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                kind: "fullSyncTransient",
+                fields: [
+                    "hostedId": portalDebugToken(hostView),
+                    "source": "anchorSync",
+                    "windowNumber": String(window?.windowNumber ?? -1),
+                ]
+            )
+        } else if syncResult == .settled {
+            AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                kind: "fullSyncSettled",
+                fields: [
+                    "hostedId": portalDebugToken(hostView),
+                    "source": "anchorSync",
+                    "windowNumber": String(window?.windowNumber ?? -1),
+                ]
+            )
+        }
+#endif
+        if syncResult == .settled {
+            markFullSyncSatisfied()
+        }
         scheduleDeferredFullSynchronizeAll()
     }
 
-    private func scheduleDeferredFullSynchronizeAll() {
-        guard !hasDeferredFullSyncScheduled else { return }
+    private func scheduleDeferredFullSynchronizeAll(force: Bool = false) {
+        let coverage = currentFullSyncCoverage()
+        if !force, hasSatisfiedFullSync(for: coverage) {
+#if DEBUG
+            dlog(
+                "portal.deferFull.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=alreadySatisfied"
+            )
+#endif
+            return
+        }
+        if !force, hasQueuedDeferredFullSync(for: coverage) {
+#if DEBUG
+            dlog(
+                "portal.deferFull.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=alreadyQueued"
+            )
+#endif
+            return
+        }
+        if hasDeferredFullSyncScheduled {
+            deferredFullSyncQueuedCoverage = coverage
+            deferredFullSyncQueuedForce = deferredFullSyncQueuedForce || force
+#if DEBUG
+            dlog(
+                "portal.deferFull.skip host=\(portalDebugToken(hostView)) " +
+                "window=\(window?.windowNumber ?? -1) reason=queueUpdated"
+            )
+#endif
+            return
+        }
         hasDeferredFullSyncScheduled = true
+        deferredFullSyncQueuedCoverage = coverage
+        deferredFullSyncQueuedForce = force
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let requestedCoverage = self.deferredFullSyncQueuedCoverage ?? coverage
+            let requestedForce = self.deferredFullSyncQueuedForce
             self.hasDeferredFullSyncScheduled = false
-            self.synchronizeAllHostedViews(excluding: nil)
+            self.deferredFullSyncQueuedCoverage = nil
+            self.deferredFullSyncQueuedForce = false
+            if !requestedForce, self.hasSatisfiedFullSync(for: requestedCoverage) {
+#if DEBUG
+                dlog(
+                    "portal.deferFull.sync.skip host=\(portalDebugToken(self.hostView)) " +
+                    "window=\(self.window?.windowNumber ?? -1) reason=alreadySatisfied"
+                )
+#endif
+                return
+            }
+            let syncResult = self.synchronizeAllHostedViews(excluding: nil)
+#if DEBUG
+            dlog(
+                "portal.deferFull.sync.result host=\(portalDebugToken(self.hostView)) " +
+                "window=\(self.window?.windowNumber ?? -1) result=\(syncResult.rawValue)"
+            )
+#endif
+#if DEBUG
+            if syncResult == .transient {
+                AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                    kind: "fullSyncTransient",
+                    fields: [
+                        "hostedId": portalDebugToken(self.hostView),
+                        "source": "deferredFull",
+                        "windowNumber": String(self.window?.windowNumber ?? -1),
+                    ]
+                )
+            } else if syncResult == .settled {
+                AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                    kind: "fullSyncSettled",
+                    fields: [
+                        "hostedId": portalDebugToken(self.hostView),
+                        "source": "deferredFull",
+                        "windowNumber": String(self.window?.windowNumber ?? -1),
+                    ]
+                )
+            }
+#endif
+            if syncResult == .settled {
+                self.markFullSyncSatisfied()
+            }
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) {
-        guard ensureInstalled() else { return }
+    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?) -> FullSyncPassResult {
+        guard ensureInstalled() else { return .vacuous }
         synchronizeLayoutHierarchy()
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
+        var didConsiderHostedView = false
+        var sawTransient = false
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
-            synchronizeHostedView(withId: hostedId)
+            switch synchronizeHostedView(withId: hostedId) {
+            case .settled:
+                didConsiderHostedView = true
+                break
+            case .transient:
+                didConsiderHostedView = true
+                sawTransient = true
+            case .skipped:
+                break
+            }
         }
+        if !didConsiderHostedView {
+            return .vacuous
+        }
+        return sawTransient ? .transient : .settled
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
@@ -1198,17 +1541,17 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if entry.transientRecoveryRetriesRemaining > 0 {
-            scheduleDeferredFullSynchronizeAll()
+            scheduleDeferredFullSynchronizeAll(force: true)
         }
         return true
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier) {
-        guard ensureInstalled() else { return }
-        guard var entry = entriesByHostedId[hostedId] else { return }
+    private func synchronizeHostedView(withId hostedId: ObjectIdentifier) -> HostedSyncResult {
+        guard ensureInstalled() else { return .skipped }
+        guard var entry = entriesByHostedId[hostedId] else { return .skipped }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
-            return
+            return .skipped
         }
         guard let anchorView = entry.anchorView, let window else {
             // Only hide if the entry is not marked visibleInUI. When a workspace is
@@ -1230,7 +1573,7 @@ final class WindowTerminalPortal: NSObject {
                     reason: "missingAnchorOrWindow"
                 )
             }
-            return
+            return entry.visibleInUI ? .transient : .settled
         }
         guard anchorView.window === window else {
 #if DEBUG
@@ -1256,7 +1599,7 @@ final class WindowTerminalPortal: NSObject {
                         "reason=anchorWindowMismatch frame=\(portalDebugFrame(hostedView.frame))"
                     )
 #endif
-                    return
+                    return .transient
                 }
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
@@ -1270,7 +1613,7 @@ final class WindowTerminalPortal: NSObject {
                     reason: "anchorWindowMismatch"
                 )
             }
-            return
+            return entry.visibleInUI ? .transient : .settled
         }
 
         _ = synchronizeHostFrameToReference()
@@ -1310,7 +1653,7 @@ final class WindowTerminalPortal: NSObject {
                         "reason=hostBoundsNotReady frame=\(portalDebugFrame(hostedView.frame))"
                     )
 #endif
-                    return
+                    return .transient
                 }
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
@@ -1328,7 +1671,7 @@ final class WindowTerminalPortal: NSObject {
                     scheduleDeferredFullSynchronizeAll()
                 }
             }
-            return
+            return entry.visibleInUI ? .transient : .settled
         }
         let hasFiniteFrame =
             frameInHost.origin.x.isFinite &&
@@ -1382,6 +1725,24 @@ final class WindowTerminalPortal: NSObject {
             !hostedView.isHidden
 
         let oldFrame = hostedView.frame
+        let oldBounds = hostedView.bounds
+        let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
+        let frameNeedsUpdate =
+            hasFiniteFrame &&
+            (!Self.rectApproximatelyEqual(oldFrame, targetFrame) ||
+                !Self.rectApproximatelyEqual(oldBounds, expectedBounds))
+        let willHide = shouldHide && !hostedView.isHidden && !shouldPreserveVisibleOnTransientGeometry
+        let willReveal = !shouldHide && hostedView.isHidden && revealReadyForDisplay
+        let finalHiddenState = willHide ? true : (willReveal ? false : hostedView.isHidden)
+        let nextOutcome = SyncOutcome(
+            anchorId: ObjectIdentifier(anchorView),
+            rawFrame: frameInHost,
+            targetFrame: targetFrame,
+            hostBounds: hostBounds,
+            shouldHide: shouldHide,
+            visibleInUI: entry.visibleInUI,
+            hostedHidden: finalHiddenState
+        )
 #if DEBUG
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
@@ -1406,6 +1767,29 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
+
+        if transientRecoveryReason == nil,
+           !shouldDeferReveal,
+           !shouldPreserveVisibleOnTransientGeometry,
+           !frameNeedsUpdate,
+           !willHide,
+           !willReveal,
+           let lastOutcome = entry.lastSynchronizedOutcome,
+           Self.syncOutcomeApproximatelyEqual(lastOutcome, nextOutcome) {
+            resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+#if DEBUG
+            dlog(
+                "portal.sync.skip hosted=\(portalDebugToken(hostedView)) " +
+                "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
+                "hostWin=\(hostView.window?.windowNumber ?? -1) reason=unchanged " +
+                "target=\(portalDebugFrame(targetFrame)) hide=\(shouldHide ? 1 : 0) " +
+                "entryVisible=\(entry.visibleInUI ? 1 : 0) hostedHidden=\(hostedView.isHidden ? 1 : 0)"
+            )
+#endif
+            entry.lastSynchronizedOutcome = nextOutcome
+            entriesByHostedId[hostedId] = entry
+            return .settled
+        }
 
         // Hide before updating the frame when this entry should not be visible.
         // This avoids a one-frame flash of unrendered terminal background when a portal
@@ -1432,7 +1816,6 @@ final class WindowTerminalPortal: NSObject {
         }
 
         if hasFiniteFrame {
-            let expectedBounds = NSRect(origin: .zero, size: targetFrame.size)
             var geometryChanged = false
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1484,6 +1867,17 @@ final class WindowTerminalPortal: NSObject {
             resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
         }
 
+        entry.lastSynchronizedOutcome = SyncOutcome(
+            anchorId: ObjectIdentifier(anchorView),
+            rawFrame: frameInHost,
+            targetFrame: targetFrame,
+            hostBounds: hostBounds,
+            shouldHide: shouldHide,
+            visibleInUI: entry.visibleInUI,
+            hostedHidden: hostedView.isHidden
+        )
+        entriesByHostedId[hostedId] = entry
+
 #if DEBUG
         dlog(
             "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
@@ -1497,6 +1891,7 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
         ensureDividerOverlayOnTop()
+        return transientRecoveryReason == nil ? .settled : .transient
     }
 
     private func pruneDeadEntries() {
@@ -1797,14 +2192,41 @@ enum TerminalWindowPortalRegistry {
         }
 
         let nextPortal = portal(for: window)
+        let isCrossWindowRebind: Bool
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
+            isCrossWindowRebind = true
+#if DEBUG
+            AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                kind: "crossWindowRebindStart",
+                fields: [
+                    "hostedId": portalDebugToken(hostedView),
+                    "sourceWindowId": String(describing: oldWindowId),
+                    "destinationWindowId": String(describing: windowId),
+                    "visibleInUI": visibleInUI ? "1" : "0",
+                ]
+            )
+#endif
             portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
+        } else {
+            isCrossWindowRebind = false
         }
 
         nextPortal.bind(hostedView: hostedView, to: anchorView, visibleInUI: visibleInUI, zPriority: zPriority)
         hostedToWindowId[hostedId] = windowId
+#if DEBUG
+        if isCrossWindowRebind, hostedView.window === window {
+            AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                kind: "crossWindowRebindRecovered",
+                fields: [
+                    "hostedId": portalDebugToken(hostedView),
+                    "destinationWindowId": String(describing: windowId),
+                    "visibleInUI": visibleInUI ? "1" : "0",
+                ]
+            )
+        }
+#endif
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
     }
 
@@ -1815,6 +2237,9 @@ enum TerminalWindowPortalRegistry {
     }
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
+#if DEBUG
+        dlog("portal.geometry.external window=\(window.windowNumber)")
+#endif
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize()
     }
 
@@ -1830,11 +2255,21 @@ enum TerminalWindowPortalRegistry {
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
         let isDragEvent = Self.isInteractiveGeometryResizeActive
+#if DEBUG
+        let windowList = Self.portalsByWindowId.keys.map { "\($0)" }.sorted().joined(separator: ",")
+        dlog(
+            "portal.geometry.externalAll windows=[\(windowList)] drag=\(isDragEvent ? 1 : 0)"
+        )
+#endif
         DispatchQueue.main.async {
             let performSync = {
                 Self.hasPendingExternalGeometrySyncForAllWindows = false
+#if DEBUG
+                let windowList = Self.portalsByWindowId.keys.map { "\($0)" }.sorted().joined(separator: ",")
+                dlog("portal.geometry.syncAll windows=[\(windowList)]")
+#endif
                 for portal in Self.portalsByWindowId.values {
-                    portal.synchronizeAllEntriesFromExternalGeometryChange()
+                    portal.scheduleExternalGeometrySynchronize()
                 }
             }
             if isDragEvent {

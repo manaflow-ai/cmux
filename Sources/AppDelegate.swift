@@ -9,30 +9,6 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
-final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
-
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
-
-    required init(rootView: Content) {
-        super.init(rootView: rootView)
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
@@ -427,7 +403,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case cursor
     case finder
     case ghostty
-    case intellij
     case iterm2
     case terminal
     case tower
@@ -476,8 +451,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
             return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
-        case .intellij:
-            return String(localized: "menu.openInIntelliJ", defaultValue: "Open Current Directory in IntelliJ IDEA")
         case .iterm2:
             return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
@@ -512,8 +485,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["finder", "file", "manager", "reveal"]
         case .ghostty:
             return common + ["ghostty", "terminal", "shell"]
-        case .intellij:
-            return common + ["intellij", "idea", "jetbrains"]
         case .iterm2:
             return common + ["iterm", "iterm2", "terminal", "shell"]
         case .terminal:
@@ -607,8 +578,6 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return ["/System/Library/CoreServices/Finder.app"]
         case .ghostty:
             return ["/Applications/Ghostty.app"]
-        case .intellij:
-            return ["/Applications/IntelliJ IDEA.app"]
         case .iterm2:
             return [
                 "/Applications/iTerm.app",
@@ -1114,9 +1083,9 @@ final class ServeWebOutputCollector {
 }
 
 enum WorkspaceShortcutMapper {
-    /// Maps numbered workspace shortcuts to a zero-based workspace index.
-    /// 1...8 target fixed indices; 9 always targets the last workspace.
-    static func workspaceIndex(forDigit digit: Int, workspaceCount: Int) -> Int? {
+    /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
+    /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
+    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
         guard workspaceCount > 0 else { return nil }
         guard (1...9).contains(digit) else { return nil }
 
@@ -1128,12 +1097,12 @@ enum WorkspaceShortcutMapper {
         return index < workspaceCount ? index : nil
     }
 
-    /// Returns the primary digit badge to display for a workspace row.
+    /// Returns the primary Cmd+digit badge to display for a workspace row.
     /// Picks the lowest digit that maps to that row index.
-    static func digitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
+    static func commandDigitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
         guard index >= 0 && index < workspaceCount else { return nil }
         for digit in 1...9 {
-            if workspaceIndex(forDigit: digit, workspaceCount: workspaceCount) == index {
+            if workspaceIndex(forCommandDigit: digit, workspaceCount: workspaceCount) == index {
                 return digit
             }
         }
@@ -1644,7 +1613,9 @@ func shouldHandleCommandPaletteShortcutEvent(
 ) -> Bool {
     guard let paletteWindow else { return false }
     if let eventWindow = event.window {
-        return eventWindow === paletteWindow
+        if eventWindow === paletteWindow {
+            return true
+        }
     }
     let eventWindowNumber = event.windowNumber
     if eventWindowNumber > 0 {
@@ -1921,7 +1892,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
-    nonisolated(unsafe) static var shared: AppDelegate?
+    static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
@@ -2014,6 +1985,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+#if DEBUG
+    private var uiTestTerminalGeometryTraceCounters: [String: Int] = [:]
+    private var uiTestTerminalGeometryTraceEvents: [String] = []
+    private var uiTestTerminalGeometryPendingDetachedPanels: Set<String> = []
+    private var uiTestTerminalGeometryPendingCrossWindowHostedViews: Set<String> = []
+#endif
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -2072,8 +2049,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var jumpUnreadFocusExpectation: (tabId: UUID, surfaceId: UUID)?
     private var jumpUnreadFocusObserver: NSObjectProtocol?
     private var didSetupGotoSplitUITest = false
-    private var didSetupBonsplitTabDragUITest = false
-    private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
@@ -2089,6 +2064,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isFirstResponder: Bool
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    var debugClosePanelConfirmationHandler: ((TabID) -> Bool)?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -2446,6 +2422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
         appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
+        appendUITestTerminalGeometryTraceIfNeeded(&payload, environment: env)
 
         guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
         try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
@@ -2564,6 +2541,134 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func isUITestTerminalGeometryTraceEnabled(_ env: [String: String]? = nil) -> Bool {
+        let environment = env ?? ProcessInfo.processInfo.environment
+        guard environment["CMUX_UI_TEST_TERMINAL_GEOMETRY_TRACE"] == "1" else { return false }
+        guard let path = environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return false }
+        return true
+    }
+
+    private func appendUITestTerminalGeometryTraceIfNeeded(
+        _ payload: inout [String: String],
+        environment env: [String: String]
+    ) {
+        guard isUITestTerminalGeometryTraceEnabled(env) else { return }
+        for (key, value) in currentUITestTerminalGeometryTracePayload() {
+            payload[key] = value
+        }
+    }
+
+    func recordUITestTerminalGeometryEvent(kind: String, fields: [String: String] = [:]) {
+        let env = ProcessInfo.processInfo.environment
+        guard isUITestTerminalGeometryTraceEnabled(env) else { return }
+
+        uiTestTerminalGeometryTraceCounters["eventCount", default: 0] += 1
+
+        if let panelId = fields["panelId"], !panelId.isEmpty {
+            switch kind {
+            case "visibleDetached", "transientPortalRemount":
+                uiTestTerminalGeometryPendingDetachedPanels.insert(panelId)
+            case "reattachRecovered":
+                uiTestTerminalGeometryPendingDetachedPanels.remove(panelId)
+            default:
+                break
+            }
+        }
+
+        if let hostedId = fields["hostedId"], !hostedId.isEmpty {
+            switch kind {
+            case "crossWindowRebindStart":
+                uiTestTerminalGeometryPendingCrossWindowHostedViews.insert(hostedId)
+            case "crossWindowRebindRecovered":
+                uiTestTerminalGeometryPendingCrossWindowHostedViews.remove(hostedId)
+            default:
+                break
+            }
+        }
+
+        switch kind {
+        case "visibleDetached":
+            uiTestTerminalGeometryTraceCounters["detachedVisiblePasses", default: 0] += 1
+        case "transientPortalRemount":
+            uiTestTerminalGeometryTraceCounters["transientPortalRemountPasses", default: 0] += 1
+            uiTestTerminalGeometryTraceCounters["reattachRequests", default: 0] += 1
+        case "reattachRequested":
+            uiTestTerminalGeometryTraceCounters["reattachRequests", default: 0] += 1
+        case "reattachRecovered":
+            uiTestTerminalGeometryTraceCounters["reattachRecoveredPasses", default: 0] += 1
+        case "fullSyncTransient":
+            uiTestTerminalGeometryTraceCounters["fullSyncTransientPasses", default: 0] += 1
+        case "fullSyncSettled":
+            uiTestTerminalGeometryTraceCounters["fullSyncSettledPasses", default: 0] += 1
+        case "crossWindowRebindStart":
+            uiTestTerminalGeometryTraceCounters["crossWindowRebindStarts", default: 0] += 1
+        case "crossWindowRebindRecovered":
+            uiTestTerminalGeometryTraceCounters["crossWindowRebindRecoveredPasses", default: 0] += 1
+        default:
+            break
+        }
+
+        var eventFields = ["kind=\(kind)"]
+        for key in fields.keys.sorted() {
+            guard let value = fields[key], !value.isEmpty else { continue }
+            eventFields.append("\(key)=\(value)")
+        }
+        uiTestTerminalGeometryTraceEvents.append(eventFields.joined(separator: " "))
+        if uiTestTerminalGeometryTraceEvents.count > 16 {
+            uiTestTerminalGeometryTraceEvents.removeFirst(uiTestTerminalGeometryTraceEvents.count - 16)
+        }
+
+        persistUITestTerminalGeometryTraceIfNeeded()
+    }
+
+    private func currentUITestTerminalGeometryTracePayload() -> [String: String] {
+        let detachedVisiblePasses = uiTestTerminalGeometryTraceCounters["detachedVisiblePasses", default: 0]
+        let transientPortalRemountPasses = uiTestTerminalGeometryTraceCounters["transientPortalRemountPasses", default: 0]
+        let reattachRequests = uiTestTerminalGeometryTraceCounters["reattachRequests", default: 0]
+        let reattachRecoveredPasses = uiTestTerminalGeometryTraceCounters["reattachRecoveredPasses", default: 0]
+        let fullSyncTransientPasses = uiTestTerminalGeometryTraceCounters["fullSyncTransientPasses", default: 0]
+        let fullSyncSettledPasses = uiTestTerminalGeometryTraceCounters["fullSyncSettledPasses", default: 0]
+        let crossWindowRebindStarts = uiTestTerminalGeometryTraceCounters["crossWindowRebindStarts", default: 0]
+        let crossWindowRebindRecoveredPasses = uiTestTerminalGeometryTraceCounters["crossWindowRebindRecoveredPasses", default: 0]
+        let pendingDetachedVisibleCount = uiTestTerminalGeometryPendingDetachedPanels.count
+        let pendingCrossWindowHostedCount = uiTestTerminalGeometryPendingCrossWindowHostedViews.count
+
+        return [
+            "terminalGeometryTraceEnabled": "1",
+            "terminalGeometryTraceEventCount": String(uiTestTerminalGeometryTraceCounters["eventCount", default: 0]),
+            "terminalGeometryTraceDetachedVisiblePasses": String(detachedVisiblePasses),
+            "terminalGeometryTraceTransientPortalRemountPasses": String(transientPortalRemountPasses),
+            "terminalGeometryTraceReattachRequests": String(reattachRequests),
+            "terminalGeometryTraceReattachRecoveredPasses": String(reattachRecoveredPasses),
+            "terminalGeometryTraceFullSyncTransientPasses": String(fullSyncTransientPasses),
+            "terminalGeometryTraceFullSyncSettledPasses": String(fullSyncSettledPasses),
+            "terminalGeometryTraceCrossWindowRebindStarts": String(crossWindowRebindStarts),
+            "terminalGeometryTraceCrossWindowRebindRecoveredPasses": String(crossWindowRebindRecoveredPasses),
+            "terminalGeometryTracePendingDetachedVisibleCount": String(pendingDetachedVisibleCount),
+            "terminalGeometryTracePendingCrossWindowHostedCount": String(pendingCrossWindowHostedCount),
+            "terminalGeometryTraceSawTransientDetachedVisibleState": (detachedVisiblePasses > 0 || transientPortalRemountPasses > 0) ? "1" : "0",
+            "terminalGeometryTraceRecoveredAfterTransientDetach": reattachRecoveredPasses > 0 ? "1" : "0",
+            "terminalGeometryTraceSawCrossWindowTransientDetach": crossWindowRebindStarts > 0 ? "1" : "0",
+            "terminalGeometryTraceCrossWindowRecovered": crossWindowRebindRecoveredPasses > 0 ? "1" : "0",
+            "terminalGeometryTraceSawPotentialBlankStall": (pendingDetachedVisibleCount > 0 || pendingCrossWindowHostedCount > 0) ? "1" : "0",
+            "terminalGeometryTraceRecentEvents": uiTestTerminalGeometryTraceEvents.joined(separator: " || "),
+        ]
+    }
+
+    private func persistUITestTerminalGeometryTraceIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard isUITestTerminalGeometryTraceEnabled(env),
+              let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"],
+              !path.isEmpty else { return }
+
+        var payload = loadUITestDiagnostics(at: path)
+        for (key, value) in currentUITestTerminalGeometryTracePayload() {
+            payload[key] = value
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
+        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
         let env = ProcessInfo.processInfo.environment
         guard let rawDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"],
@@ -2677,7 +2782,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         setupJumpUnreadUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
-        setupBonsplitTabDragUITestIfNeeded()
         setupMultiWindowNotificationsUITestIfNeeded()
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
 
@@ -4452,6 +4556,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
             return false
         }
+        if event.isARepeat {
+            return true
+        }
         let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
         if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
             return true
@@ -5487,6 +5594,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         #endif
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource) else {
+            let orphanedContexts = Array(
+                Set(
+                    mainWindowContexts.values.compactMap { context -> ObjectIdentifier? in
+                        resolvedWindow(for: context) == nil ? ObjectIdentifier(context) : nil
+                    }
+                )
+            ).compactMap { orphanedId in
+                mainWindowContexts.values.first { ObjectIdentifier($0) == orphanedId }
+            }
+            for orphanedContext in orphanedContexts {
+                discardOrphanedMainWindowContext(orphanedContext)
+            }
             #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "no_context",
@@ -5804,7 +5923,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             window.center()
         }
-        window.contentView = MainWindowHostingView(rootView: root)
+        window.contentView = NSHostingView(rootView: root)
 
         // Apply shared window styling.
         attachUpdateAccessory(to: window)
@@ -6997,176 +7116,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func setupBonsplitTabDragUITestIfNeeded() {
-        guard !didSetupBonsplitTabDragUITest else { return }
-        didSetupBonsplitTabDragUITest = true
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
-        guard tabManager != nil else { return }
-        let startWithHiddenSidebar = env["CMUX_UI_TEST_BONSPLIT_START_WITH_HIDDEN_SIDEBAR"] == "1"
-
-        let deadline = Date().addingTimeInterval(20.0)
-        func hasMainTerminalWindow() -> Bool {
-            NSApp.windows.contains { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            }
-        }
-
-        func runSetupWhenWindowReady() {
-            guard Date() < deadline else {
-                writeBonsplitTabDragUITestData(["setupError": "Timed out waiting for main window"])
-                return
-            }
-            guard hasMainTerminalWindow() else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    runSetupWhenWindowReady()
-                }
-                return
-            }
-            if let mainWindow = NSApp.windows.first(where: { window in
-                guard let raw = window.identifier?.rawValue else { return false }
-                return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-            }) {
-                let screenFrame = mainWindow.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-                if let screenFrame {
-                    let targetSize = NSSize(width: min(960, screenFrame.width - 80), height: min(720, screenFrame.height - 80))
-                    let targetOrigin = NSPoint(
-                        x: screenFrame.minX + 40,
-                        y: screenFrame.maxY - 40 - targetSize.height
-                    )
-                    let targetFrame = NSRect(origin: targetOrigin, size: targetSize)
-                    if !mainWindow.frame.equalTo(targetFrame) {
-                        mainWindow.setFrame(targetFrame, display: true)
-                    }
-                }
-            }
-            guard let tabManager = self.tabManager,
-                  let workspace = tabManager.selectedWorkspace ?? tabManager.tabs.first,
-                  let alphaPanelId = workspace.focusedPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Missing initial workspace or panel"])
-                return
-            }
-
-            let workspaceTitle = "UITest Workspace"
-            let alphaTitle = "UITest Alpha"
-            let betaTitle = "UITest Beta"
-            tabManager.setCustomTitle(tabId: workspace.id, title: workspaceTitle)
-            workspace.setPanelCustomTitle(panelId: alphaPanelId, title: alphaTitle)
-            tabManager.newSurface()
-
-            guard let betaPanelId = workspace.focusedPanelId, betaPanelId != alphaPanelId else {
-                self.writeBonsplitTabDragUITestData(["setupError": "Failed to create second surface"])
-                return
-            }
-
-            workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
-            if startWithHiddenSidebar {
-                self.sidebarState?.isVisible = false
-            }
-            self.writeBonsplitTabDragUITestData([
-                "ready": "1",
-                "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
-                "workspaceId": workspace.id.uuidString,
-                "workspaceTitle": workspaceTitle,
-                "alphaTitle": alphaTitle,
-                "betaTitle": betaTitle,
-                "alphaPanelId": alphaPanelId.uuidString,
-                "betaPanelId": betaPanelId.uuidString,
-            ])
-            self.startBonsplitTabDragUITestRecorder(
-                workspaceId: workspace.id,
-                alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
-            )
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard self != nil else { return }
-            runSetupWhenWindowReady()
-        }
-    }
-
-    private func bonsplitTabDragUITestDataPath() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1",
-              let path = env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"],
-              !path.isEmpty else {
-            return nil
-        }
-        return path
-    }
-
-    private func startBonsplitTabDragUITestRecorder(
-        workspaceId: UUID,
-        alphaPanelId: UUID,
-        betaPanelId: UUID
-    ) {
-        bonsplitTabDragUITestRecorder?.cancel()
-        bonsplitTabDragUITestRecorder = nil
-
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
-        timer.setEventHandler { [weak self] in
-            self?.recordBonsplitTabDragUITestState(
-                workspaceId: workspaceId,
-                alphaPanelId: alphaPanelId,
-                betaPanelId: betaPanelId
-            )
-        }
-        bonsplitTabDragUITestRecorder = timer
-        timer.resume()
-    }
-
-    private func recordBonsplitTabDragUITestState(
-        workspaceId: UUID,
-        alphaPanelId: UUID,
-        betaPanelId: UUID
-    ) {
-        guard let tabManager else { return }
-        guard let workspace = (tabManager.tabs.first { $0.id == workspaceId } ?? tabManager.selectedWorkspace ?? tabManager.tabs.first) else {
-            return
-        }
-
-        let trackedPaneId = workspace.paneId(forPanelId: alphaPanelId)
-            ?? workspace.paneId(forPanelId: betaPanelId)
-            ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
-        guard let trackedPaneId else { return }
-
-        let titles: [String] = workspace.bonsplitController.tabs(inPane: trackedPaneId).compactMap { tab in
-            guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return nil }
-            return workspace.panelTitle(panelId: panelId)
-        }
-        let selectedTitle = workspace.bonsplitController.selectedTab(inPane: trackedPaneId)
-            .flatMap { workspace.panelIdFromSurfaceId($0.id) }
-            .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
-
-        writeBonsplitTabDragUITestData([
-            "trackedPaneId": trackedPaneId.description,
-            "trackedPaneTabTitles": titles.joined(separator: "|"),
-            "trackedPaneTabCount": String(titles.count),
-            "trackedPaneSelectedTitle": selectedTitle,
-        ])
-    }
-
-    private func writeBonsplitTabDragUITestData(_ updates: [String: String]) {
-        guard let path = bonsplitTabDragUITestDataPath() else { return }
-        var payload = loadBonsplitTabDragUITestData(at: path)
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private func loadBonsplitTabDragUITestData(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
     private func isGotoSplitUITestRecordingEnabled() -> Bool {
         let env = ProcessInfo.processInfo.environment
         return env["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] == "1" || env["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] == "1"
@@ -8673,7 +8622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: KeyboardShortcutSettings.didChangeNotification,
+            forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -8886,11 +8835,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
-        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
-        // charactersIgnoringModifiers returns non-ASCII characters that never match
-        // Latin shortcut keys. Normalize via KeyboardLayout so downstream comparisons
-        // (Cmd+1-9, Ctrl+1-9, omnibar N/P, command palette, etc.) work correctly.
-        let chars = KeyboardLayout.normalizedCharacters(for: event)
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
@@ -9199,13 +9144,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        let eventTargetWindow = event.window
+            ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
+            // AppKit allows auxiliary windows to become key without becoming the app's
+            // main terminal window. Those windows still need to receive their own close
+            // shortcut handling instead of being rejected as an unresolved main-window route.
+            if let eventTargetWindow, !isMainTerminalWindow(eventTargetWindow) {
+                // Continue into the shortcut-specific auxiliary-window paths below.
+            } else {
 #if DEBUG
-            dlog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
+                dlog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
-            return false
+                return false
+            }
         }
 
         // Keep keyboard routing deterministic after split close/reparent transitions:
@@ -9414,10 +9368,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
+            let shortcutTargetWindow = eventTargetWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
             // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
             // This AppDelegate path is a fallback for cases where AppKit routes the
             // event through the global shortcut handler first.
-            if let targetWindow = [NSApp.keyWindow, event.window]
+            if let targetWindow = [NSApp.keyWindow, eventTargetWindow]
                 .compactMap({ $0 })
                 .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
 #if DEBUG
@@ -9425,12 +9380,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
                 targetWindow.performClose(nil)
                 return true
-            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            } else if let targetWindow = shortcutTargetWindow,
                cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {
-                let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-                if let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow) {
+                if let terminalContext = focusedTerminalShortcutContext(preferredWindow: shortcutTargetWindow) {
 #if DEBUG
                     dlog(
                         "shortcut.cmdW route=ghostty workspace=\(terminalContext.workspaceId.uuidString.prefix(5)) " +
@@ -9475,33 +9429,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific workspaces (9 = last workspace)
-        if let manager = tabManager,
-           let digit = numberedShortcutDigit(
-               event: event,
-               shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-           ),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
+        if flags == [.command],
+           let manager = tabManager,
+           let num = Int(chars),
+           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
 #if DEBUG
             dlog(
-                "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
             manager.selectTab(at: targetIndex)
             return true
         }
 
-        // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedShortcutDigit(
-            event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
-        ) {
-            if digit == 9 {
-                tabManager?.selectLastSurface()
-            } else {
-                tabManager?.selectSurface(at: digit - 1)
+        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
+        if flags == [.control] {
+            if let num = Int(chars), num >= 1 && num <= 9 {
+                if num == 9 {
+                    tabManager?.selectLastSurface()
+                } else {
+                    tabManager?.selectSurface(at: num - 1)
+                }
+                return true
             }
-            return true
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
@@ -10483,13 +10434,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
-        // charactersIgnoringModifiers returns non-ASCII characters that can never match
-        // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
-        let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
         if hasEventChars,
-           eventCharsAreASCII,
            flags.contains(.command),
            !flags.contains(.control),
            shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
@@ -10512,60 +10458,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
-        // When a non-Latin input source is active, treat non-ASCII event chars the same as
-        // absent chars — they carry no usable Latin key identity.
-        let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasUsableEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
-    }
-
-    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags == shortcut.modifierFlags else { return nil }
-
-        if let digit = numberedShortcutDigit(
-            eventCharacter: event.charactersIgnoringModifiers,
-            applyShiftSymbolNormalization: flags.contains(.shift),
-            eventKeyCode: event.keyCode
-        ) {
-            return digit
-        }
-
-        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
-        if let digit = numberedShortcutDigit(
-            eventCharacter: layoutCharacter,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: event.keyCode
-        ) {
-            return digit
-        }
-
-        return digitForNumberKeyCode(event.keyCode)
-    }
-
-    private func numberedShortcutDigit(
-        eventCharacter: String?,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> Int? {
-        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
-        let normalized = normalizedShortcutEventCharacter(
-            eventCharacter,
-            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
-        )
-        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
-        return digit
     }
 
     private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
@@ -10682,22 +10585,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "→": return 124 // kVK_RightArrow
         case "↓": return 125 // kVK_DownArrow
         case "↑": return 126 // kVK_UpArrow
-        default:
-            return nil
-        }
-    }
-
-    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
-        switch keyCode {
-        case 18: return 1 // kVK_ANSI_1
-        case 19: return 2 // kVK_ANSI_2
-        case 20: return 3 // kVK_ANSI_3
-        case 21: return 4 // kVK_ANSI_4
-        case 23: return 5 // kVK_ANSI_5
-        case 22: return 6 // kVK_ANSI_6
-        case 26: return 7 // kVK_ANSI_7
-        case 28: return 8 // kVK_ANSI_8
-        case 25: return 9 // kVK_ANSI_9
         default:
             return nil
         }
@@ -11083,7 +10970,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         contextContainingTabId(tabId)?.tabManager.tabs.first(where: { $0.id == tabId })
     }
 
-    /// Returns the `Workspace` that owns `tabId`, if any.
     @MainActor
     func workspaceFor(tabId: UUID) -> Workspace? {
         workspaceForMainActor(tabId: tabId)
@@ -12533,13 +12419,6 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
-        // Browser find runs in the portal slot alongside the hosted WKWebView.
-        // Treat its native field editor chain as browser chrome, not as web content,
-        // so Cmd+F can move first responder into the find field while web focus is suppressed.
-        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
-            return nil
-        }
-
         if let webView = cmuxOwningWebView(for: responder) {
             return webView
         }
