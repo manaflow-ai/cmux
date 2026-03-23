@@ -744,31 +744,28 @@ struct cmuxApp: App {
 
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
                     let manager = activeTabManager
-                    if manager.selectedTerminalPanel != nil {
-                        if !manager.increaseFontSizeFocusedTerminal() { NSSound.beep() }
-                    } else {
-                        _ = manager.zoomInFocusedBrowser()
-                    }
+                    let success = manager.selectedTerminalPanel != nil
+                        ? manager.increaseFontSizeFocusedTerminal()
+                        : manager.zoomInFocusedBrowser()
+                    if !success { NSSound.beep() }
                 }
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button(String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")) {
                     let manager = activeTabManager
-                    if manager.selectedTerminalPanel != nil {
-                        if !manager.decreaseFontSizeFocusedTerminal() { NSSound.beep() }
-                    } else {
-                        _ = manager.zoomOutFocusedBrowser()
-                    }
+                    let success = manager.selectedTerminalPanel != nil
+                        ? manager.decreaseFontSizeFocusedTerminal()
+                        : manager.zoomOutFocusedBrowser()
+                    if !success { NSSound.beep() }
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
                 Button(String(localized: "menu.view.actualSize", defaultValue: "Actual Size")) {
                     let manager = activeTabManager
-                    if manager.selectedTerminalPanel != nil {
-                        if !manager.resetFontSizeFocusedTerminal() { NSSound.beep() }
-                    } else {
-                        _ = manager.resetZoomFocusedBrowser()
-                    }
+                    let success = manager.selectedTerminalPanel != nil
+                        ? manager.resetFontSizeFocusedTerminal()
+                        : manager.resetZoomFocusedBrowser()
+                    if !success { NSSound.beep() }
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
