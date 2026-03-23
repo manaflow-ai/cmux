@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# cmux opencode wrapper - injects sidebar status + notifications
+
+find_real_opencode() {
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    local dir
+    for dir in $PATH; do
+        [[ "$dir" == "$self_dir" ]] && continue
+        [[ -x "$dir/opencode" ]] && printf '%s' "$dir/opencode" && return 0
+    done
+    return 1
+}
+
+CMUX_BIN=""
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    CMUX_BIN="$self_dir/cmux"
+    [[ -x "$CMUX_BIN" ]] || CMUX_BIN="$(command -v cmux || true)"
+    [[ -n "$CMUX_BIN" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$CMUX_BIN" --socket "$socket" ping >/dev/null 2>&1
+}
+
+run_cmux() {
+    [[ -n "$CMUX_BIN" ]] || return 1
+    "$CMUX_BIN" "$@" >/dev/null 2>&1
+}
+
+link_children() {
+    local source_dir="$1"
+    local destination_dir="$2"
+    [[ -d "$source_dir" ]] || return 0
+
+    mkdir -p "$destination_dir"
+    local item
+    local name
+    shopt -s dotglob nullglob
+    for item in "$source_dir"/*; do
+        name="$(basename "$item")"
+        [[ "$name" == "." || "$name" == ".." ]] && continue
+        [[ -e "$destination_dir/$name" ]] && continue
+        ln -s "$item" "$destination_dir/$name"
+    done
+    shopt -u dotglob nullglob
+}
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+if [[ "$IN_CMUX" == "0" || "${CMUX_OPENCODE_INTEGRATION_DISABLED:-}" == "1" ]] || ! cmux_socket_available; then
+    REAL_OPENCODE="$(find_real_opencode)" || { echo "Error: opencode not found in PATH" >&2; exit 127; }
+    exec "$REAL_OPENCODE" "$@"
+fi
+
+REAL_OPENCODE="$(find_real_opencode)" || { echo "Error: opencode not found in PATH" >&2; exit 127; }
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_SOURCE="$SELF_DIR/opencode-cmux-plugin.js"
+if [[ ! -r "$PLUGIN_SOURCE" ]]; then
+    exec "$REAL_OPENCODE" "$@"
+fi
+
+CMUX_OPENCODE_CONFIG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-opencode-config.XXXXXX")" || {
+    exec "$REAL_OPENCODE" "$@"
+}
+cleanup() {
+    rm -rf "$CMUX_OPENCODE_CONFIG_DIR"
+}
+trap cleanup EXIT HUP INT TERM
+
+EXISTING_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-}"
+if [[ -n "$EXISTING_CONFIG_DIR" && -d "$EXISTING_CONFIG_DIR" ]]; then
+    local_item=""
+    local_name=""
+    shopt -s dotglob nullglob
+    for local_item in "$EXISTING_CONFIG_DIR"/*; do
+        local_name="$(basename "$local_item")"
+        [[ "$local_name" == "." || "$local_name" == ".." ]] && continue
+        [[ "$local_name" == "plugin" || "$local_name" == "plugins" ]] && continue
+        [[ -e "$CMUX_OPENCODE_CONFIG_DIR/$local_name" ]] && continue
+        ln -s "$local_item" "$CMUX_OPENCODE_CONFIG_DIR/$local_name"
+    done
+    shopt -u dotglob nullglob
+
+    link_children "$EXISTING_CONFIG_DIR/plugin" "$CMUX_OPENCODE_CONFIG_DIR/plugin"
+    link_children "$EXISTING_CONFIG_DIR/plugins" "$CMUX_OPENCODE_CONFIG_DIR/plugins"
+fi
+
+if ! mkdir -p "$CMUX_OPENCODE_CONFIG_DIR/plugins" ||
+   ! cp "$PLUGIN_SOURCE" "$CMUX_OPENCODE_CONFIG_DIR/plugins/cmux-integration.js"; then
+    rm -rf "$CMUX_OPENCODE_CONFIG_DIR"
+    exec "$REAL_OPENCODE" "$@"
+fi
+
+export OPENCODE_CONFIG_DIR="$CMUX_OPENCODE_CONFIG_DIR"
+
+run_cmux clear-status opencode || true
+
+"$REAL_OPENCODE" "$@"
+STATUS=$?
+
+run_cmux clear-status opencode || true
+run_cmux clear-notifications || true
+
+exit "$STATUS"

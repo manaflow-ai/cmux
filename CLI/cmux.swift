@@ -2245,6 +2245,120 @@ struct CMUXCLI {
                 throw error
             }
 
+        case "set-status":
+            let (icon, r1) = parseOption(commandArgs, name: "--icon")
+            let (color, r2) = parseOption(r1, name: "--color")
+            let (pidRaw, r3) = parseOption(r2, name: "--pid")
+            let pid: Int32?
+            if let pidRaw {
+                guard let parsedPid = Int32(pidRaw), parsedPid > 0 else {
+                    throw CLIError(message: "--pid must be a positive integer")
+                }
+                pid = parsedPid
+            } else {
+                pid = nil
+            }
+            let (wsFlag, r4) = parseOption(r3, name: "--workspace")
+            guard r4.count >= 2 else {
+                throw CLIError(message: "set-status requires <key> and <value>")
+            }
+            let key = r4[0]
+            let value = r4.dropFirst().joined(separator: " ")
+            guard !value.isEmpty else {
+                throw CLIError(message: "set-status requires a non-empty value")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_status \(key) \(socketQuote(value))"
+            if let icon { socketCmd += " --icon=\(socketQuote(icon))" }
+            if let color { socketCmd += " --color=\(socketQuote(color))" }
+            if let pid { socketCmd += " --pid=\(pid)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-status":
+            let (wsFlag, csRemaining) = parseOption(commandArgs, name: "--workspace")
+            guard let key = csRemaining.first else {
+                throw CLIError(message: "clear-status requires a <key>")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_status \(key) --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-status":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("list_status --tab=\(wsId)", client: client)
+            print(response)
+
+        case "set-progress":
+            let (label, spR1) = parseOption(commandArgs, name: "--label")
+            let (wsFlag, spR2) = parseOption(spR1, name: "--workspace")
+            guard let valueStr = spR2.first else {
+                throw CLIError(message: "set-progress requires a progress value (0.0-1.0)")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "set_progress \(valueStr)"
+            if let label { socketCmd += " --label=\(socketQuote(label))" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-progress":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_progress --tab=\(wsId)", client: client)
+            print(response)
+
+        case "log":
+            let (level, r1) = parseOption(commandArgs, name: "--level")
+            let (source, r2) = parseOption(r1, name: "--source")
+            let (wsFlag, r3) = parseOption(r2, name: "--workspace")
+            // Strip leading "--" separator if present
+            let positional = r3.first == "--" ? Array(r3.dropFirst()) : r3
+            let message = positional.joined(separator: " ")
+            guard !message.isEmpty else {
+                throw CLIError(message: "log requires a message")
+            }
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "log"
+            if let level { socketCmd += " --level=\(level)" }
+            if let source { socketCmd += " --source=\(socketQuote(source))" }
+            socketCmd += " --tab=\(wsId) -- \(socketQuote(message))"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "clear-log":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("clear_log --tab=\(wsId)", client: client)
+            print(response)
+
+        case "list-log":
+            let (limitStr, r1) = parseOption(commandArgs, name: "--limit")
+            let (wsFlag, _) = parseOption(r1, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            var socketCmd = "list_log"
+            if let limitStr { socketCmd += " --limit=\(limitStr)" }
+            socketCmd += " --tab=\(wsId)"
+            let response = try sendV1Command(socketCmd, client: client)
+            print(response)
+
+        case "sidebar-state":
+            let (wsFlag, _) = parseOption(commandArgs, name: "--workspace")
+            let workspaceArg = wsFlag ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let wsId = try resolveWorkspaceId(workspaceArg, client: client)
+            let response = try sendV1Command("sidebar_state --tab=\(wsId)", client: client)
+            print(response)
+
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
             let response = try sendV1Command("set_app_focus \(value)", client: client)
@@ -6895,6 +7009,7 @@ struct CMUXCLI {
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
+              --pid <pid>            Track a process for stale-pill cleanup
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
 
             Example:
@@ -11409,6 +11524,18 @@ struct CMUXCLI {
           list-notifications
           clear-notifications
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+
+          # sidebar metadata commands
+          set-status <key> <value> [--icon <name>] [--color <#hex>] [--pid <pid>] [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          clear-log [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
+
           set-app-focus <active|inactive|clear>
           simulate-app-active
 

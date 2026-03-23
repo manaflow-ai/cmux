@@ -51,7 +51,7 @@
 
 ## Additional Integrations
 - [ ] Codex integration
-- [ ] OpenCode integration
+- [x] OpenCode integration
 
 ## Browser
 - [ ] Per-WKWebView proxy observability/inspection once remote proxy path is shipped (URL, method, headers, body, status, timing)
