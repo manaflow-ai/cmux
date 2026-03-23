@@ -1,8 +1,10 @@
 import XCTest
 import Foundation
+import AppKit
 
 final class DisplayResolutionRegressionUITests: XCTestCase {
     private let defaultDisplayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
+    private let appBundleIdentifier = "com.cmuxterm.app.debug"
     private var launchTag = ""
     private var diagnosticsPath = ""
     private var displayReadyPath = ""
@@ -11,7 +13,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private var displayDonePath = ""
     private var helperBinaryPath = ""
     private var helperLogPath = ""
-    private var launchedApp: XCUIApplication?
+    private var launchedRunningApp: NSRunningApplication?
     private var helperProcess: Process?
 
     override func setUp() {
@@ -239,42 +241,79 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         helperProcess = proc
     }
 
+    // Launch the app via NSWorkspace instead of XCUIApplication to avoid
+    // the 60-second foreground activation timeout that kills UI tests on
+    // headless CI runners. NSWorkspace.openApplication passes environment
+    // variables through OpenConfiguration and returns immediately.
     private func launchAppProcess(targetDisplayID: String) throws {
-        let app = XCUIApplication()
-        for (key, value) in launchEnvironment(targetDisplayID: targetDisplayID) {
-            app.launchEnvironment[key] = value
+        let appBundlePath = try resolveAppBundlePath()
+        let appURL = URL(fileURLWithPath: appBundlePath)
+
+        let config = NSWorkspace.OpenConfiguration()
+        config.environment = launchEnvironment(targetDisplayID: targetDisplayID)
+        config.activates = true
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var launchError: Error?
+        var runningApp: NSRunningApplication?
+
+        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { app, error in
+            runningApp = app
+            launchError = error
+            semaphore.signal()
         }
 
-        // On headless CI runners, XCUIApplication.launch() may fail to activate
-        // the app (reporting "Failed to activate application" as a test error).
-        // Temporarily allow continuation so we can retry activation manually.
-        continueAfterFailure = true
-        app.launch()
-        continueAfterFailure = false
-        launchedApp = app
-
-        guard ensureForegroundAfterLaunch(app, timeout: 15.0) else {
+        let waitResult = semaphore.wait(timeout: .now() + 30.0)
+        if waitResult == .timedOut {
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "App failed to reach foreground. state=\(app.state.rawValue) diagnostics=\(loadDiagnostics() ?? [:])"
+                NSLocalizedDescriptionKey: "NSWorkspace.openApplication timed out after 30s for \(appBundlePath)"
             ])
         }
 
-        if !waitForAppLaunchDiagnostics(timeout: 12.0) {
+        if let error = launchError {
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. state=\(app.state.rawValue) diagnostics=\(loadDiagnostics() ?? [:])"
+                NSLocalizedDescriptionKey: "NSWorkspace.openApplication failed: \(error.localizedDescription) path=\(appBundlePath)"
+            ])
+        }
+
+        launchedRunningApp = runningApp
+
+        if !waitForAppLaunchDiagnostics(timeout: 15.0) {
+            let isAlive = launchedRunningApp?.isTerminated == false
+            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:])"
             ])
         }
     }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
+    private func resolveAppBundlePath() throws -> String {
+        let testBundle = Bundle(for: Self.self)
+        // UI test bundle is at:
+        //   .../Build/Products/Debug/cmuxUITests-Runner.app/Contents/PlugIns/cmuxUITests.xctest
+        // The app is at:
+        //   .../Build/Products/Debug/cmux DEV.app
+        let productsDir = testBundle.bundleURL
+            .deletingLastPathComponent()  // PlugIns/
+            .deletingLastPathComponent()  // Contents/
+            .deletingLastPathComponent()  // cmuxUITests-Runner.app/
+        let appPath = productsDir.appendingPathComponent("cmux DEV.app").path
+        if FileManager.default.fileExists(atPath: appPath) {
+            return appPath
         }
-        if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
+
+        // Fallback: search DerivedData for the app
+        let env = ProcessInfo.processInfo.environment
+        if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
+            let candidate = URL(fileURLWithPath: builtProductsDir)
+                .appendingPathComponent("cmux DEV.app").path
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
         }
-        return false
+
+        throw NSError(domain: "DisplayResolutionRegressionUITests", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "App bundle not found. primary=\(appPath) BUILT_PRODUCTS_DIR=\(env["BUILT_PRODUCTS_DIR"] ?? "<unset>")"
+        ])
     }
 
     private func launchEnvironment(targetDisplayID: String) -> [String: String] {
@@ -288,20 +327,25 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     private func terminateLaunchedAppIfNeeded() {
-        guard let launchedApp else { return }
-        defer { self.launchedApp = nil }
+        guard let app = launchedRunningApp else { return }
+        defer { launchedRunningApp = nil }
 
-        if launchedApp.state == .notRunning {
-            return
+        if app.isTerminated { return }
+
+        app.terminate()
+        // Wait up to 5s for termination
+        let deadline = Date().addingTimeInterval(5.0)
+        while !app.isTerminated && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-
-        launchedApp.terminate()
-        _ = launchedApp.wait(for: .notRunning, timeout: 5.0)
+        if !app.isTerminated {
+            app.forceTerminate()
+        }
     }
 
     private func launchedAppDiagnostics() -> String {
-        guard let launchedApp else { return "not-launched" }
-        return "state=\(launchedApp.state.rawValue)"
+        guard let app = launchedRunningApp else { return "not-launched" }
+        return "pid=\(app.processIdentifier) terminated=\(app.isTerminated)"
     }
 
     private func waitForTargetDisplayMove(targetDisplayID: String, timeout: TimeInterval) -> Bool {
