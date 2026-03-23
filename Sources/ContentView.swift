@@ -5975,8 +5975,11 @@ struct ContentView: View {
                 panel.allowsMultipleSelection = false
                 panel.title = String(localized: "panel.openFolder.title", defaultValue: "Open Folder")
                 panel.prompt = String(localized: "panel.openFolder.prompt", defaultValue: "Open")
+                if let preferredDir = self.tabManager.selectedWorkspace?.focusedPanelId.flatMap({ self.tabManager.selectedWorkspace?.panelDirectories[$0] }), !preferredDir.isEmpty {
+                    panel.directoryURL = URL(fileURLWithPath: preferredDir)
+                }
                 if panel.runModal() == .OK, let url = panel.url {
-                    tabManager.addWorkspace(workingDirectory: url.path)
+                    self.tabManager.addWorkspace(workingDirectory: url.path)
                 }
             }
         }
