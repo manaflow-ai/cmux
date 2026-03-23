@@ -32,6 +32,10 @@ final class ChatPanel: NSObject, Panel, ObservableObject, WKScriptMessageHandler
     /// The t3code sidecar server port for this workspace.
     private(set) var serverPort: Int?
 
+    /// The workspace project directory passed to the embedded URL so t3code
+    /// can bind the thread to the correct project.
+    private let projectCwd: String?
+
     /// The web view displaying t3code's React UI.
     private(set) var webView: CmuxWebView
 
@@ -58,11 +62,12 @@ final class ChatPanel: NSObject, Panel, ObservableObject, WKScriptMessageHandler
 
     // MARK: - Init
 
-    init(workspaceId: UUID, threadId: String? = nil, serverPort: Int? = nil) {
+    init(workspaceId: UUID, threadId: String? = nil, serverPort: Int? = nil, projectCwd: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.t3codeThreadId = Self.normalizedThreadId(threadId)
         self.serverPort = serverPort
+        self.projectCwd = projectCwd
 
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
@@ -134,13 +139,22 @@ final class ChatPanel: NSObject, Panel, ObservableObject, WKScriptMessageHandler
         var urlString = "http://127.0.0.1:\(port)"
         let normalizedThreadId = Self.normalizedThreadId(t3codeThreadId)
         t3codeThreadId = normalizedThreadId
+
+        // Build query parameters. Always include embedded=1; optionally
+        // include projectCwd so t3code can bind to the correct project.
+        var queryItems = "embedded=1"
+        if let cwd = projectCwd,
+           let encodedCwd = cwd.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            queryItems += "&projectCwd=\(encodedCwd)"
+        }
+
         if let threadId = normalizedThreadId,
            let encodedThreadId = threadId.addingPercentEncoding(
             withAllowedCharacters: Self.threadIDPathAllowedCharacters
            ) {
-            urlString += "/\(encodedThreadId)?embedded=1"
+            urlString += "/\(encodedThreadId)?\(queryItems)"
         } else {
-            urlString += "/_chat?embedded=1"
+            urlString += "/_chat?\(queryItems)"
         }
 
         guard let url = URL(string: urlString) else {

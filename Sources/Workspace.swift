@@ -7642,7 +7642,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
-        let chatPanel = ChatPanel(workspaceId: id, threadId: threadId, serverPort: serverPort)
+        let chatPanel = ChatPanel(workspaceId: id, threadId: threadId, serverPort: serverPort, projectCwd: currentDirectory)
         chatPanel.onThreadIdChange = { [weak self, panelId = chatPanel.id] nextThreadId in
             self?.updateWriterThreadId(nextThreadId, forChatPanelId: panelId)
         }
