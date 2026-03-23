@@ -1,6 +1,5 @@
 import XCTest
 import Foundation
-import AppKit
 
 final class DisplayResolutionRegressionUITests: XCTestCase {
     private let defaultDisplayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
@@ -12,7 +11,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private var displayDonePath = ""
     private var helperBinaryPath = ""
     private var helperLogPath = ""
-    private var launchedRunningApp: NSRunningApplication?
+    private var appProcess: Process?
     private var helperProcess: Process?
 
     override func setUp() {
@@ -36,7 +35,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     override func tearDown() {
-        terminateLaunchedAppIfNeeded()
+        terminateAppProcess()
         helperProcess?.terminate()
         helperProcess?.waitUntilExit()
         helperProcess = nil
@@ -240,69 +239,56 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         helperProcess = proc
     }
 
-    // Launch the app via NSWorkspace instead of XCUIApplication to avoid
-    // the 60-second foreground activation timeout that kills UI tests on
-    // headless CI runners. NSWorkspace.openApplication passes environment
-    // variables through OpenConfiguration and returns immediately.
+    // Launch the app binary directly via Process, matching what smoke-test-ci.sh
+    // does. XCUIApplication.launch() and NSWorkspace.openApplication both require
+    // foreground activation which fails on headless WarpBuild CI runners.
+    // Running the binary directly works because it doesn't need WindowServer activation.
     private func launchAppProcess(targetDisplayID: String) throws {
-        let appBundlePath = try resolveAppBundlePath()
-        let appURL = URL(fileURLWithPath: appBundlePath)
+        let binaryPath = try resolveAppBinaryPath()
+        let env = launchEnvironment(targetDisplayID: targetDisplayID)
 
-        let config = NSWorkspace.OpenConfiguration()
-        config.environment = launchEnvironment(targetDisplayID: targetDisplayID)
-        config.activates = true
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: binaryPath)
+        proc.environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
 
-        let semaphore = DispatchSemaphore(value: 0)
-        var launchError: Error?
-        var runningApp: NSRunningApplication?
+        let logPath = "/tmp/cmux-ui-test-app-\(launchTag).log"
+        FileManager.default.createFile(atPath: logPath, contents: nil)
+        let logHandle = FileHandle(forWritingAtPath: logPath)
+        proc.standardOutput = logHandle
+        proc.standardError = logHandle
 
-        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { app, error in
-            runningApp = app
-            launchError = error
-            semaphore.signal()
-        }
-
-        let waitResult = semaphore.wait(timeout: .now() + 30.0)
-        if waitResult == .timedOut {
-            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "NSWorkspace.openApplication timed out after 30s for \(appBundlePath)"
-            ])
-        }
-
-        if let error = launchError {
-            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "NSWorkspace.openApplication failed: \(error.localizedDescription) path=\(appBundlePath)"
-            ])
-        }
-
-        launchedRunningApp = runningApp
+        try proc.run()
+        appProcess = proc
 
         if !waitForAppLaunchDiagnostics(timeout: 15.0) {
-            let isAlive = launchedRunningApp?.isTerminated == false
+            let isAlive = proc.isRunning
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:])"
+                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:]) log=\(logPath)"
             ])
         }
     }
 
-    private func resolveAppBundlePath() throws -> String {
+    private func resolveAppBinaryPath() throws -> String {
         // UI test bundle is at:
         //   .../Build/Products/Debug/cmuxUITests-Runner.app/Contents/PlugIns/cmuxUITests.xctest
-        // The app is at:
-        //   .../Build/Products/Debug/cmux DEV.app
+        // The app binary is at:
+        //   .../Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV
         let testBundle = Bundle(for: Self.self)
         let productsDir = testBundle.bundleURL
             .deletingLastPathComponent()  // -> .../Contents/PlugIns
             .deletingLastPathComponent()  // -> .../Contents
             .deletingLastPathComponent()  // -> .../cmuxUITests-Runner.app
             .deletingLastPathComponent()  // -> .../Debug
-        let appPath = productsDir.appendingPathComponent("cmux DEV.app").path
-        if FileManager.default.fileExists(atPath: appPath) {
-            return appPath
+        let binaryPath = productsDir
+            .appendingPathComponent("cmux DEV.app")
+            .appendingPathComponent("Contents/MacOS/cmux DEV")
+            .path
+        if FileManager.default.fileExists(atPath: binaryPath) {
+            return binaryPath
         }
 
         throw NSError(domain: "DisplayResolutionRegressionUITests", code: 4, userInfo: [
-            NSLocalizedDescriptionKey: "App bundle not found at \(appPath). testBundle=\(testBundle.bundleURL.path)"
+            NSLocalizedDescriptionKey: "App binary not found at \(binaryPath). testBundle=\(testBundle.bundleURL.path)"
         ])
     }
 
@@ -316,24 +302,24 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         ]
     }
 
-    private func terminateLaunchedAppIfNeeded() {
-        guard let app = launchedRunningApp else { return }
-        defer { launchedRunningApp = nil }
+    private func terminateAppProcess() {
+        guard let proc = appProcess else { return }
+        defer { appProcess = nil }
 
-        if app.isTerminated { return }
-        app.terminate()
+        if !proc.isRunning { return }
+        proc.terminate()
         let deadline = Date().addingTimeInterval(5.0)
-        while !app.isTerminated && Date() < deadline {
+        while proc.isRunning && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        if !app.isTerminated {
-            app.forceTerminate()
+        if proc.isRunning {
+            proc.interrupt()
         }
     }
 
     private func launchedAppDiagnostics() -> String {
-        guard let app = launchedRunningApp else { return "not-launched" }
-        return "pid=\(app.processIdentifier) terminated=\(app.isTerminated)"
+        guard let proc = appProcess else { return "not-launched" }
+        return "pid=\(proc.processIdentifier) running=\(proc.isRunning)"
     }
 
     private func waitForAppLaunchDiagnostics(timeout: TimeInterval) -> Bool {
