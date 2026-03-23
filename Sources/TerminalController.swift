@@ -10048,8 +10048,14 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let picked = (dict?["picked"] as? Bool) ?? false
-                let element = dict?["element"]
-                if picked, let element {
+                if picked, var element = dict?["element"] as? [String: Any] {
+                    // Swift-side sanitization (defense in depth)
+                    if let text = element["text"] as? String {
+                        element["text"] = v2SanitizeWebText(text)
+                    }
+                    if let xpath = element["xpath"] as? String {
+                        element["xpath"] = v2SanitizeWebText(xpath)
+                    }
                     return .ok([
                         "workspace_id": ws.id.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
@@ -10140,8 +10146,14 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let picked = (dict?["picked"] as? Bool) ?? false
-                let element = dict?["element"]
-                if picked, let element {
+                if picked, var element = dict?["element"] as? [String: Any] {
+                    // Swift-side sanitization (defense in depth)
+                    if let text = element["text"] as? String {
+                        element["text"] = self.v2SanitizeWebText(text)
+                    }
+                    if let xpath = element["xpath"] as? String {
+                        element["xpath"] = self.v2SanitizeWebText(xpath)
+                    }
                     result = .ok([
                         "workspace_id": workspaceId.uuidString,
                         "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
