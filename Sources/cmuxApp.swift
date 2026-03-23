@@ -743,17 +743,32 @@ struct cmuxApp: App {
                 }
 
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
-                    _ = activeTabManager.zoomInFocusedBrowser()
+                    let manager = activeTabManager
+                    if manager.selectedTerminalPanel != nil {
+                        _ = manager.increaseFontSizeFocusedTerminal()
+                    } else {
+                        _ = manager.zoomInFocusedBrowser()
+                    }
                 }
                 .keyboardShortcut("=", modifiers: .command)
 
                 Button(String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")) {
-                    _ = activeTabManager.zoomOutFocusedBrowser()
+                    let manager = activeTabManager
+                    if manager.selectedTerminalPanel != nil {
+                        _ = manager.decreaseFontSizeFocusedTerminal()
+                    } else {
+                        _ = manager.zoomOutFocusedBrowser()
+                    }
                 }
                 .keyboardShortcut("-", modifiers: .command)
 
                 Button(String(localized: "menu.view.actualSize", defaultValue: "Actual Size")) {
-                    _ = activeTabManager.resetZoomFocusedBrowser()
+                    let manager = activeTabManager
+                    if manager.selectedTerminalPanel != nil {
+                        _ = manager.resetFontSizeFocusedTerminal()
+                    } else {
+                        _ = manager.resetZoomFocusedBrowser()
+                    }
                 }
                 .keyboardShortcut("0", modifiers: .command)
 
