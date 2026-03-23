@@ -12307,7 +12307,7 @@ private struct TabItemView: View, Equatable {
         container.addSubview(colorWell)
 
         let input = NSTextField(frame: NSRect(x: 48, y: 1, width: 192, height: 22))
-        input.stringValue = seed
+        input.stringValue = seed.isEmpty ? colorWell.color.hexString() : seed
         input.placeholderString = "#1565C0"
         container.addSubview(input)
 
