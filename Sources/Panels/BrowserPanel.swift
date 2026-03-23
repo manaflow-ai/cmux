@@ -16,18 +16,48 @@ import Security
 
 // MARK: - Element Picker Message Handler
 
-/// Receives Option+Click element selection from the browser JS.
-/// Data is stored and read via the socket API (browser.picked / browser.picked.wait).
-/// No data is injected into terminal stdin — the agent reads it explicitly.
+/// Receives Option+Click element selection from the browser JS and sends
+/// sanitized summary to the first terminal in the workspace.
+/// Text is sanitized: control chars, newlines, ANSI escapes are stripped.
 final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
+    private let workspaceId: UUID
+
+    init(workspaceId: UUID) {
+        self.workspaceId = workspaceId
+        super.init()
+    }
+
+    /// Strip control characters, newlines, and ANSI escape sequences
+    private func sanitize(_ text: String) -> String {
+        let cleaned = text.unicodeScalars.filter { s in
+            (s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F
+        }
+        return String(String.UnicodeScalarView(cleaned)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        // Data is stored in window.__cmuxPointedElement on the JS side.
-        // The Swift side reads it via browser.pointed / browser.picked.wait eval.
-        // This handler exists only to validate the message bridge is active.
-        // No action needed — the JS already stored the data before calling postMessage.
+        guard message.name == "cmuxPointer" else { return }
+        guard let body = message.body as? [String: Any] else { return }
+
+        let xpath = sanitize(body["xpath"] as? String ?? "")
+        let rawText = sanitize(body["text"] as? String ?? "")
+
+        var summary = "[picked] \(xpath)"
+        if !rawText.isEmpty {
+            summary += " \"\(rawText)\""
+        }
+
+        NotificationCenter.default.post(
+            name: .browserElementPicked,
+            object: nil,
+            userInfo: [
+                "workspaceId": workspaceId,
+                "summary": summary
+            ]
+        )
     }
 }
 
@@ -2639,7 +2669,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func bindWebView(_ webView: CmuxWebView) {
         // Register Option+Click element picker message handler.
         // Use a separate handler object to avoid retain cycles with WKUserContentController.
-        let handler = BrowserPickerMessageHandler()
+        let handler = BrowserPickerMessageHandler(workspaceId: workspaceId)
         pickerMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: "cmuxPointer")
 

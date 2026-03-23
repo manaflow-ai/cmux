@@ -10,6 +10,7 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    static let browserElementPicked = Notification.Name("cmux.browserElementPicked")
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -198,6 +199,8 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserElementPickedObserver: NSObjectProtocol?
+
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
             forName: .browserDownloadEventDidArrive,
@@ -214,6 +217,42 @@ class TerminalController {
             }
         }
 
+        browserElementPickedObserver = NotificationCenter.default.addObserver(
+            forName: .browserElementPicked,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                  let summary = note.userInfo?["summary"] as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.sendPickedElementToTerminal(workspaceId: workspaceId, summary: summary)
+            }
+        }
+    }
+
+    /// Send picked element summary to the focused terminal in the workspace.
+    /// The summary is already sanitized (no control chars, newlines, or escape sequences).
+    private func sendPickedElementToTerminal(workspaceId: UUID, summary: String) {
+        guard let tabManager = self.tabManager else { return }
+        guard let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        // Prefer the focused panel if it's a terminal
+        if let focusedId = ws.focusedPanelId,
+           let terminalPanel = ws.terminalPanel(for: focusedId),
+           let surface = terminalPanel.surface.surface {
+            sendSocketText(summary, surface: surface)
+            terminalPanel.surface.forceRefresh(reason: "browserElementPicked")
+            return
+        }
+        // Fallback: find any terminal panel in the workspace
+        for (panelId, _) in ws.panels {
+            if let terminalPanel = ws.terminalPanel(for: panelId),
+               let surface = terminalPanel.surface.surface {
+                sendSocketText(summary, surface: surface)
+                terminalPanel.surface.forceRefresh(reason: "browserElementPicked")
+                return
+            }
+        }
     }
 
     private nonisolated func withListenerState<T>(_ body: () -> T) -> T {
