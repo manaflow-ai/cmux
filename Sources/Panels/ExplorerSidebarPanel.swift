@@ -7,6 +7,8 @@ import WebKit
 final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
     var rootPath: String = ""
     var onOpenFile: ((String) -> Void)?
+    /// Called on double-click — pins the file (prevents preview reuse).
+    var onPinFile: ((String) -> Void)?
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -16,6 +18,12 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
               let action = body["action"] as? String else { return }
 
         switch action {
+        case "pinFileExternal":
+            guard let relativePath = body["path"] as? String else { return }
+            let fullPath = (rootPath as NSString).appendingPathComponent(relativePath)
+            DispatchQueue.main.async { [weak self] in
+                self?.onPinFile?(fullPath)
+            }
         case "openFileExternal":
             guard let relativePath = body["path"] as? String else { return }
             let fullPath = (rootPath as NSString).appendingPathComponent(relativePath)
@@ -248,6 +256,10 @@ final class ExplorerSidebarPanel: ObservableObject {
 
     var onOpenFile: ((String) -> Void)? {
         didSet { messageHandler.onOpenFile = onOpenFile }
+    }
+
+    var onPinFile: ((String) -> Void)? {
+        didSet { messageHandler.onPinFile = onPinFile }
     }
 
     init(rootPath: String) {

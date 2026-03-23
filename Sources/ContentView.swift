@@ -2109,10 +2109,35 @@ struct ContentView: View {
             guard let workspaceId = tabManager.selectedTabId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
 
-            // Each file opens as a new editor tab — single file per panel
-            let rootPath = workspace.currentDirectory
-            _ = tabManager.openEditor(rootPath: rootPath, filePath: filePath, focus: true)
+            // VS Code preview tab behavior:
+            // - If there's a preview (unpinned) editor, reuse it
+            // - If all editors are pinned (edited or double-clicked), create a new one
+            let previewEditor = workspace.panels.values
+                .compactMap { $0 as? EditorPanel }
+                .first(where: { $0.isPreview })
+
+            if let preview = previewEditor {
+                preview.openFileByPath(filePath)
+                workspace.focusPanel(preview.id)
+            } else {
+                let rootPath = workspace.currentDirectory
+                _ = tabManager.openEditor(rootPath: rootPath, filePath: filePath, focus: true)
+            }
         }
+        panel.onPinFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+
+            // Find the preview editor showing this file and pin it
+            if let previewEditor = workspace.panels.values
+                .compactMap({ $0 as? EditorPanel })
+                .first(where: { $0.isPreview }) {
+                previewEditor.isPreview = false
+                workspace.focusPanel(previewEditor.id)
+            }
+        }
+
         explorerPanel = panel
     }
 

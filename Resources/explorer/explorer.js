@@ -71,6 +71,13 @@
         });
     }
 
+    function pinFileExternal(path) {
+        window.webkit.messageHandlers.cmuxExplorer.postMessage({
+            action: 'pinFileExternal',
+            path: path
+        });
+    }
+
     // ── File Icons ─────────────────────────────────────────────────────
     function fileIconClass(name, isDir, isOpen) {
         if (isDir) return isOpen ? 'icon-folder-open' : 'icon-folder';
@@ -259,12 +266,13 @@
                 showContextMenu(e.clientX, e.clientY, fullPath, entry.isDirectory, entry.name);
             });
 
-            // Double-click to rename
+            // Double-click: files → pin editor tab, directories → rename
             row.addEventListener('dblclick', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (entry.isDirectory) return;
-                startInlineRename(row, fullPath, entry.name);
+                // Double-click pins the file (opens it permanently)
+                pinFileExternal(fullPath);
             });
         }
     }

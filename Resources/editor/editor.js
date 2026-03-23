@@ -1,5 +1,5 @@
 // cmux Editor — single-file Monaco editor
-// Swift bridge via window.webkit.messageHandlers.cmuxEditor
+// Swift injects Monaco paths via window.cmux.initMonaco(vsPath, cssPath)
 
 (function () {
     'use strict';
@@ -33,9 +33,7 @@
         updateMonacoTheme(editorBg, editorFg) {
             if (!monacoInstance || !editor) return;
             monacoInstance.editor.defineTheme('cmux-dark', {
-                base: 'vs-dark',
-                inherit: true,
-                rules: [],
+                base: 'vs-dark', inherit: true, rules: [],
                 colors: {
                     'editor.background': editorBg,
                     'editorGutter.background': editorBg,
@@ -47,33 +45,57 @@
             monacoInstance.editor.setTheme('cmux-dark');
             document.documentElement.style.setProperty('--editor-bg', editorBg);
         },
-        // Called from Swift to open a file by relative path
+
+        // Called from Swift to open a file
         async openFile(relativePath, fileName) {
-            if (!editor || !monacoInstance) return;
-            try {
-                const content = await readFile(relativePath);
-                currentFilePath = relativePath;
-                originalContent = content;
-                isDirty = false;
-                const lang = getLang(fileName);
-                const model = monacoInstance.editor.createModel(content, lang);
-                const oldModel = editor.getModel();
-                editor.setModel(model);
-                if (oldModel) oldModel.dispose();
-                model.onDidChangeContent(() => {
-                    const nowDirty = model.getValue() !== originalContent;
-                    if (nowDirty !== isDirty) {
-                        isDirty = nowDirty;
-                        notifyDirty(isDirty);
-                    }
-                });
-                notifyActive(fileName);
-                notifyReady();
-            } catch (err) {
-                console.error('Open failed:', err);
+            if (!editor || !monacoInstance) {
+                // Queue for after init
+                window.cmux._pendingOpen = { relativePath, fileName };
+                return;
             }
+            await doOpenFile(relativePath, fileName);
+        },
+
+        // Called from Swift with Monaco paths — triggers init
+        initMonaco(vsPath, cssHref) {
+            // Inject CSS
+            if (cssHref) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = cssHref;
+                document.head.appendChild(link);
+            }
+            // Load Monaco loader
+            const script = document.createElement('script');
+            script.onload = function() { bootstrapMonaco(vsPath); };
+            script.src = vsPath + '/loader.js';
+            document.head.appendChild(script);
         }
     };
+
+    async function doOpenFile(relativePath, fileName) {
+        try {
+            const content = await readFile(relativePath);
+            currentFilePath = relativePath;
+            originalContent = content;
+            isDirty = false;
+            const lang = getLang(fileName);
+            const model = monacoInstance.editor.createModel(content, lang);
+            const oldModel = editor.getModel();
+            editor.setModel(model);
+            if (oldModel) oldModel.dispose();
+            model.onDidChangeContent(() => {
+                const nowDirty = model.getValue() !== originalContent;
+                if (nowDirty !== isDirty) {
+                    isDirty = nowDirty;
+                    notifyDirty(isDirty);
+                }
+            });
+            notifyActive(fileName);
+        } catch (err) {
+            console.error('Open failed:', err);
+        }
+    }
 
     function post(action, params = {}) {
         return new Promise((resolve, reject) => {
@@ -96,7 +118,6 @@
         window.webkit.messageHandlers.cmuxEditor.postMessage({ action: 'editorReady' });
     }
 
-    // ── Language Detection ─────────────────────────────────────────────
     function getLang(name) {
         const ext = (name || '').split('.').pop().toLowerCase();
         const m = {
@@ -113,7 +134,6 @@
         return m[ext] || 'plaintext';
     }
 
-    // ── Save ───────────────────────────────────────────────────────────
     async function saveActive() {
         if (!currentFilePath || !editor) return;
         const content = editor.getModel().getValue();
@@ -122,53 +142,56 @@
             originalContent = content;
             isDirty = false;
             notifyDirty(false);
-        } catch (err) {
-            console.error('Save failed:', err);
-        }
+        } catch (err) { console.error('Save failed:', err); }
     }
 
-    // ── Monaco Init ────────────────────────────────────────────────────
-    require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+    function bootstrapMonaco(vsPath) {
+        require.config({ paths: { vs: vsPath } });
 
-    require(['vs/editor/editor.main'], function (monaco) {
-        monacoInstance = monaco;
+        require(['vs/editor/editor.main'], async function (monaco) {
+            monacoInstance = monaco;
 
-        monaco.editor.defineTheme('cmux-dark', {
-            base: 'vs-dark',
-            inherit: true,
-            rules: [],
-            colors: {
-                'editor.background': '#1f1f1f',
-                'editorGutter.background': '#1f1f1f',
-                'editor.lineHighlightBackground': '#2a2d2e',
-                'editorLineNumber.foreground': '#5a5a5a',
-                'editorLineNumber.activeForeground': '#c6c6c6'
+            monaco.editor.defineTheme('cmux-dark', {
+                base: 'vs-dark', inherit: true, rules: [],
+                colors: {
+                    'editor.background': '#1f1f1f',
+                    'editorGutter.background': '#1f1f1f',
+                    'editor.lineHighlightBackground': '#2a2d2e',
+                    'editorLineNumber.foreground': '#5a5a5a',
+                    'editorLineNumber.activeForeground': '#c6c6c6'
+                }
+            });
+
+            editor = monaco.editor.create(document.getElementById('editor-container'), {
+                theme: 'cmux-dark',
+                fontSize: 13,
+                fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                wordWrap: 'off',
+                renderWhitespace: 'selection',
+                lineNumbers: 'on',
+                roundedSelection: false,
+                cursorBlinking: 'smooth',
+                smoothScrolling: true,
+                padding: { top: 8, bottom: 8 },
+                overviewRulerBorder: false,
+                bracketPairColorization: { enabled: true },
+                guides: { indentation: true, bracketPairs: true },
+                stickyScroll: { enabled: true }
+            });
+
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActive());
+
+            notifyReady();
+
+            // Open any file that was queued before Monaco was ready
+            if (window.cmux._pendingOpen) {
+                const { relativePath, fileName } = window.cmux._pendingOpen;
+                delete window.cmux._pendingOpen;
+                await doOpenFile(relativePath, fileName);
             }
         });
-
-        editor = monaco.editor.create(document.getElementById('editor-container'), {
-            theme: 'cmux-dark',
-            fontSize: 13,
-            fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            wordWrap: 'off',
-            renderWhitespace: 'selection',
-            lineNumbers: 'on',
-            roundedSelection: false,
-            cursorBlinking: 'smooth',
-            smoothScrolling: true,
-            padding: { top: 8, bottom: 8 },
-            overviewRulerBorder: false,
-            bracketPairColorization: { enabled: true },
-            guides: { indentation: true, bracketPairs: true },
-            stickyScroll: { enabled: true }
-        });
-
-        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActive());
-
-        // Signal ready
-        notifyReady();
-    });
+    }
 })();

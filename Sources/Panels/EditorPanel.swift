@@ -158,6 +158,10 @@ final class EditorPanel: Panel, ObservableObject {
     /// Whether any open file has unsaved changes (reported by Monaco via JS bridge).
     @Published var isDirty: Bool = false
 
+    /// Preview mode: single-click opens file here, double-click or edit pins it.
+    /// When pinned (isPreview = false), new files open in a new panel instead.
+    @Published var isPreview: Bool = true
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -175,39 +179,48 @@ final class EditorPanel: Panel, ObservableObject {
         self.pendingFilePath = filePath
         self.displayTitle = filePath.map { ($0 as NSString).lastPathComponent } ?? (rootPath as NSString).lastPathComponent
 
-        let config = WKWebViewConfiguration()
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Try to grab a pre-warmed WebView from the pool for instant display
+        if let pooled = MonacoWebViewPool.shared.take() {
+            let handler = pooled.handler
+            handler.rootPath = rootPath
+            self.messageHandler = handler
+            self.webView = pooled.webView as! CmuxWebView
 
-        let handler = EditorMessageHandler()
-        handler.rootPath = rootPath
-        config.userContentController.add(handler, name: "cmuxEditor")
-        self.messageHandler = handler
+            setupHandlerCallbacks(handler)
 
-        let webView = CmuxWebView(frame: .zero, configuration: config)
-        if #available(macOS 13.3, *) {
-            webView.isInspectable = true
-        }
-        self.webView = webView
-
-        handler.onDirtyStateChanged = { [weak self] dirty in
-            self?.isDirty = dirty
-        }
-        handler.onActiveFileChanged = { [weak self] fileName in
-            guard let self else { return }
-            if let fileName {
-                self.displayTitle = fileName
-            } else {
-                self.displayTitle = (self.rootPath as NSString).lastPathComponent
+            // Monaco is already loaded — open the file immediately if we have one
+            if let filePath = pendingFilePath {
+                pendingFilePath = nil
+                openFileByPath(filePath)
             }
+        } else {
+            // Fallback: create fresh WebView
+            let config = WKWebViewConfiguration()
+            config.defaultWebpagePreferences.allowsContentJavaScript = true
+
+            let handler = EditorMessageHandler()
+            handler.rootPath = rootPath
+            config.userContentController.add(handler, name: "cmuxEditor")
+            self.messageHandler = handler
+
+            let webView = CmuxWebView(frame: .zero, configuration: config)
+            if #available(macOS 13.3, *) {
+                webView.isInspectable = true
+            }
+            self.webView = webView
+
+            setupHandlerCallbacks(handler)
+
+            handler.onEditorReady = { [weak self] in
+                guard let self, let filePath = self.pendingFilePath else { return }
+                self.pendingFilePath = nil
+                self.openFileByPath(filePath)
+            }
+
+            loadEditorHTML()
         }
 
-        handler.onEditorReady = { [weak self] in
-            guard let self, let filePath = self.pendingFilePath else { return }
-            self.pendingFilePath = nil
-            self.openFileByPath(filePath)
-        }
-
-        loadEditorHTML()
+        injectThemeColors()
 
         // Listen for theme changes
         themeObserver = NotificationCenter.default.addObserver(
@@ -217,6 +230,21 @@ final class EditorPanel: Panel, ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.injectThemeColors()
+            }
+        }
+    }
+
+    private func setupHandlerCallbacks(_ handler: EditorMessageHandler) {
+        handler.onDirtyStateChanged = { [weak self] dirty in
+            self?.isDirty = dirty
+            if dirty { self?.isPreview = false }
+        }
+        handler.onActiveFileChanged = { [weak self] fileName in
+            guard let self else { return }
+            if let fileName {
+                self.displayTitle = fileName
+            } else {
+                self.displayTitle = (self.rootPath as NSString).lastPathComponent
             }
         }
     }
@@ -236,8 +264,26 @@ final class EditorPanel: Panel, ObservableObject {
             return
         }
         let editorDir = editorURL.deletingLastPathComponent()
+
+        // Pre-set the WebView background to match the theme before HTML loads
+        let bgColor = GhosttyBackgroundTheme.currentColor()
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.layer?.backgroundColor = bgColor.cgColor
+
         webView.navigationDelegate = themeInjector
         webView.loadFileURL(editorURL, allowingReadAccessTo: editorDir)
+    }
+
+    /// Inject Monaco paths so the JS can load Monaco from cache or CDN.
+    /// Always uses CDN for require paths (language workers need full CDN access).
+    /// CSS is loaded from cache if available for faster first paint.
+    func injectMonacoPaths() {
+        let v = MonacoCache.monacoVersion
+        // Always use CDN for vs path — Monaco dynamically loads language workers from here
+        let vsPath = "https://cdn.jsdelivr.net/npm/monaco-editor@\(v)/min/vs"
+        let cssHref = "https://cdn.jsdelivr.net/npm/monaco-editor@\(v)/min/vs/editor/editor.main.css"
+        let js = "window.cmux.initMonaco('\(vsPath)', '\(cssHref)');"
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     /// Lazily created navigation delegate that injects theme colors on page load.
@@ -247,54 +293,20 @@ final class EditorPanel: Panel, ObservableObject {
         return injector
     }()
 
-    /// Inject current cmux/Ghostty theme colors into the editor CSS variables.
+    /// Inject current cmux/Ghostty theme colors into the editor.
     func injectThemeColors() {
         let bgColor = GhosttyBackgroundTheme.currentColor()
-        let bgHex = bgColor.hexString()
-
-        // Derive related colors from the background
         let isDark = bgColor.perceivedBrightness < 0.5
-        let sidebarBg = bgHex
         let editorBg = isDark
             ? bgColor.adjustBrightness(by: 0.03).hexString()
             : bgColor.adjustBrightness(by: -0.02).hexString()
-        let borderColor = isDark
-            ? bgColor.adjustBrightness(by: 0.08).hexString()
-            : bgColor.adjustBrightness(by: -0.08).hexString()
-        let hoverBg = isDark
-            ? bgColor.adjustBrightness(by: 0.06).hexString()
-            : bgColor.adjustBrightness(by: -0.04).hexString()
-        let selectedBg = isDark
-            ? bgColor.adjustBrightness(by: 0.10).hexString()
-            : bgColor.adjustBrightness(by: -0.08).hexString()
         let fg = isDark ? "#cccccc" : "#333333"
-        let fgSecondary = isDark ? "#969696" : "#666666"
-        let indentGuide = isDark
-            ? bgColor.adjustBrightness(by: 0.20).hexString()
-            : bgColor.adjustBrightness(by: -0.15).hexString()
 
         let js = """
         (function() {
-            var r = document.documentElement.style;
-            r.setProperty('--sidebar-bg', '\(sidebarBg)');
-            r.setProperty('--sidebar-fg', '\(fg)');
-            r.setProperty('--sidebar-border', '\(borderColor)');
-            r.setProperty('--sidebar-header-bg', '\(sidebarBg)');
-            r.setProperty('--editor-bg', '\(editorBg)');
-            r.setProperty('--editor-fg', '\(fg)');
-            r.setProperty('--tab-bg', '\(sidebarBg)');
-            r.setProperty('--tab-active-bg', '\(editorBg)');
-            r.setProperty('--tab-border', '\(borderColor)');
-            r.setProperty('--tab-inactive-fg', '\(fgSecondary)');
-            r.setProperty('--tab-hover-bg', '\(hoverBg)');
-            r.setProperty('--list-hover-bg', '\(hoverBg)');
-            r.setProperty('--list-inactive-selection-bg', '\(selectedBg)');
-            r.setProperty('--tree-indent-guide', '\(indentGuide)');
-            r.setProperty('--input-bg', '\(hoverBg)');
-            r.setProperty('--input-border', '\(borderColor)');
-            r.setProperty('--input-fg', '\(fg)');
-            r.setProperty('--context-menu-bg', '\(editorBg)');
-            if (typeof window.cmux !== 'undefined' && typeof window.cmux.updateMonacoTheme === 'function') {
+            document.documentElement.style.setProperty('--editor-bg', '\(editorBg)');
+            document.body.style.background = '\(editorBg)';
+            if (window.cmux && typeof window.cmux.updateMonacoTheme === 'function') {
                 window.cmux.updateMonacoTheme('\(editorBg)', '\(fg)');
             }
         })();
@@ -357,6 +369,7 @@ final class EditorThemeInjector: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
             panel?.injectThemeColors()
+            panel?.injectMonacoPaths()
         }
     }
 }

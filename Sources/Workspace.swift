@@ -7469,12 +7469,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func installEditorPanelSubscription(_ editorPanel: EditorPanel) {
-        let subscription = Publishers.CombineLatest(
+        let subscription = Publishers.CombineLatest3(
             editorPanel.$displayTitle.removeDuplicates(),
-            editorPanel.$isDirty.removeDuplicates()
+            editorPanel.$isDirty.removeDuplicates(),
+            editorPanel.$isPreview.removeDuplicates()
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak editorPanel] newTitle, isDirty in
+        .sink { [weak self, weak editorPanel] newTitle, isDirty, isPreview in
             guard let self, let editorPanel,
                   let tabId = self.surfaceIdFromPanelId(editorPanel.id),
                   let existing = self.bonsplitController.tab(tabId) else { return }
@@ -7485,13 +7486,15 @@ final class Workspace: Identifiable, ObservableObject {
             let resolvedTitle = self.resolvedPanelTitle(panelId: editorPanel.id, fallback: newTitle)
             let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
             let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+            let italicUpdate: Bool? = existing.isItalic == isPreview ? nil : isPreview
 
-            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            guard titleUpdate != nil || dirtyUpdate != nil || italicUpdate != nil else { return }
             self.bonsplitController.updateTab(
                 tabId,
                 title: titleUpdate,
                 hasCustomTitle: self.panelCustomTitles[editorPanel.id] != nil,
-                isDirty: dirtyUpdate
+                isDirty: dirtyUpdate,
+                isItalic: italicUpdate
             )
         }
         panelSubscriptions[editorPanel.id] = subscription
