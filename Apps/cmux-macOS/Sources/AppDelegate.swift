@@ -4452,9 +4452,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
             return false
         }
-        if event.isARepeat {
-            return true
-        }
         let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
         if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
             return true
