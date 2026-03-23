@@ -2604,6 +2604,17 @@
         }
       }
     },
+    "alert.customColor.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "#1565C0"
+          }
+        }
+      }
+    },
     "alert.customColor.title": {
       "extractionState": "manual",
       "localizations": {
