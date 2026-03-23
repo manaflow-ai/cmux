@@ -800,8 +800,23 @@ class TabManager: ObservableObject {
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private struct WorkspaceCreationSnapshot {
+        struct TabMeta {
+            let id: UUID
+            let isPinned: Bool
+        }
         let tabs: [Workspace]
         let selectedTabId: UUID?
+        /// Value-type tab metadata extracted eagerly at snapshot creation
+        /// time so that newTabInsertIndex never dereferences Workspace
+        /// class references after intermediate operations (config
+        /// inheritance, tracking wiring) that may invalidate them.
+        let tabMetas: [TabMeta]
+
+        init(tabs: [Workspace], selectedTabId: UUID?) {
+            self.tabs = tabs
+            self.selectedTabId = selectedTabId
+            self.tabMetas = tabs.map { TabMeta(id: $0.id, isPinned: $0.isPinned) }
+        }
 
         var selectedWorkspace: Workspace? {
             guard let selectedTabId else { return nil }
@@ -2003,17 +2018,18 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let pinnedCount = snapshot.tabs.filter { $0.isPinned }.count
+        let metas = snapshot.tabMetas
+        let pinnedCount = metas.filter { $0.isPinned }.count
         let selectedIndex = snapshot.selectedTabId.flatMap { tabId in
-            snapshot.tabs.firstIndex(where: { $0.id == tabId })
+            metas.firstIndex(where: { $0.id == tabId })
         }
-        let selectedIsPinned = selectedIndex.map { snapshot.tabs[$0].isPinned } ?? false
+        let selectedIsPinned = selectedIndex.map { metas[$0].isPinned } ?? false
         return WorkspacePlacementSettings.insertionIndex(
             placement: placement,
             selectedIndex: selectedIndex,
             selectedIsPinned: selectedIsPinned,
             pinnedCount: pinnedCount,
-            totalCount: snapshot.tabs.count
+            totalCount: metas.count
         )
     }
 
