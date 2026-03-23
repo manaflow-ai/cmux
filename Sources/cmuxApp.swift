@@ -3801,6 +3801,7 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserDefaultZoomSettings.key) private var browserDefaultZoom = BrowserDefaultZoomSettings.defaultValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5081,6 +5082,25 @@ struct SettingsView: View {
                             ForEach(BrowserThemeMode.allCases) { mode in
                                 Text(mode.displayName).tag(mode.rawValue)
                             }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            String(localized: "settings.browser.defaultZoom", defaultValue: "Default Browser Zoom"),
+                            subtitle: String(localized: "settings.browser.defaultZoom.subtitle", defaultValue: "Applied when opening new browser panes. Use Actual Size to reset an existing pane."),
+                            controlWidth: pickerColumnWidth,
+                            selection: $browserDefaultZoom
+                        ) {
+                            Text("75%").tag(0.75)
+                            Text("80%").tag(0.8)
+                            Text("90%").tag(0.9)
+                            Text("100%").tag(1.0)
+                            Text("110%").tag(1.1)
+                            Text("125%").tag(1.25)
+                            Text("150%").tag(1.5)
+                            Text("175%").tag(1.75)
+                            Text("200%").tag(2.0)
                         }
 
                         SettingsCardDivider()

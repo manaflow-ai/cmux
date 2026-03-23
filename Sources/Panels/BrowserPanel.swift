@@ -520,6 +520,16 @@ final class BrowserProfileStore: ObservableObject {
     }
 }
 
+enum BrowserDefaultZoomSettings {
+    static let key = "browserDefaultZoomLevel"
+    static let defaultValue: Double = 1.0
+
+    static func zoomLevel() -> CGFloat {
+        let raw = UserDefaults.standard.double(forKey: key)
+        return raw > 0 ? CGFloat(raw) : CGFloat(defaultValue)
+    }
+}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -2463,6 +2473,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.pageZoom = BrowserDefaultZoomSettings.zoomLevel()
         return webView
     }
 
@@ -4710,7 +4721,7 @@ extension BrowserPanel {
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(1.0)
+        applyPageZoom(BrowserDefaultZoomSettings.zoomLevel())
     }
 
     func currentPageZoomFactor() -> CGFloat {
