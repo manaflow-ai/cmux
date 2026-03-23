@@ -4691,6 +4691,129 @@ enum SidebarBranchOrdering {
         let directory: String?
     }
 
+    fileprivate static func normalizedDirectory(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func relativePathFromTilde(_ directory: String) -> String? {
+        let normalized = normalizedDirectory(directory)
+        switch normalized {
+        case "~":
+            return ""
+        case let path? where path.hasPrefix("~/"):
+            return String(path.dropFirst(2))
+        default:
+            return nil
+        }
+    }
+
+    private static func commonHomeDirectoryPrefix(from absoluteDirectory: String) -> String? {
+        guard let normalized = normalizedDirectory(absoluteDirectory) else { return nil }
+        let standardized = NSString(string: normalized).standardizingPath
+        if standardized == "/root" || standardized.hasPrefix("/root/") {
+            return "/root"
+        }
+
+        let components = NSString(string: standardized).pathComponents
+        if components.count >= 3, components[0] == "/", components[1] == "Users" {
+            return NSString.path(withComponents: Array(components.prefix(3)))
+        }
+        if components.count >= 3, components[0] == "/", components[1] == "home" {
+            return NSString.path(withComponents: Array(components.prefix(3)))
+        }
+        if components.count >= 4, components[0] == "/", components[1] == "var", components[2] == "home" {
+            return NSString.path(withComponents: Array(components.prefix(4)))
+        }
+
+        return nil
+    }
+
+    private static func inferredHomeDirectory(
+        matchingTildeDirectory tildeDirectory: String,
+        absoluteDirectory: String
+    ) -> String? {
+        guard let relativePath = relativePathFromTilde(tildeDirectory),
+              let normalizedAbsolute = normalizedDirectory(absoluteDirectory) else { return nil }
+        let standardizedAbsolute = NSString(string: normalizedAbsolute).standardizingPath
+        let homeDirectory: String
+        if relativePath.isEmpty {
+            homeDirectory = standardizedAbsolute
+        } else {
+            let suffix = "/" + relativePath
+            guard standardizedAbsolute.hasSuffix(suffix) else { return nil }
+            homeDirectory = String(standardizedAbsolute.dropLast(suffix.count))
+        }
+
+        guard commonHomeDirectoryPrefix(from: homeDirectory) == homeDirectory else { return nil }
+        return homeDirectory
+    }
+
+    fileprivate static func inferredRemoteHomeDirectory(
+        from directories: [String],
+        fallbackDirectory: String?
+    ) -> String? {
+        let candidates = directories + [fallbackDirectory].compactMap { $0 }
+        let tildeDirectories = candidates.compactMap { directory -> String? in
+            guard let normalized = normalizedDirectory(directory),
+                  relativePathFromTilde(normalized) != nil else { return nil }
+            return normalized
+        }
+        let absoluteDirectories = candidates.compactMap { directory -> String? in
+            guard let normalized = normalizedDirectory(directory), normalized.hasPrefix("/") else { return nil }
+            return NSString(string: normalized).standardizingPath
+        }
+
+        let inferredHomes = Set(
+            tildeDirectories.flatMap { tildeDirectory in
+                absoluteDirectories.compactMap { absoluteDirectory in
+                    inferredHomeDirectory(
+                        matchingTildeDirectory: tildeDirectory,
+                        absoluteDirectory: absoluteDirectory
+                    )
+                }
+            }
+        )
+
+        if inferredHomes.count == 1 {
+            return inferredHomes.first
+        }
+        if !inferredHomes.isEmpty {
+            return nil
+        }
+
+        return absoluteDirectories.lazy.compactMap(commonHomeDirectoryPrefix(from:)).first
+    }
+
+    private static func expandedTildePath(
+        _ directory: String,
+        homeDirectoryForTildeExpansion: String?
+    ) -> String {
+        guard let relativePath = relativePathFromTilde(directory),
+              let homeDirectory = normalizedDirectory(homeDirectoryForTildeExpansion) else {
+            return directory
+        }
+        if relativePath.isEmpty {
+            return homeDirectory
+        }
+        return NSString(string: homeDirectory).appendingPathComponent(relativePath)
+    }
+
+    fileprivate static func canonicalDirectoryKey(
+        _ directory: String?,
+        homeDirectoryForTildeExpansion: String?
+    ) -> String? {
+        guard let directory = normalizedDirectory(directory) else { return nil }
+        let expanded = expandedTildePath(
+            directory,
+            homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+        )
+        let standardized = NSString(string: expanded).standardizingPath
+        let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
         switch tree {
         case .pane(let pane):
@@ -5027,6 +5150,10 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
+    @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
+    @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
@@ -5263,6 +5390,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: initialTerminalCommand,
             initialEnvironmentOverrides: initialTerminalEnvironment
         )
+        configureTerminalPanel(terminalPanel)
         panels[terminalPanel.id] = terminalPanel
         panelTitles[terminalPanel.id] = terminalPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: terminalPanel.id, configTemplate: configTemplate)
@@ -5313,6 +5441,7 @@ final class Workspace: Identifiable, ObservableObject {
             }
             bonsplitController.selectTab(initialTabId)
         }
+        tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
     }
 
     deinit {
@@ -5471,6 +5600,19 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panelSubscriptions[browserPanel.id] = subscription
         setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
+            guard let self, let terminalPanel else { return }
+            self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
+        }
+    }
+
+    private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        tmuxWorkspaceFlashPanelId = panelId
+        tmuxWorkspaceFlashReason = reason
+        tmuxWorkspaceFlashToken &+= 1
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -6343,6 +6485,75 @@ final class Workspace: Identifiable, ObservableObject {
         trackRemoteTerminalSurface(initialPanelId)
     }
 
+    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
+        SidebarBranchOrdering.normalizedDirectory(directory)
+    }
+
+    private func sidebarHomeDirectoryForCanonicalization(
+        resolvedPanelDirectories: [UUID: String]
+    ) -> String? {
+        if isRemoteWorkspace {
+            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
+                from: Array(resolvedPanelDirectories.values),
+                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
+            )
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
+        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
+            return directory
+        }
+        if let requestedDirectory = normalizedSidebarDirectory(
+            terminalPanel(for: panelId)?.requestedWorkingDirectory
+        ) {
+            return requestedDirectory
+        }
+        guard panelId == focusedPanelId else { return nil }
+        return normalizedSidebarDirectory(currentDirectory)
+    }
+
+    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
+        var resolved: [UUID: String] = [:]
+        for panelId in orderedPanelIds {
+            if let directory = sidebarResolvedDirectory(for: panelId) {
+                resolved[panelId] = directory
+            }
+        }
+        return resolved
+    }
+
+    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedDirectories
+        )
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        for panelId in orderedPanelIds {
+            guard let directory = resolvedDirectories[panelId],
+                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
+                      directory,
+                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
+                  ) else { continue }
+            if seen.insert(key).inserted {
+                ordered.append(directory)
+            }
+        }
+
+        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+            return [fallbackDirectory]
+        }
+
+        return ordered
+    }
+
+    func sidebarDirectoriesInDisplayOrder() -> [String] {
+        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -6738,6 +6949,7 @@ final class Workspace: Identifiable, ObservableObject {
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if remoteTerminalStartupCommand != nil {
@@ -6827,6 +7039,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialCommand: remoteTerminalStartupCommand,
             additionalEnvironment: startupEnvironment
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         if remoteTerminalStartupCommand != nil {
@@ -8115,6 +8328,7 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -10239,6 +10453,7 @@ extension Workspace: BonsplitDelegate {
                         configTemplate: inheritedConfig,
                         portOrdinal: portOrdinal
                     )
+                    configureTerminalPanel(replacementPanel)
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
@@ -10308,6 +10523,7 @@ extension Workspace: BonsplitDelegate {
             configTemplate: inheritedConfig,
             portOrdinal: portOrdinal
         )
+        configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -10405,7 +10621,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
-        _ = snapshot
+        tmuxLayoutSnapshot = snapshot
         let reason = consumeDeferredBonsplitGeometryReason(defaultReason: "workspace.didChangeGeometry")
         scheduleTerminalGeometryReconcile(reason: reason)
         if !isDetachingCloseTransaction {

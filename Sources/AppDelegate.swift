@@ -1085,7 +1085,7 @@ final class ServeWebOutputCollector {
 enum WorkspaceShortcutMapper {
     /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
     /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
-    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
+    static func workspaceIndex(forDigit digit: Int, workspaceCount: Int) -> Int? {
         guard workspaceCount > 0 else { return nil }
         guard (1...9).contains(digit) else { return nil }
 
@@ -1097,12 +1097,20 @@ enum WorkspaceShortcutMapper {
         return index < workspaceCount ? index : nil
     }
 
+    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
+        workspaceIndex(forDigit: digit, workspaceCount: workspaceCount)
+    }
+
     /// Returns the primary Cmd+digit badge to display for a workspace row.
     /// Picks the lowest digit that maps to that row index.
+    static func digitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
+        commandDigitForWorkspace(at: index, workspaceCount: workspaceCount)
+    }
+
     static func commandDigitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
         guard index >= 0 && index < workspaceCount else { return nil }
         for digit in 1...9 {
-            if workspaceIndex(forCommandDigit: digit, workspaceCount: workspaceCount) == index {
+            if workspaceIndex(forDigit: digit, workspaceCount: workspaceCount) == index {
                 return digit
             }
         }
