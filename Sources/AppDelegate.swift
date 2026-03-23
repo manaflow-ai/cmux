@@ -2408,8 +2408,8 @@ private final class QuickTerminalController: NSObject, NSWindowDelegate {
         )
         let hiddenFrame = settings.position.hiddenFrame(from: finalFrame, visibleFrame: visibleFrame)
 
-          if activateApp,
-              !NSApp.isActive,
+        if activateApp,
+           !NSApp.isActive,
            let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
             previousFrontmostApp = frontmost
