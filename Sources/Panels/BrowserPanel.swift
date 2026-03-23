@@ -4721,7 +4721,7 @@ extension BrowserPanel {
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(BrowserDefaultZoomSettings.zoomLevel())
+        applyPageZoom(1.0)
     }
 
     func currentPageZoomFactor() -> CGFloat {

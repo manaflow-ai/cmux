@@ -53434,6 +53434,40 @@
         }
       }
     },
+    "settings.browser.defaultZoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Browser Zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルトのブラウザズーム"
+          }
+        }
+      }
+    },
+    "settings.browser.defaultZoom.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied when opening new browser panes. Use Actual Size to reset an existing pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザパネルを開くときに適用されます。既存のパネルをリセットするには「実際のサイズ」を使用してください。"
+          }
+        }
+      }
+    },
     "settings.browser.openTerminalLinks": {
       "extractionState": "manual",
       "localizations": {
