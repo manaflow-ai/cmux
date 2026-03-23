@@ -45,7 +45,17 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         super.tearDown()
     }
 
+    private let prelaunchManifestPath = "/tmp/cmux-ui-test-prelaunch.json"
+
     func testRapidDisplayResolutionChangesKeepTerminalResponsive() throws {
+        // On CI, the app is pre-launched from the shell (outside the XCTest
+        // runner's sandbox) so it can write to /tmp/ and activate properly.
+        // The CI step writes a manifest with the diagnostics path.
+        let prelaunch = loadPrelaunchManifest()
+        if let diagPath = prelaunch?.diagnosticsPath, !diagPath.isEmpty {
+            diagnosticsPath = diagPath
+        }
+
         try prepareDisplayHarnessIfNeeded()
 
         XCTAssertTrue(waitForFile(atPath: displayReadyPath, timeout: 12.0), "Expected display harness ready file at \(displayReadyPath)")
@@ -54,7 +64,10 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
 
-        try launchAppProcess(targetDisplayID: targetDisplayID)
+        if prelaunch == nil {
+            try launchAppProcess(targetDisplayID: targetDisplayID)
+        }
+
         XCTAssertTrue(
             waitForTargetDisplayMove(targetDisplayID: targetDisplayID, timeout: 12.0),
             "Expected app window to move to display \(targetDisplayID). diagnostics=\(loadDiagnostics() ?? [:]) app=\(launchedAppDiagnostics())"
@@ -469,5 +482,15 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         let donePath: String?
         let logPath: String?
         let helperBinaryPath: String?
+    }
+
+    private struct PrelaunchManifest: Decodable {
+        let diagnosticsPath: String?
+    }
+
+    private func loadPrelaunchManifest() -> PrelaunchManifest? {
+        let url = URL(fileURLWithPath: prelaunchManifestPath)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(PrelaunchManifest.self, from: data)
     }
 }
