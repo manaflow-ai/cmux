@@ -7,7 +7,7 @@ Get the current branch ready: update all submodules to their latest remote main,
 ## Steps
 
 1. **Update submodules to latest**
-   - For each submodule (ghostty, homebrew-cmux, vendor/bonsplit):
+   - For each submodule (`vendor/ghostty`, `vendor/homebrew-cmux`, `vendor/bonsplit`):
      - `cd <submodule>`
      - `git fetch origin`
      - Check if behind: `git rev-list HEAD..origin/main --count`
@@ -18,7 +18,7 @@ Get the current branch ready: update all submodules to their latest remote main,
 2. **Commit submodule updates on main**
    - `git checkout main && git pull origin main`
    - Check if any submodules changed: `git diff --name-only` (look for submodule paths)
-   - If changed, stage and commit: `git add ghostty homebrew-cmux vendor/bonsplit && git commit -m "Update submodules: <brief description>"`
+   - If changed, stage and commit: `git add vendor/ghostty vendor/homebrew-cmux vendor/bonsplit && git commit -m "Update submodules: <brief description>"`
    - **Do not push.** Ask the user if they want to push.
 
 3. **Rebase current branch on main**

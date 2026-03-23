@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Release -destination 'platform=macOS' build
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
+xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Release -destination 'platform=macOS' build
 pkill -x cmux || true
 sleep 0.2
 APP_PATH="$(

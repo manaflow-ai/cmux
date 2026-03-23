@@ -4,7 +4,11 @@
 # condition caused the cask to contain the SHA of a 404 page instead of the DMG.
 set -euo pipefail
 
-CASK_FILE="$(dirname "$0")/../homebrew-cmux/Casks/cmux.rb"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../scripts/lib/cmux-paths.sh"
+cmux_paths_init "$SCRIPT_DIR/../scripts/reload.sh"
+
+CASK_FILE="$CMUX_HOMEBREW_TAP_DIR/Casks/cmux.rb"
 
 if [ ! -f "$CASK_FILE" ]; then
   echo "SKIP: homebrew-cmux submodule not initialized"

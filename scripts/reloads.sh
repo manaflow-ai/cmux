@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
 APP_NAME="cmux STAGING"
 BUNDLE_ID="com.cmuxterm.app.staging"
 BASE_APP_NAME="cmux"
@@ -9,7 +13,7 @@ NAME_SET=0
 BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
-LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
+LAST_SOCKET_PATH_DIR="$CMUX_APP_SUPPORT_DIR"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 
 write_last_socket_path() {
@@ -120,7 +124,7 @@ if [[ -n "$TAG" ]]; then
 fi
 
 XCODEBUILD_ARGS=(
-  -project GhosttyTabs.xcodeproj
+  -project "$CMUX_XCODE_PROJECT_PATH"
   -scheme cmux
   -configuration Release
   -destination 'platform=macOS'
@@ -197,7 +201,7 @@ if [[ -f "$INFO_PLIST" ]]; then
   # Inject staging socket paths via LSEnvironment so the Release binary
   # (which defaults to the per-user stable socket) uses isolated sockets instead.
   STAGING_SLUG="${TAG_SLUG:-staging}"
-  APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
+  APP_SUPPORT_DIR="$CMUX_APP_SUPPORT_DIR"
   CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
   CMUX_SOCKET="/tmp/cmux-${STAGING_SLUG}.sock"
   write_last_socket_path "$CMUX_SOCKET"
@@ -225,9 +229,9 @@ sleep 0.3
 # Kill any running staging instance; allow side-by-side with the main and dev apps.
 pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
 sleep 0.3
-CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
-if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+CMUXD_SRC="$CMUX_LOCAL_DAEMON_DIR/zig-out/bin/cmuxd"
+if [[ -d "$CMUX_LOCAL_DAEMON_DIR" ]]; then
+  (cd "$CMUX_LOCAL_DAEMON_DIR" && zig build -Doptimize=ReleaseFast)
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"

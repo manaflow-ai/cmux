@@ -43,13 +43,13 @@ After making code changes, always use `reload.sh --tag` to build and launch. **N
 If you only need to verify the build compiles (no launch), use a tagged derivedDataPath:
 
 ```bash
-xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<your-tag> build
+xcodebuild -project Apps/cmux-macOS/GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<your-tag> build
 ```
 
 When rebuilding GhosttyKit.xcframework, always use Release optimizations:
 
 ```bash
-cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+cd vendor/ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
 When rebuilding cmuxd for release/bundling, always use ReleaseFast:
@@ -172,11 +172,11 @@ This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the
 
 ## Ghostty submodule workflow
 
-Ghostty changes must be committed in the `ghostty` submodule and pushed to the `manaflow-ai/ghostty` fork.
+Ghostty changes must be committed in the `vendor/ghostty` submodule and pushed to the `manaflow-ai/ghostty` fork.
 Keep `docs/ghostty-fork.md` up to date with any fork changes and conflict notes.
 
 ```bash
-cd ghostty
+cd vendor/ghostty
 git remote -v  # origin = upstream, manaflow = fork
 git checkout -b <branch>
 git add <files>
@@ -187,7 +187,7 @@ git push manaflow <branch>
 To keep the fork up to date with upstream:
 
 ```bash
-cd ghostty
+cd vendor/ghostty
 git fetch origin
 git checkout main
 git merge origin/main
@@ -197,8 +197,8 @@ git push manaflow main
 Then update the parent repo with the new submodule SHA:
 
 ```bash
-cd ..
-git add ghostty
+cd ../..
+git add vendor/ghostty
 git commit -m "Update ghostty submodule"
 ```
 

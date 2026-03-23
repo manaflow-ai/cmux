@@ -5,11 +5,15 @@ set -euo pipefail
 # It is intentionally guarded so we don't accidentally kill the host user's cmux instances.
 if [ "$(id -un)" != "cmux" ]; then
   echo "ERROR: This script is intended to be run on the cmux-vm (user: cmux)." >&2
-  echo "Run via: ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v1.sh'" >&2
+  echo "Run via: ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v1.sh'" >&2
   exit 2
 fi
 
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
+cd "$CMUX_REPO_ROOT"
 
 DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-tests-v1"
 APP="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app"
@@ -21,7 +25,7 @@ echo "== build =="
 # module file ... was built".
 rm -rf "$DERIVED_DATA_PATH/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" || true
 xcodebuild \
-  -project GhosttyTabs.xcodeproj \
+  -project "$CMUX_XCODE_PROJECT_PATH" \
   -scheme cmux \
   -configuration Debug \
   -destination "platform=macOS" \

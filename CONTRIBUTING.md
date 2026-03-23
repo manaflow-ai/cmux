@@ -20,13 +20,13 @@
    ```
 
    This will:
-   - Initialize git submodules (ghostty, homebrew-cmux)
+   - Initialize git submodules (`vendor/ghostty`, `vendor/homebrew-cmux`)
    - Build the GhosttyKit.xcframework from source
    - Create the necessary symlinks
 
 3. Build and run the debug app:
    ```bash
-   ./scripts/reload.sh
+   ./scripts/reload.sh --tag first-run
    ```
 
 ## Development Scripts
@@ -34,17 +34,16 @@
 | Script | Description |
 |--------|-------------|
 | `./scripts/setup.sh` | One-time setup (submodules + xcframework) |
-| `./scripts/reload.sh` | Build and launch Debug app |
+| `./scripts/reload.sh --tag <name>` | Build and launch Debug app |
 | `./scripts/reloadp.sh` | Build and launch Release app |
 | `./scripts/reload2.sh` | Reload both Debug and Release |
-| `./scripts/rebuild.sh` | Clean rebuild |
 
 ## Rebuilding GhosttyKit
 
 If you make changes to the ghostty submodule, rebuild the xcframework:
 
 ```bash
-cd ghostty
+cd vendor/ghostty
 zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ```
 
@@ -53,13 +52,13 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 ### Basic tests (run on VM)
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project Apps/cmux-macOS/GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests/test_update_timing.py && python3 tests/test_signals_auto.py && python3 tests/test_ctrl_socket.py && python3 tests/test_notifications.py'
 ```
 
 ### UI tests (run on VM)
 
 ```bash
-ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test'
+ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project Apps/cmux-macOS/GhosttyTabs.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test'
 ```
 
 ## Ghostty Submodule
@@ -69,7 +68,7 @@ The `ghostty` submodule points to [manaflow-ai/ghostty](https://github.com/manaf
 ### Making changes to ghostty
 
 ```bash
-cd ghostty
+cd vendor/ghostty
 git checkout -b my-feature
 # make changes
 git add .
@@ -80,7 +79,7 @@ git push manaflow my-feature
 ### Keeping the fork updated
 
 ```bash
-cd ghostty
+cd vendor/ghostty
 git fetch origin
 git checkout main
 git merge origin/main
@@ -90,8 +89,8 @@ git push manaflow main
 Then update the parent repo:
 
 ```bash
-cd ..
-git add ghostty
+cd ../..
+git add vendor/ghostty
 git commit -m "Update ghostty submodule"
 ```
 

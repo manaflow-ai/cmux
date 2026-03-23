@@ -25,6 +25,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from regression_helpers import ghostty_src_dir, ghostty_zsh_integration_dir, repo_root
+
 
 _MINIMAL_PURE_ZSHRC = r"""
 setopt promptsubst nopromptcr nopromptsp
@@ -173,10 +175,9 @@ def _stale_preprompt_lines(cleaned: str, path_line: str, async_line: str) -> tup
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    wrapper_dir = root / "ghostty" / "src" / "shell-integration" / "zsh"
-    resources_dir = root / "ghostty" / "src"
-    workdir = root
+    wrapper_dir = ghostty_zsh_integration_dir()
+    resources_dir = ghostty_src_dir()
+    workdir = repo_root()
 
     if not (wrapper_dir / ".zshenv").exists():
         print(f"SKIP: missing Ghostty zsh wrapper at {wrapper_dir}")

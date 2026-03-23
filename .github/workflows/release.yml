@@ -127,7 +127,7 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('Apps/cmux-macOS/GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
@@ -152,7 +152,9 @@ jobs:
       - name: Build app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
+          xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Release -derivedDataPath build \
             -clonedSourcePackagesDirPath .spm-cache \
             CODE_SIGNING_ALLOWED=NO build
 
@@ -189,6 +191,8 @@ jobs:
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
@@ -229,12 +233,14 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
+          source "$PWD/scripts/lib/cmux-paths.sh"
+          cmux_paths_init "$PWD/scripts/reload.sh"
           if [ -z "$APPLE_SIGNING_IDENTITY" ]; then
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
           APP_PATH="build/Build/Products/Release/cmux.app"
-          ENTITLEMENTS="cmux.entitlements"
+          ENTITLEMENTS="$CMUX_APP_ENTITLEMENTS_PATH"
           CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
           HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
           if [ -f "$CLI_PATH" ]; then

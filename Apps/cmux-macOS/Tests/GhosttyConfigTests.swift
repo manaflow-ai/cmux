@@ -2583,8 +2583,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
-        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Apps/cmux-macOS/Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("vendor/ghostty/src")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")

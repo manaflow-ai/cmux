@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../scripts/lib/cmux-paths.sh"
+cmux_paths_init "$SCRIPT_DIR/../scripts/reload.sh"
+
 SOURCE_PACKAGES_DIR="${CMUX_SOURCE_PACKAGES_DIR:-$PWD/.ci-source-packages}"
 DERIVED_DATA_PATH="${CMUX_DERIVED_DATA_PATH:-$PWD/.ci-bundled-ghostty-helper}"
 CONFIGURATION="${CMUX_CONFIGURATION:-Debug}"
@@ -22,7 +26,7 @@ mkdir -p "$SOURCE_PACKAGES_DIR"
 rm -rf "$DERIVED_DATA_PATH"
 
 xcodebuild \
-  -project GhosttyTabs.xcodeproj \
+  -project "$CMUX_XCODE_PROJECT_PATH" \
   -scheme cmux \
   -configuration "$CONFIGURATION" \
   -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \

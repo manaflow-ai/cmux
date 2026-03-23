@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT_DIR/scripts/lib/cmux-paths.sh"
+cmux_paths_init "$ROOT_DIR/scripts/reload.sh"
 
 for file in \
   "$ROOT_DIR/.github/workflows/build-ghosttykit.yml" \
@@ -21,7 +23,7 @@ if ! awk '
   in_release && /ONLY_ACTIVE_ARCH = NO;/ { saw_no=1 }
   in_release && /name = Release;/ { in_release=0 }
   END { exit !(saw_no && !saw_yes) }
-' "$ROOT_DIR/GhosttyTabs.xcodeproj/project.pbxproj"; then
+' "$CMUX_XCODE_PROJECT_PATH/project.pbxproj"; then
   echo "FAIL: Release configurations in project.pbxproj must use ONLY_ACTIVE_ARCH = NO"
   exit 1
 fi

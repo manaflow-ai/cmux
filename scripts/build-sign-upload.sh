@@ -5,6 +5,10 @@ set -euo pipefail
 # Usage: ./scripts/build-sign-upload.sh <tag> [--allow-overwrite]
 # Requires: source ~/.secrets/cmuxterm.env && export SPARKLE_PRIVATE_KEY
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/build-sign-upload.sh <tag> [--allow-overwrite]
@@ -47,8 +51,10 @@ fi
 
 TAG="$1"
 SIGN_HASH="A050CC7E193C8221BDBA204E731B046CDCCC1B30"
-ENTITLEMENTS="cmux.entitlements"
+ENTITLEMENTS="$CMUX_APP_ENTITLEMENTS_PATH"
 APP_PATH="build/Build/Products/Release/cmux.app"
+
+cd "$CMUX_REPO_ROOT"
 
 # --- Pre-flight ---
 source ~/.secrets/cmuxterm.env
@@ -59,11 +65,25 @@ done
 echo "Pre-flight checks passed"
 
 # --- Build GhosttyKit (if needed) ---
-if [ ! -d "GhosttyKit.xcframework" ]; then
+GHOSTTY_SHA="$(git -C "$CMUX_GHOSTTY_DIR" rev-parse HEAD)"
+LOCAL_XCFRAMEWORK="$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework"
+LOCAL_SHA_STAMP="$LOCAL_XCFRAMEWORK/.ghostty_sha"
+APP_SHA_STAMP="$CMUX_GHOSTTYKIT_PATH/.ghostty_sha"
+APP_GHOSTTY_SHA=""
+
+if [ -f "$APP_SHA_STAMP" ]; then
+  APP_GHOSTTY_SHA="$(cat "$APP_SHA_STAMP")"
+fi
+
+if [ ! -d "$CMUX_GHOSTTYKIT_PATH" ] || [ "$APP_GHOSTTY_SHA" != "$GHOSTTY_SHA" ]; then
   echo "Building GhosttyKit..."
-  cd ghostty && zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast && cd ..
-  rm -rf GhosttyKit.xcframework
-  cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
+  (
+    cd "$CMUX_GHOSTTY_DIR"
+    zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  )
+  echo "$GHOSTTY_SHA" > "$LOCAL_SHA_STAMP"
+  rm -rf "$CMUX_GHOSTTYKIT_PATH"
+  cp -R "$CMUX_GHOSTTY_DIR/macos/GhosttyKit.xcframework" "$CMUX_GHOSTTYKIT_PATH"
 else
   echo "GhosttyKit.xcframework exists, skipping build"
 fi
@@ -71,7 +91,7 @@ fi
 # --- Build app (Release, unsigned) ---
 echo "Building app..."
 rm -rf build/
-xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+xcodebuild -project "$CMUX_XCODE_PROJECT_PATH" -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 
 HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
@@ -82,7 +102,7 @@ fi
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
-SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
+SPARKLE_PUBLIC_KEY_DERIVED=$(swift "$CMUX_TOOLS_SCRIPTS_DIR/derive_sparkle_public_key.swift" "$SPARKLE_PRIVATE_KEY")
 APP_PLIST="$APP_PATH/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" 2>/dev/null || true
@@ -126,7 +146,7 @@ echo "DMG notarized"
 
 # --- Generate Sparkle appcast ---
 echo "Generating appcast..."
-./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$TAG" appcast.xml
+"$CMUX_TOOLS_SCRIPTS_DIR/sparkle_generate_appcast.sh" cmux-macos.dmg "$TAG" appcast.xml
 
 # --- Create GitHub release (if needed) and upload ---
 if gh release view "$TAG" >/dev/null 2>&1; then
@@ -166,7 +186,7 @@ if [[ "$TAG" != *"-nightly"* ]]; then
   VERSION="${TAG#v}"
   DMG_SHA256=$(shasum -a 256 cmux-macos.dmg | cut -d' ' -f1)
   echo "Updating homebrew cask to $VERSION (SHA: $DMG_SHA256)..."
-  CASK_FILE="homebrew-cmux/Casks/cmux.rb"
+  CASK_FILE="$CMUX_HOMEBREW_TAP_DIR/Casks/cmux.rb"
   if [ -f "$CASK_FILE" ]; then
     cat > "$CASK_FILE" << CASKEOF
 cask "cmux" do
@@ -195,7 +215,7 @@ cask "cmux" do
   ]
 end
 CASKEOF
-    cd homebrew-cmux
+    pushd "$CMUX_HOMEBREW_TAP_DIR" >/dev/null
     git add Casks/cmux.rb
     if git diff --staged --quiet; then
       echo "Homebrew cask already up to date"
@@ -204,9 +224,9 @@ CASKEOF
       git push
       echo "Homebrew cask updated"
     fi
-    cd ..
+    popd >/dev/null
   else
-    echo "WARNING: homebrew-cmux submodule not found, skipping cask update"
+    echo "WARNING: homebrew tap submodule not found at $CMUX_HOMEBREW_TAP_DIR, skipping cask update"
   fi
 fi
 

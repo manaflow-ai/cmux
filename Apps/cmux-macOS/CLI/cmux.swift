@@ -7234,6 +7234,38 @@ struct CMUXCLI {
         return interfaceStyle?.caseInsensitiveCompare("Dark") == .orderedSame
     }
 
+    private func repoProjectDirectory() -> URL? {
+        let fileManager = FileManager.default
+        guard let executableURL = resolvedExecutableURL() else { return nil }
+
+        var current = executableURL.deletingLastPathComponent().standardizedFileURL
+        while true {
+            let projectFile = current
+                .appendingPathComponent("GhosttyTabs.xcodeproj", isDirectory: true)
+                .appendingPathComponent("project.pbxproj", isDirectory: false)
+            if fileManager.fileExists(atPath: projectFile.path) {
+                return current
+            }
+
+            guard let parent = parentSearchURL(for: current) else {
+                return nil
+            }
+            current = parent
+        }
+    }
+
+    // The project marker lives under Apps/cmux-macOS; repo-level content such as
+    // vendor/ghostty is rooted at that directory's grandparent.
+    private func repoRootURL() -> URL? {
+        guard let projectDirectory = repoProjectDirectory() else {
+            return nil
+        }
+        guard let appsDirectory = parentSearchURL(for: projectDirectory) else {
+            return nil
+        }
+        return parentSearchURL(for: appsDirectory)
+    }
+
     private func bundledHelperURL(named helperName: String) -> URL? {
         let fileManager = FileManager.default
         guard let executableURL = resolvedExecutableURL() else { return nil }
@@ -7253,20 +7285,20 @@ struct CMUXCLI {
                 )
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-            let repoHelper = current
+            guard let parent = parentSearchURL(for: current) else { break }
+            current = parent
+        }
+
+        if let repoRootURL = repoRootURL() {
+            let repoHelper = repoRootURL
+                .appendingPathComponent("vendor", isDirectory: true)
                 .appendingPathComponent("ghostty", isDirectory: true)
                 .appendingPathComponent("zig-out", isDirectory: true)
                 .appendingPathComponent("bin", isDirectory: true)
                 .appendingPathComponent(helperName, isDirectory: false)
-            if fileManager.fileExists(atPath: projectMarker.path),
-               fileManager.isExecutableFile(atPath: repoHelper.path) {
+            if fileManager.isExecutableFile(atPath: repoHelper.path) {
                 candidates.append(repoHelper)
-                break
             }
-
-            guard let parent = parentSearchURL(for: current) else { break }
-            current = parent
         }
 
         return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
@@ -7314,17 +7346,17 @@ struct CMUXCLI {
                 }
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-            let repoResources = current
-                .appendingPathComponent("Resources", isDirectory: true)
-                .appendingPathComponent("ghostty", isDirectory: true)
-            if fileManager.fileExists(atPath: projectMarker.path),
-               fileManager.fileExists(atPath: repoResources.path) {
-                return repoResources
-            }
-
             guard let parent = parentSearchURL(for: current) else { break }
             current = parent
+        }
+
+        if let projectDirectory = repoProjectDirectory() {
+            let repoResources = projectDirectory
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent("ghostty", isDirectory: true)
+            if fileManager.fileExists(atPath: repoResources.path) {
+                return repoResources
+            }
         }
 
         return Bundle.main.resourceURL?.appendingPathComponent("ghostty", isDirectory: true)
@@ -7653,17 +7685,18 @@ struct CMUXCLI {
                     )
                 }
 
-                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
-                let repoThemes = current.appendingPathComponent("Resources/ghostty/themes", isDirectory: true)
-                if fileManager.fileExists(atPath: projectMarker.path),
-                   fileManager.fileExists(atPath: repoThemes.path) {
-                    appendIfExisting(repoThemes)
-                    break
-                }
-
                 guard let parent = parentSearchURL(for: current) else { break }
                 current = parent
             }
+        }
+
+        if let projectDirectory = repoProjectDirectory() {
+            appendIfExisting(
+                projectDirectory
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("ghostty", isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+            )
         }
 
         if let xdgDataDirs = processEnv["XDG_DATA_DIRS"] {
@@ -11132,39 +11165,28 @@ struct CMUXCLI {
     }
 
     private func versionInfoFromProjectFile() -> [String: String]? {
-        guard let executableURL = resolvedExecutableURL() else {
+        guard let projectDirectory = repoProjectDirectory() else {
             return nil
         }
 
-        let fileManager = FileManager.default
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-
-        while true {
-            let projectFile = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
-            if fileManager.fileExists(atPath: projectFile.path),
-               let contents = try? String(contentsOf: projectFile, encoding: .utf8) {
-                var info: [String: String] = [:]
-                if let version = firstProjectSetting("MARKETING_VERSION", in: contents) {
-                    info["CFBundleShortVersionString"] = version
-                }
-                if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
-                    info["CFBundleVersion"] = build
-                }
-                if let commit = gitCommitHash(at: current) {
-                    info["CMUXCommit"] = commit
-                }
-                if !info.isEmpty {
-                    return info
-                }
-            }
-
-            guard let parent = parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
+        let projectFile = projectDirectory
+            .appendingPathComponent("GhosttyTabs.xcodeproj", isDirectory: true)
+            .appendingPathComponent("project.pbxproj", isDirectory: false)
+        guard let contents = try? String(contentsOf: projectFile, encoding: .utf8) else {
+            return nil
         }
 
-        return nil
+        var info: [String: String] = [:]
+        if let version = firstProjectSetting("MARKETING_VERSION", in: contents) {
+            info["CFBundleShortVersionString"] = version
+        }
+        if let build = firstProjectSetting("CURRENT_PROJECT_VERSION", in: contents) {
+            info["CFBundleVersion"] = build
+        }
+        if let commit = gitCommitHash(at: projectDirectory) {
+            info["CMUXCommit"] = commit
+        }
+        return info.isEmpty ? nil : info
     }
 
     private func firstProjectSetting(_ key: String, in source: String) -> String? {
@@ -11269,18 +11291,18 @@ struct CMUXCLI {
                 appendIfExisting(current.appendingPathComponent("Info.plist"))
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj")
-            let repoInfo = current.appendingPathComponent("Resources/Info.plist")
-            if fileManager.fileExists(atPath: projectMarker.path),
-               fileManager.fileExists(atPath: repoInfo.path) {
-                appendIfExisting(repoInfo)
-                break
-            }
-
             guard let parent = parentSearchURL(for: current) else {
                 break
             }
             current = parent
+        }
+
+        if let projectDirectory = repoProjectDirectory() {
+            appendIfExisting(
+                projectDirectory
+                    .appendingPathComponent("Resources", isDirectory: true)
+                    .appendingPathComponent("Info.plist", isDirectory: false)
+            )
         }
 
         // If we already found an ancestor bundle or repo Info.plist, avoid scanning

@@ -27,6 +27,22 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def cmux_resources_dir() -> Path:
+    return repo_root() / "Apps" / "cmux-macOS" / "Resources"
+
+
+def cmux_shell_integration_dir() -> Path:
+    return cmux_resources_dir() / "shell-integration"
+
+
+def ghostty_src_dir() -> Path:
+    return repo_root() / "vendor" / "ghostty" / "src"
+
+
+def ghostty_zsh_integration_dir() -> Path:
+    return ghostty_src_dir() / "shell-integration" / "zsh"
+
+
 def extract_block(source: str, signature: str) -> str:
     # Targeted helper for this regression suite: assumes braces in the matched
     # block are structural (not inside strings/comments/character literals).

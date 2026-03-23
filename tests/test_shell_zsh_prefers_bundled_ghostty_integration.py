@@ -15,10 +15,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from regression_helpers import cmux_shell_integration_dir
+
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    wrapper_dir = root / "Resources" / "shell-integration"
+    wrapper_dir = cmux_shell_integration_dir()
     if not (wrapper_dir / ".zshenv").exists():
         print(f"SKIP: missing wrapper .zshenv at {wrapper_dir}")
         return 0

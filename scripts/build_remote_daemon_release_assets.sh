@@ -63,8 +63,9 @@ if ! command -v go >/dev/null 2>&1; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-DAEMON_ROOT="${REPO_ROOT}/daemon/remote"
+source "$SCRIPT_DIR/lib/cmux-paths.sh"
+cmux_paths_init "${BASH_SOURCE[0]}"
+DAEMON_ROOT="$CMUX_REMOTE_DAEMON_DIR"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
