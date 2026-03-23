@@ -336,11 +336,13 @@ final class SidebarState: ObservableObject {
 }
 
 enum SidebarResizeInteraction {
-    static let handleWidth: CGFloat = 6
-    static let hitInset: CGFloat = 3
+    // Keep a generous drag target inside the sidebar itself, but make the
+    // terminal-side overlap very small so column-0 text selection still wins.
+    static let sidebarSideHitWidth: CGFloat = 6
+    static let contentSideHitWidth: CGFloat = 2
 
-    static var hitWidthPerSide: CGFloat {
-        hitInset + (handleWidth / 2)
+    static var totalHitWidth: CGFloat {
+        sidebarSideHitWidth + contentSideHitWidth
     }
 }
 
@@ -2025,8 +2027,12 @@ struct ContentView: View {
         case divider
     }
 
-    private var sidebarResizerHitWidthPerSide: CGFloat {
-        SidebarResizeInteraction.hitWidthPerSide
+    private var sidebarResizerSidebarHitWidth: CGFloat {
+        SidebarResizeInteraction.sidebarSideHitWidth
+    }
+
+    private var sidebarResizerContentHitWidth: CGFloat {
+        SidebarResizeInteraction.contentSideHitWidth
     }
 
     private func maxSidebarWidth(availableWidth: CGFloat? = nil) -> CGFloat {
@@ -2102,8 +2108,8 @@ struct ContentView: View {
 
     private func dividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
-        let minX = sidebarWidth - sidebarResizerHitWidthPerSide
-        let maxX = sidebarWidth + sidebarResizerHitWidthPerSide
+        let minX = sidebarWidth - sidebarResizerSidebarHitWidth
+        let maxX = sidebarWidth + sidebarResizerContentHitWidth
         return point.x >= minX && point.x <= maxX
     }
 
@@ -2283,7 +2289,7 @@ struct ContentView: View {
         GeometryReader { proxy in
             let totalWidth = max(0, proxy.size.width)
             let dividerX = min(max(sidebarWidth, 0), totalWidth)
-            let leadingWidth = max(0, dividerX - sidebarResizerHitWidthPerSide)
+            let leadingWidth = max(0, dividerX - sidebarResizerSidebarHitWidth)
 
             HStack(spacing: 0) {
                 Color.clear
@@ -2292,7 +2298,7 @@ struct ContentView: View {
 
                 sidebarResizerHandleOverlay(
                     .divider,
-                    width: sidebarResizerHitWidthPerSide * 2,
+                    width: SidebarResizeInteraction.totalHitWidth,
                     availableWidth: totalWidth,
                     accessibilityIdentifier: "SidebarResizer"
                 )

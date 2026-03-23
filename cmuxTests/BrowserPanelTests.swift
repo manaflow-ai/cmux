@@ -547,7 +547,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(inspectorSplit.arrangedSubviews[0].frame.width, 1.5)
         XCTAssertTrue(
-            abs(dividerPointInHost.x - slot.frame.minX) <= SidebarResizeInteraction.hitWidthPerSide,
+            abs(dividerPointInHost.x - slot.frame.minX) <= 2,
             "Expected collapsed hosted divider to overlap the browser slot leading-edge resizer zone"
         )
 
@@ -905,7 +905,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
-        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, SidebarResizeInteraction.hitWidthPerSide)
+        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, 2)
         let dividerHit = host.hitTest(dividerPointInHost)
         XCTAssertTrue(
             isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),

@@ -4468,6 +4468,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize(size: size)
     }
 
+#if DEBUG
+    fileprivate func debugPendingSurfaceSize() -> CGSize? {
+        pendingSurfaceSize
+    }
+#endif
+
     /// Force a full size reconciliation for the current bounds.
     /// Keep the drawable-size cache intact so redundant refresh paths do not
     /// reallocate Metal drawables when the pixel size is unchanged.
@@ -7032,6 +7038,17 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             self?.synchronizeScrollView()
         })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            // Match AppKit's geometry change immediately so the terminal width
+            // does not stay stuck behind a legacy scrollbar gutter.
+            queue: nil
+        ) { [weak self] _ in
+            self?.handlePreferredScrollerStyleChange()
+        })
+
     }
 
     required init?(coder: NSCoder) {
@@ -8061,6 +8078,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateFileDrop(paths: paths)
     }
 
+    func debugPendingSurfaceSize() -> CGSize? {
+        surfaceView.debugPendingSurfaceSize()
+    }
+
     func debugRegisteredDropTypes() -> [String] {
         surfaceView.debugRegisteredDropTypes()
     }
@@ -9070,6 +9091,21 @@ final class GhosttySurfaceScrollView: NSView {
         }
         surfaceView.scrollbar = scrollbar
         synchronizeScrollView()
+    }
+
+    private func handlePreferredScrollerStyleChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handlePreferredScrollerStyleChange()
+            }
+            return
+        }
+
+        // Retile just the scroll view so contentSize reflects the current
+        // scrollbar mode without perturbing viewport origin or hosted view
+        // geometry; the broader reconcile path caused visible content glitches.
+        scrollView.tile()
+        _ = synchronizeCoreSurface()
     }
 
     private func documentHeight() -> CGFloat {
