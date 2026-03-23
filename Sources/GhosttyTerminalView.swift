@@ -4015,7 +4015,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-        // Visibility is used for focus gating, not for libghostty occlusion.
+        // Visibility is used for focus gating. Explicit portal visibility transitions
+        // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
+        // queue a redraw when they become visible again.
         fileprivate var isVisibleInUI: Bool { visibleInUI }
         fileprivate func setVisibleInUI(_ visible: Bool) {
             visibleInUI = visible
@@ -6604,6 +6606,7 @@ final class GhosttySurfaceScrollView: NSView {
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
+    private var lastRequestedPortalOcclusionVisible: Bool?
     private var activeDropZone: DropZone?
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
@@ -7942,6 +7945,10 @@ final class GhosttySurfaceScrollView: NSView {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
+            lastRequestedPortalOcclusionVisible = visible
+            surfaceView.terminalSurface?.setOcclusion(visible)
+        }
 #if DEBUG
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
