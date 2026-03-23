@@ -3514,12 +3514,17 @@ final class WorkspaceRemoteSessionController {
         )
     }
 
-    private func scpExec(arguments: [String], timeout: TimeInterval = 30) throws -> CommandResult {
+    private func scpExec(
+        arguments: [String],
+        timeout: TimeInterval = 30,
+        operation: TerminalImageTransferOperation? = nil
+    ) throws -> CommandResult {
         try runProcess(
             executable: "/usr/bin/scp",
             arguments: arguments,
             stdin: nil,
-            timeout: timeout
+            timeout: timeout,
+            operation: operation
         )
     }
 
@@ -3529,7 +3534,8 @@ final class WorkspaceRemoteSessionController {
         environment: [String: String]? = nil,
         currentDirectory: URL? = nil,
         stdin: Data?,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation? = nil
     ) throws -> CommandResult {
         debugLog(
             "remote.proc.start exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
@@ -3584,6 +3590,7 @@ final class WorkspaceRemoteSessionController {
         }
 
         do {
+            try operation?.throwIfCancelled()
             try process.run()
         } catch {
             try? stdoutPipe.fileHandleForWriting.close()
@@ -3598,20 +3605,34 @@ final class WorkspaceRemoteSessionController {
         }
         try? stdoutPipe.fileHandleForWriting.close()
         try? stderrPipe.fileHandleForWriting.close()
+        operation?.installCancellationHandler {
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+        defer { operation?.clearCancellationHandler() }
 
         if let stdin, let pipe = process.standardInput as? Pipe {
             pipe.fileHandleForWriting.write(stdin)
             try? pipe.fileHandleForWriting.close()
         }
 
-        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
-        if !didExitBeforeTimeout, process.isRunning {
+        func terminateProcessAndWait() {
             process.terminate()
             let terminatedGracefully = exitSemaphore.wait(timeout: .now() + 2.0) == .success
             if !terminatedGracefully, process.isRunning {
                 _ = Darwin.kill(process.processIdentifier, SIGKILL)
                 process.waitUntilExit()
             }
+        }
+
+        let didExitBeforeTimeout = exitSemaphore.wait(timeout: .now() + max(0, timeout)) == .success
+        if !didExitBeforeTimeout, process.isRunning {
+            if operation?.isCancelled == true {
+                terminateProcessAndWait()
+                throw TerminalImageTransferExecutionError.cancelled
+            }
+            terminateProcessAndWait()
             debugLog(
                 "remote.proc.timeout exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
                 "timeout=\(Int(timeout)) args=\(debugShellCommand(executable: executable, arguments: arguments))"
@@ -3626,6 +3647,9 @@ final class WorkspaceRemoteSessionController {
         try? stderrHandle.close()
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        if operation?.isCancelled == true {
+            throw TerminalImageTransferExecutionError.cancelled
+        }
         debugLog(
             "remote.proc.end exec=\(URL(fileURLWithPath: executable).lastPathComponent) " +
             "status=\(process.terminationStatus) stdout=\(Self.debugLogSnippet(stdout)) " +
@@ -3861,7 +3885,7 @@ final class WorkspaceRemoteSessionController {
                 }
                 scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
 
-                let scpResult = try scpExec(arguments: scpArgs, timeout: 45)
+                let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
                 guard scpResult.status == 0 else {
                     let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout)
                         ?? "scp exited \(scpResult.status)"
@@ -4958,6 +4982,7 @@ enum SidebarBranchOrdering {
         panelBranches: [UUID: SidebarGitBranchState],
         panelDirectories: [UUID: String],
         defaultDirectory: String?,
+        homeDirectoryForTildeExpansion: String?,
         fallbackBranch: SidebarGitBranchState?
     ) -> [BranchDirectoryEntry] {
         struct EntryKey: Hashable {
@@ -4979,7 +5004,10 @@ enum SidebarBranchOrdering {
 
         func canonicalDirectoryKey(_ directory: String?) -> String? {
             guard let directory = normalized(directory) else { return nil }
-            let expanded = NSString(string: directory).expandingTildeInPath
+            let expanded = SidebarBranchOrdering.expandedTildePath(
+                directory,
+                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+            )
             let standardized = NSString(string: expanded).standardizingPath
             let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
             return cleaned.isEmpty ? nil : cleaned
@@ -5537,9 +5565,12 @@ final class Workspace: Identifiable, ObservableObject {
         let isLoading: Bool
         let isPinned: Bool
         let directory: String?
+        let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
         let manuallyUnread: Bool
+        let isRemoteTerminal: Bool
+        let remoteRelayPort: Int?
     }
 
     private var detachingTabIds: Set<TabID> = []
@@ -6234,11 +6265,15 @@ final class Workspace: Identifiable, ObservableObject {
     func sidebarBranchDirectoryEntriesInDisplayOrder(
         orderedPanelIds: [UUID]
     ) -> [SidebarBranchOrdering.BranchDirectoryEntry] {
-        SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        return SidebarBranchOrdering.orderedUniqueBranchDirectoryEntries(
             orderedPanelIds: orderedPanelIds,
             panelBranches: panelGitBranches,
-            panelDirectories: panelDirectories,
-            defaultDirectory: currentDirectory,
+            panelDirectories: resolvedDirectories,
+            defaultDirectory: normalizedSidebarDirectory(currentDirectory),
+            homeDirectoryForTildeExpansion: sidebarHomeDirectoryForCanonicalization(
+                resolvedPanelDirectories: resolvedDirectories
+            ),
             fallbackBranch: gitBranch
         )
     }
@@ -7847,6 +7882,11 @@ final class Workspace: Identifiable, ObservableObject {
         if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
+        if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
+            surfaceTTYNames[detached.panelId] = ttyName
+        } else {
+            surfaceTTYNames.removeValue(forKey: detached.panelId)
+        }
         if let cachedTitle = detached.cachedTitle {
             panelTitles[detached.panelId] = cachedTitle
         }
@@ -7879,6 +7919,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
+            surfaceTTYNames.removeValue(forKey: detached.panelId)
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
@@ -7895,6 +7936,11 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if detached.isRemoteTerminal,
+           let detachedRelayPort = detached.remoteRelayPort,
+           detachedRelayPort == remoteConfiguration?.relayPort {
+            trackRemoteTerminalSurface(detached.panelId)
+        }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -10142,9 +10188,14 @@ extension Workspace: BonsplitDelegate {
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
+                ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
-                manuallyUnread: manualUnreadPanelIds.contains(panelId)
+                manuallyUnread: manualUnreadPanelIds.contains(panelId),
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
+                    ? remoteConfiguration?.relayPort
+                    : nil
             )
         } else {
             if let closedBrowserRestoreSnapshot {

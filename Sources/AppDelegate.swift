@@ -9437,30 +9437,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
-           let manager = tabManager,
-           let num = Int(chars),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+        // Numeric shortcuts for specific workspaces (9 = last workspace)
+        if let manager = tabManager,
+           let digit = numberedShortcutDigit(
+               event: event,
+               shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+           ),
+           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
             dlog(
-                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
             )
 #endif
             manager.selectTab(at: targetIndex)
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
-                if num == 9 {
-                    tabManager?.selectLastSurface()
-                } else {
-                    tabManager?.selectSurface(at: num - 1)
-                }
-                return true
+        // Numeric shortcuts for surfaces within the focused pane (9 = last)
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
+        ) {
+            if digit == 9 {
+                tabManager?.selectLastSurface()
+            } else {
+                tabManager?.selectSurface(at: digit - 1)
             }
+            return true
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
@@ -10486,6 +10489,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return CharacterSet.letters.contains(scalar)
     }
 
+    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags == shortcut.modifierFlags else { return nil }
+
+        if let digit = numberedShortcutDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
+        ) {
+            return digit
+        }
+
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+        if let digit = numberedShortcutDigit(
+            eventCharacter: layoutCharacter,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) {
+            return digit
+        }
+
+        return digitForNumberKeyCode(event.keyCode)
+    }
+
+    private func numberedShortcutDigit(
+        eventCharacter: String?,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Int? {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
+        let normalized = normalizedShortcutEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        )
+        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
+        return digit
+    }
+
     private func shortcutCharacterMatches(
         eventCharacter: String?,
         shortcutKey: String,
@@ -10595,6 +10638,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "↑": return 126 // kVK_UpArrow
         default:
             return nil
+        }
+    }
+
+    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
+        switch keyCode {
+        case 18: return 1 // kVK_ANSI_1
+        case 19: return 2 // kVK_ANSI_2
+        case 20: return 3 // kVK_ANSI_3
+        case 21: return 4 // kVK_ANSI_4
+        case 23: return 5 // kVK_ANSI_5
+        case 22: return 6 // kVK_ANSI_6
+        case 26: return 7 // kVK_ANSI_7
+        case 28: return 8 // kVK_ANSI_8
+        case 25: return 9 // kVK_ANSI_9
+        default: return nil
         }
     }
 
