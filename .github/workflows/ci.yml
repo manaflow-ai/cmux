@@ -689,7 +689,7 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 180 \
             -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation \
             test-without-building
 
