@@ -13159,7 +13159,8 @@ class TerminalController {
         case "enter", "return": return UInt32(kVK_Return)
         case "tab": return UInt32(kVK_Tab)
         case "escape", "esc": return UInt32(kVK_Escape)
-        case "backspace", "delete": return UInt32(kVK_Delete)
+        case "backspace": return UInt32(kVK_Delete)
+        case "delete": return UInt32(kVK_ForwardDelete)
         case "space": return UInt32(kVK_Space)
         case "up": return UInt32(kVK_UpArrow)
         case "down": return UInt32(kVK_DownArrow)
@@ -13199,7 +13200,7 @@ class TerminalController {
         default:
             // Parse generic modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
             // "ctrl+shift+a"). Separators: '+' or '-'.
-            let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init)
+            let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init).filter { !$0.isEmpty }
             guard parts.count >= 2 else { return false }
 
             var mods = GHOSTTY_MODS_NONE
