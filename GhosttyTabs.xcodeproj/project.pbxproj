@@ -36,7 +36,10 @@
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
 		A5001422 /* EditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500141A /* EditorPanel.swift */; };
 		A5001423 /* EditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500141B /* EditorPanelView.swift */; };
+		EXP00001 /* ExplorerSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXP00011 /* ExplorerSidebarPanel.swift */; };
+		EXP00002 /* ExplorerSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXP00012 /* ExplorerSidebarView.swift */; };
 		A5001424 /* editor in Resources */ = {isa = PBXBuildFile; fileRef = A500141C /* editor */; };
+		EXP00003 /* explorer in Resources */ = {isa = PBXBuildFile; fileRef = EXP00013 /* explorer */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -215,7 +218,10 @@
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
 		A500141A /* EditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanel.swift; sourceTree = "<group>"; };
 		A500141B /* EditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanelView.swift; sourceTree = "<group>"; };
+		EXP00011 /* ExplorerSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExplorerSidebarPanel.swift; sourceTree = "<group>"; };
+		EXP00012 /* ExplorerSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExplorerSidebarView.swift; sourceTree = "<group>"; };
 		A500141C /* editor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = editor; sourceTree = "<group>"; };
+		EXP00013 /* explorer */ = {isa = PBXFileReference; lastKnownFileType = folder; path = explorer; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -349,6 +355,7 @@
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
 				A5001424 /* editor in Resources */,
+				EXP00003 /* explorer in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -448,6 +455,8 @@
 				A5001419 /* MarkdownPanelView.swift */,
 				A500141A /* EditorPanel.swift */,
 				A500141B /* EditorPanelView.swift */,
+				EXP00011 /* ExplorerSidebarPanel.swift */,
+				EXP00012 /* ExplorerSidebarView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -489,6 +498,7 @@
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				A5001622 /* cmux.sdef */,
 				A500141C /* editor */,
+				EXP00013 /* explorer */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -746,6 +756,8 @@
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001422 /* EditorPanel.swift in Sources */,
 				A5001423 /* EditorPanelView.swift in Sources */,
+				EXP00001 /* ExplorerSidebarPanel.swift in Sources */,
+				EXP00002 /* ExplorerSidebarView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,

@@ -1506,6 +1506,9 @@ struct ContentView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
+    @State private var explorerPanel: ExplorerSidebarPanel?
+    @State private var explorerHeight: CGFloat = 250
+    @State private var isExplorerVisible: Bool = true
 
     private enum CommandPaletteMode {
         case commands
@@ -2075,15 +2078,47 @@ struct ContentView: View {
     }
 
     private var sidebarView: some View {
-        VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            onSendFeedback: presentFeedbackComposer,
-            selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-        )
+        VStack(spacing: 0) {
+            VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                onSendFeedback: presentFeedbackComposer,
+                selection: $sidebarSelectionState.selection,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+            )
+
+            if isExplorerVisible, let explorerPanel {
+                Divider()
+                ExplorerSidebarView(panel: explorerPanel)
+                    .frame(height: explorerHeight)
+            }
+        }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        .onAppear { setupExplorerPanel() }
+        .onChange(of: tabManager.selectedTabId) { _, _ in updateExplorerRootPath() }
+    }
+
+    private func setupExplorerPanel() {
+        guard explorerPanel == nil else { return }
+        let rootPath = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId })?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let panel = ExplorerSidebarPanel(rootPath: rootPath)
+        panel.onOpenFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+
+            // Each file opens as a new editor tab — single file per panel
+            let rootPath = workspace.currentDirectory
+            _ = tabManager.openEditor(rootPath: rootPath, filePath: filePath, focus: true)
+        }
+        explorerPanel = panel
+    }
+
+    private func updateExplorerRootPath() {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else { return }
+        explorerPanel?.updateRootPath(workspace.currentDirectory)
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar

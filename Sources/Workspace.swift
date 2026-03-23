@@ -7432,11 +7432,12 @@ final class Workspace: Identifiable, ObservableObject {
     func newEditorSurface(
         inPane paneId: PaneID,
         rootPath: String,
+        filePath: String? = nil,
         focus: Bool? = nil
     ) -> EditorPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
 
-        let editorPanel = EditorPanel(workspaceId: id, rootPath: rootPath)
+        let editorPanel = EditorPanel(workspaceId: id, rootPath: rootPath, filePath: filePath)
         panels[editorPanel.id] = editorPanel
         panelTitles[editorPanel.id] = editorPanel.displayTitle
 

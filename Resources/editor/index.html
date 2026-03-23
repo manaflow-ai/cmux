@@ -4,28 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>cmux Editor</title>
-    <link rel="stylesheet" href="editor.css">
     <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/editor/editor.main.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; background: var(--editor-bg, #1f1f1f); }
+        :root { --editor-bg: #1f1f1f; --editor-fg: #cccccc; }
+        #editor-container { width: 100%; height: 100%; }
+    </style>
 </head>
 <body>
-    <div id="app">
-        <div id="sidebar">
-            <div id="sidebar-header">
-                <span id="project-name">EXPLORER</span>
-            </div>
-            <div id="file-tree"></div>
-        </div>
-        <div id="sidebar-resize-handle"></div>
-        <div id="editor-area">
-            <div id="tabs-bar"></div>
-            <div id="editor-container"></div>
-            <div id="welcome" class="welcome-visible">
-                <div class="welcome-icon">&#xEB60;</div>
-                <p>Open a file from the sidebar to start editing</p>
-            </div>
-        </div>
-    </div>
-
+    <div id="editor-container"></div>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js"></script>
     <script src="editor.js"></script>
 </body>

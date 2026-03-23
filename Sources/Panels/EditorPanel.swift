@@ -9,6 +9,7 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
     var rootPath: String = ""
     var onDirtyStateChanged: ((Bool) -> Void)?
     var onActiveFileChanged: ((String?) -> Void)?
+    var onEditorReady: (() -> Void)?
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -18,67 +19,24 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
               let action = body["action"] as? String else { return }
 
         switch action {
-        case "readDir":
-            handleReadDir(body: body, webView: message.webView)
         case "readFile":
             handleReadFile(body: body, webView: message.webView)
         case "writeFile":
             handleWriteFile(body: body, webView: message.webView)
-        case "createFile":
-            handleCreateFile(body: body, webView: message.webView)
-        case "createDir":
-            handleCreateDir(body: body, webView: message.webView)
-        case "deleteFile":
-            handleDeleteFile(body: body, webView: message.webView)
-        case "renameFile":
-            handleRenameFile(body: body, webView: message.webView)
-        case "gitStatus":
-            handleGitStatus(body: body, webView: message.webView)
         case "dirtyState":
             let dirty = body["isDirty"] as? Bool ?? false
             DispatchQueue.main.async { self.onDirtyStateChanged?(dirty) }
         case "activeFile":
             let fileName = body["fileName"] as? String
             DispatchQueue.main.async { self.onActiveFileChanged?(fileName) }
+        case "editorReady":
+            DispatchQueue.main.async { self.onEditorReady?() }
         default:
             break
         }
     }
 
     // MARK: - File Operations
-
-    private func handleReadDir(body: [String: Any], webView: WKWebView?) {
-        let relativePath = body["path"] as? String ?? ""
-        let requestId = body["requestId"] as? String ?? ""
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
-            guard let fullPath else {
-                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
-                return
-            }
-
-            let fm = FileManager.default
-            guard let entries = try? fm.contentsOfDirectory(atPath: fullPath) else {
-                self.sendError(requestId: requestId, message: "Cannot read directory", webView: webView)
-                return
-            }
-
-            var items: [[String: Any]] = []
-            for entry in entries.sorted() {
-                if entry == ".git" { continue }
-                let entryPath = (fullPath as NSString).appendingPathComponent(entry)
-                var isDir: ObjCBool = false
-                fm.fileExists(atPath: entryPath, isDirectory: &isDir)
-                items.append([
-                    "name": entry,
-                    "isDirectory": isDir.boolValue
-                ])
-            }
-
-            self.sendResponse(requestId: requestId, data: items, webView: webView)
-        }
-    }
 
     private func handleReadFile(body: [String: Any], webView: WKWebView?) {
         let relativePath = body["path"] as? String ?? ""
@@ -119,202 +77,6 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
             } catch {
                 self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
             }
-        }
-    }
-
-    private func handleCreateFile(body: [String: Any], webView: WKWebView?) {
-        let relativePath = body["path"] as? String ?? ""
-        let requestId = body["requestId"] as? String ?? ""
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
-            guard let fullPath else {
-                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
-                return
-            }
-
-            let fm = FileManager.default
-            if fm.fileExists(atPath: fullPath) {
-                self.sendError(requestId: requestId, message: "File already exists", webView: webView)
-                return
-            }
-
-            // Create parent directories if needed
-            let parentDir = (fullPath as NSString).deletingLastPathComponent
-            do {
-                try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
-                guard fm.createFile(atPath: fullPath, contents: nil) else {
-                    self.sendError(requestId: requestId, message: "Failed to create file", webView: webView)
-                    return
-                }
-                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
-            } catch {
-                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
-            }
-        }
-    }
-
-    private func handleCreateDir(body: [String: Any], webView: WKWebView?) {
-        let relativePath = body["path"] as? String ?? ""
-        let requestId = body["requestId"] as? String ?? ""
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
-            guard let fullPath else {
-                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
-                return
-            }
-
-            do {
-                try FileManager.default.createDirectory(atPath: fullPath, withIntermediateDirectories: true)
-                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
-            } catch {
-                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
-            }
-        }
-    }
-
-    private func handleDeleteFile(body: [String: Any], webView: WKWebView?) {
-        let relativePath = body["path"] as? String ?? ""
-        let requestId = body["requestId"] as? String ?? ""
-
-        guard !relativePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            self.sendError(requestId: requestId, message: "Cannot delete project root", webView: webView)
-            return
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
-            guard let fullPath, fullPath != URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path else {
-                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
-                return
-            }
-            do {
-                try FileManager.default.removeItem(atPath: fullPath)
-                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
-            } catch {
-                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
-            }
-        }
-    }
-
-    private func handleRenameFile(body: [String: Any], webView: WKWebView?) {
-        let oldRelPath = body["oldPath"] as? String ?? ""
-        let newRelPath = body["newPath"] as? String ?? ""
-        let requestId = body["requestId"] as? String ?? ""
-
-        guard !oldRelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            self.sendError(requestId: requestId, message: "Cannot rename project root", webView: webView)
-            return
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            let canonicalRoot = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
-            let oldFull = self.resolvedPath(oldRelPath, rootPath: rootPath)
-            let newFull = self.resolvedPath(newRelPath, rootPath: rootPath)
-            guard let oldFull, oldFull != canonicalRoot, let newFull else {
-                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
-                return
-            }
-            do {
-                // Create parent directory if needed
-                let parentDir = (newFull as NSString).deletingLastPathComponent
-                try FileManager.default.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
-                try FileManager.default.moveItem(atPath: oldFull, toPath: newFull)
-                self.sendResponse(requestId: requestId, data: ["success": true], webView: webView)
-            } catch {
-                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
-            }
-        }
-    }
-
-    private func handleGitStatus(body: [String: Any], webView: WKWebView?) {
-        let requestId = body["requestId"] as? String ?? ""
-
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
-            // Run git status --porcelain=v1 -uall
-            let statusProcess = Process()
-            let statusPipe = Pipe()
-            statusProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            statusProcess.arguments = ["-C", rootPath, "status", "--porcelain=v1", "-uall"]
-            statusProcess.standardOutput = statusPipe
-            statusProcess.standardError = FileHandle.nullDevice
-
-            // Run git ls-files --others --ignored --exclude-standard
-            let ignoredProcess = Process()
-            let ignoredPipe = Pipe()
-            ignoredProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            ignoredProcess.arguments = ["-C", rootPath, "ls-files", "--others", "--ignored", "--exclude-standard"]
-            ignoredProcess.standardOutput = ignoredPipe
-            ignoredProcess.standardError = FileHandle.nullDevice
-
-            do {
-                try statusProcess.run()
-                try ignoredProcess.run()
-            } catch {
-                self.sendError(requestId: requestId, message: "git not available", webView: webView)
-                return
-            }
-
-            // Read pipe data before waitUntilExit to prevent deadlock on large output
-            let statusData = statusPipe.fileHandleForReading.readDataToEndOfFile()
-            let ignoredData = ignoredPipe.fileHandleForReading.readDataToEndOfFile()
-            statusProcess.waitUntilExit()
-            ignoredProcess.waitUntilExit()
-
-            let statusOutput = String(data: statusData, encoding: .utf8) ?? ""
-            let ignoredOutput = String(data: ignoredData, encoding: .utf8) ?? ""
-
-            // Parse git status --porcelain output
-            // Format: XY path (or XY oldpath -> newpath for renames)
-            var files: [[String: String]] = []
-            for line in statusOutput.components(separatedBy: "\n") where line.count >= 3 {
-                let index = String(line[line.index(line.startIndex, offsetBy: 0)])
-                let workTree = String(line[line.index(line.startIndex, offsetBy: 1)])
-                var path = String(line[line.index(line.startIndex, offsetBy: 3)...])
-
-                // Handle renames: "R  old -> new"
-                if path.contains(" -> ") {
-                    let parts = path.components(separatedBy: " -> ")
-                    path = parts.last ?? path
-                }
-
-                // Determine effective status
-                let status: String
-                if index == "?" && workTree == "?" {
-                    status = "untracked"
-                } else if index == "!" && workTree == "!" {
-                    status = "ignored"
-                } else if index == "U" || workTree == "U" ||
-                          (index == "A" && workTree == "A") ||
-                          (index == "D" && workTree == "D") {
-                    // Conflict checks must come before generic A/D checks
-                    status = "conflict"
-                } else if index == "A" || workTree == "A" {
-                    status = "added"
-                } else if index == "D" || workTree == "D" {
-                    status = "deleted"
-                } else if index == "R" {
-                    status = "renamed"
-                } else if index == "M" || workTree == "M" {
-                    status = "modified"
-                } else {
-                    status = "modified"
-                }
-
-                files.append(["path": path, "status": status])
-            }
-
-            // Parse ignored files
-            let ignoredFiles = ignoredOutput.components(separatedBy: "\n")
-                .filter { !$0.isEmpty }
-                .map { ["path": $0, "status": "ignored"] as [String: String] }
-
-            let result: [String: Any] = [
-                "files": files,
-                "ignored": ignoredFiles
-            ]
-            self.sendResponse(requestId: requestId, data: result, webView: webView)
         }
     }
 
@@ -381,8 +143,11 @@ final class EditorPanel: Panel, ObservableObject {
     let id: UUID
     let panelType: PanelType = .editor
 
-    /// Root directory of the project being edited.
+    /// Root directory used for path resolution.
     let rootPath: String
+
+    /// The file to open (absolute path). Set at init or later via openFileByPath.
+    private var pendingFilePath: String?
 
     private(set) var workspaceId: UUID
 
@@ -403,11 +168,12 @@ final class EditorPanel: Panel, ObservableObject {
     private var isClosed: Bool = false
     private var themeObserver: NSObjectProtocol?
 
-    init(workspaceId: UUID, rootPath: String) {
+    init(workspaceId: UUID, rootPath: String, filePath: String? = nil) {
         self.id = UUID()
         self.workspaceId = workspaceId
         self.rootPath = rootPath
-        self.displayTitle = (rootPath as NSString).lastPathComponent
+        self.pendingFilePath = filePath
+        self.displayTitle = filePath.map { ($0 as NSString).lastPathComponent } ?? (rootPath as NSString).lastPathComponent
 
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
@@ -429,11 +195,16 @@ final class EditorPanel: Panel, ObservableObject {
         handler.onActiveFileChanged = { [weak self] fileName in
             guard let self else { return }
             if let fileName {
-                let baseName = (self.rootPath as NSString).lastPathComponent
-                self.displayTitle = "\(baseName) — \(fileName)"
+                self.displayTitle = fileName
             } else {
                 self.displayTitle = (self.rootPath as NSString).lastPathComponent
             }
+        }
+
+        handler.onEditorReady = { [weak self] in
+            guard let self, let filePath = self.pendingFilePath else { return }
+            self.pendingFilePath = nil
+            self.openFileByPath(filePath)
         }
 
         loadEditorHTML()
@@ -556,6 +327,25 @@ final class EditorPanel: Panel, ObservableObject {
     func triggerFlash() {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
+    }
+
+    /// Open a specific file by its absolute path in the Monaco editor.
+    /// The path is converted to a relative path within the editor's root.
+    func openFileByPath(_ absolutePath: String) {
+        let relativePath: String
+        if absolutePath.hasPrefix(rootPath + "/") {
+            relativePath = String(absolutePath.dropFirst(rootPath.count + 1))
+        } else {
+            relativePath = (absolutePath as NSString).lastPathComponent
+        }
+        let escapedPath = relativePath
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let name = (relativePath as NSString).lastPathComponent
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let js = "if (window.cmux && typeof window.cmux.openFile === 'function') { window.cmux.openFile('\(escapedPath)', '\(name)'); }"
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 }
 
