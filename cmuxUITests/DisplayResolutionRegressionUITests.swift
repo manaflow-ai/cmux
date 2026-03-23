@@ -244,14 +244,37 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         for (key, value) in launchEnvironment(targetDisplayID: targetDisplayID) {
             app.launchEnvironment[key] = value
         }
+
+        // On headless CI runners, XCUIApplication.launch() may fail to activate
+        // the app (reporting "Failed to activate application" as a test error).
+        // Temporarily allow continuation so we can retry activation manually.
+        continueAfterFailure = true
         app.launch()
+        continueAfterFailure = false
         launchedApp = app
+
+        guard ensureForegroundAfterLaunch(app, timeout: 15.0) else {
+            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "App failed to reach foreground. state=\(app.state.rawValue) diagnostics=\(loadDiagnostics() ?? [:])"
+            ])
+        }
 
         if !waitForAppLaunchDiagnostics(timeout: 12.0) {
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "App failed to write launch diagnostics. state=\(app.state.rawValue) diagnostics=\(loadDiagnostics() ?? [:])"
             ])
         }
+    }
+
+    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.wait(for: .runningForeground, timeout: timeout) {
+            return true
+        }
+        if app.state == .runningBackground {
+            app.activate()
+            return app.wait(for: .runningForeground, timeout: 6.0)
+        }
+        return false
     }
 
     private func launchEnvironment(targetDisplayID: String) -> [String: String] {

@@ -495,12 +495,24 @@ jobs:
           {"helperBinaryPath":"$HELPER_PATH"}
           EOF
 
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-            test
+          # Retry once — foreground activation on headless CI runners is flaky
+          for attempt in 1 2; do
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+              test; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "Display resolution UI regression failed after 2 attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $attempt failed, retrying..."
+            pkill -x "cmux DEV" 2>/dev/null || true
+            sleep 3
+          done
 
       - name: Run browser find focus UI regression
         run: |
