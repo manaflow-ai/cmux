@@ -10,6 +10,7 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    static let browserElementPointed = Notification.Name("cmux.browserElementPointed")
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -198,6 +199,7 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserElementPointedObserver: NSObjectProtocol?
 
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
@@ -212,6 +214,34 @@ class TerminalController {
                 var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
                 queue.append(event)
                 self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+            }
+        }
+
+        browserElementPointedObserver = NotificationCenter.default.addObserver(
+            forName: .browserElementPointed,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                  let summary = note.userInfo?["summary"] as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.sendPointedElementToTerminal(workspaceId: workspaceId, summary: summary)
+            }
+        }
+    }
+
+    /// Find the first terminal surface in the workspace and send pointed element text to it
+    private func sendPointedElementToTerminal(workspaceId: UUID, summary: String) {
+        guard let tabManager = self.tabManager else { return }
+        guard let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        // Find the first terminal panel in this workspace
+        for (panelId, _) in ws.panels {
+            if let terminalPanel = ws.terminalPanel(for: panelId),
+               let surface = terminalPanel.surface.surface {
+                sendSocketText(summary, surface: surface)
+                terminalPanel.surface.forceRefresh(reason: "browserElementPointed")
+                return
             }
         }
     }
@@ -2302,6 +2332,10 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
         case "browser.errors.list":
             return v2Result(id: id, self.v2BrowserErrorsList(params: params))
+        case "browser.pointed":
+            return v2Result(id: id, self.v2BrowserPointed(params: params))
+        case "browser.pointed.clear":
+            return v2Result(id: id, self.v2BrowserPointedClear(params: params))
         case "browser.highlight":
             return v2Result(id: id, self.v2BrowserHighlight(params: params))
         case "browser.state.save":
@@ -2554,6 +2588,8 @@ class TerminalController {
             "browser.console.list",
             "browser.console.clear",
             "browser.errors.list",
+            "browser.pointed",
+            "browser.pointed.clear",
             "browser.highlight",
             "browser.state.save",
             "browser.state.load",
@@ -9960,6 +9996,64 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
+                ])
+            }
+        }
+    }
+
+    private func v2BrowserPointed(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            let script = """
+            (() => {
+              const el = window.__cmuxPointedElement;
+              if (!el) return { ok: true, pointed: false, element: null };
+              return { ok: true, pointed: true, element: el };
+            })()
+            """
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success(let value):
+                let dict = value as? [String: Any]
+                let pointed = (dict?["pointed"] as? Bool) ?? false
+                let element = dict?["element"]
+                if pointed, let element {
+                    return .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "pointed": true,
+                        "element": v2NormalizeJSValue(element)
+                    ])
+                } else {
+                    return .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "pointed": false,
+                        "message": "No element pointed. Use Option+Click in the browser to select an element."
+                    ])
+                }
+            }
+        }
+    }
+
+    private func v2BrowserPointedClear(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let script = "window.__cmuxPointedElement = null; true"
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success:
+                return .ok([
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "cleared": true
                 ])
             }
         }

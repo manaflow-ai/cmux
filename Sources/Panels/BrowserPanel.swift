@@ -14,6 +14,46 @@ import CommonCrypto
 import Security
 #endif
 
+// MARK: - Element Pointer Message Handler
+
+/// Receives Option+Click element selection from the browser JS and forwards via NotificationCenter
+final class BrowserPointerMessageHandler: NSObject, WKScriptMessageHandler {
+    private let panelId: UUID
+    private let workspaceId: UUID
+
+    init(panelId: UUID, workspaceId: UUID) {
+        self.panelId = panelId
+        self.workspaceId = workspaceId
+        super.init()
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "cmuxPointer" else { return }
+        guard let body = message.body as? [String: Any] else { return }
+
+        let xpath = body["xpath"] as? String ?? ""
+        let text = ((body["text"] as? String) ?? "").prefix(80).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var summary = "[pointed] \(xpath)"
+        if !text.isEmpty {
+            summary += " \"\(text)\""
+        }
+
+        NotificationCenter.default.post(
+            name: .browserElementPointed,
+            object: nil,
+            userInfo: [
+                "surfaceId": panelId,
+                "workspaceId": workspaceId,
+                "summary": summary
+            ]
+        )
+    }
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -1775,6 +1815,91 @@ final class BrowserPanel: Panel, ObservableObject {
         } catch (_) {}
       });
 
+      // --- Element Pointer (Option+Click) ---
+      window.__cmuxPointedElement = null;
+      (() => {
+        let __altDown = false;
+        let __overlay = null;
+        const __ensureOverlay = () => {
+          if (__overlay) return __overlay;
+          __overlay = document.createElement('div');
+          __overlay.id = '__cmux_pointer_overlay';
+          __overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #4F46E5;background:rgba(79,70,229,0.1);display:none;transition:all 0.05s;border-radius:3px;';
+          (document.body || document.documentElement).appendChild(__overlay);
+          return __overlay;
+        };
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+            __altDown = true;
+            document.documentElement.style.cursor = 'crosshair';
+          }
+        }, true);
+        document.addEventListener('keyup', (e) => {
+          if (e.key === 'Alt') {
+            __altDown = false;
+            document.documentElement.style.cursor = '';
+            const ov = __ensureOverlay();
+            ov.style.display = 'none';
+          }
+        }, true);
+        document.addEventListener('mouseover', (e) => {
+          if (!__altDown) return;
+          const r = e.target.getBoundingClientRect();
+          const ov = __ensureOverlay();
+          ov.style.display = 'block';
+          ov.style.top = r.top + 'px';
+          ov.style.left = r.left + 'px';
+          ov.style.width = r.width + 'px';
+          ov.style.height = r.height + 'px';
+        }, true);
+        document.addEventListener('click', (e) => {
+          if (!__altDown) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const el = e.target;
+          const cs = window.getComputedStyle(el);
+          const ov = __ensureOverlay();
+          ov.style.borderColor = '#16A34A';
+          ov.style.background = 'rgba(22,163,74,0.15)';
+          // Build xpath for the element
+          const __xpath = (node) => {
+            const parts = [];
+            let cur = node;
+            while (cur && cur !== document.documentElement) {
+              if (cur === document.body) { parts.unshift('/html/body'); break; }
+              const tag = cur.tagName.toLowerCase();
+              const parent = cur.parentElement;
+              if (parent) {
+                const siblings = Array.from(parent.children).filter(s => s.tagName === cur.tagName);
+                if (siblings.length > 1) {
+                  parts.unshift(tag + '[' + (siblings.indexOf(cur) + 1) + ']');
+                } else {
+                  parts.unshift(tag);
+                }
+              } else {
+                parts.unshift(tag);
+              }
+              cur = parent;
+            }
+            return '/' + parts.join('/');
+          };
+          const xpath = __xpath(el);
+          const text = (el.textContent || '').slice(0, 80).trim();
+          const data = {
+            xpath: xpath,
+            text: text,
+            tag: el.tagName,
+            timestamp_ms: Date.now()
+          };
+          window.__cmuxPointedElement = data;
+          try {
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPointer) {
+              window.webkit.messageHandlers.cmuxPointer.postMessage(data);
+            }
+          } catch (_) {}
+        }, true);
+      })();
+
       return true;
     })()
     """
@@ -2506,7 +2631,14 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    private var pointerMessageHandler: BrowserPointerMessageHandler?
+
     private func bindWebView(_ webView: CmuxWebView) {
+        // Register Option+Click element pointer message handler
+        let handler = BrowserPointerMessageHandler(panelId: id, workspaceId: workspaceId)
+        pointerMessageHandler = handler
+        webView.configuration.userContentController.add(handler, name: "cmuxPointer")
+
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
                 self?.beginDownloadActivity()
