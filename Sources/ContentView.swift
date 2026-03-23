@@ -12327,6 +12327,7 @@ private struct TabItemView: View, Equatable {
         }
 
         let response = alert.runModal()
+        NSColorPanel.shared.orderOut(nil)
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -13931,7 +13932,8 @@ private class ColorPanelCoordinator: NSObject, NSTextFieldDelegate {
         guard !isSyncing, let textField, let colorWell else { return }
         isSyncing = true
         let trimmed = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let color = NSColor(hex: trimmed) {
+        if let normalized = WorkspaceTabColorSettings.normalizedHex(trimmed),
+           let color = NSColor(hex: normalized) {
             colorWell.color = color
             textField.backgroundColor = .controlBackgroundColor
         } else if !trimmed.isEmpty {
