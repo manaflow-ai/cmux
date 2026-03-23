@@ -9157,11 +9157,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
-            // AppKit allows auxiliary windows to become key without becoming the app's
-            // main terminal window. Those windows still need to receive their own close
-            // shortcut handling instead of being rejected as an unresolved main-window route.
-            if let eventTargetWindow, !isMainTerminalWindow(eventTargetWindow) {
-                // Continue into the shortcut-specific auxiliary-window paths below.
+            if shouldAllowAuxiliaryWindowShortcutWithoutMainRoute(
+                event: event,
+                eventTargetWindow: eventTargetWindow
+            ) {
+                // Auxiliary windows still need to close themselves even when AppKit never
+                // resolves them to a main-window routing context.
             } else {
 #if DEBUG
                 dlog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
@@ -10512,6 +10513,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return digitForNumberKeyCode(event.keyCode)
+    }
+
+    private func shouldAllowAuxiliaryWindowShortcutWithoutMainRoute(
+        event: NSEvent,
+        eventTargetWindow: NSWindow?
+    ) -> Bool {
+        guard let eventTargetWindow, !isMainTerminalWindow(eventTargetWindow) else {
+            return false
+        }
+        return isAuxiliaryWindowCloseShortcut(event: event)
+    }
+
+    private func isAuxiliaryWindowCloseShortcut(event: NSEvent) -> Bool {
+        if matchShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+        ) {
+            return true
+        }
+        return matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWindow))
     }
 
     private func numberedShortcutDigit(

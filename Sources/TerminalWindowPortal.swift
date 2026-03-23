@@ -595,6 +595,7 @@ final class WindowTerminalPortal: NSObject {
     private var deferredFullSyncQueuedCoverage: FullSyncCoverage?
     private var deferredFullSyncQueuedForce = false
     private var externalGeometryQueuedCoverage: FullSyncCoverage?
+    private var externalGeometryQueuedRequiresSettledLayout = false
     private var lastSatisfiedFullSyncCoverage: FullSyncCoverage?
     private var syncCoalescingEpoch: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
@@ -800,7 +801,11 @@ final class WindowTerminalPortal: NSObject {
 
     fileprivate func scheduleExternalGeometrySynchronize() {
         let coverage = currentFullSyncCoverage()
+        let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
         if hasSatisfiedFullSync(for: coverage) {
+            externalGeometryQueuedRequiresSettledLayout =
+                externalGeometryQueuedRequiresSettledLayout || requiresSettledLayout
 #if DEBUG
             dlog(
                 "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
@@ -810,6 +815,8 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         if hasQueuedExternalGeometrySync(for: coverage) {
+            externalGeometryQueuedRequiresSettledLayout =
+                externalGeometryQueuedRequiresSettledLayout || requiresSettledLayout
 #if DEBUG
             dlog(
                 "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
@@ -820,6 +827,8 @@ final class WindowTerminalPortal: NSObject {
         }
         if hasExternalGeometrySyncScheduled {
             externalGeometryQueuedCoverage = coverage
+            externalGeometryQueuedRequiresSettledLayout =
+                externalGeometryQueuedRequiresSettledLayout || requiresSettledLayout
 #if DEBUG
             dlog(
                 "portal.geometry.schedule.skip host=\(portalDebugToken(hostView)) " +
@@ -830,8 +839,7 @@ final class WindowTerminalPortal: NSObject {
         }
         hasExternalGeometrySyncScheduled = true
         externalGeometryQueuedCoverage = coverage
-        let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
+        externalGeometryQueuedRequiresSettledLayout = requiresSettledLayout
 #if DEBUG
         dlog(
             "portal.geometry.schedule host=\(portalDebugToken(hostView)) " +
@@ -843,10 +851,12 @@ final class WindowTerminalPortal: NSObject {
 #endif
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let requestedRequiresSettledLayout = self.externalGeometryQueuedRequiresSettledLayout
             let performSync = {
                 let requestedCoverage = self.externalGeometryQueuedCoverage ?? coverage
                 self.hasExternalGeometrySyncScheduled = false
                 self.externalGeometryQueuedCoverage = nil
+                self.externalGeometryQueuedRequiresSettledLayout = false
                 if self.hasSatisfiedFullSync(for: requestedCoverage) {
 #if DEBUG
                     dlog(
@@ -888,7 +898,7 @@ final class WindowTerminalPortal: NSObject {
                     self.markFullSyncSatisfied()
                 }
             }
-            if requiresSettledLayout {
+            if requestedRequiresSettledLayout {
                 DispatchQueue.main.async(execute: performSync)
             } else {
                 performSync()
@@ -1369,14 +1379,13 @@ final class WindowTerminalPortal: NSObject {
         pruneDeadEntries()
         let anchorId = ObjectIdentifier(anchorView)
         let primaryHostedId = hostedByAnchorId[anchorId]
-        if let primaryHostedId {
-            _ = synchronizeHostedView(withId: primaryHostedId)
-        }
+        let primaryResult = fullSyncPassResultForHostedView(withId: primaryHostedId)
 
         // Failsafe: during aggressive divider drags/structural churn, one anchor can miss a
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
-        let syncResult = synchronizeAllHostedViews(excluding: primaryHostedId)
+        let siblingResult = synchronizeAllHostedViews(excluding: primaryHostedId)
+        let syncResult = combineFullSyncPassResults(primaryResult, siblingResult)
 #if DEBUG
         if syncResult == .transient {
             AppDelegate.shared?.recordUITestTerminalGeometryEvent(
@@ -1402,6 +1411,31 @@ final class WindowTerminalPortal: NSObject {
             markFullSyncSatisfied()
         }
         scheduleDeferredFullSynchronizeAll()
+    }
+
+    private func fullSyncPassResultForHostedView(withId hostedId: ObjectIdentifier?) -> FullSyncPassResult {
+        guard let hostedId else { return .vacuous }
+        switch synchronizeHostedView(withId: hostedId) {
+        case .settled:
+            return .settled
+        case .transient:
+            return .transient
+        case .skipped:
+            return .vacuous
+        }
+    }
+
+    private func combineFullSyncPassResults(
+        _ lhs: FullSyncPassResult,
+        _ rhs: FullSyncPassResult
+    ) -> FullSyncPassResult {
+        if lhs == .transient || rhs == .transient {
+            return .transient
+        }
+        if lhs == .settled || rhs == .settled {
+            return .settled
+        }
+        return .vacuous
     }
 
     private func scheduleDeferredFullSynchronizeAll(force: Bool = false) {
