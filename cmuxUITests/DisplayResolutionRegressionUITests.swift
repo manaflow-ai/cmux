@@ -84,7 +84,8 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
         // When pre-launched from CI, the display helper uses --start-delay-ms
         // instead of a start signal file (sandbox prevents writing to /tmp/).
-        if prelaunch == nil {
+        // displayStartPath is empty when the harness manifest omits startPath.
+        if prelaunch == nil && !displayStartPath.isEmpty {
             do {
                 try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
             } catch {
@@ -153,7 +154,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             guard let readyPath = externalHarness.readyPath, !readyPath.isEmpty,
                   let displayIDPath = externalHarness.displayIDPath, !displayIDPath.isEmpty,
-                  let startPath = externalHarness.startPath, !startPath.isEmpty,
                   let donePath = externalHarness.donePath, !donePath.isEmpty else {
                 throw NSError(domain: "DisplayResolutionRegressionUITests", code: 3, userInfo: [
                     NSLocalizedDescriptionKey: "Incomplete external display harness configuration"
@@ -161,7 +161,13 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             displayReadyPath = readyPath
             self.displayIDPath = displayIDPath
-            displayStartPath = startPath
+            // startPath is optional — CI uses --start-delay-ms instead of a start
+            // signal file because the XCTest sandbox can't write to /tmp/.
+            if let startPath = externalHarness.startPath, !startPath.isEmpty {
+                displayStartPath = startPath
+            } else {
+                displayStartPath = ""
+            }
             displayDonePath = donePath
             if let logPath = externalHarness.logPath, !logPath.isEmpty {
                 helperLogPath = logPath
@@ -184,7 +190,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private func loadExternalHarnessFromEnvironment(_ env: [String: String]) -> ExternalDisplayHarness? {
         guard let readyPath = env["CMUX_UI_TEST_DISPLAY_READY_PATH"], !readyPath.isEmpty,
               let displayIDPath = env["CMUX_UI_TEST_DISPLAY_ID_PATH"], !displayIDPath.isEmpty,
-              let startPath = env["CMUX_UI_TEST_DISPLAY_START_PATH"], !startPath.isEmpty,
               let donePath = env["CMUX_UI_TEST_DISPLAY_DONE_PATH"], !donePath.isEmpty else {
             return nil
         }
@@ -192,7 +197,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         return ExternalDisplayHarness(
             readyPath: readyPath,
             displayIDPath: displayIDPath,
-            startPath: startPath,
+            startPath: env["CMUX_UI_TEST_DISPLAY_START_PATH"],
             donePath: donePath,
             logPath: env["CMUX_UI_TEST_DISPLAY_LOG_PATH"],
             helperBinaryPath: nil
