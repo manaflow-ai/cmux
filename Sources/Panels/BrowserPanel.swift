@@ -14,43 +14,20 @@ import CommonCrypto
 import Security
 #endif
 
-// MARK: - Element Pointer Message Handler
+// MARK: - Element Picker Message Handler
 
-/// Receives Option+Click element selection from the browser JS and forwards via NotificationCenter
-final class BrowserPointerMessageHandler: NSObject, WKScriptMessageHandler {
-    private let panelId: UUID
-    private let workspaceId: UUID
-
-    init(panelId: UUID, workspaceId: UUID) {
-        self.panelId = panelId
-        self.workspaceId = workspaceId
-        super.init()
-    }
-
+/// Receives Option+Click element selection from the browser JS.
+/// Data is stored and read via the socket API (browser.picked / browser.picked.wait).
+/// No data is injected into terminal stdin — the agent reads it explicitly.
+final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.name == "cmuxPointer" else { return }
-        guard let body = message.body as? [String: Any] else { return }
-
-        let xpath = body["xpath"] as? String ?? ""
-        let text = ((body["text"] as? String) ?? "").prefix(80).trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var summary = "[pointed] \(xpath)"
-        if !text.isEmpty {
-            summary += " \"\(text)\""
-        }
-
-        NotificationCenter.default.post(
-            name: .browserElementPointed,
-            object: nil,
-            userInfo: [
-                "surfaceId": panelId,
-                "workspaceId": workspaceId,
-                "summary": summary
-            ]
-        )
+        // Data is stored in window.__cmuxPointedElement on the JS side.
+        // The Swift side reads it via browser.pointed / browser.picked.wait eval.
+        // This handler exists only to validate the message bridge is active.
+        // No action needed — the JS already stored the data before calling postMessage.
     }
 }
 
@@ -1815,90 +1792,116 @@ final class BrowserPanel: Panel, ObservableObject {
         } catch (_) {}
       });
 
-      // --- Element Pointer (Option+Click) ---
-      window.__cmuxPointedElement = null;
-      (() => {
-        let __altDown = false;
-        let __overlay = null;
-        const __ensureOverlay = () => {
-          if (__overlay) return __overlay;
-          __overlay = document.createElement('div');
-          __overlay.id = '__cmux_pointer_overlay';
-          __overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #4F46E5;background:rgba(79,70,229,0.1);display:none;transition:all 0.05s;border-radius:3px;';
-          (document.body || document.documentElement).appendChild(__overlay);
-          return __overlay;
-        };
-        document.addEventListener('keydown', (e) => {
-          if (e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
-            __altDown = true;
-            document.documentElement.style.cursor = 'crosshair';
-          }
-        }, true);
-        document.addEventListener('keyup', (e) => {
-          if (e.key === 'Alt') {
-            __altDown = false;
-            document.documentElement.style.cursor = '';
-            const ov = __ensureOverlay();
-            ov.style.display = 'none';
-          }
-        }, true);
-        document.addEventListener('mouseover', (e) => {
-          if (!__altDown) return;
-          const r = e.target.getBoundingClientRect();
-          const ov = __ensureOverlay();
-          ov.style.display = 'block';
-          ov.style.top = r.top + 'px';
-          ov.style.left = r.left + 'px';
-          ov.style.width = r.width + 'px';
-          ov.style.height = r.height + 'px';
-        }, true);
-        document.addEventListener('click', (e) => {
-          if (!__altDown) return;
-          e.preventDefault();
-          e.stopImmediatePropagation();
-          const el = e.target;
-          const cs = window.getComputedStyle(el);
-          const ov = __ensureOverlay();
-          ov.style.borderColor = '#16A34A';
-          ov.style.background = 'rgba(22,163,74,0.15)';
-          // Build xpath for the element
+      // --- Element Picker (Option+Click) ---
+      // Guard against double-injection on SPA navigation
+      if (!window.__cmuxPickerInstalled) {
+        Object.defineProperty(window, '__cmuxPickerInstalled', { value: true, enumerable: false });
+        // Store picked element as non-enumerable to reduce CAPTCHA fingerprinting
+        Object.defineProperty(window, '__cmuxPointedElement', { value: null, writable: true, enumerable: false, configurable: true });
+        (() => {
+          let __overlay = null;
+          const __ensureOverlay = () => {
+            if (__overlay) return __overlay;
+            __overlay = document.createElement('div');
+            __overlay.setAttribute('aria-hidden', 'true');
+            __overlay.setAttribute('role', 'presentation');
+            const s = __overlay.style;
+            s.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #4F46E5;background:rgba(79,70,229,0.1);display:none;border-radius:3px;';
+            // Respect prefers-reduced-motion
+            if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+              s.transition = 'all 0.05s';
+            }
+            (document.body || document.documentElement).appendChild(__overlay);
+            return __overlay;
+          };
+          // Build xpath using previousElementSibling (avoids Array.from allocation)
+          const __siblingIndex = (el) => {
+            let idx = 1;
+            let sib = el.previousElementSibling;
+            while (sib) {
+              if (sib.tagName === el.tagName) idx++;
+              sib = sib.previousElementSibling;
+            }
+            return idx;
+          };
+          const __hasSameTagSibling = (el) => {
+            let sib = el.parentElement ? el.parentElement.firstElementChild : null;
+            while (sib) {
+              if (sib !== el && sib.tagName === el.tagName) return true;
+              sib = sib.nextElementSibling;
+            }
+            return false;
+          };
           const __xpath = (node) => {
             const parts = [];
             let cur = node;
-            while (cur && cur !== document.documentElement) {
-              if (cur === document.body) { parts.unshift('/html/body'); break; }
+            while (cur && cur.nodeType === 1) {
+              if (cur === document.body) { parts.unshift('body'); break; }
+              if (cur === document.documentElement) { parts.unshift('html'); break; }
               const tag = cur.tagName.toLowerCase();
-              const parent = cur.parentElement;
-              if (parent) {
-                const siblings = Array.from(parent.children).filter(s => s.tagName === cur.tagName);
-                if (siblings.length > 1) {
-                  parts.unshift(tag + '[' + (siblings.indexOf(cur) + 1) + ']');
-                } else {
-                  parts.unshift(tag);
-                }
+              if (__hasSameTagSibling(cur)) {
+                parts.unshift(tag + '[' + __siblingIndex(cur) + ']');
               } else {
                 parts.unshift(tag);
               }
-              cur = parent;
+              cur = cur.parentElement;
             }
             return '/' + parts.join('/');
           };
-          const xpath = __xpath(el);
-          const text = (el.textContent || '').slice(0, 80).trim();
-          const data = {
-            xpath: xpath,
-            text: text,
-            tag: el.tagName,
-            timestamp_ms: Date.now()
+          // Sanitize text: strip control chars, newlines, escape sequences
+          const __sanitize = (str) => {
+            return str.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
           };
-          window.__cmuxPointedElement = data;
-          try {
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPointer) {
-              window.webkit.messageHandlers.cmuxPointer.postMessage(data);
+          // Use e.altKey directly instead of tracking keydown/keyup state
+          // This avoids stuck-Alt issues from blur, tab-away, IME, etc.
+          document.addEventListener('mouseover', (e) => {
+            if (!e.altKey) {
+              if (__overlay && __overlay.style.display !== 'none') {
+                __overlay.style.display = 'none';
+              }
+              return;
             }
-          } catch (_) {}
-        }, true);
-      })();
+            // Use composedPath for shadow DOM support
+            const target = (e.composedPath && e.composedPath()[0]) || e.target;
+            const r = target.getBoundingClientRect();
+            const ov = __ensureOverlay();
+            ov.style.display = 'block';
+            // Reset color to default on each hover (fix: green stuck after click)
+            ov.style.borderColor = '#4F46E5';
+            ov.style.background = 'rgba(79,70,229,0.1)';
+            ov.style.top = r.top + 'px';
+            ov.style.left = r.left + 'px';
+            ov.style.width = r.width + 'px';
+            ov.style.height = r.height + 'px';
+          }, true);
+          document.addEventListener('click', (e) => {
+            if (!e.altKey) return;
+            e.preventDefault();
+            // Use stopPropagation instead of stopImmediatePropagation to avoid breaking page handlers
+            e.stopPropagation();
+            const el = (e.composedPath && e.composedPath()[0]) || e.target;
+            const ov = __ensureOverlay();
+            ov.style.borderColor = '#16A34A';
+            ov.style.background = 'rgba(22,163,74,0.15)';
+            const xpath = __xpath(el);
+            const text = __sanitize(el.textContent || '');
+            const data = { xpath: xpath, text: text, tag: el.tagName, timestamp_ms: Date.now() };
+            window.__cmuxPointedElement = data;
+            try {
+              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPointer) {
+                window.webkit.messageHandlers.cmuxPointer.postMessage(data);
+              }
+            } catch (_) {}
+          }, true);
+          // Reset overlay on blur/visibility change (prevents stuck state)
+          window.addEventListener('blur', () => {
+            if (__overlay) __overlay.style.display = 'none';
+          });
+          document.addEventListener('visibilitychange', () => {
+            if (document.hidden && __overlay) __overlay.style.display = 'none';
+          });
+        })();
+      }
 
       return true;
     })()
@@ -2631,12 +2634,13 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
-    private var pointerMessageHandler: BrowserPointerMessageHandler?
+    private var pickerMessageHandler: BrowserPickerMessageHandler?
 
     private func bindWebView(_ webView: CmuxWebView) {
-        // Register Option+Click element pointer message handler
-        let handler = BrowserPointerMessageHandler(panelId: id, workspaceId: workspaceId)
-        pointerMessageHandler = handler
+        // Register Option+Click element picker message handler.
+        // Use a separate handler object to avoid retain cycles with WKUserContentController.
+        let handler = BrowserPickerMessageHandler()
+        pickerMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: "cmuxPointer")
 
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
@@ -3996,6 +4000,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        // Remove picker message handler to break WKUserContentController retain cycle
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
+        pickerMessageHandler = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
