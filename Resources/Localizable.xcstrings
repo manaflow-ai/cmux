@@ -2497,109 +2497,109 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter a hex color in the format #RRGGBB."
+            "value": "Enter a hex color or use the color picker."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "#RRGGBB形式で16進カラーコードを入力してください。"
+            "state": "needs_review",
+            "value": "16進カラーコードを入力するか、カラーピッカーを使用してください。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "请输入 #RRGGBB 格式的十六进制颜色。"
+            "state": "needs_review",
+            "value": "输入十六进制颜色或使用颜色选择器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "請輸入 #RRGGBB 格式的十六進位色碼。"
+            "state": "needs_review",
+            "value": "輸入十六進位色碼或使用顏色選擇器。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "#RRGGBB 형식으로 16진수 색상을 입력하세요."
+            "state": "needs_review",
+            "value": "16진수 색상을 입력하거나 색상 선택기를 사용하세요."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Geben Sie eine Hex-Farbe im Format #RRGGBB ein."
+            "state": "needs_review",
+            "value": "Geben Sie eine Hex-Farbe ein oder verwenden Sie die Farbauswahl."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Introduce un color hexadecimal con el formato #RRGGBB."
+            "state": "needs_review",
+            "value": "Introduce un color hexadecimal o usa el selector de color."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Saisissez une couleur hexadécimale au format #RRVVBB."
+            "state": "needs_review",
+            "value": "Saisissez une couleur hexadécimale ou utilisez le sélecteur de couleurs."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Inserisci un colore esadecimale nel formato #RRGGBB."
+            "state": "needs_review",
+            "value": "Inserisci un colore esadecimale o usa il selettore colori."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Indtast en hex-farve i formatet #RRGGBB."
+            "state": "needs_review",
+            "value": "Indtast en hex-farve eller brug farvevælgeren."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wprowadź kolor szesnastkowy w formacie #RRGGBB."
+            "state": "needs_review",
+            "value": "Wprowadź kolor szesnastkowy lub użyj selektora kolorów."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Введите цвет в формате #RRGGBB."
+            "state": "needs_review",
+            "value": "Введите цвет в формате hex или используйте палитру цветов."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Unesite heksadecimalnu boju u formatu #RRGGBB."
+            "state": "needs_review",
+            "value": "Unesite heksadecimalnu boju ili koristite birač boja."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أدخل لونًا سداسيًا بالتنسيق #RRGGBB."
+            "state": "needs_review",
+            "value": "أدخل لونًا سداسيًا أو استخدم منتقي الألوان."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Skriv inn en heksadesimal farge i formatet #RRGGBB."
+            "state": "needs_review",
+            "value": "Skriv inn en heksadesimal farge eller bruk fargevelgeren."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Insira uma cor hexadecimal no formato #RRGGBB."
+            "state": "needs_review",
+            "value": "Insira uma cor hexadecimal ou use o seletor de cores."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ป้อนรหัสสี hex ในรูปแบบ #RRGGBB"
+            "state": "needs_review",
+            "value": "ป้อนรหัสสี hex หรือใช้ตัวเลือกสี"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "#RRGGBB biçiminde bir onaltılık renk girin."
+            "state": "needs_review",
+            "value": "Onaltılık renk girin veya renk seçiciyi kullanın."
           }
         }
       }
