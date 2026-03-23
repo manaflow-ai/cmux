@@ -4652,32 +4652,30 @@ struct WebViewRepresentable: NSViewRepresentable {
         /// `setFrameOrigin`/`setFrameSize` can fire multiple times before `layout()`;
         /// deferring avoids redundant portal-sync cascades during divider drag.
         /// A dispatch fallback ensures the callback fires even if `layout()` is not called.
+        /// Note: `lastReportedGeometryState` and `geometryRevision` are only updated
+        /// when the callback actually fires, so `updateNSView` sees a revision that
+        /// is strictly tied to emitted callbacks (no premature increments).
         private func markGeometryDirtyIfNeeded() {
             let state = currentGeometryState()
             guard state != lastReportedGeometryState else { return }
-            lastReportedGeometryState = state
-            geometryRevision &+= 1
             guard !hasPendingGeometryNotification else { return }
             hasPendingGeometryNotification = true
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.hasPendingGeometryNotification else { return }
-                self.hasPendingGeometryNotification = false
-                self.onGeometryChanged?()
+                self?.notifyGeometryChangedIfNeeded()
             }
         }
 
         /// Check for geometry changes and fire the callback. Also flushes any pending
         /// dirty state from `markGeometryDirtyIfNeeded` so `layout()` supersedes the
-        /// async fallback.
+        /// async fallback.  Only updates `lastReportedGeometryState` / `geometryRevision`
+        /// when the callback is emitted, keeping the revision in sync with actual
+        /// notifications.
         private func notifyGeometryChangedIfNeeded() {
-            let state = currentGeometryState()
-            let changed = state != lastReportedGeometryState
-            if changed {
-                lastReportedGeometryState = state
-                geometryRevision &+= 1
-            }
-            guard changed || hasPendingGeometryNotification else { return }
             hasPendingGeometryNotification = false
+            let state = currentGeometryState()
+            guard state != lastReportedGeometryState else { return }
+            lastReportedGeometryState = state
+            geometryRevision &+= 1
             onGeometryChanged?()
         }
 
