@@ -6566,6 +6566,10 @@ final class GhosttySurfaceScrollView: NSView {
         static let lineWidth = PanelOverlayRingMetrics.lineWidth
     }
 
+    /// Horizontal padding between terminal content and view edges to prevent text at
+    /// column 0 from accidentally triggering window/split resize gestures.
+    private static let horizontalPadding: CGFloat = 4
+
     private let backgroundView: NSView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
@@ -7139,11 +7143,15 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
-        let targetSize = scrollView.bounds.size
+        let targetSize = CGSize(
+            width: max(0, scrollView.bounds.width - Self.horizontalPadding * 2),
+            height: scrollView.bounds.height
+        )
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
-        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        let paddedOrigin = CGPoint(x: Self.horizontalPadding, y: surfaceView.frame.origin.y)
+        let targetSurfaceFrame = CGRect(origin: paddedOrigin, size: targetSize)
         _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
         let targetDocumentFrame = CGRect(
             origin: documentView.frame.origin,
@@ -8961,11 +8969,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func synchronizeSurfaceView() {
         let visibleRect = scrollView.contentView.documentVisibleRect
-        guard !pointApproximatelyEqual(surfaceView.frame.origin, visibleRect.origin) else { return }
+        // Keep x-origin at horizontalPadding; only the y-origin follows the scroll position.
+        let targetOrigin = CGPoint(x: Self.horizontalPadding, y: visibleRect.origin.y)
+        guard !pointApproximatelyEqual(surfaceView.frame.origin, targetOrigin) else { return }
 #if DEBUG
-        logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: visibleRect.origin)
+        logDragGeometryChange(event: "surfaceOrigin", old: surfaceView.frame.origin, new: targetOrigin)
 #endif
-        surfaceView.frame.origin = visibleRect.origin
+        surfaceView.frame.origin = targetOrigin
     }
 
     /// Match upstream Ghostty behavior: use content area width (excluding non-content
@@ -8975,7 +8985,8 @@ final class GhosttySurfaceScrollView: NSView {
         // Reserving extra overlay-scroller gutter here causes AppKit and libghostty to fight
         // over terminal columns during split churn. The width can flap by one scrollbar gutter,
         // which redraws the shell prompt multiple times on Cmd+D. Favor stable columns.
-        let width = max(0, scrollView.contentSize.width)
+        // Subtract horizontalPadding * 2 to match the padded surface frame width.
+        let width = max(0, scrollView.contentSize.width - Self.horizontalPadding * 2)
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
