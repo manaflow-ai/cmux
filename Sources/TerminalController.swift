@@ -13198,10 +13198,24 @@ class TerminalController {
             sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
             return true
         default:
-            // Parse generic modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
-            // "ctrl+shift+a"). Separators: '+' or '-'.
+            // Parse modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
+            // "ctrl+shift+a") or standalone named keys (e.g. "space", "up").
+            // Separators: '+' or '-'.
             let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init).filter { !$0.isEmpty }
-            guard parts.count >= 2 else { return false }
+            guard let baseKey = parts.last else { return false }
+
+            // Single named key without modifiers (e.g. "space", "up", "delete")
+            if parts.count == 1 {
+                if let keycode = keycodeForNamedKey(baseKey) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
+                    return true
+                }
+                if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
+                    return true
+                }
+                return false
+            }
 
             var mods = GHOSTTY_MODS_NONE
             for mod in parts.dropLast() {
@@ -13214,7 +13228,6 @@ class TerminalController {
                 }
             }
 
-            let baseKey = parts.last!
             if let keycode = keycodeForNamedKey(baseKey) {
                 sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
                 return true
