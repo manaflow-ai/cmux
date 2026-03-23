@@ -524,9 +524,12 @@ enum BrowserDefaultZoomSettings {
     static let key = "browserDefaultZoomLevel"
     static let defaultValue: Double = 1.0
 
-    static func zoomLevel() -> CGFloat {
-        let raw = UserDefaults.standard.double(forKey: key)
-        return raw > 0 ? CGFloat(raw) : CGFloat(defaultValue)
+    static func zoomLevel(defaults: UserDefaults = .standard) -> CGFloat {
+        if defaults.object(forKey: key) == nil {
+            return CGFloat(defaultValue)
+        }
+        let raw = defaults.double(forKey: key)
+        return CGFloat(max(0.5, min(3.0, raw)))
     }
 }
 
@@ -4721,7 +4724,7 @@ extension BrowserPanel {
 
     @discardableResult
     func resetZoom() -> Bool {
-        applyPageZoom(1.0)
+        applyPageZoom(BrowserDefaultZoomSettings.zoomLevel())
     }
 
     func currentPageZoomFactor() -> CGFloat {

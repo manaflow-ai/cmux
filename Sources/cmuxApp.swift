@@ -5092,15 +5092,15 @@ struct SettingsView: View {
                             controlWidth: pickerColumnWidth,
                             selection: $browserDefaultZoom
                         ) {
-                            Text("75%").tag(0.75)
-                            Text("80%").tag(0.8)
-                            Text("90%").tag(0.9)
-                            Text("100%").tag(1.0)
-                            Text("110%").tag(1.1)
-                            Text("125%").tag(1.25)
-                            Text("150%").tag(1.5)
-                            Text("175%").tag(1.75)
-                            Text("200%").tag(2.0)
+                            Text(verbatim: "75%").tag(0.75)
+                            Text(verbatim: "80%").tag(0.8)
+                            Text(verbatim: "90%").tag(0.9)
+                            Text(verbatim: "100%").tag(1.0)
+                            Text(verbatim: "110%").tag(1.1)
+                            Text(verbatim: "125%").tag(1.25)
+                            Text(verbatim: "150%").tag(1.5)
+                            Text(verbatim: "175%").tag(1.75)
+                            Text(verbatim: "200%").tag(2.0)
                         }
 
                         SettingsCardDivider()
@@ -5566,6 +5566,7 @@ struct SettingsView: View {
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+        browserDefaultZoom = BrowserDefaultZoomSettings.defaultValue
         browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
