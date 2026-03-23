@@ -11396,6 +11396,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Preserve native macOS window cycling for Cmd+` and Cmd+Shift+`.
+        if event.keyCode == 50,
+           normalizedFlags.contains(.command),
+           normalizedFlags.isSubset(of: [.command, .shift]) {
+            return false
+        }
+
         // Allow quick-terminal toggle even when the key event comes from the quick
         // panel itself (which is not a main terminal window context).
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleQuickTerminal)) {

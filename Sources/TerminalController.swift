@@ -139,9 +139,6 @@ class TerminalController {
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
-        "quick_terminal.toggle",
-        "quick_terminal.show",
-        "quick_terminal.hide",
         "debug.command_palette.toggle",
         "debug.notification.focus",
         "debug.app.activate"

@@ -3230,8 +3230,9 @@ struct CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool
     ) throws {
-        let subcommand = commandArgs.first?.lowercased() ?? "toggle"
-        let remaining = Array(commandArgs.dropFirst()).filter { $0 != "--" }
+        let normalizedArgs = Array(commandArgs.drop(while: { $0 == "--" }))
+        let subcommand = normalizedArgs.first?.lowercased() ?? "toggle"
+        let remaining = Array(normalizedArgs.dropFirst()).filter { $0 != "--" }
         if let unknown = remaining.first {
             throw CLIError(message: "quick-terminal \(subcommand): unexpected argument '\(unknown)'")
         }

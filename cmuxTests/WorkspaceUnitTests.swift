@@ -1933,10 +1933,15 @@ final class StoredShortcutMatchingTests: XCTestCase {
 
         let shortcut = KeyboardShortcutSettings.Action.toggleQuickTerminal.defaultShortcut
         XCTAssertEqual(shortcut.key, "`")
+        XCTAssertEqual(shortcut.keyEquivalent, KeyEquivalent("`"))
+        XCTAssertEqual(shortcut.menuItemKeyEquivalent, "`")
         XCTAssertTrue(shortcut.command)
         XCTAssertFalse(shortcut.shift)
         XCTAssertTrue(shortcut.option)
         XCTAssertFalse(shortcut.control)
+        XCTAssertEqual(shortcut.eventModifiers, [.command, .option])
+        XCTAssertFalse(shortcut.eventModifiers.contains(.shift))
+        XCTAssertFalse(shortcut.eventModifiers.contains(.control))
     }
 
     func testShortcutRecorderValidationPresentationUsesNumberedDisplayOnlyForNumberedConflicts() {

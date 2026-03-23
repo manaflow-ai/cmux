@@ -5,7 +5,7 @@ All notable changes to cmux are documented here.
 ## [Unreleased]
 
 ### Added
-- Quick Terminal panel with configurable position, size, auto-hide, keyboard shortcut (default: Option+Command+`), command palette action, and CLI/socket controls (`cmux quick-terminal [toggle|show|hide|status]`, `quick_terminal.*`) ([#327](https://github.com/manaflow-ai/cmux/issues/327))
+- Quick Terminal panel with configurable position, size, auto-hide, keyboard shortcut (default: Option+Command+\`), command palette action, and CLI/socket controls (`cmux quick-terminal [toggle|show|hide|status]`, `quick_terminal.*`) ([#327](https://github.com/manaflow-ai/cmux/issues/327))
 
 ## [0.63.2] - 2026-04-06
 
