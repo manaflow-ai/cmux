@@ -21,6 +21,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from regression_helpers import cmux_shell_integration_dir, ghostty_zsh_integration_dir
+
 
 def _run_zsh_print_histfile(env: dict[str, str]) -> tuple[int, str]:
     # A PTY is not required for this regression: we only need /etc/zshrc to run
@@ -36,9 +38,8 @@ def _run_zsh_print_histfile(env: dict[str, str]) -> tuple[int, str]:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    cmux_wrapper_dir = root / "Resources" / "shell-integration"
-    ghostty_zsh_dir = root / "ghostty" / "src" / "shell-integration" / "zsh"
+    cmux_wrapper_dir = cmux_shell_integration_dir()
+    ghostty_zsh_dir = ghostty_zsh_integration_dir()
 
     if not (cmux_wrapper_dir / ".zshenv").exists():
         print(f"SKIP: missing cmux wrapper .zshenv at {cmux_wrapper_dir}")

@@ -20,6 +20,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from regression_helpers import ghostty_src_dir, ghostty_zsh_integration_dir
+
 
 FRESH_PROMPT = b"\x1b]133;A;cl=line\x07"
 PROMPT_START = b"\x1b]133;P;k=i\x07"
@@ -117,8 +119,7 @@ def _capture_session(env: dict[str, str], zsh_path: str) -> bytes:
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    wrapper_dir = root / "ghostty" / "src" / "shell-integration" / "zsh"
+    wrapper_dir = ghostty_zsh_integration_dir()
     if not (wrapper_dir / ".zshenv").exists():
         print(f"SKIP: missing Ghostty zsh wrapper at {wrapper_dir}")
         return 0
@@ -138,7 +139,7 @@ def main() -> int:
         env["HOME"] = str(home)
         env["ZDOTDIR"] = str(wrapper_dir)
         env["GHOSTTY_ZSH_ZDOTDIR"] = str(home)
-        env["GHOSTTY_RESOURCES_DIR"] = str(root / "ghostty" / "src")
+        env["GHOSTTY_RESOURCES_DIR"] = str(ghostty_src_dir())
         env.pop("GHOSTTY_SHELL_FEATURES", None)
         env.pop("GHOSTTY_BIN_DIR", None)
 

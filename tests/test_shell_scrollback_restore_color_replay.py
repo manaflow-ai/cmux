@@ -10,10 +10,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from regression_helpers import cmux_shell_integration_dir
+
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    integration_script = root / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
+    integration_script = cmux_shell_integration_dir() / "cmux-zsh-integration.zsh"
     if not integration_script.exists():
         print(f"SKIP: missing zsh integration script at {integration_script}")
         return 0

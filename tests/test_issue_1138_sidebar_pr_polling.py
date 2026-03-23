@@ -24,6 +24,8 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+from regression_helpers import cmux_shell_integration_dir
+
 
 class BoundUnixSocket:
     def __init__(self, path: Path) -> None:
@@ -417,10 +419,10 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
 
 
 def main() -> int:
-    root = Path(__file__).resolve().parents[1]
+    shell_integration_dir = cmux_shell_integration_dir()
     cases = [
-        ("zsh", ["-f", "-c"], root / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"),
-        ("bash", ["--noprofile", "--norc", "-c"], root / "Resources" / "shell-integration" / "cmux-bash-integration.bash"),
+        ("zsh", ["-f", "-c"], shell_integration_dir / "cmux-zsh-integration.zsh"),
+        ("bash", ["--noprofile", "--norc", "-c"], shell_integration_dir / "cmux-bash-integration.bash"),
     ]
     scenarios = [
         "prompt_helper_idle",
