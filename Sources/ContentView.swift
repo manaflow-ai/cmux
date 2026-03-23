@@ -6619,6 +6619,8 @@ struct ContentView: View {
             return .closeWindow
         case "palette.toggleSidebar":
             return .toggleSidebar
+        case "palette.toggleQuickTerminal":
+            return .toggleQuickTerminal
         case "palette.showNotifications":
             return .showNotifications
         case "palette.jumpUnread":
@@ -6936,6 +6938,14 @@ struct ContentView: View {
                 title: constant(String(localized: "command.toggleSidebar.title", defaultValue: "Toggle Sidebar")),
                 subtitle: constant(String(localized: "command.toggleSidebar.subtitle", defaultValue: "Layout")),
                 keywords: ["toggle", "sidebar", "layout"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleQuickTerminal",
+                title: constant(String(localized: "command.toggleQuickTerminal.title", defaultValue: "Toggle Quick Terminal")),
+                subtitle: constant(String(localized: "command.toggleQuickTerminal.subtitle", defaultValue: "Terminal")),
+                keywords: ["quick", "terminal", "toggle", "dropdown", "quake"]
             )
         )
         contributions.append(
@@ -7638,6 +7648,9 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.toggleSidebar") {
             sidebarState.toggle()
+        }
+        registry.register(commandId: "palette.toggleQuickTerminal") {
+            AppDelegate.shared?.toggleQuickTerminal(nil)
         }
         registry.register(commandId: "palette.enableMinimalMode") {
             workspacePresentationMode = WorkspacePresentationModeSettings.Mode.minimal.rawValue

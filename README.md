@@ -156,6 +156,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ ⇧ W | Close workspace |
 | ⌘ ⇧ R | Rename workspace |
 | ⌘ B | Toggle sidebar |
+| ⌥ ⌘ ` | Toggle quick terminal |
 
 ### Surfaces
 
@@ -218,6 +219,15 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌘ V | Paste |
 | ⌘ + / ⌘ - | Increase / decrease font size |
 | ⌘ 0 | Reset font size |
+
+### Quick Terminal CLI
+
+```bash
+cmux quick-terminal [toggle|show|hide|status]
+cmux --json quick-terminal status
+```
+
+Control the floating quick terminal from scripts and check its visibility and settings state.
 
 ### Window
 

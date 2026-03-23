@@ -2845,6 +2845,13 @@ struct CMUXCLI {
             let response = try sendV1Command("simulate_app_active", client: client)
             print(response)
 
+        case "quick-terminal":
+            try runQuickTerminal(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput
+            )
+
         case "__tmux-compat":
             try runClaudeTeamsTmuxCompat(
                 commandArgs: commandArgs,
@@ -3216,6 +3223,62 @@ struct CMUXCLI {
         } else {
             print("OK")
         }
+    }
+
+    private func runQuickTerminal(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "toggle"
+        let remaining = Array(commandArgs.dropFirst()).filter { $0 != "--" }
+        if let unknown = remaining.first {
+            throw CLIError(message: "quick-terminal \(subcommand): unexpected argument '\(unknown)'")
+        }
+
+        let method: String
+        switch subcommand {
+        case "toggle":
+            method = "quick_terminal.toggle"
+        case "show":
+            method = "quick_terminal.show"
+        case "hide":
+            method = "quick_terminal.hide"
+        case "status":
+            method = "quick_terminal.status"
+        default:
+            throw CLIError(message: "quick-terminal requires one of: toggle, show, hide, status")
+        }
+
+        let payload = try client.sendV2(method: method)
+        if jsonOutput {
+            print(jsonString(payload))
+            return
+        }
+
+        if subcommand == "status" {
+            print(formatQuickTerminalStatusPayload(payload))
+        } else {
+            print("OK")
+        }
+    }
+
+    private func formatQuickTerminalStatusPayload(_ payload: [String: Any]) -> String {
+        let available = (payload["available"] as? Bool) ?? true
+        let visible = (payload["visible"] as? Bool) ?? false
+        let position = (payload["position"] as? String) ?? "unknown"
+        let autoHide = (payload["auto_hide"] as? Bool) ?? false
+        let primarySizeRatio = (payload["primary_size_ratio"] as? Double) ?? 0
+        let secondarySizeRatio = (payload["secondary_size_ratio"] as? Double) ?? 0
+
+        return """
+        available: \(available ? "yes" : "no")
+        visible: \(visible ? "yes" : "no")
+        position: \(position)
+        auto_hide: \(autoHide ? "yes" : "no")
+        primary_size_ratio: \(String(format: "%.2f", primarySizeRatio))
+        secondary_size_ratio: \(String(format: "%.2f", secondarySizeRatio))
+        """
     }
 
     private func connectClient(
@@ -6919,6 +6982,23 @@ struct CMUXCLI {
             Usage: cmux shortcuts
 
             Open the Settings window to Keyboard Shortcuts.
+            """
+        case "quick-terminal":
+            return """
+            Usage: cmux quick-terminal [toggle|show|hide|status]
+
+            Control the floating quick terminal panel.
+
+            Subcommands:
+              toggle    Toggle quick terminal visibility (default)
+              show      Show quick terminal
+              hide      Hide quick terminal
+              status    Print quick terminal status
+
+            Examples:
+              cmux quick-terminal
+              cmux quick-terminal show
+              cmux --json quick-terminal status
             """
         case "feedback":
             return """
@@ -14497,6 +14577,7 @@ struct CMUXCLI {
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
           set-app-focus <active|inactive|clear>
           simulate-app-active
+          quick-terminal [toggle|show|hide|status]
 
           # tmux compatibility commands
           capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
