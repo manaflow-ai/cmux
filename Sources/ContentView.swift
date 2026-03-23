@@ -1553,6 +1553,7 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -4659,7 +4660,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
-        commandsContext.snapshot.fingerprint()
+        var hasher = Hasher()
+        hasher.combine(commandsContext.snapshot.fingerprint())
+        hasher.combine(cmuxConfigStore.configRevision)
+        return hasher.finalize()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
@@ -5963,6 +5967,19 @@ struct ContentView: View {
             )
         )
 
+        let cmuxConfigSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
+        for command in cmuxConfigStore.loadedCommands {
+            let commandName = command.name
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: command.id,
+                    title: constant(String(localized: "command.cmuxConfig.customTitle", defaultValue: "Custom: \(commandName)")),
+                    subtitle: cmuxConfigSubtitle,
+                    keywords: command.keywords ?? []
+                )
+            )
+        }
+
         return contributions
     }
 
@@ -6292,6 +6309,19 @@ struct ContentView: View {
                   tabManager.equalizeSplits(tabId: workspace.id) else {
                 NSSound.beep()
                 return
+            }
+        }
+
+        for command in cmuxConfigStore.loadedCommands {
+            let captured = command
+            registry.register(commandId: command.id) {
+                let baseCwd = tabManager.selectedWorkspace?.currentDirectory
+                    ?? FileManager.default.homeDirectoryForCurrentUser.path
+                CmuxConfigExecutor.execute(
+                    command: captured,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd
+                )
             }
         }
     }

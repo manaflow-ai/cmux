@@ -5794,6 +5794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(CmuxConfigStore.shared)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
