@@ -89,12 +89,22 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
         0x2066, 0x2067, 0x2068, 0x2069                      // BiDi isolates
     ]
 
-    private func sanitize(_ text: String) -> String {
-        let cleaned = text.unicodeScalars.filter { s in
+    private func filtered(_ value: String) -> String {
+        let cleaned = value.unicodeScalars.filter { s in
             ((s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F)
             && !Self.dangerousScalars.contains(s.value)
         }
-        return String(String.UnicodeScalarView(cleaned)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(String.UnicodeScalarView(cleaned))
+    }
+
+    /// Sanitize display text: strip control chars + BiDi/zero-width, cap at 200 chars
+    private func sanitizeWebText(_ text: String) -> String {
+        String(filtered(text).prefix(200)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Sanitize xpath: strip control chars + BiDi/zero-width, cap at 2000 chars (preserve selector fidelity)
+    private func sanitizeXPath(_ xpath: String) -> String {
+        String(filtered(xpath).prefix(2000)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func userContentController(
@@ -114,8 +124,8 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
         // Invalidate the timestamp so each native click can only be used once
         lastNativeOptionClickTime = 0
 
-        let xpath = sanitize(body["xpath"] as? String ?? "")
-        let rawText = sanitize(body["text"] as? String ?? "")
+        let xpath = sanitizeXPath(body["xpath"] as? String ?? "")
+        let rawText = sanitizeWebText(body["text"] as? String ?? "")
 
         var summary = "[picked] \(xpath)"
         if !rawText.isEmpty {
