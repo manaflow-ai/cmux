@@ -11,7 +11,9 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private var displayDonePath = ""
     private var helperBinaryPath = ""
     private var helperLogPath = ""
-    private var launchedApp: XCUIApplication?
+    private var appLogPath = ""
+    private var launchedAppProcess: Process?
+    private var launchedAppBundlePath = ""
     private var helperProcess: Process?
 
     override func setUp() {
@@ -30,6 +32,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         displayDonePath = "\(tempPrefix).done"
         helperBinaryPath = "\(tempPrefix)-helper"
         helperLogPath = "\(tempPrefix)-helper.log"
+        appLogPath = "\(tempPrefix)-app.log"
 
         removeTestArtifacts()
     }
@@ -240,17 +243,38 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     private func launchAppProcess(targetDisplayID: String) throws {
-        let app = XCUIApplication()
+        let executablePath = try resolveAppExecutablePath()
+        launchedAppBundlePath = URL(fileURLWithPath: executablePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .path
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: executablePath)
+        var environment = ProcessInfo.processInfo.environment
         for (key, value) in launchEnvironment(targetDisplayID: targetDisplayID) {
-            app.launchEnvironment[key] = value
+            environment[key] = value
         }
-        app.launch()
-        guard ensureForegroundAfterLaunch(app, timeout: 12.0) else {
+        proc.environment = environment
+
+        let logHandle = FileHandle(forWritingAtPath: appLogPath) ?? {
+            FileManager.default.createFile(atPath: appLogPath, contents: nil)
+            return FileHandle(forWritingAtPath: appLogPath)
+        }()
+        proc.standardOutput = logHandle
+        proc.standardError = logHandle
+
+        try proc.run()
+        launchedAppProcess = proc
+
+        if !waitForAppLaunchDiagnostics(pid: proc.processIdentifier, timeout: 12.0) {
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "XCUIApplication failed to reach foreground. state=\(app.state.rawValue)"
+                NSLocalizedDescriptionKey: "App process failed to write launch diagnostics. pid=\(proc.processIdentifier) log=\(readTrimmedFile(atPath: appLogPath) ?? "<missing>")"
             ])
         }
-        launchedApp = app
+
+        reopenAppBundleIfNeeded()
     }
 
     private func launchEnvironment(targetDisplayID: String) -> [String: String] {
@@ -264,31 +288,21 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     private func terminateLaunchedAppIfNeeded() {
-        guard let launchedApp else { return }
-        defer { self.launchedApp = nil }
-
-        if launchedApp.state == .notRunning {
-            return
+        guard let launchedAppProcess else { return }
+        defer {
+            self.launchedAppProcess = nil
+            self.launchedAppBundlePath = ""
         }
 
-        launchedApp.terminate()
-        _ = launchedApp.wait(for: .notRunning, timeout: 5.0)
+        if launchedAppProcess.isRunning {
+            launchedAppProcess.terminate()
+            launchedAppProcess.waitUntilExit()
+        }
     }
 
     private func launchedAppDiagnostics() -> String {
-        guard let launchedApp else { return "not-launched" }
-        return "state=\(launchedApp.state.rawValue)"
-    }
-
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
-        if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
-        }
-        return false
+        guard let launchedAppProcess else { return "not-launched" }
+        return "pid=\(launchedAppProcess.processIdentifier) running=\(launchedAppProcess.isRunning) bundle=\(launchedAppBundlePath)"
     }
 
     private func waitForTargetDisplayMove(targetDisplayID: String, timeout: TimeInterval) -> Bool {
@@ -355,6 +369,108 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             .deletingLastPathComponent()
     }
 
+    private func resolveAppExecutablePath() throws -> String {
+        let fileManager = FileManager.default
+        let env = ProcessInfo.processInfo.environment
+        var productDirectories: [String] = []
+
+        if let builtProductsDir = env["BUILT_PRODUCTS_DIR"], !builtProductsDir.isEmpty {
+            productDirectories.append(builtProductsDir)
+        }
+
+        if let hostPath = env["TEST_HOST"], !hostPath.isEmpty {
+            let hostURL = URL(fileURLWithPath: hostPath)
+            let productsDir = hostURL
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .path
+            productDirectories.append(productsDir)
+        }
+
+        productDirectories.append(contentsOf: inferredBuildProductsDirectories())
+
+        var candidates: [String] = []
+        for productsDir in uniquePaths(productDirectories) {
+            appendAppExecutableCandidates(fromProductsDirectory: productsDir, to: &candidates)
+        }
+
+        for path in uniquePaths(candidates) where fileManager.isExecutableFile(atPath: path) {
+            return URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        }
+
+        throw NSError(domain: "DisplayResolutionRegressionUITests", code: 4, userInfo: [
+            NSLocalizedDescriptionKey: "Unable to locate cmux app executable. searched=\(uniquePaths(candidates))"
+        ])
+    }
+
+    private func inferredBuildProductsDirectories() -> [String] {
+        let bundleURLs = [
+            Bundle.main.bundleURL,
+            Bundle(for: Self.self).bundleURL,
+        ]
+
+        return bundleURLs.compactMap { bundleURL in
+            let standardizedPath = bundleURL.standardizedFileURL.path
+            let components = standardizedPath.split(separator: "/")
+            guard let productsIndex = components.firstIndex(of: "Products"),
+                  productsIndex + 1 < components.count else {
+                return nil
+            }
+            let prefixComponents = components.prefix(productsIndex + 2)
+            return "/" + prefixComponents.joined(separator: "/")
+        }
+    }
+
+    private func appendAppExecutableCandidates(fromProductsDirectory productsDir: String, to candidates: inout [String]) {
+        candidates.append("\(productsDir)/cmux DEV.app/Contents/MacOS/cmux DEV")
+        candidates.append("\(productsDir)/cmux.app/Contents/MacOS/cmux")
+
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: productsDir) else {
+            return
+        }
+
+        for entry in entries.sorted() where entry.hasSuffix(".app") {
+            let executableName = (entry as NSString).deletingPathExtension
+            let executablePath = URL(fileURLWithPath: productsDir)
+                .appendingPathComponent(entry)
+                .appendingPathComponent("Contents/MacOS")
+                .appendingPathComponent(executableName)
+                .path
+            candidates.append(executablePath)
+        }
+    }
+
+    private func uniquePaths(_ paths: [String]) -> [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for path in paths {
+            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                ordered.append(trimmed)
+            }
+        }
+        return ordered
+    }
+
+    private func waitForAppLaunchDiagnostics(pid: Int32, timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let diagnostics = self.loadDiagnostics() else { return false }
+            return diagnostics["pid"] == String(pid)
+        }
+    }
+
+    private func reopenAppBundleIfNeeded() {
+        guard !launchedAppBundlePath.isEmpty else { return }
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        proc.arguments = [launchedAppBundlePath]
+        try? proc.run()
+    }
+
     private func removeTestArtifacts() {
         for path in [
             diagnosticsPath,
@@ -364,6 +480,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             displayDonePath,
             helperBinaryPath,
             helperLogPath,
+            appLogPath,
         ] {
             guard !path.isEmpty else { continue }
             try? FileManager.default.removeItem(atPath: path)
