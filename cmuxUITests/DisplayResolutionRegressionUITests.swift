@@ -82,11 +82,15 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
 
-        do {
-            try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-        } catch {
-            XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
-            return
+        // When pre-launched from CI, the display helper uses --start-delay-ms
+        // instead of a start signal file (sandbox prevents writing to /tmp/).
+        if prelaunch == nil {
+            do {
+                try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
+            } catch {
+                XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
+                return
+            }
         }
 
         let deadline = Date().addingTimeInterval(30.0)

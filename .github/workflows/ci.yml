@@ -523,15 +523,18 @@ jobs:
           for attempt in 1 2; do
             cleanup 2>/dev/null || true
 
-            # Launch display helper from shell (non-sandboxed)
+            # Launch display helper from shell (non-sandboxed).
+            # Use --start-delay-ms instead of --start-path because the XCTest
+            # runner is sandboxed and can't write to /tmp/ for the start signal.
+            # 10s delay gives the test time to capture baseline render stats.
             "$HELPER_PATH" \
               --modes "1920x1080,1728x1117,1600x900,1440x810" \
               --ready-path "$DISPLAY_READY" \
               --display-id-path "$DISPLAY_ID_PATH" \
-              --start-path "$DISPLAY_START" \
               --done-path "$DISPLAY_DONE" \
               --iterations 40 \
               --interval-ms 40 \
+              --start-delay-ms 10000 \
               > "$HELPER_LOG" 2>&1 &
             HELPER_PID=$!
 
@@ -619,7 +622,7 @@ jobs:
             # Write manifests so test can find the pre-launched state
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
             cat >"$MANIFEST_PATH" <<MANIFEST_EOF
-          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","startPath":"$DISPLAY_START","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
           MANIFEST_EOF
 
             PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
