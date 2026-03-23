@@ -52,7 +52,7 @@ export function TypingTagline() {
 
   return (
     <span>
-      {displayed}
+      <span>{displayed}</span>
       <span
         className={`inline-block w-[2px] h-[1.1em] bg-foreground/70 ml-[1px] ${dev.cursorBlink ? "animate-blink" : ""}`}
         style={{ position: "relative", top: `${dev.cursorTop}px` }}

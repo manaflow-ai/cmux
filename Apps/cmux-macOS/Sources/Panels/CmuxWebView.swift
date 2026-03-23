@@ -4,6 +4,25 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+extension WKWebView {
+    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
+        switch fullscreenState {
+        case .notInFullscreen:
+            return false
+        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
+            return true
+        @unknown default:
+            return true
+        }
+    }
+
+    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
+        guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
+        guard let expectedWindow else { return true }
+        return window !== expectedWindow
+    }
+}
+
 struct BrowserImageCopyPasteboardPayload {
     let imageData: Data
     let mimeType: String?

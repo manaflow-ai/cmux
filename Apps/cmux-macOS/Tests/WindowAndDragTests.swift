@@ -1248,4 +1248,67 @@ final class MarkdownPanelPointerObserverViewTests: XCTestCase {
         XCTAssertNil(overlay.hitTest(NSPoint(x: 40, y: 30)))
     }
 }
+
+@MainActor
+final class TmuxWorkspacePaneOverlayTests: XCTestCase {
+    func testTmuxWorkspacePaneOverlayModelTracksFlashReason() {
+        let model = TmuxWorkspacePaneOverlayModel()
+        let initialState = TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: UUID(),
+            unreadRects: [],
+            flashRect: CGRect(x: 10, y: 20, width: 300, height: 200),
+            flashToken: 1,
+            flashReason: .notificationArrival
+        )
+        let laterState = TmuxWorkspacePaneOverlayRenderState(
+            workspaceId: initialState.workspaceId,
+            unreadRects: [],
+            flashRect: CGRect(x: 10, y: 20, width: 300, height: 200),
+            flashToken: 2,
+            flashReason: .navigation
+        )
+
+        model.apply(initialState)
+        model.apply(laterState)
+
+        XCTAssertEqual(model.flashReason, .navigation)
+    }
+
+    func testNavigationFlashUsesNonNotificationPresentation() {
+        XCTAssertNotEqual(
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation),
+            WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
+        )
+    }
+
+    func testNavigationFlashUsesNonNeutralAccent() {
+        XCTAssertEqual(
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent,
+            .navigationTeal
+        )
+    }
+
+    func testTmuxWorkspacePaneExactRectReturnsContentRelativeFrameForDescendantView() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected contentView")
+            return
+        }
+
+        let targetView = NSView(frame: NSRect(x: 120, y: 48, width: 300, height: 200))
+        contentView.addSubview(targetView)
+
+        XCTAssertEqual(
+            ContentView.tmuxWorkspacePaneExactRect(for: targetView, in: contentView),
+            CGRect(x: 120, y: 48, width: 300, height: 200)
+        )
+    }
+}
 #endif
