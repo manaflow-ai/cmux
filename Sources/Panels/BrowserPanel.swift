@@ -20,6 +20,9 @@ import Security
 /// sanitized summary to the focused terminal in the workspace.
 ///
 /// Security notes (terminal stdin injection):
+/// - A native NSEvent Option+Click must have occurred within 1 second
+///   of receiving the postMessage. This prevents page JS from calling
+///   postMessage directly without a real user click (zero-click attack).
 /// - All text from web content is sanitized before terminal injection.
 /// - Control characters (U+0000–U+001F, U+007F–U+009F) are stripped to
 ///   prevent ANSI escape sequence attacks and terminal command injection.
@@ -33,9 +36,31 @@ import Security
 final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     private let workspaceId: UUID
 
+    /// Timestamp of last native Option+Click detected via NSEvent monitor.
+    /// Used to validate that postMessage was triggered by a real user click,
+    /// not by malicious page JS calling postMessage directly.
+    private var lastNativeOptionClickTime: TimeInterval = 0
+    private var eventMonitor: Any?
+
+    /// Maximum allowed delay between native click and postMessage arrival.
+    private static let nativeEventWindowSeconds: TimeInterval = 1.0
+
     init(workspaceId: UUID) {
         self.workspaceId = workspaceId
         super.init()
+        // Monitor native mouse clicks with Option modifier
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            if event.modifierFlags.contains(.option) {
+                self?.lastNativeOptionClickTime = ProcessInfo.processInfo.systemUptime
+            }
+            return event
+        }
+    }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     /// Strip control characters, newlines, and ANSI escape sequences.
@@ -55,6 +80,16 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         guard message.name == "cmuxPointer" else { return }
         guard let body = message.body as? [String: Any] else { return }
+
+        // Security: verify a real native Option+Click occurred recently.
+        // Reject postMessage calls from page JS without a corresponding native event.
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = now - lastNativeOptionClickTime
+        guard elapsed < Self.nativeEventWindowSeconds else {
+            return  // No recent native Option+Click — likely a spoofed postMessage
+        }
+        // Invalidate the timestamp so each native click can only be used once
+        lastNativeOptionClickTime = 0
 
         let xpath = sanitize(body["xpath"] as? String ?? "")
         let rawText = sanitize(body["text"] as? String ?? "")
@@ -2686,6 +2721,12 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pickerMessageHandler: BrowserPickerMessageHandler?
 
     private func bindWebView(_ webView: CmuxWebView) {
+        // Clean up previous picker handler to prevent NSEvent monitor leaks
+        // when bindWebView is called multiple times (profile change, context reset, etc.)
+        if pickerMessageHandler != nil {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
+            pickerMessageHandler = nil
+        }
         // Register Option+Click element picker message handler.
         // Use a separate handler object to avoid retain cycles with WKUserContentController.
         let handler = BrowserPickerMessageHandler(workspaceId: workspaceId)

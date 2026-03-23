@@ -239,11 +239,15 @@ class TerminalController {
     /// sequences. This prevents terminal command injection even if a malicious
     /// page crafts element text containing shell commands. The text is also
     /// truncated to 200 chars. Sanitization happens on both the JS side and
-    /// the Swift side (defense in depth) since `postMessage` can be called
-    /// directly by page scripts without a user click.
+    /// the Swift side (defense in depth). Additionally, the postMessage is
+    /// only accepted if a native NSEvent Option+Click occurred within 1 second
+    /// (see BrowserPickerMessageHandler).
+    ///
+    /// Multi-window: resolves the workspace via AppDelegate.workspaceFor(tabId:)
+    /// which searches across all windows, not just the active one.
     private func sendPickedElementToTerminal(workspaceId: UUID, summary: String) {
-        guard let tabManager = self.tabManager else { return }
-        guard let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        // Resolve workspace across all windows (not just self.tabManager which is active-window only)
+        guard let ws = AppDelegate.shared?.workspaceFor(tabId: workspaceId) else { return }
         // Prefer the focused panel if it's a terminal
         if let focusedId = ws.focusedPanelId,
            let terminalPanel = ws.terminalPanel(for: focusedId),
