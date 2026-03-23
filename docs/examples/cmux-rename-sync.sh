@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hook: Immediately sync /rename to cmux workspace name
 # Triggered on: UserPromptSubmit
-# Lightweight — no Python, no summarization. Just tail + grep.
+# Lightweight — minimal Python for JSON parsing only. Just tail + grep.
 set -e
 
 INPUT=$(cat)
@@ -10,7 +10,7 @@ INPUT=$(cat)
 command -v cmux &>/dev/null || exit 0
 
 # Extract transcript path
-TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null)
+TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null || true)
 [ -z "$TRANSCRIPT" ] && exit 0
 [ -f "$TRANSCRIPT" ] || exit 0
 

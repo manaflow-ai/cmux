@@ -11,7 +11,7 @@ INPUT=$(cat)
 command -v cmux &>/dev/null || exit 0
 
 # Extract session cwd for a reasonable default workspace name
-CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null)
+CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null || true)
 
 if [ -n "$CWD" ]; then
   # Use basename of cwd as temporary workspace name

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hook: Sync Claude Code session focus to cmux tab/workspace name
 # Triggered on: Stop (after Claude finishes each response)
-# Reads transcript JSONL efficiently (head+tail, not full scan)
+# Reads transcript JSONL (first 300 + last 200 lines, not full parse)
 # Global hook — no-ops outside cmux.
 set -e
 
@@ -10,7 +10,7 @@ INPUT=$(cat)
 [ -z "$CMUX_WORKSPACE_ID" ] && exit 0
 command -v cmux &>/dev/null || exit 0
 
-TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null)
+TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null || true)
 [ -z "$TRANSCRIPT" ] && exit 0
 [ -f "$TRANSCRIPT" ] || exit 0
 
@@ -93,24 +93,28 @@ def summarize(texts):
         if w.lower() not in seen:
             seen.add(w.lower())
             deduped.append(w)
-    # Build label: 2-4 words, max 25 chars
-    for n in (4, 3, 2):
+    # Build label: 2-5 words, max 25 chars
+    for n in (5, 4, 3, 2):
         label = ' '.join(deduped[:n])
         if len(label) <= 25:
             return label
     return deduped[0][:25] if deduped else ''
 
-# --- Read transcript efficiently: only parse what we need ---
-lines = []
-with open(TRANSCRIPT, 'r') as f:
-    lines = f.readlines()
+# --- Read transcript efficiently: head (first 300) + tail (last 200) ---
+import subprocess
+head_lines = subprocess.run(
+    ['head', '-300', TRANSCRIPT], capture_output=True, text=True
+).stdout.splitlines()
+tail_lines = subprocess.run(
+    ['tail', '-200', TRANSCRIPT], capture_output=True, text=True
+).stdout.splitlines()
 
-if not lines:
+if not head_lines and not tail_lines:
     sys.exit(0)
 
-# First 3 user messages — scan from start, stop early
+# First 3 user messages — scan from head
 first_user = []
-for raw in lines[:300]:  # first 300 lines is enough to find 3 user msgs
+for raw in head_lines:
     try:
         e = json.loads(raw)
         if e.get('type') == 'user':
@@ -120,9 +124,9 @@ for raw in lines[:300]:  # first 300 lines is enough to find 3 user msgs
                 if len(first_user) >= 3: break
     except: pass
 
-# Last 5 user+assistant messages — scan from end
+# Last 5 user+assistant messages — scan from tail (reversed)
 last_msgs = []
-for raw in reversed(lines[-200:]):
+for raw in reversed(tail_lines):
     try:
         e = json.loads(raw)
         if e.get('type') in ('user', 'assistant'):
