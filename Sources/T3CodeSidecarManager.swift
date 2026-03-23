@@ -98,7 +98,7 @@ final class T3CodeSidecarManager {
 
         // Inherit environment but ensure PATH includes common Node locations
         var env = ProcessInfo.processInfo.environment
-        let extraPaths = ["/usr/local/bin", "/opt/homebrew/bin", "/Users/\(NSUserName())/.bun/bin"]
+        let extraPaths = ["/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/opt/node/bin", "/Users/\(NSUserName())/.bun/bin"]
         if let existingPath = env["PATH"] {
             env["PATH"] = (extraPaths + [existingPath]).joined(separator: ":")
         }
