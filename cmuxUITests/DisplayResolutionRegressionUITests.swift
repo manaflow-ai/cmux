@@ -245,11 +245,22 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     // Running the binary directly works because it doesn't need WindowServer activation.
     private func launchAppProcess(targetDisplayID: String) throws {
         let binaryPath = try resolveAppBinaryPath()
-        let env = launchEnvironment(targetDisplayID: targetDisplayID)
+        let appEnv = launchEnvironment(targetDisplayID: targetDisplayID)
+
+        // Build a clean environment with only system essentials + our test vars.
+        // Do NOT pass the test runner's full environment — it contains XCTest
+        // variables (DYLD_INSERT_LIBRARIES, XCInjectBundle, etc.) that cause the
+        // app to hang when launched via Process.
+        let runnerEnv = ProcessInfo.processInfo.environment
+        var cleanEnv = appEnv
+        for key in ["HOME", "PATH", "TMPDIR", "USER", "SHELL", "LANG",
+                     "TERM", "LOGNAME", "DISPLAY", "__CF_USER_TEXT_ENCODING"] {
+            if let val = runnerEnv[key] { cleanEnv[key] = val }
+        }
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: binaryPath)
-        proc.environment = ProcessInfo.processInfo.environment.merging(env) { _, new in new }
+        proc.environment = cleanEnv
 
         let logPath = "/tmp/cmux-ui-test-app-\(launchTag).log"
         FileManager.default.createFile(atPath: logPath, contents: nil)
