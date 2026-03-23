@@ -685,6 +685,46 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          TOKEN="$(uuidgen)"
+          DATA_PATH="/tmp/cmux-ui-test-goto-split-${TOKEN}.json"
+          SOCKET_PATH="/tmp/cmux-ui-test-socket-${TOKEN}.sock"
+
+          APP_BINARY=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -print -quit 2>/dev/null || true)
+          if [ -z "$APP_BINARY" ]; then
+            echo "ERROR: App binary not found in DerivedData" >&2
+            exit 1
+          fi
+
+          cleanup() {
+            pkill -x "cmux DEV" 2>/dev/null || true
+            rm -f "$DATA_PATH" "$SOCKET_PATH" /tmp/cmux-ui-test-browser-prelaunch.json
+          }
+          trap cleanup EXIT
+
+          # Pre-launch app from shell. On headless CI runners,
+          # XCUIApplication.launch()/activate() block ~60s then fail.
+          # CGEventPostToPid sends keyboard input directly to the process.
+          CMUX_UI_TEST_MODE=1 \
+          CMUX_SOCKET_PATH="$SOCKET_PATH" \
+          CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY=1 \
+          CMUX_UI_TEST_GOTO_SPLIT_PATH="$DATA_PATH" \
+          CMUX_TAG="ui-tests-browser-find" \
+          "$APP_BINARY" > /tmp/cmux-ui-test-browser-app.log 2>&1 &
+          APP_PID=$!
+          echo "App launched: PID=$APP_PID"
+
+          sleep 3
+          if ! kill -0 "$APP_PID" 2>/dev/null; then
+            echo "ERROR: App crashed during startup"
+            cat /tmp/cmux-ui-test-browser-app.log 2>/dev/null | tail -30 || true
+            exit 1
+          fi
+
+          cat > /tmp/cmux-ui-test-browser-prelaunch.json <<MANIFEST_EOF
+          {"dataPath":"$DATA_PATH","socketPath":"$SOCKET_PATH","pid":$APP_PID}
+          MANIFEST_EOF
+          echo "App running (PID=$APP_PID). Manifest written."
+
           xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
