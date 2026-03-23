@@ -273,8 +273,10 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
 
         if !waitForAppLaunchDiagnostics(timeout: 15.0) {
             let isAlive = proc.isRunning
+            let appLog = (try? String(contentsOfFile: logPath, encoding: .utf8))?.suffix(2000) ?? "<empty>"
+            let envDump = cleanEnv.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value.prefix(80))" }.joined(separator: " | ")
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:]) log=\(logPath)"
+                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:]) binary=\(binaryPath) env=[\(envDump)] appLog=[\(appLog)]"
             ])
         }
     }
