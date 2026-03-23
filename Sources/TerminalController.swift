@@ -10025,13 +10025,28 @@ class TerminalController {
         }
     }
 
-    /// Sanitize string from web content: strip control chars, newlines, ANSI escapes
+    /// Dangerous Unicode scalars: BiDi overrides, zero-width chars
+    private static let dangerousScalars: Set<UInt32> = [
+        0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF,
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+        0x2066, 0x2067, 0x2068, 0x2069
+    ]
+
+    private func v2SanitizeScalar(_ scalar: Unicode.Scalar) -> Bool {
+        ((scalar.value >= 0x20 && scalar.value <= 0x7E) || scalar.value > 0x9F)
+        && !Self.dangerousScalars.contains(scalar.value)
+    }
+
+    /// Sanitize text from web content: strip control chars + BiDi/zero-width, truncate to 200 chars
     private func v2SanitizeWebText(_ text: String) -> String {
-        let sanitized = text.unicodeScalars.filter { scalar in
-            // Allow printable ASCII (space through tilde) and non-ASCII unicode (emoji, CJK, etc.)
-            (scalar.value >= 0x20 && scalar.value <= 0x7E) || scalar.value > 0x9F
-        }
+        let sanitized = text.unicodeScalars.filter { v2SanitizeScalar($0) }
         return String(String.UnicodeScalarView(sanitized)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Sanitize xpath from web content: strip control chars + BiDi/zero-width, cap at 2000 chars
+    private func v2SanitizeXPath(_ xpath: String) -> String {
+        let sanitized = xpath.unicodeScalars.filter { v2SanitizeScalar($0) }
+        return String(String.UnicodeScalarView(sanitized)).prefix(2000).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func v2BrowserPicked(params: [String: Any]) -> V2CallResult {
@@ -10052,21 +10067,21 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let picked = (dict?["picked"] as? Bool) ?? false
-                if picked, var element = dict?["element"] as? [String: Any] {
-                    // Swift-side sanitization (defense in depth)
-                    if let text = element["text"] as? String {
-                        element["text"] = v2SanitizeWebText(text)
-                    }
-                    if let xpath = element["xpath"] as? String {
-                        element["xpath"] = v2SanitizeWebText(xpath)
-                    }
+                if picked, let raw = dict?["element"] as? [String: Any] {
+                    // Whitelist-based sanitization: only return known safe fields
+                    let element: [String: Any] = [
+                        "xpath": v2SanitizeXPath(raw["xpath"] as? String ?? ""),
+                        "text": v2SanitizeWebText(raw["text"] as? String ?? ""),
+                        "tag": v2SanitizeWebText(raw["tag"] as? String ?? ""),
+                        "timestamp_ms": (raw["timestamp_ms"] as? NSNumber) ?? 0
+                    ]
                     return .ok([
                         "workspace_id": ws.id.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                         "surface_id": surfaceId.uuidString,
                         "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                         "picked": true,
-                        "element": v2NormalizeJSValue(element)
+                        "element": element
                     ])
                 } else {
                     return .ok([
@@ -10112,8 +10127,20 @@ class TerminalController {
             surfaceIdOut = surfaceId
             webView = browserPanel.webView
 
-            // Clear any previous selection before waiting
-            browserPanel.webView.evaluateJavaScript("window.__cmuxPointedElement = null; true") { _, _ in }
+            // Clear any previous selection synchronously before waiting
+            // (fire-and-forget evaluateJavaScript would race with v2WaitForBrowserCondition)
+            switch self.v2RunJavaScript(
+                browserPanel.webView,
+                script: "window.__cmuxPointedElement = null; true",
+                timeout: 5.0,
+                contentWorld: .page
+            ) {
+            case .failure(let message):
+                setupResult = .err(code: "js_error", message: message, data: nil)
+                return
+            case .success:
+                break
+            }
         }
 
         if let setupResult { return setupResult }
@@ -10150,21 +10177,21 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let picked = (dict?["picked"] as? Bool) ?? false
-                if picked, var element = dict?["element"] as? [String: Any] {
-                    // Swift-side sanitization (defense in depth)
-                    if let text = element["text"] as? String {
-                        element["text"] = self.v2SanitizeWebText(text)
-                    }
-                    if let xpath = element["xpath"] as? String {
-                        element["xpath"] = self.v2SanitizeWebText(xpath)
-                    }
+                if picked, let raw = dict?["element"] as? [String: Any] {
+                    // Whitelist-based sanitization: only return known safe fields
+                    let element: [String: Any] = [
+                        "xpath": self.v2SanitizeXPath(raw["xpath"] as? String ?? ""),
+                        "text": self.v2SanitizeWebText(raw["text"] as? String ?? ""),
+                        "tag": self.v2SanitizeWebText(raw["tag"] as? String ?? ""),
+                        "timestamp_ms": (raw["timestamp_ms"] as? NSNumber) ?? 0
+                    ]
                     result = .ok([
                         "workspace_id": workspaceId.uuidString,
                         "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
                         "surface_id": surfaceIdOut.uuidString,
                         "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
                         "picked": true,
-                        "element": self.v2NormalizeJSValue(element)
+                        "element": element
                     ])
                 } else {
                     result = .ok([

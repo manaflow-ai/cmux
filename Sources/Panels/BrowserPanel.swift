@@ -34,13 +34,20 @@ import Security
 /// - The `__cmuxPointedElement` global is defined as non-enumerable to
 ///   reduce CAPTCHA/bot-detection fingerprinting surface.
 final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
-    private let workspaceId: UUID
+    private var workspaceId: UUID
+
+    func updateWorkspaceId(_ newId: UUID) {
+        workspaceId = newId
+    }
 
     /// Timestamp of last native Option+Click detected via NSEvent monitor.
     /// Used to validate that postMessage was triggered by a real user click,
     /// not by malicious page JS calling postMessage directly.
     private var lastNativeOptionClickTime: TimeInterval = 0
     private var eventMonitor: Any?
+    /// Weak reference to the associated webView for source validation.
+    /// Ensures clicks in other windows/panels cannot authorize this handler.
+    weak var associatedWebView: WKWebView?
 
     /// Maximum allowed delay between native click and postMessage arrival.
     private static let nativeEventWindowSeconds: TimeInterval = 1.0
@@ -48,10 +55,18 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     init(workspaceId: UUID) {
         self.workspaceId = workspaceId
         super.init()
-        // Monitor native mouse clicks with Option modifier
+        // Monitor native mouse clicks with Option modifier.
+        // Only accept clicks that hit our associated webView (checked via hitTest).
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            if event.modifierFlags.contains(.option) {
-                self?.lastNativeOptionClickTime = ProcessInfo.processInfo.systemUptime
+            guard let self, event.modifierFlags.contains(.option) else { return event }
+            // Verify the click targets our webView's window and hit-tests within it
+            if let webView = self.associatedWebView,
+               let window = webView.window,
+               event.window === window {
+                let pointInWebView = webView.convert(event.locationInWindow, from: nil)
+                if webView.bounds.contains(pointInWebView) {
+                    self.lastNativeOptionClickTime = ProcessInfo.processInfo.systemUptime
+                }
             }
             return event
         }
@@ -67,9 +82,17 @@ final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
     /// This is critical for security: web content is untrusted and is
     /// injected into terminal stdin. Without sanitization, a malicious
     /// page could embed shell commands via newlines or ANSI sequences.
+    /// Dangerous Unicode scalars: BiDi overrides, zero-width chars
+    private static let dangerousScalars: Set<UInt32> = [
+        0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF,  // zero-width
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,            // BiDi overrides
+        0x2066, 0x2067, 0x2068, 0x2069                      // BiDi isolates
+    ]
+
     private func sanitize(_ text: String) -> String {
         let cleaned = text.unicodeScalars.filter { s in
-            (s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F
+            ((s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F)
+            && !Self.dangerousScalars.contains(s.value)
         }
         return String(String.UnicodeScalarView(cleaned)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -2721,15 +2744,16 @@ final class BrowserPanel: Panel, ObservableObject {
     private var pickerMessageHandler: BrowserPickerMessageHandler?
 
     private func bindWebView(_ webView: CmuxWebView) {
-        // Clean up previous picker handler to prevent NSEvent monitor leaks
+        // Clean up previous picker handler from the OLD webView to prevent NSEvent monitor leaks
         // when bindWebView is called multiple times (profile change, context reset, etc.)
         if pickerMessageHandler != nil {
-            webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
+            // Remove from the previous webView (self.webView), not the new one being bound
+            self.webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
             pickerMessageHandler = nil
         }
-        // Register Option+Click element picker message handler.
-        // Use a separate handler object to avoid retain cycles with WKUserContentController.
+        // Register Option+Click element picker message handler on the NEW webView.
         let handler = BrowserPickerMessageHandler(workspaceId: workspaceId)
+        handler.associatedWebView = webView  // Link for source validation
         pickerMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: "cmuxPointer")
 
@@ -2977,6 +3001,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
     }
 
     func reattachToWorkspace(
@@ -2987,6 +3012,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         usesRemoteWorkspaceProxy = isRemoteWorkspace
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
