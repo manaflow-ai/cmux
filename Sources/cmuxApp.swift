@@ -745,9 +745,9 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
                     let manager = activeTabManager
                     if manager.selectedTerminalPanel != nil {
-                        _ = manager.increaseFontSizeFocusedTerminal()
+                        if !manager.increaseFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        _ = manager.zoomInFocusedBrowser()
+                        if !manager.zoomInFocusedBrowser() { NSSound.beep() }
                     }
                 }
                 .keyboardShortcut("=", modifiers: .command)
@@ -755,9 +755,9 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.view.zoomOut", defaultValue: "Zoom Out")) {
                     let manager = activeTabManager
                     if manager.selectedTerminalPanel != nil {
-                        _ = manager.decreaseFontSizeFocusedTerminal()
+                        if !manager.decreaseFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        _ = manager.zoomOutFocusedBrowser()
+                        if !manager.zoomOutFocusedBrowser() { NSSound.beep() }
                     }
                 }
                 .keyboardShortcut("-", modifiers: .command)
@@ -765,9 +765,9 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.view.actualSize", defaultValue: "Actual Size")) {
                     let manager = activeTabManager
                     if manager.selectedTerminalPanel != nil {
-                        _ = manager.resetFontSizeFocusedTerminal()
+                        if !manager.resetFontSizeFocusedTerminal() { NSSound.beep() }
                     } else {
-                        _ = manager.resetZoomFocusedBrowser()
+                        if !manager.resetZoomFocusedBrowser() { NSSound.beep() }
                     }
                 }
                 .keyboardShortcut("0", modifiers: .command)
