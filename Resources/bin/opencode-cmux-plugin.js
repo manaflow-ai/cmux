@@ -11,11 +11,11 @@ function clip(value, limit = 160) {
 }
 
 function ensure(sessions, sessionID) {
-  const current = sessions.get(sessionID)
-  if (current) return current
-  const created = { state: "idle", waiting: "", error: "" }
-  sessions.set(sessionID, created)
-  return created
+   const current = sessions.get(sessionID)
+   if (current) return current
+   const created = { state: "idle", waiting: "", error: "", completed: false }
+   sessions.set(sessionID, created)
+   return created
 }
 
 function questionText(event) {
@@ -56,43 +56,46 @@ function errorText(event) {
 }
 
 function desiredStatus(sessions) {
-  const items = [...sessions.values()]
-  if (!items.length) return null
-  if (items.some((item) => item.error)) {
-    return { value: "Error", icon: "exclamationmark.triangle.fill", color: RED, attention: true }
-  }
-  if (items.some((item) => item.waiting)) {
-    return { value: "Needs input", icon: "bell.fill", color: BLUE, attention: true }
-  }
-  if (items.some((item) => item.state === "retry")) {
-    return { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: ORANGE, attention: false }
-  }
-  if (items.some((item) => item.state === "busy")) {
-    return { value: "Running", icon: "bolt.fill", color: BLUE, attention: false }
-  }
-  return { value: "Idle", icon: "pause.circle.fill", color: GRAY, attention: false }
-}
+   const items = [...sessions.values()]
+   if (!items.length) return null
+   if (items.some((item) => item.error)) {
+     return { value: "Error", icon: "exclamationmark.triangle.fill", color: RED, attention: true }
+   }
+   if (items.some((item) => item.waiting)) {
+     return { value: "Needs input", icon: "bell.fill", color: BLUE, attention: true }
+   }
+   if (items.some((item) => item.state === "retry")) {
+     return { value: "Retrying", icon: "arrow.triangle.2.circlepath", color: ORANGE, attention: false }
+   }
+   if (items.some((item) => item.state === "busy")) {
+     return { value: "Running", icon: "bolt.fill", color: BLUE, attention: false }
+   }
+   // Check for completed sessions (busy->idle transition that hasn't been acknowledged)
+   if (items.some((item) => item.completed)) {
+     return { value: "Done", icon: "checkmark.circle.fill", color: BLUE, attention: true }
+   }
+   return { value: "Idle", icon: "pause.circle.fill", color: GRAY, attention: false }
+ }
 
 export const CmuxIntegrationPlugin = async ({ $ }) => {
-  const sessions = new Map()
-  let applied = ""
-  let attention = false
-
-  async function notify(subtitle, body) {
-    const text = clip(body)
-    if (!text) return
-    try {
-      await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`
-      attention = true
-    } catch {}
-  }
+   const sessions = new Map()
+   let applied = ""
+   let attention = false
+   async function notify(subtitle, body) {
+     const text = clip(body)
+     if (!text) return
+     try {
+       await $`cmux notify --title OpenCode --subtitle ${subtitle} --body ${text}`.quiet()
+       attention = true
+     } catch {}
+   }
 
   // NOTE: clear-notifications is workspace-global; cmux does not yet support
   // --pid scoping for clears. In practice each surface runs one OpenCode instance.
   async function clearNotifications() {
     if (!attention) return
     try {
-      await $`cmux clear-notifications`
+      await $`cmux clear-notifications`.quiet()
       attention = false
     } catch {}
   }
@@ -103,9 +106,9 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
     if (applied === next) return
     try {
       if (pid > 0) {
-        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color} --pid ${pid}`
-      } else {
-        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`
+        await $`cmux set-status opencode ${value} --icon ${icon} --color ${color} --pid ${pid}`.quiet()
+       } else {
+         await $`cmux set-status opencode ${value} --icon ${icon} --color ${color}`.quiet()
       }
       applied = next
     } catch {}
@@ -116,7 +119,7 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
   async function clearStatus() {
     if (!applied) return
     try {
-      await $`cmux clear-status opencode`
+      await $`cmux clear-status opencode`.quiet()
       applied = ""
     } catch {}
   }
@@ -154,10 +157,21 @@ export const CmuxIntegrationPlugin = async ({ $ }) => {
         const sessionID = event.properties?.sessionID
         if (!sessionID) return
         const state = ensure(sessions, sessionID)
+        const prevState = state.state
         state.state = event.properties?.status?.type || "idle"
         state.error = ""
-        if (state.state !== "idle") {
+        // Reset completed flag when leaving idle state (starting new work)
+        if (prevState === "idle" && state.state !== "idle") {
+          state.completed = false
+        }
+        // Clear waiting text when leaving idle state (starting work/resuming from permission/question)
+        if (prevState === "idle" && state.state !== "idle") {
           state.waiting = ""
+        }
+        // Detect completion: busy -> idle transition (not initial idle)
+        if (prevState === "busy" && state.state === "idle") {
+          state.completed = true
+          await notify("Done", "Session completed")
         }
         await sync()
         return
