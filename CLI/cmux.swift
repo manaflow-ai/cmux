@@ -3264,7 +3264,7 @@ struct CMUXCLI {
     }
 
     private func formatQuickTerminalStatusPayload(_ payload: [String: Any]) -> String {
-        let available = (payload["available"] as? Bool) ?? true
+        let available = (payload["available"] as? Bool) ?? false
         let visible = (payload["visible"] as? Bool) ?? false
         let position = (payload["position"] as? String) ?? "unknown"
         let autoHide = (payload["auto_hide"] as? Bool) ?? false
