@@ -339,7 +339,10 @@ enum SidebarResizeInteraction {
     // Keep a generous drag target inside the sidebar itself, but make the
     // terminal-side overlap very small so column-0 text selection still wins.
     static let sidebarSideHitWidth: CGFloat = 6
-    static let contentSideHitWidth: CGFloat = 2
+    // 4 pt matches the 4 pt padding used in GhosttySurfaceScrollView drop zone overlays
+    // (dropZoneOverlayFrame). This prevents column-0 text near the leading edge from
+    // accidentally triggering the sidebar resize when interacting with leftmost content.
+    static let contentSideHitWidth: CGFloat = 4
 
     static var totalHitWidth: CGFloat {
         sidebarSideHitWidth + contentSideHitWidth
