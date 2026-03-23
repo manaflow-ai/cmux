@@ -1590,6 +1590,30 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class ScrollbarPostingSurfaceView: GhosttyNSView {
+        var nextScrollbar: GhosttyScrollbar?
+
+        override func scrollWheel(with event: NSEvent) {
+            super.scrollWheel(with: event)
+            guard let nextScrollbar else { return }
+            NotificationCenter.default.post(
+                name: .ghosttyDidUpdateScrollbar,
+                object: self,
+                userInfo: [GhosttyNotificationKey.scrollbar: nextScrollbar]
+            )
+        }
+    }
+
+    private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
+        GhosttyScrollbar(
+            c: ghostty_action_scrollbar_s(
+                total: total,
+                offset: offset,
+                len: len
+            )
+        )
+    }
+
     private func findEditableTextField(in view: NSView) -> NSTextField? {
         if let field = view as? NSTextField, field.isEditable {
             return field
@@ -1672,6 +1696,79 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(
             window.firstResponder === surfaceView,
             "Scroll wheel handling should keep keyboard focus on terminal surface"
+        )
+    }
+
+    func testExplicitWheelScrollKeepsScrollbackPinnedAgainstLaterBottomPacket() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = ScrollbarPostingSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        surfaceView.nextScrollbar = makeScrollbar(total: 100, offset: 40, len: 10)
+
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: 0,
+            wheel2: -12,
+            wheel3: 0
+        ), let scrollEvent = NSEvent(cgEvent: cgEvent) else {
+            XCTFail("Expected scroll wheel event")
+            return
+        }
+
+        scrollView.scrollWheel(with: scrollEvent)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            500,
+            accuracy: 0.01,
+            "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
         )
     }
 
