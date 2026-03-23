@@ -2249,24 +2249,28 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            surfaceView.scrollbar = scrollbar
-            NotificationCenter.default.post(
-                name: .ghosttyDidUpdateScrollbar,
-                object: surfaceView,
-                userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
-            )
+            DispatchQueue.main.async {
+                surfaceView.scrollbar = scrollbar
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateScrollbar,
+                    object: surfaceView,
+                    userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
+                )
+            }
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
                 width: CGFloat(action.action.cell_size.width),
                 height: CGFloat(action.action.cell_size.height)
             )
-            surfaceView.cellSize = cellSize
-            NotificationCenter.default.post(
-                name: .ghosttyDidUpdateCellSize,
-                object: surfaceView,
-                userInfo: [GhosttyNotificationKey.cellSize: cellSize]
-            )
+            DispatchQueue.main.async {
+                surfaceView.cellSize = cellSize
+                NotificationCenter.default.post(
+                    name: .ghosttyDidUpdateCellSize,
+                    object: surfaceView,
+                    userInfo: [GhosttyNotificationKey.cellSize: cellSize]
+                )
+            }
             return true
         case GHOSTTY_ACTION_START_SEARCH:
             guard let terminalSurface = surfaceView.terminalSurface else { return true }
@@ -2363,7 +2367,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_COLOR_CHANGE:
             if action.action.color_change.kind == GHOSTTY_ACTION_COLOR_KIND_BACKGROUND {
                 let change = action.action.color_change
-                surfaceView.backgroundColor = NSColor(
+                let newColor = NSColor(
                     red: CGFloat(change.r) / 255,
                     green: CGFloat(change.g) / 255,
                     blue: CGFloat(change.b) / 255,
@@ -2371,28 +2375,29 @@ class GhosttyApp {
                 )
                 if backgroundLogEnabled {
                     logBackground(
-                        "surface override set tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(surfaceView.backgroundColor?.hexString() ?? "nil") default=\(defaultBackgroundColor.hexString()) source=action.color_change.surface"
+                        "surface override set tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(newColor.hexString()) default=\(defaultBackgroundColor.hexString()) source=action.color_change.surface"
                     )
                 }
-                surfaceView.applySurfaceBackground()
-                if backgroundLogEnabled {
-                    logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
-                }
-                DispatchQueue.main.async {
+                DispatchQueue.main.async { [self] in
+                    surfaceView.backgroundColor = newColor
+                    surfaceView.applySurfaceBackground()
+                    if backgroundLogEnabled {
+                        logBackground("OSC background change tab=\(surfaceView.tabId?.uuidString ?? "unknown") color=\(surfaceView.backgroundColor?.description ?? "nil")")
+                    }
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
             return true
         case GHOSTTY_ACTION_CONFIG_CHANGE:
-            if let staleOverride = surfaceView.backgroundColor {
-                surfaceView.backgroundColor = nil
-                if backgroundLogEnabled {
-                    logBackground(
-                        "surface override cleared tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") cleared=\(staleOverride.hexString()) source=action.config_change.surface"
-                    )
-                }
-                surfaceView.applySurfaceBackground()
-                DispatchQueue.main.async {
+            DispatchQueue.main.async { [self] in
+                if let staleOverride = surfaceView.backgroundColor {
+                    surfaceView.backgroundColor = nil
+                    if backgroundLogEnabled {
+                        logBackground(
+                            "surface override cleared tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") cleared=\(staleOverride.hexString()) source=action.config_change.surface"
+                        )
+                    }
+                    surfaceView.applySurfaceBackground()
                     surfaceView.applyWindowBackgroundIfActive()
                 }
             }
