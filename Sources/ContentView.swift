@@ -5958,6 +5958,15 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
             )
         )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.joinPane",
+                title: constant("Join Pane"),
+                subtitle: workspaceSubtitle,
+                keywords: ["join", "merge", "unsplit", "pane"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
 
         return contributions
     }
@@ -6289,6 +6298,9 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
+        }
+        registry.register(commandId: "palette.joinPane") {
+            tabManager.selectedWorkspace?.joinFocusedPane()
         }
     }
 
