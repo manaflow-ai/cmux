@@ -355,6 +355,111 @@ final class CmuxConfigDecodingTests: XCTestCase {
         """
         XCTAssertThrowsError(try decode(json))
     }
+
+    // MARK: Command validation
+
+    func testDecodeCommandWithNeitherWorkspaceNorCommandThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "empty"
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeCommandWithBothWorkspaceAndCommandThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "hybrid",
+            "command": "echo hi",
+            "workspace": { "name": "ws" }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    // MARK: Layout validation
+
+    func testDecodeLayoutNodeWithBothPaneAndDirectionThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "ambiguous",
+            "workspace": {
+              "layout": {
+                "pane": { "surfaces": [{ "type": "terminal" }] },
+                "direction": "horizontal",
+                "children": [
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
+                ]
+              }
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeSplitWithWrongChildrenCountThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "bad-split",
+            "workspace": {
+              "layout": {
+                "direction": "horizontal",
+                "children": [
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
+                ]
+              }
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodeSplitWithThreeChildrenThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "bad-split",
+            "workspace": {
+              "layout": {
+                "direction": "vertical",
+                "children": [
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } },
+                  { "pane": { "surfaces": [{ "type": "terminal" }] } }
+                ]
+              }
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
+    func testDecodePaneWithEmptySurfacesThrows() {
+        let json = """
+        {
+          "commands": [{
+            "name": "empty-pane",
+            "workspace": {
+              "layout": {
+                "pane": { "surfaces": [] }
+              }
+            }
+          }]
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
 }
 
 // MARK: - Command identity
@@ -362,21 +467,27 @@ final class CmuxConfigDecodingTests: XCTestCase {
 final class CmuxCommandIdentityTests: XCTestCase {
 
     func testCommandIdIsDeterministic() {
-        let cmd = CmuxCommandDefinition(name: "Run tests")
-        XCTAssertEqual(cmd.id, "cmuxConfig.Run%20tests")
+        let cmd = CmuxCommandDefinition(name: "Run tests", command: "test")
+        XCTAssertEqual(cmd.id, "cmux.config.command.Run%20tests")
     }
 
     func testCommandIdEncodesSpecialCharacters() {
-        let cmd = CmuxCommandDefinition(name: "build & deploy")
-        XCTAssertTrue(cmd.id.hasPrefix("cmuxConfig."))
+        let cmd = CmuxCommandDefinition(name: "build & deploy", command: "make")
+        XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertFalse(cmd.id.contains("&"))
         XCTAssertFalse(cmd.id.contains(" "))
     }
 
     func testCommandIdIsUniqueForDifferentNames() {
-        let cmd1 = CmuxCommandDefinition(name: "build")
-        let cmd2 = CmuxCommandDefinition(name: "test")
+        let cmd1 = CmuxCommandDefinition(name: "build", command: "make build")
+        let cmd2 = CmuxCommandDefinition(name: "test", command: "make test")
         XCTAssertNotEqual(cmd1.id, cmd2.id)
+    }
+
+    func testCommandIdDoesNotCollideWithBuiltinPrefix() {
+        let cmd = CmuxCommandDefinition(name: "palette.newWorkspace", command: "echo")
+        XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
+        XCTAssertNotEqual(cmd.id, "palette.newWorkspace")
     }
 }
 

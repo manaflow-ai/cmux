@@ -349,7 +349,7 @@
       "splitChildren": "Præcis to underknuder (opdeling eller panel)",
       "paneNode": "Panelknude",
       "paneNodeDesc": "En bladknude der indeholder én eller flere overflader (faner inden i panelet).",
-      "surfaceDefinition": "Overfladedef inition",
+      "surfaceDefinition": "Overfladedefinition",
       "surfaceDefinitionDesc": "Hver overflade i et panel kan være en terminal eller en browser:",
       "surfaceName": "Brugerdefineret fanetitel",
       "surfaceCommand": "Shell-kommando der automatisk køres ved oprettelse (kun terminal)",

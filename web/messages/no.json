@@ -306,7 +306,7 @@
       "title": "Egendefinerte kommandoer",
       "metaTitle": "Egendefinerte kommandoer",
       "metaDescription": "Definer egendefinerte kommandoer og workspace-oppsett i cmux.json. Per-prosjekt og global konfigurasjon med live filovervåking.",
-      "intro": "Definer egendefinerte kommandoer og workspace-oppsett ved å legge til en cmux.json-fil i prosjektets rotmapp eller ~/.config/cmux/. Kommandoer vises i kommandopaletten.",
+      "intro": "Definer egendefinerte kommandoer og workspace-oppsett ved å legge til en cmux.json-fil i prosjektets rotmappe eller ~/.config/cmux/. Kommandoer vises i kommandopaletten.",
       "fileLocations": "Filplasseringer",
       "fileLocationsDesc": "cmux søker etter konfigurasjon to steder:",
       "localConfig": "Per prosjekt:",

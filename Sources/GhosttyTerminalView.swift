@@ -3745,19 +3745,30 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendInput(_ text: String) {
         guard let surface = surface else { return }
         var bufferedText = ""
+        var previousWasCR = false
         for scalar in text.unicodeScalars {
             switch scalar.value {
-            case 0x0A, 0x0D:
+            case 0x0A: // \n — skip if preceded by \r (already sent Return)
+                if !previousWasCR {
+                    flushText(&bufferedText, surface: surface)
+                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                }
+                previousWasCR = false
+            case 0x0D:
                 flushText(&bufferedText, surface: surface)
                 sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                previousWasCR = true
             case 0x09:
                 flushText(&bufferedText, surface: surface)
                 sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+                previousWasCR = false
             case 0x1B:
                 flushText(&bufferedText, surface: surface)
                 sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+                previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
             }
         }
         flushText(&bufferedText, surface: surface)

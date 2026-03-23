@@ -5967,14 +5967,15 @@ struct ContentView: View {
             )
         )
 
-        let cmuxConfigSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
+        let cmuxConfigDefaultSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
         for command in cmuxConfigStore.loadedCommands {
             let commandName = command.name
+            let subtitle = command.description.map { constant($0) } ?? cmuxConfigDefaultSubtitle
             contributions.append(
                 CommandPaletteCommandContribution(
                     commandId: command.id,
                     title: constant(String(localized: "command.cmuxConfig.customTitle", defaultValue: "Custom: \(commandName)")),
-                    subtitle: cmuxConfigSubtitle,
+                    subtitle: subtitle,
                     keywords: command.keywords ?? []
                 )
             )
@@ -6315,8 +6316,9 @@ struct ContentView: View {
         for command in cmuxConfigStore.loadedCommands {
             let captured = command
             registry.register(commandId: command.id) {
-                let baseCwd = tabManager.selectedWorkspace?.currentDirectory
-                    ?? FileManager.default.homeDirectoryForCurrentUser.path
+                let rawCwd = tabManager.selectedWorkspace?.currentDirectory
+                let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                    : FileManager.default.homeDirectoryForCurrentUser.path
                 CmuxConfigExecutor.execute(
                     command: captured,
                     tabManager: tabManager,

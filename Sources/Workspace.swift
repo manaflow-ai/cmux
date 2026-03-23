@@ -912,7 +912,7 @@ extension Workspace {
             guard !resolved else { return }
             resolved = true
             if let observer { NotificationCenter.default.removeObserver(observer) }
-            NSLog("[CmuxConfig] surface not ready after 3s, dropping command: %@", String(text.prefix(80)))
+            NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
         }
     }
 }
