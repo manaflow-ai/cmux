@@ -2349,10 +2349,10 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
         case "browser.errors.list":
             return v2Result(id: id, self.v2BrowserErrorsList(params: params))
-        case "browser.pointed":
-            return v2Result(id: id, self.v2BrowserPointed(params: params))
-        case "browser.pointed.clear":
-            return v2Result(id: id, self.v2BrowserPointedClear(params: params))
+        case "browser.picked":
+            return v2Result(id: id, self.v2BrowserPicked(params: params))
+        case "browser.picked.clear":
+            return v2Result(id: id, self.v2BrowserPickedClear(params: params))
         case "browser.picked.wait":
             return v2Result(id: id, self.v2BrowserPickedWait(params: params))
         case "browser.highlight":
@@ -2607,8 +2607,8 @@ class TerminalController {
             "browser.console.list",
             "browser.console.clear",
             "browser.errors.list",
-            "browser.pointed",
-            "browser.pointed.clear",
+            "browser.picked",
+            "browser.picked.clear",
             "browser.picked.wait",
             "browser.highlight",
             "browser.state.save",
@@ -10030,16 +10030,16 @@ class TerminalController {
         return String(String.UnicodeScalarView(sanitized)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func v2BrowserPointed(params: [String: Any]) -> V2CallResult {
+    private func v2BrowserPicked(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
             let script = """
             (() => {
               const el = window.__cmuxPointedElement;
-              if (!el) return { ok: true, pointed: false, element: null };
+              if (!el) return { ok: true, picked: false, element: null };
               // Sanitize text on read (defense in depth)
               if (el.text) el.text = el.text.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
-              return { ok: true, pointed: true, element: el };
+              return { ok: true, picked: true, element: el };
             })()
             """
             switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
@@ -10047,15 +10047,15 @@ class TerminalController {
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
                 let dict = value as? [String: Any]
-                let pointed = (dict?["pointed"] as? Bool) ?? false
+                let picked = (dict?["picked"] as? Bool) ?? false
                 let element = dict?["element"]
-                if pointed, let element {
+                if picked, let element {
                     return .ok([
                         "workspace_id": ws.id.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                         "surface_id": surfaceId.uuidString,
                         "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                        "pointed": true,
+                        "picked": true,
                         "element": v2NormalizeJSValue(element)
                     ])
                 } else {
@@ -10064,8 +10064,8 @@ class TerminalController {
                         "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                         "surface_id": surfaceId.uuidString,
                         "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                        "pointed": false,
-                        "message": "No element pointed. Use Option+Click in the browser to select an element."
+                        "picked": false,
+                        "message": "No element picked. Use Option+Click in the browser to select an element."
                     ])
                 }
             }
@@ -10122,11 +10122,12 @@ class TerminalController {
             return .err(code: "timeout", message: "No element picked before timeout", data: ["timeout_ms": timeoutMs])
         }
 
-        // Element was picked — read the data
+        // Element was picked — read the data with JS-side re-sanitization (defense in depth)
         let readScript = """
         (() => {
           const el = window.__cmuxPointedElement;
           if (!el) return { ok: true, picked: false, element: null };
+          if (el.text) el.text = el.text.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
           window.__cmuxPointedElement = null;
           return { ok: true, picked: true, element: el };
         })()
@@ -10164,7 +10165,7 @@ class TerminalController {
         return result
     }
 
-    private func v2BrowserPointedClear(params: [String: Any]) -> V2CallResult {
+    private func v2BrowserPickedClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
             let script = "window.__cmuxPointedElement = null; true"
             switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
