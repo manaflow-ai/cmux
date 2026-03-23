@@ -32,6 +32,11 @@ const feedbackSchema = z.object({
   bundleIdentifier: z.string().trim().max(200).optional().default(""),
   osVersion: z.string().trim().max(200).optional().default(""),
   locale: z.string().trim().max(120).optional().default(""),
+  hardwareModel: z.string().trim().max(120).optional().default(""),
+  chip: z.string().trim().max(200).optional().default(""),
+  memoryGB: z.string().trim().max(20).optional().default(""),
+  architecture: z.string().trim().max(20).optional().default(""),
+  displayInfo: z.string().trim().max(200).optional().default(""),
 });
 
 type PreparedAttachment = {
@@ -83,6 +88,11 @@ export async function POST(request: Request) {
     bundleIdentifier: getString(formData, "bundleIdentifier"),
     osVersion: getString(formData, "osVersion"),
     locale: getString(formData, "locale"),
+    hardwareModel: getString(formData, "hardwareModel"),
+    chip: getString(formData, "chip"),
+    memoryGB: getString(formData, "memoryGB"),
+    architecture: getString(formData, "architecture"),
+    displayInfo: getString(formData, "displayInfo"),
   });
 
   if (!parsed.success) {
@@ -96,8 +106,10 @@ export async function POST(request: Request) {
     return attachmentsResult.errorResponse;
   }
 
-  const { appBuild, appCommit, appVersion, bundleIdentifier, email, locale, message, osVersion } =
-    parsed.data;
+  const {
+    appBuild, appCommit, appVersion, architecture, bundleIdentifier, chip,
+    displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
+  } = parsed.data;
   const subject = buildSubject(email, message, appVersion);
   const attachments = attachmentsResult.attachments;
   const resend = new Resend(feedbackConfig.resendApiKey);
@@ -116,6 +128,11 @@ export async function POST(request: Request) {
       bundleIdentifier,
       osVersion,
       locale,
+      hardwareModel,
+      chip,
+      memoryGB,
+      architecture,
+      displayInfo,
       attachments,
     }),
     html: buildHtmlBody({
@@ -127,6 +144,11 @@ export async function POST(request: Request) {
       bundleIdentifier,
       osVersion,
       locale,
+      hardwareModel,
+      chip,
+      memoryGB,
+      architecture,
+      displayInfo,
       attachments,
     }),
     attachments: attachments.map((attachment) => ({
@@ -241,6 +263,11 @@ function buildTextBody(input: {
   bundleIdentifier: string;
   osVersion: string;
   locale: string;
+  hardwareModel: string;
+  chip: string;
+  memoryGB: string;
+  architecture: string;
+  displayInfo: string;
   attachments: PreparedAttachment[];
 }) {
   const attachmentLines =
@@ -262,6 +289,11 @@ function buildTextBody(input: {
     `Bundle identifier: ${input.bundleIdentifier || "unknown"}`,
     `macOS: ${input.osVersion || "unknown"}`,
     `Locale: ${input.locale || "unknown"}`,
+    `Hardware model: ${input.hardwareModel || "unknown"}`,
+    `Chip: ${input.chip || "unknown"}`,
+    `Memory: ${input.memoryGB || "unknown"}`,
+    `Architecture: ${input.architecture || "unknown"}`,
+    `Displays: ${input.displayInfo || "unknown"}`,
     attachmentLines,
     "",
     "Message:",
@@ -278,6 +310,11 @@ function buildHtmlBody(input: {
   bundleIdentifier: string;
   osVersion: string;
   locale: string;
+  hardwareModel: string;
+  chip: string;
+  memoryGB: string;
+  architecture: string;
+  displayInfo: string;
   attachments: PreparedAttachment[];
 }) {
   const attachmentMarkup =
@@ -304,6 +341,11 @@ function buildHtmlBody(input: {
       )}</p>
       <p><strong>macOS:</strong> ${escapeHtml(input.osVersion || "unknown")}</p>
       <p><strong>Locale:</strong> ${escapeHtml(input.locale || "unknown")}</p>
+      <p><strong>Hardware model:</strong> ${escapeHtml(input.hardwareModel || "unknown")}</p>
+      <p><strong>Chip:</strong> ${escapeHtml(input.chip || "unknown")}</p>
+      <p><strong>Memory:</strong> ${escapeHtml(input.memoryGB || "unknown")}</p>
+      <p><strong>Architecture:</strong> ${escapeHtml(input.architecture || "unknown")}</p>
+      <p><strong>Displays:</strong> ${escapeHtml(input.displayInfo || "unknown")}</p>
       ${attachmentMarkup}
       <h2 style="font-size:15px;margin:24px 0 8px">Message</h2>
       <pre style="white-space:pre-wrap;font:13px/1.6 SFMono-Regular,Menlo,monospace;background:#f3f4f6;border-radius:10px;padding:12px">${escapeHtml(

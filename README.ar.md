@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | العربية | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | العربية | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ فيديو توضيحي</a> · <a href="https://cmux.dev/blog/zen-of-cmux">فلسفة cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ فيديو توضيحي</a> · <a href="https://cmux.com/blog/zen-of-cmux">فلسفة cmux</a>
 </p>
 
 ## الميزات
@@ -121,7 +121,7 @@ cmux هو لبنة أساسية وليس حلًا جاهزًا. يمنحك طر�
 
 ## التوثيق
 
-لمزيد من المعلومات حول كيفية إعداد cmux، [توجه إلى وثائقنا](https://cmux.dev/docs/getting-started?utm_source=readme).
+لمزيد من المعلومات حول كيفية إعداد cmux، [توجه إلى وثائقنا](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## اختصارات لوحة المفاتيح
 

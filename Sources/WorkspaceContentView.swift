@@ -16,8 +16,14 @@ struct WorkspaceContentView: View {
         _ notificationPayloadHex: String?
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
+    @AppStorage(WorkspacePresentationModeSettings.modeKey)
+    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
+
+    private var isMinimalMode: Bool {
+        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
+    }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -52,7 +58,7 @@ struct WorkspaceContentView: View {
             }
         }()
 
-        BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
+        let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
@@ -146,6 +152,15 @@ struct WorkspaceContentView: View {
                 backgroundSource: source,
                 notificationPayloadHex: payloadHex
             )
+        }
+
+        Group {
+            if isMinimalMode {
+                bonsplitView
+                    .ignoresSafeArea(.container, edges: .top)
+            } else {
+                bonsplitView
+            }
         }
     }
 

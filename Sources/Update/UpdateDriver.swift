@@ -27,11 +27,11 @@ class UpdateDriver: NSObject, SPUUserDriver {
             return
         }
 #endif
-        // Never show Sparkle's permission UI. cmux relies on its in-app update pill instead,
-        // and defaults to manual update checks unless explicitly enabled elsewhere.
-        UpdateLogStore.shared.append("auto-deny update permission (no UI)")
+        // Never show Sparkle's permission UI. cmux always enables scheduled checks and keeps
+        // automatic downloads disabled so installs remain user-driven.
+        UpdateLogStore.shared.append("auto-allow update permission (no UI)")
         DispatchQueue.main.async {
-            reply(SUUpdatePermissionResponse(automaticUpdateChecks: false, sendSystemProfile: false))
+            reply(SUUpdatePermissionResponse(automaticUpdateChecks: true, sendSystemProfile: false))
         }
     }
 

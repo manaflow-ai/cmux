@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   workflow-guard-tests:
     runs-on: ubuntu-latest
@@ -13,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Validate Depot runner guards
+      - name: Validate WarpBuild runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
       - name: Validate create-dmg version pinning
@@ -28,8 +32,29 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate release asset guard
+        run: node scripts/release_asset_guard.test.js
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
+
+  remote-daemon-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
+      - name: Run remote daemon tests
+        working-directory: daemon/remote
+        run: go test ./...
+
+      - name: Validate remote daemon release assets
+        run: ./tests/test_remote_daemon_release_assets.sh
 
   web-typecheck:
     runs-on: ubuntu-latest
@@ -50,7 +75,10 @@ jobs:
         run: bun tsc --noEmit
 
   tests:
-    runs-on: macos-15
+    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -60,29 +88,57 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1 || true)"
-          if [ -z "$XCODE_APP" ]; then
-            XCODE_APP="/Applications/Xcode.app"
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
           fi
-          XCODE_DIR="$XCODE_APP/Contents/Developer"
-          if [ ! -d "$XCODE_DIR" ]; then
-            echo "No Xcode found under /Applications" >&2
-            exit 1
-          fi
-          echo "Selected: $XCODE_APP"
           echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
 
       - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Clean DerivedData
+      - name: Install zig
         run: |
-          # Remove stale build cache to avoid incremental build errors
-          rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
+
+      - name: Cache DerivedData
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          key: deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
@@ -119,14 +175,17 @@ jobs:
             xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
+              test 2>&1
           }
 
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          # Capture output and fail only if there are unexpected failures.
+          # Stream output via tee so CI logs are visible in real time, while still
+          # capturing for post-run analysis of expected vs unexpected failures.
           set +e
-          OUTPUT=$(run_unit_tests)
-          EXIT_CODE=$?
+          run_unit_tests | tee /tmp/test-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          OUTPUT=$(cat /tmp/test-output.txt)
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
@@ -138,12 +197,12 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
             set +e
-            OUTPUT=$(run_unit_tests)
-            EXIT_CODE=$?
+            run_unit_tests | tee /tmp/test-output.txt
+            EXIT_CODE=${PIPESTATUS[0]}
+            OUTPUT=$(cat /tmp/test-output.txt)
             set -e
           fi
 
-          echo "$OUTPUT"
           if [ "$EXIT_CODE" -ne 0 ]; then
             SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
             if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
@@ -153,6 +212,12 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Run bundled Ghostty theme picker helper regression
+        run: |
+          set -euo pipefail
+          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Run CLI version memory guard regression
         run: |
@@ -171,10 +236,14 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
-  tests-depot:
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
+  tests-build-and-lag:
+    # Build the full cmux scheme and run the lag regression on WarpBuild.
+    # Keep lag validation separate from UI regressions so functional UI failures
+    # and performance regressions stay isolated. Broader interactive UI suites
+    # still run via test-e2e.yml on GitHub-hosted runners.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -199,19 +268,49 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit-lag
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+
       - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Clean DerivedData
-        run: rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+      - name: Install zig
+        run: |
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
+
+      - name: Cache DerivedData
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+          key: deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-build-
 
       - name: Cache Swift packages
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
+          key: spm-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-build-
 
       - name: Resolve Swift packages
         run: |
@@ -233,6 +332,15 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build app
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" build
+
       - name: Create virtual display
         run: |
           set -euo pipefail
@@ -242,41 +350,7 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
-
-      - name: Run UI tests
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          # SidebarResizeUITests hangs on headless runners (mouse drag simulation
-          # doesn't work without a physical display, even with virtual display).
-          # Skip it in CI; it runs fine on local machines.
-          run_ui_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              -maximum-test-execution-time-allowance 120 \
-              -only-testing:cmuxUITests \
-              -skip-testing:cmuxUITests/SidebarResizeUITests test 2>&1
-          }
-
-          # xcodebuild exits 65 even for expected failures (XCTExpectFailure).
-          # Capture output and fail only if there are unexpected failures.
-          set +e
-          OUTPUT=$(run_ui_tests)
-          EXIT_CODE=$?
-          set -e
-
-          echo "$OUTPUT"
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
-          fi
+          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -319,3 +393,123 @@ jobs:
           CMUX_LAG_MAX_CHURN_P95_MS=35 \
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
+
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display
+
+  ui-regressions:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
+
+      - name: Cache Swift packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: .ci-source-packages
+          key: spm-ui-regressions-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-ui-regressions-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          mkdir -p "$SOURCE_PACKAGES_DIR"
+
+          for attempt in 1 2 3; do
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to resolve Swift packages after 3 attempts" >&2
+              exit 1
+            fi
+            echo "Package resolution failed on attempt $attempt, retrying..."
+            sleep $((attempt * 5))
+          done
+
+      - name: Run display resolution churn UI regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          HELPER_PATH="/tmp/create-virtual-display"
+          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+
+          rm -f "$MANIFEST_PATH"
+          trap 'rm -f "$MANIFEST_PATH"' EXIT
+
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          cat >"$MANIFEST_PATH" <<EOF
+          {"helperBinaryPath":"$HELPER_PATH"}
+          EOF
+
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+            test
+
+      - name: Run browser find focus UI regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 120 \
+            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation \
+            test

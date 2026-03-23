@@ -28,7 +28,8 @@ on:
 
 jobs:
   tests:
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -81,6 +82,22 @@ jobs:
           tar xzf GhosttyKit.xcframework.tar.gz
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
+
+      - name: Install zig
+        run: |
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
 
       - name: Create virtual display
         run: |

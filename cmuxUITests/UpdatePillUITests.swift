@@ -44,6 +44,21 @@ final class UpdatePillUITests: XCTestCase {
         attachElementDebug(name: "update-available-pill", element: pill)
     }
 
+    func testDetectedBackgroundUpdateShowsPillWithoutManualCheck() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Update Available: 9.9.9")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "background-detected-update-available")
+    }
+
     func testUpdatePillShowsForNoUpdateThenDismisses() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
@@ -122,6 +137,23 @@ final class UpdatePillUITests: XCTestCase {
         let noUpdatePill = pillButton(app: app, expectedLabel: "No Updates Available")
         XCTAssertTrue(noUpdatePill.waitForExistence(timeout: 8.0))
         assertVisibleSize(noUpdatePill)
+    }
+
+    func testBackgroundDetectedUpdateKeepsOnlyBottomUpdatePill() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+        XCTAssertFalse(app.otherElements["SidebarUpdateBanner"].exists)
+        XCTAssertFalse(app.buttons["SidebarUpdateBannerAction"].exists)
     }
 
     func testNoSparklePermissionDialogIsShown() {
