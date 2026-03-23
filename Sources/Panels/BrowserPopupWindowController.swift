@@ -50,7 +50,7 @@ private class BrowserPopupPanel: NSPanel {
         // Cmd+W: close this popup panel only
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags == .command,
-           event.charactersIgnoringModifiers == "w" {
+           KeyboardLayout.normalizedCharacters(for: event) == "w" {
             #if DEBUG
             dlog("popup.panel.cmdW close")
             #endif
