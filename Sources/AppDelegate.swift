@@ -2373,12 +2373,18 @@ private final class QuickTerminalPanel: NSPanel {
 
 @MainActor
 private final class QuickTerminalController: NSObject, NSWindowDelegate {
+    private enum PendingTransitionAction {
+        case show(activateApp: Bool)
+        case hide(restorePreviousApp: Bool)
+    }
+
     private weak var appDelegate: AppDelegate?
     private var panel: QuickTerminalPanel?
     private var terminalSurface: TerminalSurface?
     private var previousFrontmostApp: NSRunningApplication?
     private let workspaceId = UUID()
     private var isTransitioning = false
+    private var pendingTransitionAction: PendingTransitionAction?
 
     private(set) var isVisible = false
 
@@ -2396,7 +2402,11 @@ private final class QuickTerminalController: NSObject, NSWindowDelegate {
     }
 
     func show(activateApp: Bool = true) {
-        guard !isVisible, !isTransitioning else { return }
+        if isTransitioning {
+            pendingTransitionAction = .show(activateApp: activateApp)
+            return
+        }
+        guard !isVisible else { return }
         let settings = QuickTerminalSettings.resolved()
         guard let panel = ensurePanel() else { return }
         let targetScreen = screen(for: panel)
@@ -2455,12 +2465,17 @@ private final class QuickTerminalController: NSObject, NSWindowDelegate {
                     panel.orderFront(nil)
                     self.terminalSurface?.hostedView.setActive(false)
                 }
+                self.replayPendingTransitionActionIfNeeded()
             }
         }
     }
 
     func hide(restorePreviousApp: Bool) {
-        guard isVisible, !isTransitioning else { return }
+        if isTransitioning {
+            pendingTransitionAction = .hide(restorePreviousApp: restorePreviousApp)
+            return
+        }
+        guard isVisible else { return }
         let settings = QuickTerminalSettings.resolved()
         guard let panel else {
             isVisible = false
@@ -2494,6 +2509,7 @@ private final class QuickTerminalController: NSObject, NSWindowDelegate {
                     _ = previousFrontmostApp.activate(options: [])
                 }
                 self.previousFrontmostApp = nil
+                self.replayPendingTransitionActionIfNeeded()
             }
         }
     }
@@ -2518,15 +2534,27 @@ private final class QuickTerminalController: NSObject, NSWindowDelegate {
         isVisible = false
         previousFrontmostApp = nil
         isTransitioning = false
+        pendingTransitionAction = nil
     }
 
     func windowDidResignKey(_ notification: Notification) {
         let settings = QuickTerminalSettings.resolved()
         guard settings.autoHide else { return }
-        guard isVisible, !isTransitioning else { return }
+        guard isVisible else { return }
         guard let panel = notification.object as? NSWindow, panel === self.panel else { return }
         guard panel.attachedSheet == nil else { return }
         hide(restorePreviousApp: false)
+    }
+
+    private func replayPendingTransitionActionIfNeeded() {
+        guard !isTransitioning, let action = pendingTransitionAction else { return }
+        pendingTransitionAction = nil
+        switch action {
+        case .show(let activateApp):
+            show(activateApp: activateApp)
+        case .hide(let restorePreviousApp):
+            hide(restorePreviousApp: restorePreviousApp)
+        }
     }
 
     private func ensurePanel() -> QuickTerminalPanel? {
