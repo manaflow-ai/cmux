@@ -5868,7 +5868,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        // Only update mouse position on the first click to prevent unwanted cursor
+        // movement during double-click selection (issue #1698)
+        if event.clickCount == 1 {
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
