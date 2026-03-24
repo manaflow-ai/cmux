@@ -10260,6 +10260,18 @@ struct CMUXCLI {
                     _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
 
+                // Auto-name the tab based on conversation content.
+                // Skip if user has set a custom title via /rename.
+                if let transcript, !transcript.hasCustomTitle,
+                   let tabTitle = generateTabTitle(from: transcript) {
+                    _ = try? client.sendV2(method: "tab.action", params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "action": "rename",
+                        "title": tabTitle,
+                    ])
+                }
+
                 try? setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
@@ -10843,6 +10855,12 @@ struct CMUXCLI {
 
     private struct TranscriptSummary {
         let lastAssistantMessage: String?
+        /// First few user messages — used to generate a short tab title.
+        let firstUserMessages: [String]
+        /// Last few user messages — used to capture recent topic shifts.
+        let lastUserMessages: [String]
+        /// Whether the user has set a custom title via /rename.
+        let hasCustomTitle: Bool
     }
 
     private func readTranscriptSummary(path: String) -> TranscriptSummary? {
@@ -10855,25 +10873,127 @@ struct CMUXCLI {
         let lines = content.components(separatedBy: "\n")
 
         var lastAssistantMessage: String?
+        var firstUserMessages: [String] = []
+        var lastUserMessages: [String] = []
+        var hasCustomTitle = false
 
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty,
                   let lineData = trimmed.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  let message = obj["message"] as? [String: Any],
-                  let role = message["role"] as? String,
-                  role == "assistant" else {
+                  let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
                 continue
             }
 
-            let text = extractMessageText(from: message)
-            guard let text, !text.isEmpty else { continue }
-            lastAssistantMessage = truncate(normalizedSingleLine(text), maxLength: 120)
+            // Detect /rename custom title
+            if let type = obj["type"] as? String, type == "custom-title" {
+                hasCustomTitle = true
+                continue
+            }
+
+            guard let message = obj["message"] as? [String: Any],
+                  let role = message["role"] as? String else {
+                continue
+            }
+
+            if role == "assistant" {
+                let text = extractMessageText(from: message)
+                guard let text, !text.isEmpty else { continue }
+                lastAssistantMessage = truncate(normalizedSingleLine(text), maxLength: 120)
+            } else if role == "user" {
+                let text = extractMessageText(from: message)
+                guard let text, !text.isEmpty else { continue }
+                let snippet = truncate(normalizedSingleLine(text), maxLength: 200)
+                if firstUserMessages.count < 3 {
+                    firstUserMessages.append(snippet)
+                }
+                // Ring buffer for last 3 user messages
+                lastUserMessages.append(snippet)
+                if lastUserMessages.count > 3 {
+                    lastUserMessages.removeFirst()
+                }
+            }
         }
 
-        guard lastAssistantMessage != nil else { return nil }
-        return TranscriptSummary(lastAssistantMessage: lastAssistantMessage)
+        guard lastAssistantMessage != nil || !firstUserMessages.isEmpty else { return nil }
+        return TranscriptSummary(
+            lastAssistantMessage: lastAssistantMessage,
+            firstUserMessages: firstUserMessages,
+            lastUserMessages: lastUserMessages,
+            hasCustomTitle: hasCustomTitle
+        )
+    }
+
+    /// Generate a short tab title from user messages using keyword extraction.
+    /// Preserves the conversation language (works with CJK, Latin, etc).
+    private func generateTabTitle(from transcript: TranscriptSummary) -> String? {
+        let allMessages = transcript.firstUserMessages + transcript.lastUserMessages
+        guard !allMessages.isEmpty else { return nil }
+
+        let combined = allMessages.joined(separator: " ")
+
+        // Stop words (English + Chinese) to filter out
+        let stopWords: Set<String> = [
+            "please", "can", "you", "the", "a", "an", "i", "want", "to", "me",
+            "need", "help", "with", "this", "that", "for", "in", "on", "it",
+            "is", "my", "do", "let", "make", "also", "and", "or", "but",
+            "just", "some", "all", "any", "be", "have", "will", "would",
+            "should", "could", "from", "how", "what", "when", "where", "which",
+            "not", "no", "yes", "use", "code", "file", "run", "test",
+            "请", "帮我", "帮", "我", "你", "能", "可以", "一下", "看看",
+            "这个", "那个", "的", "了", "吗", "呢", "是", "在", "有", "和",
+            "把", "给", "让", "对", "到", "从", "用", "也", "都", "就",
+            "还", "又", "很", "不", "没", "怎么", "什么", "如何", "已经",
+            "然后", "现在", "应该", "可能", "需要", "想", "要", "会",
+        ]
+
+        // Tokenize: CJK runs (2+ chars) or Latin word tokens
+        var tokens: [String] = []
+        let pattern = try? NSRegularExpression(pattern: "[\\u4e00-\\u9fff]{2,}|[a-zA-Z][a-zA-Z0-9]*", options: [])
+        let nsRange = NSRange(combined.startIndex..., in: combined)
+        pattern?.enumerateMatches(in: combined, range: nsRange) { match, _, _ in
+            guard let match, let range = Range(match.range, in: combined) else { return }
+            tokens.append(String(combined[range]))
+        }
+
+        // Count frequencies, excluding stop words
+        var freq: [String: Int] = [:]
+        var casing: [String: String] = [:]
+        for token in tokens {
+            let low = token.lowercased()
+            guard !stopWords.contains(low), low.count >= 2 else { continue }
+            freq[low, default: 0] += 1
+            if casing[low] == nil {
+                casing[low] = token
+            }
+        }
+
+        guard !freq.isEmpty else { return nil }
+
+        // Top keywords by frequency
+        let top = freq.sorted { $0.value > $1.value }
+            .prefix(5)
+            .map { casing[$0.key] ?? $0.key }
+
+        // Build title: 2-5 words, max 25 chars
+        var seen = Set<String>()
+        var deduped: [String] = []
+        for word in top {
+            let low = word.lowercased()
+            if !seen.contains(low) {
+                seen.insert(low)
+                deduped.append(word)
+            }
+        }
+
+        for n in stride(from: min(5, deduped.count), through: 2, by: -1) {
+            let title = deduped.prefix(n).joined(separator: " ")
+            if title.count <= 25 {
+                return title
+            }
+        }
+
+        return deduped.first.map { String($0.prefix(25)) }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
