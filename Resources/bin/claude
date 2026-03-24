@@ -18,6 +18,113 @@ find_real_claude() {
     return 1
 }
 
+# Return 0 for Claude global options that require exactly one separate value.
+claude_option_requires_single_value() {
+    case "${1:-}" in
+        --agent|--agents|--append-system-prompt|--debug-file|--effort|--fallback-model|--input-format|--json-schema|--max-budget-usd|--model|--name|--output-format|--permission-mode|--plugin-dir|--session-id|--setting-sources|--settings|--system-prompt|-n)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Return 0 for Claude global options whose separate-value form consumes all
+# following positional values until the next option token.
+claude_option_takes_variadic_values() {
+    case "${1:-}" in
+        --add-dir|--allowedTools|--allowed-tools|--betas|--disallowedTools|--disallowed-tools|--file|--mcp-config|--tools)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Return 0 for Claude global options with an optional separate value.
+claude_option_may_take_value() {
+    case "${1:-}" in
+        --debug|--from-pr|--resume|--worktree|-d|-r|-w)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Return 0 when the first Claude subcommand should bypass cmux hook/session
+# injection entirely. Keep this list limited to real management commands so
+# prompts like "help" or legacy aliases do not get misclassified.
+claude_passthrough_subcommand() {
+    case "${1:-}" in
+        agents|auth|doctor|install|mcp|plugin|plugins|rc|remote-control|setup-token|update|upgrade)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+claude_invocation_has_passthrough_subcommand() {
+    local arg
+    local pending_required_value=0
+    local pending_optional_value=0
+    local pending_variadic_values=0
+
+    for arg in "$@"; do
+        if [[ "$pending_required_value" == "1" ]]; then
+            pending_required_value=0
+            continue
+        fi
+
+        if [[ "$pending_optional_value" == "1" ]]; then
+            pending_optional_value=0
+            if [[ "$arg" != -- && "$arg" != -* ]]; then
+                continue
+            fi
+        fi
+
+        if [[ "$pending_variadic_values" == "1" ]]; then
+            if [[ "$arg" == -- ]]; then
+                return 1
+            fi
+            if [[ "$arg" != -* ]]; then
+                continue
+            fi
+            pending_variadic_values=0
+        fi
+
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            --*=*)
+                continue
+                ;;
+            -*)
+                if claude_option_requires_single_value "$arg"; then
+                    pending_required_value=1
+                elif claude_option_takes_variadic_values "$arg"; then
+                    pending_variadic_values=1
+                elif claude_option_may_take_value "$arg"; then
+                    pending_optional_value=1
+                fi
+                continue
+                ;;
+            *)
+                claude_passthrough_subcommand "$arg"
+                return $?
+                ;;
+        esac
+    done
+
+    return 1
+}
+
 # Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
 cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
@@ -55,21 +162,21 @@ fi
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
-# Pass through subcommands that don't support session/hook flags.
-case "${1:-}" in
-    mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
-esac
-
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
 unset CLAUDECODE
+
+# Pass through subcommands that don't support session/hook flags.
+if claude_invocation_has_passthrough_subcommand "$@"; then
+    exec "$REAL_CLAUDE" "$@"
+fi
 
 # Check if the user already specified a session/resume flag.
 # If so, don't inject our own --session-id (it would conflict).
 SKIP_SESSION_ID=false
 for arg in "$@"; do
     case "$arg" in
-        --resume|--resume=*|--session-id|--session-id=*|--continue|-c)
+        --resume|--resume=*|--from-pr|--from-pr=*|--session-id|--session-id=*|--continue|-c|-r)
             SKIP_SESSION_ID=true
             break
             ;;
