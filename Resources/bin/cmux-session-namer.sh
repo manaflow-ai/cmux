@@ -56,9 +56,13 @@ fi
 rm -f "$CUSTOM_MARKER" 2>/dev/null
 rm -f "/tmp/cmux-tab-cache-${CMUX_SURFACE_ID}" 2>/dev/null
 
-# Set project basename as initial workspace name (overridden by AI summary after first response)
-CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null || true)
-if [ -n "$CWD" ]; then
-  BASENAME=$(basename "$CWD")
-  cmux rename-workspace --workspace "$CMUX_WORKSPACE_ID" "$BASENAME" 2>/dev/null || true
+# Set project basename as initial workspace name — only if this tab owns the workspace.
+# Non-owner sessions must not overwrite an already-established workspace name.
+WS_OWNER=$(cat "$WS_OWNER_FILE" 2>/dev/null || true)
+if [ "$WS_OWNER" = "$CMUX_SURFACE_ID" ]; then
+  CWD=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('cwd',''))" 2>/dev/null || true)
+  if [ -n "$CWD" ]; then
+    BASENAME=$(basename "$CWD")
+    cmux rename-workspace --workspace "$CMUX_WORKSPACE_ID" "$BASENAME" 2>/dev/null || true
+  fi
 fi
