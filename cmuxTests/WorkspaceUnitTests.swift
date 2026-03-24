@@ -336,7 +336,10 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
     func testAddWorkspaceAfterCurrentOverrideAppendsAfterLastSelectedWorkspace() {
         let manager = TabManager()
-        _ = manager.tabs[0]
+        guard !manager.tabs.isEmpty else {
+            XCTFail("Expected TabManager to initialise with at least one workspace")
+            return
+        }
         _ = manager.addWorkspace()
         _ = manager.addWorkspace()
         let fourth = manager.addWorkspace()
