@@ -334,6 +334,21 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(insertedIndex, baselineCount)
     }
 
+    func testAddWorkspaceAfterCurrentOverrideAppendsAfterLastSelectedWorkspace() {
+        let manager = TabManager()
+        _ = manager.tabs[0]
+        _ = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        let baselineOrder = manager.tabs.map(\.id)
+
+        manager.selectWorkspace(fourth)
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
+        XCTAssertEqual(manager.tabs.last?.id, inserted.id)
+    }
+
     private func makeManagerWithThreeWorkspaces() -> TabManager {
         let manager = TabManager()
         _ = manager.addWorkspace()
