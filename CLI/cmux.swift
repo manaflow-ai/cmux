@@ -8565,6 +8565,9 @@ struct CMUXCLI {
         if (surface["here"] as? Bool) == true {
             parts.append("◀ here")
         }
+        if let tty = surface["tty"] as? String, !tty.isEmpty {
+            parts.append("tty=\(tty)")
+        }
         if surfaceType.lowercased() == "browser",
            let url = surface["url"] as? String,
            !url.isEmpty {
