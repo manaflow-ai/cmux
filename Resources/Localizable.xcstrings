@@ -77797,6 +77797,57 @@
           }
         }
       }
+    },
+    "update.downloadLatestDmg": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Latest DMG"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新のDMGをダウンロード"
+          }
+        }
+      }
+    },
+    "update.error.installationFailed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux couldn't install the downloaded update. Download the latest DMG to update manually."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はダウンロード済みのアップデートをインストールできませんでした。手動で更新するには最新のDMGをダウンロードしてください。"
+          }
+        }
+      }
+    },
+    "update.error.installationFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Installation Failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートのインストールに失敗しました"
+          }
+        }
+      }
     }
   }
 }

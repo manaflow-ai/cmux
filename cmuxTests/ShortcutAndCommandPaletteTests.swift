@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -948,6 +949,96 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
         XCTAssertEqual(viewModel.text, "Checking for Updates…")
+    }
+
+    func testSparkleInstallationErrorUsesManualInstallCopy() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create installation cache directory"]
+        )
+
+        XCTAssertEqual(UpdateViewModel.userFacingErrorTitle(for: error), "Update Installation Failed")
+        XCTAssertEqual(
+            UpdateViewModel.userFacingErrorMessage(for: error),
+            "cmux couldn't install the downloaded update. Download the latest DMG to update manually."
+        )
+    }
+
+    func testSparkleInstallationErrorOffersManualDownloadURL() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create installation cache directory"]
+        )
+
+        XCTAssertEqual(
+            UpdateViewModel.manualDownloadURL(
+                for: error,
+                infoFeedURLString: UpdateFeedResolver.fallbackFeedURL
+            )?.absoluteString,
+            "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
+        )
+    }
+
+    func testSparkleInstallationErrorOffersNightlyManualDownloadURL() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create installation cache directory"]
+        )
+
+        XCTAssertEqual(
+            UpdateViewModel.manualDownloadURL(
+                for: error,
+                infoFeedURLString: "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+            )?.absoluteString,
+            "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg"
+        )
+    }
+
+    func testUpdateStateErrorManualDownloadURLUsesFeedURLString() {
+        let updateError = UpdateState.Error(
+            error: NSError(
+                domain: SUSparkleErrorDomain,
+                code: 4005,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to create installation cache directory"]
+            ),
+            retry: {},
+            dismiss: {},
+            feedURLString: "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+        )
+
+        XCTAssertEqual(
+            UpdateViewModel.manualDownloadURL(for: updateError)?.absoluteString,
+            "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg"
+        )
+    }
+
+    func testSparkleInstallationErrorDetailsUseSparkleCodeName() {
+        let error = NSError(
+            domain: SUSparkleErrorDomain,
+            code: 4005,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create installation cache directory"]
+        )
+
+        let details = UpdateViewModel.errorDetails(
+            for: error,
+            technicalDetails: nil,
+            feedURLString: nil
+        )
+
+        XCTAssertTrue(details.contains("Code: SUInstallationError (4005)"))
+    }
+
+    func testNetworkErrorDoesNotOfferManualDownloadURL() {
+        let error = NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorTimedOut,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out"]
+        )
+
+        XCTAssertNil(UpdateViewModel.manualDownloadURL(for: error))
     }
 }
 

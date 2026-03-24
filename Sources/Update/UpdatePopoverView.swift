@@ -345,6 +345,7 @@ fileprivate struct UpdateErrorView: View {
             technicalDetails: error.technicalDetails,
             feedURLString: error.feedURLString
         )
+        let manualDownloadURL = UpdateViewModel.manualDownloadURL(for: error)
 
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 8) {
@@ -388,6 +389,15 @@ fileprivate struct UpdateErrorView: View {
                 .controlSize(.small)
 
                 Spacer()
+
+                if let manualDownloadURL {
+                    Button(String(localized: "update.downloadLatestDmg", defaultValue: "Download Latest DMG")) {
+                        error.dismiss()
+                        dismiss()
+                        NSWorkspace.shared.open(manualDownloadURL)
+                    }
+                    .controlSize(.small)
+                }
 
                 Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     error.retry()

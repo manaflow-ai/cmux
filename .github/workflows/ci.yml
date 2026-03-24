@@ -35,6 +35,9 @@ jobs:
       - name: Validate release asset guard
         run: node scripts/release_asset_guard.test.js
 
+      - name: Validate app signing helper
+        run: ./tests/test_ci_codesign_app_bundle.sh
+
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 

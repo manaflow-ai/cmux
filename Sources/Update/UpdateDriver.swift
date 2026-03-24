@@ -117,6 +117,20 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         UpdateLogStore.shared.append("show updater error: \(details)")
+        if usesStandardPresentation,
+           let manualDownloadURL = UpdateViewModel.manualDownloadURL(for: error, infoFeedURLString: lastFeedURLString) {
+            clearCustomStateForStandardPresentation()
+            presentManualDownloadAlert(for: error, manualDownloadURL: manualDownloadURL) { [weak self] shouldRetry in
+                self?.finishUserInitiatedCheckPresentation()
+                acknowledgement()
+                guard shouldRetry else { return }
+                DispatchQueue.main.async {
+                    guard let delegate = NSApp.delegate as? AppDelegate else { return }
+                    delegate.checkForUpdates(nil)
+                }
+            }
+            return
+        }
         if usesStandardPresentation {
             clearCustomStateForStandardPresentation()
             standard.showUpdaterError(error) { [weak self] in
@@ -454,6 +468,40 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 return
             }
             applyState(.idle)
+        }
+    }
+
+    private func presentManualDownloadAlert(
+        for error: any Error,
+        manualDownloadURL: URL,
+        completion: @escaping (Bool) -> Void
+    ) {
+        runOnMain {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = UpdateViewModel.userFacingErrorTitle(for: error)
+            alert.informativeText = UpdateViewModel.userFacingErrorMessage(for: error)
+            alert.addButton(withTitle: String(localized: "update.downloadLatestDmg", defaultValue: "Download Latest DMG"))
+            alert.addButton(withTitle: String(localized: "common.retry", defaultValue: "Retry"))
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+
+            let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+                switch response {
+                case .alertFirstButtonReturn:
+                    NSWorkspace.shared.open(manualDownloadURL)
+                    completion(false)
+                case .alertSecondButtonReturn:
+                    completion(true)
+                default:
+                    completion(false)
+                }
+            }
+
+            if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                alert.beginSheetModal(for: window, completionHandler: handleResponse)
+            } else {
+                handleResponse(alert.runModal())
+            }
         }
     }
 
