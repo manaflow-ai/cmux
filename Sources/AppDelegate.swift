@@ -5363,6 +5363,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
+    /// Extracted so it can be called from both the SwiftUI menu and `handleCustomShortcut`.
+    func showOpenFolderPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
+        panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
+        if panel.runModal() == .OK, let url = panel.url {
+            if addWorkspaceInPreferredMainWindow(
+                workingDirectory: url.path,
+                debugSource: "shortcut.openFolder"
+            ) == nil {
+                openNewMainWindow(nil)
+            }
+        }
+    }
+
     @objc func openWindow(
         _ pasteboard: NSPasteboard,
         userData: String?,
@@ -9306,6 +9325,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // consume the key equivalent without firing the action closure.
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newWindow)) {
             openNewMainWindow(nil)
+            return true
+        }
+
+        // Open Folder: Cmd+O
+        // Handled here to prevent AppKit's default NSDocumentController from opening
+        // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openFolder)) {
+            showOpenFolderPanel()
             return true
         }
 
