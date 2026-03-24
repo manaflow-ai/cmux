@@ -2003,17 +2003,28 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let pinnedCount = snapshot.tabs.filter { $0.isPinned }.count
-        let selectedIndex = snapshot.selectedTabId.flatMap { tabId in
-            snapshot.tabs.firstIndex(where: { $0.id == tabId })
+        let tabs = snapshot.tabs
+        var pinnedCount = 0
+        var selectedIndex: Int?
+        var selectedIsPinned = false
+        let selectedTabId = snapshot.selectedTabId
+
+        for (index, tab) in tabs.enumerated() {
+            if tab.isPinned {
+                pinnedCount += 1
+            }
+            if selectedIndex == nil, tab.id == selectedTabId {
+                selectedIndex = index
+                selectedIsPinned = tab.isPinned
+            }
         }
-        let selectedIsPinned = selectedIndex.map { snapshot.tabs[$0].isPinned } ?? false
+
         return WorkspacePlacementSettings.insertionIndex(
             placement: placement,
             selectedIndex: selectedIndex,
             selectedIsPinned: selectedIsPinned,
             pinnedCount: pinnedCount,
-            totalCount: snapshot.tabs.count
+            totalCount: tabs.count
         )
     }
 
