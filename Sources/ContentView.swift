@@ -2465,6 +2465,7 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DraggableFolderIcon(directory: directory)
+                        .padding(.leading, -7)
                 }
 
                 Text(titlebarText)
