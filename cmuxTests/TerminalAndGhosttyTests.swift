@@ -2596,6 +2596,70 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTAssertEqual(portal.debugHostedSubviewCount(), 1, "Stale anchorless hosted views should be detached from hostView")
     }
 
+    func testDeferredSyncHidesVisibleHostedViewAfterAnchorDisappears() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+
+        let portal = WindowTerminalPortal(window: window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        var retiredAnchor: NSView? = NSView(frame: NSRect(x: 24, y: 28, width: 96, height: 180))
+        contentView.addSubview(retiredAnchor!)
+
+        let retiredTerminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 96, height: 180))
+        let retiredHosted = GhosttySurfaceScrollView(surfaceView: retiredTerminal)
+        portal.bind(hostedView: retiredHosted, to: retiredAnchor!, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(retiredAnchor!)
+
+        let retiredWindowPoint = retiredAnchor!.convert(
+            NSPoint(x: retiredAnchor!.bounds.midX, y: retiredAnchor!.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(retiredWindowPoint) === retiredTerminal,
+            "Initial hit-testing should resolve the first hosted terminal at its anchor"
+        )
+
+        retiredAnchor?.removeFromSuperview()
+        retiredAnchor = nil
+
+        let activeAnchor = NSView(frame: NSRect(x: 184, y: 28, width: 280, height: 180))
+        contentView.addSubview(activeAnchor)
+
+        let activeTerminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 280, height: 180))
+        let activeHosted = GhosttySurfaceScrollView(surfaceView: activeTerminal)
+        portal.bind(hostedView: activeHosted, to: activeAnchor, visibleInUI: true)
+        portal.synchronizeHostedViewForAnchor(activeAnchor)
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let activeWindowPoint = activeAnchor.convert(
+            NSPoint(x: activeAnchor.bounds.midX, y: activeAnchor.bounds.midY),
+            to: nil
+        )
+        XCTAssertTrue(
+            retiredHosted.isHidden,
+            "A visible hosted terminal whose anchor vanished should hide on the deferred full sync"
+        )
+        XCTAssertNil(
+            portal.terminalViewAtWindowPoint(retiredWindowPoint),
+            "Restore-like rebinds should clear stale portal hit regions after the old anchor disappears"
+        )
+        XCTAssertTrue(
+            portal.terminalViewAtWindowPoint(activeWindowPoint) === activeTerminal,
+            "The active terminal should remain visible after the stale hosted view is hidden"
+        )
+    }
+
     func testSynchronizeReusesInstalledTargetWithoutRepeatedContentViewLookup() {
         let window = ContentViewCountingWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
