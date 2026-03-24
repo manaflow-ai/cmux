@@ -12613,7 +12613,7 @@ private extension NSWindow {
             var menuEvent = event
             if let chars = event.charactersIgnoringModifiers,
                !chars.allSatisfy({ $0.isASCII }),
-               let normalized = KeyboardLayout.character(forKeyCode: event.keyCode) {
+               let normalized = KeyboardLayout.character(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags) {
                 menuEvent = NSEvent.keyEvent(
                     with: event.type,
                     location: event.locationInWindow,
@@ -12621,7 +12621,7 @@ private extension NSWindow {
                     timestamp: event.timestamp,
                     windowNumber: event.windowNumber,
                     context: nil,
-                    characters: normalized,
+                    characters: event.characters ?? normalized,
                     charactersIgnoringModifiers: normalized,
                     isARepeat: event.isARepeat,
                     keyCode: event.keyCode
