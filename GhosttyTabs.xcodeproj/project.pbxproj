@@ -131,6 +131,9 @@
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 			MON00001 /* MonacoCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = MON00011 /* MonacoCache.swift */; };
 			MWP00001 /* MonacoWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = MWP00011 /* MonacoWebViewPool.swift */; };
+			NFE00001 /* NativeFileExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = NFE00011 /* NativeFileExplorer.swift */; };
+			FSV00001 /* FileSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSV00011 /* FileSearchView.swift */; };
+			STS00001 /* SidebarTabSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = STS00011 /* SidebarTabSelector.swift */; };
 	/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -308,6 +311,9 @@
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 		MON00011 /* MonacoCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonacoCache.swift; sourceTree = "<group>"; };
 		MWP00011 /* MonacoWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonacoWebViewPool.swift; sourceTree = "<group>"; };
+		NFE00011 /* NativeFileExplorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileExplorer.swift; sourceTree = "<group>"; };
+		FSV00011 /* FileSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchView.swift; sourceTree = "<group>"; };
+		STS00011 /* SidebarTabSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabSelector.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -482,6 +488,9 @@
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				MON00011 /* MonacoCache.swift */,
 				MWP00011 /* MonacoWebViewPool.swift */,
+				NFE00011 /* NativeFileExplorer.swift */,
+				FSV00011 /* FileSearchView.swift */,
+				STS00011 /* SidebarTabSelector.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -785,6 +794,9 @@
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
 				MON00001 /* MonacoCache.swift in Sources */,
 				MWP00001 /* MonacoWebViewPool.swift in Sources */,
+				NFE00001 /* NativeFileExplorer.swift in Sources */,
+				FSV00001 /* FileSearchView.swift in Sources */,
+				STS00001 /* SidebarTabSelector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -1509,6 +1509,15 @@ struct ContentView: View {
     @State private var explorerPanel: ExplorerSidebarPanel?
     @State private var explorerHeight: CGFloat = 250
     @State private var isExplorerVisible: Bool = true
+    @StateObject private var nativeExplorerViewModel = NativeFileExplorerViewModel()
+    @StateObject private var fileSearchViewModel = FileSearchViewModel()
+    @State private var sidebarTab: SidebarTab = .workspaces
+
+    enum SidebarTab: String, CaseIterable {
+        case workspaces
+        case explorer
+        case search
+    }
 
     private enum CommandPaletteMode {
         case commands
@@ -2077,28 +2086,55 @@ struct ContentView: View {
         }
     }
 
+    /// Space at top of sidebar for traffic light buttons (matches VerticalTabsSidebar.trafficLightPadding)
+    private let sidebarTrafficLightPadding: CGFloat = 28
+
     private var sidebarView: some View {
         VStack(spacing: 0) {
-            VerticalTabsSidebar(
-                updateViewModel: updateViewModel,
-                onSendFeedback: presentFeedbackComposer,
-                selection: $sidebarSelectionState.selection,
-                selectedTabIds: $selectedTabIds,
-                lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-            )
+            // Space for traffic lights / fullscreen controls
+            Spacer().frame(height: sidebarTrafficLightPadding)
 
-            if isExplorerVisible, let explorerPanel {
-                Divider()
-                ExplorerSidebarView(panel: explorerPanel)
-                    .frame(height: explorerHeight)
+            // Tab selector
+            SidebarTabSelector(selected: $sidebarTab)
+
+            // Content
+            switch sidebarTab {
+            case .workspaces:
+                VerticalTabsSidebar(
+                    updateViewModel: updateViewModel,
+                    onSendFeedback: presentFeedbackComposer,
+                    selection: $sidebarSelectionState.selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+            case .explorer:
+                NativeFileExplorerView(viewModel: nativeExplorerViewModel)
+            case .search:
+                FileSearchView(viewModel: fileSearchViewModel)
             }
         }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .onAppear { setupExplorerPanel() }
-        .onChange(of: tabManager.selectedTabId) { _, _ in updateExplorerRootPaths() }
-        .onChange(of: tabManager.tabs.count) { _, _ in updateExplorerRootPaths() }
-        .onReceive(selectedWorkspacePanelDirectoriesPublisher) { _ in updateExplorerRootPaths() }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarSwitchToSearch)) { _ in
+            sidebarTab = .search
+            if !sidebarState.isVisible { sidebarState.isVisible = true }
+        }
+        .onAppear {
+            setupExplorerPanel()
+            setupNativeExplorer()
+        }
+        .onChange(of: tabManager.selectedTabId) { _, _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
+        .onChange(of: tabManager.tabs.count) { _, _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
+        .onReceive(selectedWorkspacePanelDirectoriesPublisher) { _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
     }
 
     private func setupExplorerPanel() {
@@ -2184,6 +2220,45 @@ struct ContentView: View {
         }
 
         return paths
+    }
+
+    private func setupNativeExplorer() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        nativeExplorerViewModel.updateRootPaths(paths)
+        fileSearchViewModel.rootPaths = paths
+
+        nativeExplorerViewModel.onOpenFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let previewEditor = workspace.panels.values
+                .compactMap { $0 as? EditorPanel }
+                .first(where: { $0.isPreview })
+            if let preview = previewEditor {
+                preview.openFileByPath(filePath)
+                workspace.focusPanel(preview.id)
+            } else {
+                _ = tabManager.openEditor(rootPath: workspace.currentDirectory, filePath: filePath, focus: true)
+            }
+        }
+        nativeExplorerViewModel.onPinFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if let previewEditor = workspace.panels.values
+                .compactMap({ $0 as? EditorPanel })
+                .first(where: { $0.isPreview }) {
+                previewEditor.isPreview = false
+                workspace.focusPanel(previewEditor.id)
+            }
+        }
+        fileSearchViewModel.onOpenFile = nativeExplorerViewModel.onOpenFile
+    }
+
+    private func updateNativeExplorerRoots() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        nativeExplorerViewModel.updateRootPaths(paths)
+        fileSearchViewModel.rootPaths = paths
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -8316,10 +8391,6 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
-
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                                 let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]

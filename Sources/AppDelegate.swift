@@ -9624,6 +9624,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // File search: Cmd+Shift+F
+        if matchShortcut(event: event, shortcut: StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)) {
+            NotificationCenter.default.post(name: .cmuxSidebarSwitchToSearch, object: nil)
+            return true
+        }
+
         // Open editor: Cmd+Shift+E
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openEditor)) {
             openEditorForCurrentProject()

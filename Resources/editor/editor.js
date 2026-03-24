@@ -223,6 +223,14 @@
 
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActive());
 
+            // Disable Monaco shortcuts that conflict with cmux
+            // Cmd+Shift+F (find in files), Cmd+P (quick open), Cmd+Shift+P (command palette)
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {});
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP, () => {});
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, () => {});
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyN, () => {});
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyN, () => {});
+
             notifyReady();
 
             // Open any file that was queued before Monaco was ready
