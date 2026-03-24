@@ -184,6 +184,9 @@ final class EditorPanel: Panel, ObservableObject {
     /// When pinned (isPreview = false), new files open in a new panel instead.
     @Published var isPreview: Bool = true
 
+    /// The currently open file's absolute path (for session persistence).
+    private(set) var currentFilePath: String?
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -366,6 +369,7 @@ final class EditorPanel: Panel, ObservableObject {
     /// Open a specific file by its absolute path in the Monaco editor.
     /// The path is converted to a relative path within the editor's root.
     func openFileByPath(_ absolutePath: String) {
+        currentFilePath = absolutePath
         let relativePath: String
         if absolutePath.hasPrefix(rootPath + "/") {
             relativePath = String(absolutePath.dropFirst(rootPath.count + 1))

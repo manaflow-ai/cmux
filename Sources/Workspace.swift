@@ -424,7 +424,7 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            editorSnapshot = SessionEditorPanelSnapshot(rootPath: edPanel.rootPath)
+            editorSnapshot = SessionEditorPanelSnapshot(rootPath: edPanel.rootPath, filePath: edPanel.currentFilePath)
         }
 
         return SessionPanelSnapshot(
@@ -624,6 +624,7 @@ extension Workspace {
             guard let editorPanel = newEditorSurface(
                 inPane: paneId,
                 rootPath: rootPath,
+                filePath: snapshot.editor?.filePath,
                 focus: false
             ) else {
                 return nil

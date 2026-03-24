@@ -242,6 +242,7 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
 
 struct SessionEditorPanelSnapshot: Codable, Sendable {
     var rootPath: String
+    var filePath: String?
 }
 
 struct SessionPanelSnapshot: Codable, Sendable {
