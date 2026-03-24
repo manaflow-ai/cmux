@@ -268,6 +268,6 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 ## Lisans
 
-Bu proje GNU Affero Genel Kamu Lisansı v3.0 veya sonrası (`AGPL-3.0-or-later`) ile lisanslanmıştır.
+cmux, [AGPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
 
-Tam metin için `LICENSE` dosyasına bakın.
+Kuruluşunuz AGPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.

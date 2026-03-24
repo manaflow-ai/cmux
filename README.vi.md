@@ -268,6 +268,6 @@ cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muố
 
 ## Giấy phép
 
-Dự án này được cấp phép theo GNU Affero General Public License v3.0 hoặc mới hơn (`AGPL-3.0-or-later`).
+cmux là mã nguồn mở theo [AGPL-3.0-or-later](LICENSE).
 
-Xem `LICENSE` để biết toàn văn.
+Nếu tổ chức của bạn không thể tuân thủ AGPL, giấy phép thương mại có sẵn. Liên hệ [founders@manaflow.com](mailto:founders@manaflow.com) để biết chi tiết.

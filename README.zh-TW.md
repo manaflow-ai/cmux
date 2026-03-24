@@ -268,6 +268,6 @@ cmux 免費、開源，且將永遠如此。如果您想支持開發並提前體
 
 ## 授權條款
 
-本專案採用 GNU Affero 通用公共授權條款 v3.0 或更新版本（`AGPL-3.0-or-later`）授權。
+cmux 以 [AGPL-3.0-or-later](LICENSE) 開源。
 
-完整授權條款文字請參見 `LICENSE` 檔案。
+如果您的組織無法遵守 AGPL，可提供商業授權。詳情請聯繫 [founders@manaflow.com](mailto:founders@manaflow.com)。
