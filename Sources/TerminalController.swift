@@ -8076,18 +8076,20 @@ class TerminalController {
     }
 
     /// JavaScript snippet that sets an input element's value using the native
-    /// HTMLInputElement/HTMLTextAreaElement/HTMLSelectElement prototype setter.
-    /// Frameworks like React, Vue, and Angular override the value property on
-    /// instances, so a plain `el.value = x` assignment only updates the DOM
-    /// without notifying the framework's internal state. Calling the native
-    /// setter from the prototype bypasses the override and triggers the
-    /// framework's change-detection when followed by an `input` event.
+    /// prototype setter. Frameworks like React, Vue, and Angular override the
+    /// value property on instances, so a plain `el.value = x` assignment only
+    /// updates the DOM without notifying the framework's internal state.
+    /// Calling the native setter from the prototype bypasses the override and
+    /// triggers the framework's change-detection when followed by an `input`
+    /// event. Walks the prototype chain instead of using instanceof so it
+    /// works with cross-realm elements (iframes) and custom web components.
     /// Expects `el` and `newValue` to be in scope.
     private static let reactCompatibleSetValue = """
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype
-                    : el instanceof HTMLSelectElement  ? HTMLSelectElement.prototype
-                    : HTMLInputElement.prototype;
-        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        let nativeSetter = null;
+        for (let proto = Object.getPrototypeOf(el); proto; proto = Object.getPrototypeOf(proto)) {
+          const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (desc && desc.set) { nativeSetter = desc.set; break; }
+        }
         if (nativeSetter) {
           nativeSetter.call(el, newValue);
         } else {
