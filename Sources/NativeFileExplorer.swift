@@ -60,12 +60,25 @@ final class FileTreeRoot: ObservableObject, Identifiable {
     }
 
     func loadChildren() {
-        children = Self.loadEntries(at: path, relativeTo: "", rootPath: path, gitStatusMap: gitStatusMap, gitIgnoredPaths: gitIgnoredPaths)
+        let rootPath = path
+        let statusMap = gitStatusMap
+        let ignored = gitIgnoredPaths
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let entries = Self.loadEntries(
+                at: rootPath, relativeTo: "", rootPath: rootPath,
+                gitStatusMap: statusMap, gitIgnoredPaths: ignored
+            )
+            DispatchQueue.main.async { [weak self] in
+                self?.children = entries
+            }
+        }
     }
 
     func loadChildrenForNode(_ node: FileNode) {
+        let dirPath = (node.rootPath as NSString).appendingPathComponent(node.relativePath)
         node.children = Self.loadEntries(
-            at: (node.rootPath as NSString).appendingPathComponent(node.relativePath),
+            at: dirPath,
             relativeTo: node.relativePath,
             rootPath: node.rootPath,
             gitStatusMap: gitStatusMap,
@@ -316,6 +329,41 @@ final class NativeFileExplorerViewModel: ObservableObject {
         if node.isExpanded && node.children == nil {
             root.loadChildrenForNode(node)
         }
+        objectWillChange.send()
+    }
+
+    /// Flatten visible tree into a list for efficient LazyVStack rendering.
+    /// Each entry is either a root header or a file node.
+    enum FlatRow: Identifiable {
+        case rootHeader(FileTreeRoot)
+        case node(FileNode, FileTreeRoot, Int)
+
+        var id: UUID {
+            switch self {
+            case .rootHeader(let root): return root.id
+            case .node(let node, _, _): return node.id
+            }
+        }
+    }
+
+    func flattenedRows() -> [FlatRow] {
+        var rows: [FlatRow] = []
+        for root in roots {
+            rows.append(.rootHeader(root))
+            if root.isExpanded {
+                flattenNodes(root.children, root: root, depth: 1, into: &rows)
+            }
+        }
+        return rows
+    }
+
+    private func flattenNodes(_ nodes: [FileNode], root: FileTreeRoot, depth: Int, into rows: inout [FlatRow]) {
+        for node in nodes {
+            rows.append(.node(node, root, depth))
+            if node.isDirectory && node.isExpanded, let children = node.children {
+                flattenNodes(children, root: root, depth: depth + 1, into: &rows)
+            }
+        }
     }
 }
 
@@ -325,23 +373,17 @@ struct NativeFileExplorerView: View {
     @ObservedObject var viewModel: NativeFileExplorerViewModel
 
     var body: some View {
+        let flatRows = viewModel.flattenedRows()
+
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if viewModel.roots.count == 1 {
-                        // Single root: show files directly
-                        ForEach(viewModel.roots[0].children) { node in
-                            FileNodeRow(node: node, root: viewModel.roots[0], depth: 0, viewModel: viewModel)
-                        }
-                    } else {
-                        // Multi-root: collapsible root headers
-                        ForEach(viewModel.roots) { root in
-                            RootHeaderRow(root: root)
-                            if root.isExpanded {
-                                ForEach(root.children) { node in
-                                    FileNodeRow(node: node, root: root, depth: 1, viewModel: viewModel)
-                                }
-                            }
+                    ForEach(flatRows) { row in
+                        switch row {
+                        case .rootHeader(let root):
+                            RootHeaderRow(root: root, viewModel: viewModel)
+                        case .node(let node, let root, let depth):
+                            FileNodeRow(node: node, root: root, depth: depth, viewModel: viewModel)
                         }
                     }
                 }
@@ -353,6 +395,7 @@ struct NativeFileExplorerView: View {
 
 struct RootHeaderRow: View {
     @ObservedObject var root: FileTreeRoot
+    let viewModel: NativeFileExplorerViewModel
 
     var body: some View {
         HStack(spacing: 4) {
@@ -377,9 +420,8 @@ struct RootHeaderRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                root.isExpanded.toggle()
-            }
+            root.isExpanded.toggle()
+            viewModel.objectWillChange.send()
         }
     }
 }
@@ -450,9 +492,7 @@ struct FileNodeRow: View {
         .onHover { isHovered = $0 }
         .onTapGesture {
             if node.isDirectory {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    viewModel.toggleExpand(node, in: root)
-                }
+                viewModel.toggleExpand(node, in: root)
             } else {
                 viewModel.onOpenFile?(node.absolutePath)
             }
@@ -460,15 +500,6 @@ struct FileNodeRow: View {
         .onTapGesture(count: 2) {
             if !node.isDirectory {
                 viewModel.onPinFile?(node.absolutePath)
-            }
-        }
-
-        // Children
-        if node.isDirectory && node.isExpanded {
-            if let children = node.children {
-                ForEach(children) { child in
-                    FileNodeRow(node: child, root: root, depth: depth + 1, viewModel: viewModel)
-                }
             }
         }
     }

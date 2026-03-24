@@ -376,14 +376,45 @@ final class EditorPanel: Panel, ObservableObject {
         } else {
             relativePath = (absolutePath as NSString).lastPathComponent
         }
-        let escapedPath = relativePath
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        let name = (relativePath as NSString).lastPathComponent
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
-        let js = "if (window.cmux && typeof window.cmux.openFile === 'function') { window.cmux.openFile('\(escapedPath)', '\(name)'); }"
+        let fileName = (relativePath as NSString).lastPathComponent
+        let fm = FileManager.default
+
+        // Check size — stat is fast (~0.1ms)
+        if let attrs = try? fm.attributesOfItem(atPath: absolutePath),
+           let size = attrs[.size] as? Int, size > 1_048_576 {
+            let sizeMB = String(format: "%.1f", Double(size) / 1_048_576)
+            displayTitle = fileName
+            let js = "if (window.cmux && window.cmux.showLargeFile) { window.cmux.showLargeFile('\(jsEscape(fileName))', '\(sizeMB) MB — file is too large to open in the editor'); }"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+            return
+        }
+
+        // Read file synchronously — source files are small, this is <1ms
+        guard let data = fm.contents(atPath: absolutePath),
+              let content = String(data: data, encoding: .utf8) else { return }
+
+        if content.count > 5_000_000 {
+            displayTitle = fileName
+            let js = "if (window.cmux && window.cmux.showLargeFile) { window.cmux.showLargeFile('\(jsEscape(fileName))', 'file is too large to open in the editor'); }"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+            return
+        }
+
+        // Encode content as JSON string for safe JS injection
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: [content]),
+              let jsonArray = String(data: jsonData, encoding: .utf8),
+              jsonArray.count > 2 else { return }
+        let jsonString = String(jsonArray[jsonArray.index(after: jsonArray.startIndex)..<jsonArray.index(before: jsonArray.endIndex)])
+
+        let js = "if (window.cmux && window.cmux.openFileWithContent) { window.cmux.openFileWithContent('\(jsEscape(relativePath))', '\(jsEscape(fileName))', \(jsonString)); }"
         webView.evaluateJavaScript(js, completionHandler: nil)
+    }
+
+    private func jsEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\")
+         .replacingOccurrences(of: "'", with: "\\'")
+         .replacingOccurrences(of: "\n", with: "\\n")
+         .replacingOccurrences(of: "\r", with: "\\r")
     }
 }
 

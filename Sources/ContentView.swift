@@ -2115,6 +2115,10 @@ struct ContentView: View {
         }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .top) {
+            SidebarTopScrim(height: sidebarTrafficLightPadding + 20)
+                .allowsHitTesting(false)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarSwitchToSearch)) { _ in
             sidebarTab = .search
             if !sidebarState.isVisible { sidebarState.isVisible = true }
@@ -8458,10 +8462,6 @@ struct VerticalTabsSidebar: View {
                     }
                     .frame(width: 0, height: 0)
                 )
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
-                }
                 .overlay(alignment: .top) {
                     // Match native titlebar behavior in the sidebar top strip:
                     // drag-to-move and double-click action (zoom/minimize).

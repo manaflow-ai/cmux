@@ -106,9 +106,55 @@ struct FileSearchResult: Identifiable {
     let isDirectory: Bool
 }
 
+/// NSTextField wrapper that properly claims and holds first responder from terminals.
+struct SidebarSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var onChanged: () -> Void
+    var shouldFocus: Bool = false
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.placeholderString = placeholder
+        field.isBordered = false
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: 13)
+        field.focusRingType = .none
+        field.delegate = context.coordinator
+        field.cell?.lineBreakMode = .byTruncatingTail
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+        if shouldFocus, !context.coordinator.hasFocused, let window = nsView.window {
+            context.coordinator.hasFocused = true
+            window.makeFirstResponder(nsView)
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: SidebarSearchField
+        var hasFocused = false
+        init(_ parent: SidebarSearchField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+            parent.onChanged()
+        }
+    }
+}
+
 struct FileSearchView: View {
     @ObservedObject var viewModel: FileSearchViewModel
-    @FocusState private var isSearchFocused: Bool
+    @State private var shouldFocusSearch = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -118,12 +164,13 @@ struct FileSearchView: View {
                     .foregroundStyle(.secondary)
                     .font(.system(size: 12))
 
-                TextField(String(localized: "fileSearch.placeholder", defaultValue: "Search files..."), text: $viewModel.query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .focused($isSearchFocused)
-                    .onSubmit { viewModel.search() }
-                    .onChange(of: viewModel.query) { _, _ in viewModel.search() }
+                SidebarSearchField(
+                    text: $viewModel.query,
+                    placeholder: String(localized: "fileSearch.placeholder", defaultValue: "Search files..."),
+                    onChanged: { viewModel.search() },
+                    shouldFocus: shouldFocusSearch
+                )
+                .frame(height: 20)
 
                 if !viewModel.query.isEmpty {
                     Button {
@@ -170,7 +217,10 @@ struct FileSearchView: View {
                 }
             }
         }
-        .onAppear { isSearchFocused = true }
+        .onAppear {
+            // Delay focus to next runloop so the view is mounted
+            DispatchQueue.main.async { shouldFocusSearch = true }
+        }
     }
 }
 

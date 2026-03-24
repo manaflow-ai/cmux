@@ -56,6 +56,23 @@
             await doOpenFile(relativePath, fileName);
         },
 
+        // Called from Swift with file content already read — no bridge round-trips
+        openFileWithContent(relativePath, fileName, content) {
+            if (!editor || !monacoInstance) {
+                window.cmux._pendingOpen = { relativePath, fileName, content };
+                return;
+            }
+            doOpenFileWithContent(relativePath, fileName, content);
+        },
+
+        // Called from Swift when file is too large
+        showLargeFile(fileName, reason) {
+            currentFilePath = null;
+            if (editor) editor.setModel(null);
+            showLargeFileNotice(fileName, reason);
+            notifyActive(fileName);
+        },
+
         // Called from Swift with Monaco paths — triggers init
         initMonaco(vsPath, cssHref) {
             // Inject CSS
@@ -87,6 +104,26 @@
     function hideLargeFileNotice() {
         document.getElementById('large-file-notice').classList.remove('visible');
         document.getElementById('editor-container').style.display = '';
+    }
+
+    function doOpenFileWithContent(relativePath, fileName, content) {
+        hideLargeFileNotice();
+        currentFilePath = relativePath;
+        originalContent = content;
+        isDirty = false;
+        const lang = getLang(fileName);
+        const model = monacoInstance.editor.createModel(content, lang);
+        const oldModel = editor.getModel();
+        editor.setModel(model);
+        if (oldModel) oldModel.dispose();
+        model.onDidChangeContent(() => {
+            const nowDirty = model.getValue() !== originalContent;
+            if (nowDirty !== isDirty) {
+                isDirty = nowDirty;
+                notifyDirty(isDirty);
+            }
+        });
+        notifyActive(fileName);
     }
 
     async function doOpenFile(relativePath, fileName) {
@@ -235,9 +272,13 @@
 
             // Open any file that was queued before Monaco was ready
             if (window.cmux._pendingOpen) {
-                const { relativePath, fileName } = window.cmux._pendingOpen;
+                const pending = window.cmux._pendingOpen;
                 delete window.cmux._pendingOpen;
-                await doOpenFile(relativePath, fileName);
+                if (pending.content !== undefined) {
+                    doOpenFileWithContent(pending.relativePath, pending.fileName, pending.content);
+                } else {
+                    await doOpenFile(pending.relativePath, pending.fileName);
+                }
             }
         });
     }
