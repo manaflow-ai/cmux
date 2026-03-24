@@ -1,5 +1,6 @@
 // cmux Editor — single-file Monaco editor
 // Swift injects Monaco paths via window.cmux.initMonaco(vsPath, cssPath)
+// Swift injects file content directly via window.cmux.openFileWithContent()
 
 (function () {
     'use strict';
@@ -46,17 +47,7 @@
             document.documentElement.style.setProperty('--editor-bg', editorBg);
         },
 
-        // Called from Swift to open a file
-        async openFile(relativePath, fileName) {
-            if (!editor || !monacoInstance) {
-                // Queue for after init
-                window.cmux._pendingOpen = { relativePath, fileName };
-                return;
-            }
-            await doOpenFile(relativePath, fileName);
-        },
-
-        // Called from Swift with file content already read — no bridge round-trips
+        // Called from Swift with file content already read — zero bridge round-trips
         openFileWithContent(relativePath, fileName, content) {
             if (!editor || !monacoInstance) {
                 window.cmux._pendingOpen = { relativePath, fileName, content };
@@ -75,23 +66,18 @@
 
         // Called from Swift with Monaco paths — triggers init
         initMonaco(vsPath, cssHref) {
-            // Inject CSS
             if (cssHref) {
                 const link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.href = cssHref;
                 document.head.appendChild(link);
             }
-            // Load Monaco loader
             const script = document.createElement('script');
             script.onload = function() { bootstrapMonaco(vsPath); };
             script.src = vsPath + '/loader.js';
             document.head.appendChild(script);
         }
     };
-
-    const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
-    const MAX_LINE_COUNT = 50000;
 
     function showLargeFileNotice(fileName, reason) {
         document.getElementById('editor-container').style.display = 'none';
@@ -126,52 +112,7 @@
         notifyActive(fileName);
     }
 
-    async function doOpenFile(relativePath, fileName) {
-        try {
-            // Check file size before reading content
-            const stat = await statFile(relativePath);
-            if (stat.size > MAX_FILE_SIZE) {
-                const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
-                currentFilePath = relativePath;
-                if (editor) editor.setModel(null);
-                showLargeFileNotice(fileName, `${sizeMB} MB — file is too large to open in the editor`);
-                notifyActive(fileName);
-                return;
-            }
-
-            const content = await readFile(relativePath);
-
-            const lineCount = content.split('\n').length;
-            if (lineCount > MAX_LINE_COUNT) {
-                currentFilePath = relativePath;
-                if (editor) editor.setModel(null);
-                showLargeFileNotice(fileName, `${lineCount.toLocaleString()} lines — file is too large to open in the editor`);
-                notifyActive(fileName);
-                return;
-            }
-
-            hideLargeFileNotice();
-            currentFilePath = relativePath;
-            originalContent = content;
-            isDirty = false;
-            const lang = getLang(fileName);
-            const model = monacoInstance.editor.createModel(content, lang);
-            const oldModel = editor.getModel();
-            editor.setModel(model);
-            if (oldModel) oldModel.dispose();
-            model.onDidChangeContent(() => {
-                const nowDirty = model.getValue() !== originalContent;
-                if (nowDirty !== isDirty) {
-                    isDirty = nowDirty;
-                    notifyDirty(isDirty);
-                }
-            });
-            notifyActive(fileName);
-        } catch (err) {
-            console.error('Open failed:', err);
-        }
-    }
-
+    // Bridge for save — writeFile still needs async round-trip
     function post(action, params = {}) {
         return new Promise((resolve, reject) => {
             const requestId = 'r' + (++requestCounter);
@@ -180,9 +121,7 @@
         });
     }
 
-    const readFile = async (path) => (await post('readFile', { path })).content;
     const writeFile = (path, content) => post('writeFile', { path, content });
-    const statFile = (path) => post('statFile', { path });
 
     function notifyDirty(d) {
         window.webkit.messageHandlers.cmuxEditor.postMessage({ action: 'dirtyState', isDirty: d });
@@ -258,10 +197,10 @@
                 stickyScroll: { enabled: true }
             });
 
+            // Cmd+S — save
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => saveActive());
 
             // Disable Monaco shortcuts that conflict with cmux
-            // Cmd+Shift+F (find in files), Cmd+P (quick open), Cmd+Shift+P (command palette)
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF, () => {});
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP, () => {});
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyP, () => {});
@@ -274,11 +213,7 @@
             if (window.cmux._pendingOpen) {
                 const pending = window.cmux._pendingOpen;
                 delete window.cmux._pendingOpen;
-                if (pending.content !== undefined) {
-                    doOpenFileWithContent(pending.relativePath, pending.fileName, pending.content);
-                } else {
-                    await doOpenFile(pending.relativePath, pending.fileName);
-                }
+                doOpenFileWithContent(pending.relativePath, pending.fileName, pending.content);
             }
         });
     }

@@ -91,7 +91,7 @@ final class MonacoWebViewPool {
     }
 
     private func injectMonacoPaths(into webView: WKWebView) {
-        let v = MonacoCache.monacoVersion
+        let v = EditorPanel.monacoVersion
         let vsPath = "https://cdn.jsdelivr.net/npm/monaco-editor@\(v)/min/vs"
         let cssHref = "https://cdn.jsdelivr.net/npm/monaco-editor@\(v)/min/vs/editor/editor.main.css"
 

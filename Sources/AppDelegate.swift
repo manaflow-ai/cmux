@@ -2242,9 +2242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
 
-        // Prefetch Monaco editor files to local cache for instant editor panel loads
-        MonacoCache.prefetch()
-        // Pre-warm editor WebViews so file opens are instant
+        // Pre-warm editor WebViews with Monaco loaded so file opens are instant
         MonacoWebViewPool.shared.warmUp()
 
         DistributedNotificationCenter.default().addObserver(
