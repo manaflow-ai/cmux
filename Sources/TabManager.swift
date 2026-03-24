@@ -757,7 +757,7 @@ class TabManager: ObservableObject {
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
-                    self.markFocusedPanelReadIfActive(tabId: selectedTabId)
+                    self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -850,7 +850,7 @@ class TabManager: ObservableObject {
                 guard let self else { return }
                 guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-                markPanelReadOnFocusIfActive(tabId: tabId, panelId: surfaceId)
+                dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: surfaceId)
             }
         })
 
@@ -1971,7 +1971,9 @@ class TabManager: ObservableObject {
     private func inheritedTerminalConfigForNewWorkspace(
         snapshot: WorkspaceCreationSnapshot
     ) -> ghostty_surface_config_s? {
-        if let sourceSurface = terminalPanelForWorkspaceConfigInheritanceSource(snapshot: snapshot)?.surface.surface {
+        if let panel = terminalPanelForWorkspaceConfigInheritanceSource(snapshot: snapshot),
+           panel.surface.hasLiveSurface,
+           let sourceSurface = panel.surface.surface {
             return cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
@@ -2001,17 +2003,28 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let pinnedCount = snapshot.tabs.filter { $0.isPinned }.count
-        let selectedIndex = snapshot.selectedTabId.flatMap { tabId in
-            snapshot.tabs.firstIndex(where: { $0.id == tabId })
+        let tabs = snapshot.tabs
+        var pinnedCount = 0
+        var selectedIndex: Int?
+        var selectedIsPinned = false
+        let selectedTabId = snapshot.selectedTabId
+
+        for (index, tab) in tabs.enumerated() {
+            if tab.isPinned {
+                pinnedCount += 1
+            }
+            if selectedIndex == nil, tab.id == selectedTabId {
+                selectedIndex = index
+                selectedIsPinned = tab.isPinned
+            }
         }
-        let selectedIsPinned = selectedIndex.map { snapshot.tabs[$0].isPinned } ?? false
+
         return WorkspacePlacementSettings.insertionIndex(
             placement: placement,
             selectedIndex: selectedIndex,
             selectedIsPinned: selectedIsPinned,
             pinnedCount: pinnedCount,
-            totalCount: snapshot.tabs.count
+            totalCount: tabs.count
         )
     }
 
@@ -2882,25 +2895,20 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private func markFocusedPanelReadIfActive(tabId: UUID) {
+    private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard AppFocusState.isAppActive() else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        markPanelReadOnFocusIfActive(tabId: tabId, panelId: panelId)
+        dismissPanelNotificationOnFocusIfActive(tabId: tabId, panelId: panelId)
     }
 
-    private func markPanelReadOnFocusIfActive(tabId: UUID, panelId: UUID) {
+    private func dismissPanelNotificationOnFocusIfActive(tabId: UUID, panelId: UUID) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
         guard AppFocusState.isAppActive() else { return }
-        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: panelId) else { return }
-        if let tab = tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: false)
-        }
-        notificationStore.markRead(forTabId: tabId, surfaceId: panelId)
+        _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: panelId)
     }
 
     @discardableResult
@@ -2908,12 +2916,17 @@ class TabManager: ObservableObject {
         guard selectedTabId == tabId else { return false }
         guard AppFocusState.isAppActive() else { return false }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
-        guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) else { return false }
+        let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
+        let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
+        guard hasUnreadNotification || hasFocusedIndicator else { return false }
+        if hasUnreadNotification {
+            notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+        }
+        notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if let panelId = surfaceId,
            let tab = tabs.first(where: { $0.id == tabId }) {
-            tab.triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: false)
+            tab.triggerNotificationDismissFlash(panelId: panelId)
         }
-        notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
         return true
     }
 
@@ -3022,7 +3035,6 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func focusTabFromNotification(_ tabId: UUID, surfaceId: UUID? = nil) -> Bool {
-        let wasSelected = selectedTabId == tabId
         guard let tab = tabs.first(where: { $0.id == tabId }) else {
 #if DEBUG
             dlog("notification.focus.fail tab=\(tabId.uuidString.prefix(5)) reason=missingTab")
@@ -3049,20 +3061,11 @@ class TabManager: ObservableObject {
         tab.clearSplitZoom()
         suppressFocusFlash = true
         focusTab(tabId, surfaceId: desiredPanelId, suppressFlash: true)
-        if wasSelected {
-            suppressFocusFlash = false
-        }
+        suppressFocusFlash = false
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            guard let self,
-                  let tab = self.tabs.first(where: { $0.id == tabId }) else { return }
-            let targetPanelId = desiredPanelId ?? tab.focusedPanelId
-            guard let targetPanelId,
-                  tab.panels[targetPanelId] != nil else { return }
-            guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
-            guard notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: targetPanelId) else { return }
-            tab.triggerNotificationFocusFlash(panelId: targetPanelId, requiresSplit: false, shouldFocus: true)
-            notificationStore.markRead(forTabId: tabId, surfaceId: targetPanelId)
+        if let targetPanelId = desiredPanelId ?? tab.focusedPanelId,
+           tab.panels[targetPanelId] != nil {
+            _ = dismissNotificationOnDirectInteraction(tabId: tabId, surfaceId: targetPanelId)
         }
         return true
     }

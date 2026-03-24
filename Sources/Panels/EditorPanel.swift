@@ -315,7 +315,7 @@ final class EditorPanel: Panel, ObservableObject {
         messageHandler = nil
     }
 
-    func triggerFlash() {
+    func triggerFlash(reason: WorkspaceAttentionFlashReason = .notificationArrival) {
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken += 1
     }

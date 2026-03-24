@@ -27,10 +27,133 @@ public enum PanelFocusIntent: Equatable {
     case browser(BrowserPanelFocusIntent)
 }
 
+public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
+    case navigation
+    case notificationArrival
+    case notificationDismiss
+    case manualUnreadDismiss
+    case debug
+}
+
+enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
+    case notificationBlue
+    case navigationTeal
+
+    var strokeColor: NSColor {
+        switch self {
+        case .notificationBlue:
+            return .systemBlue
+        case .navigationTeal:
+            return .systemTeal
+        }
+    }
+}
+
+struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
+    let accent: WorkspaceAttentionFlashAccent
+    let glowOpacity: Double
+    let glowRadius: CGFloat
+}
+
+struct WorkspaceAttentionPersistentState: Equatable, Sendable {
+    var unreadPanelIDs: Set<UUID> = []
+    var focusedReadPanelID: UUID?
+    var manualUnreadPanelIDs: Set<UUID> = []
+
+    var indicatorPanelIDs: Set<UUID> {
+        var ids = unreadPanelIDs.union(manualUnreadPanelIDs)
+        if let focusedReadPanelID {
+            ids.insert(focusedReadPanelID)
+        }
+        return ids
+    }
+
+    func hasCompetingIndicator(for panelID: UUID) -> Bool {
+        indicatorPanelIDs.contains(where: { $0 != panelID })
+    }
+}
+
+struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
+    let panelID: UUID
+    let reason: WorkspaceAttentionFlashReason
+    let isAllowed: Bool
+}
+
+enum WorkspaceAttentionCoordinator {
+    static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
+        switch reason {
+        case .navigation:
+            return WorkspaceAttentionFlashPresentation(
+                accent: .navigationTeal,
+                glowOpacity: 0.14,
+                glowRadius: 3
+            )
+        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+            return WorkspaceAttentionFlashPresentation(
+                accent: .notificationBlue,
+                glowOpacity: 0.6,
+                glowRadius: 6
+            )
+        }
+    }
+
+    static func decideFlash(
+        targetPanelID: UUID,
+        reason: WorkspaceAttentionFlashReason,
+        persistentState: WorkspaceAttentionPersistentState
+    ) -> WorkspaceAttentionFlashDecision {
+        let isAllowed: Bool
+        switch reason {
+        case .navigation:
+            isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
+        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+            isAllowed = true
+        }
+
+        return WorkspaceAttentionFlashDecision(
+            panelID: targetPanelID,
+            reason: reason,
+            isAllowed: isAllowed
+        )
+    }
+}
+
 enum FocusFlashCurve: Equatable {
     case easeIn
     case easeOut
 }
+
+enum PanelOverlayRingMetrics {
+    static let inset: CGFloat = 2
+    static let cornerRadius: CGFloat = 6
+    static let lineWidth: CGFloat = 2.5
+
+    static func pathRect(in bounds: CGRect) -> CGRect {
+        bounds.insetBy(dx: inset, dy: inset)
+    }
+}
+
+#if DEBUG
+func cmuxFlashDebugID(_ id: UUID?) -> String {
+    guard let id else { return "nil" }
+    return String(id.uuidString.prefix(6))
+}
+
+func cmuxFlashDebugRect(_ rect: CGRect?) -> String {
+    guard let rect else { return "nil" }
+    return String(
+        format: "%.1f,%.1f %.1fx%.1f",
+        rect.origin.x,
+        rect.origin.y,
+        rect.size.width,
+        rect.size.height
+    )
+}
+
+func cmuxFlashDebugBool(_ value: Bool) -> Int {
+    value ? 1 : 0
+}
+#endif
 
 struct FocusFlashSegment: Equatable {
     let delay: TimeInterval
@@ -44,8 +167,8 @@ enum FocusFlashPattern {
     static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
     static let duration: TimeInterval = 0.9
     static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
-    static let ringInset: Double = 6
-    static let ringCornerRadius: Double = 10
+    static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
+    static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
     static var segments: [FocusFlashSegment] {
         let stepCount = min(curves.count, values.count - 1, keyTimes.count - 1)
@@ -58,6 +181,37 @@ enum FocusFlashPattern {
                 targetOpacity: values[index + 1],
                 curve: curves[index]
             )
+        }
+    }
+
+    static func opacity(at elapsed: TimeInterval) -> Double {
+        guard elapsed >= 0, elapsed <= duration else { return 0 }
+
+        for index in 0..<segments.count {
+            let startTime = keyTimes[index] * duration
+            let endTime = keyTimes[index + 1] * duration
+            if elapsed > endTime {
+                continue
+            }
+
+            let segmentDuration = max(endTime - startTime, 0.0001)
+            let rawProgress = max(0, min(1, (elapsed - startTime) / segmentDuration))
+            let curvedProgress = interpolatedProgress(rawProgress, curve: curves[index])
+            let startOpacity = values[index]
+            let endOpacity = values[index + 1]
+            return startOpacity + ((endOpacity - startOpacity) * curvedProgress)
+        }
+
+        return values.last ?? 0
+    }
+
+    private static func interpolatedProgress(_ progress: Double, curve: FocusFlashCurve) -> Double {
+        switch curve {
+        case .easeIn:
+            return progress * progress
+        case .easeOut:
+            let inverse = 1 - progress
+            return 1 - (inverse * inverse)
         }
     }
 }
@@ -90,7 +244,7 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     func unfocus()
 
     /// Trigger a focus flash animation for this panel.
-    func triggerFlash()
+    func triggerFlash(reason: WorkspaceAttentionFlashReason)
 
     /// Capture the panel-local focus target that should be restored later.
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent
@@ -149,5 +303,9 @@ extension Panel {
         _ = intent
         _ = window
         return false
+    }
+
+    func triggerFlash() {
+        triggerFlash(reason: .navigation)
     }
 }

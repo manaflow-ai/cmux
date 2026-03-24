@@ -3735,7 +3735,10 @@ private struct OmnibarTextFieldRepresentable: NSViewRepresentable {
 #endif
             let keyCode = event.keyCode
             let modifiers = event.modifierFlags.intersection([.command, .control, .shift, .option, .function])
-            let lowered = event.charactersIgnoringModifiers?.lowercased() ?? ""
+            // When a non-Latin input source is active (Korean, Chinese, Japanese),
+            // charactersIgnoringModifiers returns non-ASCII characters. Normalize
+            // via KeyboardLayout so Cmd/Ctrl+N/P navigation works across input sources.
+            let lowered = KeyboardLayout.normalizedCharacters(for: event)
             let hasCommandOrControl = modifiers.contains(.command) || modifiers.contains(.control)
 
             // Cmd/Ctrl+N and Cmd/Ctrl+P should repeat while held.
@@ -5034,10 +5037,12 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // Origin-only frame churn is common while the surrounding split layout
                 // settles. Reapplying the side-docked inspector at the same size fights
                 // WebKit's own dock layout and shows up as visible flicker.
-                if !isHostedInspectorSideDockActive() &&
-                    !isHostedInspectorDividerDragActive &&
-                    !hasStoredHostedInspectorWidthPreference {
-                    captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout.sameSize")
+                if !isHostedInspectorDividerDragActive {
+                    if hasStoredHostedInspectorWidthPreference {
+                        reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: "host.layout.sameSize")
+                    } else if !isHostedInspectorSideDockActive() {
+                        captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout.sameSize")
+                    }
                 }
                 updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout.sameSize")
                 notifyGeometryChangedIfNeeded()
@@ -5049,7 +5054,9 @@ struct WebViewRepresentable: NSViewRepresentable {
             lastHostedInspectorLayoutBoundsSize = bounds.size
             if isHostedInspectorSideDockActive() {
                 layoutHostedInspectorSideDockIfNeeded(reason: "host.layout.sideDock")
-            } else if !hasStoredHostedInspectorWidthPreference {
+            } else if hasStoredHostedInspectorWidthPreference {
+                reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: "host.layout")
+            } else {
                 captureHostedInspectorPreferredWidthFromCurrentLayout(reason: "host.layout")
             }
             updateHostedInspectorDockControlAvailabilityIfNeeded(reason: "host.layout")
@@ -5127,26 +5134,24 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return nil
             }
             if let hostedInspectorHit {
-                let isSideDockHit = isHostedInspectorSideDockHit(hostedInspectorHit)
                 if let nativeHit = nativeHostedInspectorHit(at: point, hostedInspectorHit: hostedInspectorHit) {
 #if DEBUG
                     debugLogHitTest(stage: "hitTest.hostedInspectorNative", point: point, passThrough: false, hitView: nativeHit)
 #endif
-                    if !isSideDockHit ||
-                        (nativeHit !== hostedInspectorHit.inspectorView &&
-                            !hostedInspectorHit.inspectorView.isDescendant(of: nativeHit)) {
+                    if nativeHit !== hostedInspectorHit.inspectorView &&
+                        !hostedInspectorHit.inspectorView.isDescendant(of: nativeHit) {
                         return nativeHit
                     }
                 }
 #if DEBUG
                 debugLogHitTest(
-                    stage: isSideDockHit ? "hitTest.hostedInspectorManual" : "hitTest.hostedInspectorFallback",
+                    stage: "hitTest.hostedInspectorManual",
                     point: point,
                     passThrough: false,
-                    hitView: hostedInspectorHit.inspectorView
+                    hitView: self
                 )
 #endif
-                return isSideDockHit ? self : hostedInspectorHit.inspectorView
+                return self
             }
             let hit = super.hitTest(point)
 #if DEBUG
@@ -5157,8 +5162,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             let point = convert(event.locationInWindow, from: nil)
-            guard let hostedInspectorHit = hostedInspectorDividerHit(at: point),
-                  isHostedInspectorSideDockHit(hostedInspectorHit) else {
+            guard let hostedInspectorHit = hostedInspectorDividerHit(at: point) else {
                 super.mouseDown(with: event)
                 return
             }
@@ -5255,7 +5259,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                     )
                 )
 #endif
-                layoutHostedInspectorSideDockIfNeeded(reason: "drag.end")
+                reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: "drag.end")
             }
             super.mouseUp(with: event)
         }
@@ -5270,7 +5274,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // Pass through a narrow leading-edge band so the shared sidebar divider
             // handle can receive hover/click even when WKWebView is attached here.
             // Keeping this deterministic avoids flicker from dynamic left-edge scans.
-            guard point.x >= 0, point.x <= SidebarResizeInteraction.hitWidthPerSide else {
+            guard point.x >= 0, point.x <= SidebarResizeInteraction.contentSideHitWidth else {
                 return false
             }
             guard let window, let contentView = window.contentView else {
@@ -5492,9 +5496,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                 guard let self else { return }
                 self.hostedInspectorReapplyWorkItem = nil
                 _ = self.promoteHostedInspectorSideDockFromCurrentLayoutIfNeeded()
-                if self.isHostedInspectorSideDockActive() {
+                if self.hasStoredHostedInspectorWidthPreference {
                     self.reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: reason)
-                } else if !self.hasStoredHostedInspectorWidthPreference {
+                } else {
                     self.captureHostedInspectorPreferredWidthFromCurrentLayout(reason: reason)
                 }
             }
@@ -5555,7 +5559,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func reapplyHostedInspectorDividerToStoredWidthIfNeeded(reason: String) {
             guard !isApplyingHostedInspectorLayout else { return }
             guard let hit = hostedInspectorDividerCandidate() else { return }
-            guard isHostedInspectorSideDockHit(hit) else { return }
             guard let preferredWidth = resolvedPreferredHostedInspectorWidth(in: hit.containerView.bounds) else {
                 return
             }
@@ -6095,6 +6098,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                 visibleInUI: coordinator.desiredPortalVisibleInUI,
                 zPriority: coordinator.desiredPortalZPriority
             )
+            BrowserWindowPortalRegistry.refresh(
+                webView: webView,
+                reason: "portalHostBind.didMoveToWindow"
+            )
             BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                 for: webView,
                 height: coordinator.desiredPortalVisibleInUI ? paneTopChromeHeight : 0
@@ -6125,6 +6132,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority
+                )
+                BrowserWindowPortalRegistry.refresh(
+                    webView: webView,
+                    reason: "portalHostBind.geometryChanged"
                 )
                 BrowserWindowPortalRegistry.updatePaneTopChromeHeight(
                     for: webView,
@@ -6162,6 +6173,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                     to: portalAnchorView,
                     visibleInUI: coordinator.desiredPortalVisibleInUI,
                     zPriority: coordinator.desiredPortalZPriority
+                )
+                // Force a rendering-state reattach after portal host replacement
+                // (e.g. after a pane split). Without this, WKWebView can freeze
+                // because _exitInWindow/_enterInWindow are never cycled when the
+                // web view is reparented to a new container during bind.
+                BrowserWindowPortalRegistry.refresh(
+                    webView: webView,
+                    reason: "portalHostBind"
                 )
                 coordinator.lastPortalHostId = hostId
                 coordinator.lastSynchronizedHostGeometryRevision = geometryRevision

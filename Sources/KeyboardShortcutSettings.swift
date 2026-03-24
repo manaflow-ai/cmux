@@ -21,8 +21,10 @@ enum KeyboardShortcutSettings {
         // Navigation
         case nextSurface
         case prevSurface
+        case selectSurfaceByNumber
         case nextSidebarTab
         case prevSidebarTab
+        case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
         case closeWorkspace
@@ -61,8 +63,10 @@ enum KeyboardShortcutSettings {
             case .triggerFlash: return String(localized: "shortcut.flashFocusedPanel.label", defaultValue: "Flash Focused Panel")
             case .nextSurface: return String(localized: "shortcut.nextSurface.label", defaultValue: "Next Surface")
             case .prevSurface: return String(localized: "shortcut.previousSurface.label", defaultValue: "Previous Surface")
+            case .selectSurfaceByNumber: return String(localized: "shortcut.selectSurfaceByNumber.label", defaultValue: "Select Surface 1…9")
             case .nextSidebarTab: return String(localized: "shortcut.nextWorkspace.label", defaultValue: "Next Workspace")
             case .prevSidebarTab: return String(localized: "shortcut.previousWorkspace.label", defaultValue: "Previous Workspace")
+            case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
@@ -95,6 +99,7 @@ enum KeyboardShortcutSettings {
             case .showNotifications: return "shortcut.showNotifications"
             case .jumpToUnread: return "shortcut.jumpToUnread"
             case .triggerFlash: return "shortcut.triggerFlash"
+            case .selectWorkspaceByNumber: return "shortcut.selectWorkspaceByNumber"
             case .nextSidebarTab: return "shortcut.nextSidebarTab"
             case .prevSidebarTab: return "shortcut.prevSidebarTab"
             case .renameTab: return "shortcut.renameTab"
@@ -111,6 +116,7 @@ enum KeyboardShortcutSettings {
             case .splitBrowserDown: return "shortcut.splitBrowserDown"
             case .nextSurface: return "shortcut.nextSurface"
             case .prevSurface: return "shortcut.prevSurface"
+            case .selectSurfaceByNumber: return "shortcut.selectSurfaceByNumber"
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
             case .openEditor: return "shortcut.openEditor"
@@ -172,12 +178,16 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "]", command: true, shift: true, option: false, control: false)
             case .prevSurface:
                 return StoredShortcut(key: "[", command: true, shift: true, option: false, control: false)
+            case .selectSurfaceByNumber:
+                return StoredShortcut(key: "1", command: false, shift: false, option: false, control: true)
             case .newSurface:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .openEditor:
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
+            case .selectWorkspaceByNumber:
+                return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
@@ -190,7 +200,37 @@ enum KeyboardShortcutSettings {
         }
 
         func tooltip(_ base: String) -> String {
-            "\(base) (\(KeyboardShortcutSettings.shortcut(for: self).displayString))"
+            "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+        }
+
+        var usesNumberedDigitMatching: Bool {
+            switch self {
+            case .selectSurfaceByNumber, .selectWorkspaceByNumber:
+                return true
+            default:
+                return false
+            }
+        }
+
+        func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+            if usesNumberedDigitMatching {
+                return shortcut.modifierDisplayString + "1…9"
+            }
+            return shortcut.displayString
+        }
+
+        func normalizedRecordedShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
+            guard usesNumberedDigitMatching else { return shortcut }
+            guard let digit = Int(shortcut.key), (1...9).contains(digit) else {
+                return nil
+            }
+            return StoredShortcut(
+                key: "1",
+                command: shortcut.command,
+                shift: shortcut.shift,
+                option: shortcut.option,
+                control: shortcut.control
+            )
         }
     }
 
@@ -203,7 +243,16 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
-        if let data = try? JSONEncoder().encode(shortcut) {
+        let storedShortcut: StoredShortcut
+        if let normalizedShortcut = action.normalizedRecordedShortcut(shortcut) {
+            storedShortcut = normalizedShortcut
+        } else if action.usesNumberedDigitMatching {
+            return
+        } else {
+            storedShortcut = shortcut
+        }
+
+        if let data = try? JSONEncoder().encode(storedShortcut) {
             UserDefaults.standard.set(data, forKey: action.defaultsKey)
         }
         postDidChangeNotification(action: action)
@@ -272,7 +321,9 @@ enum KeyboardShortcutSettings {
 
     static func nextSurfaceShortcut() -> StoredShortcut { shortcut(for: .nextSurface) }
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
+    static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
+    static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
 
     static func openEditorShortcut() -> StoredShortcut { shortcut(for: .openEditor) }
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
@@ -289,22 +340,27 @@ struct StoredShortcut: Codable, Equatable {
     var control: Bool
 
     var displayString: String {
+        modifierDisplayString + keyDisplayString
+    }
+
+    var modifierDisplayString: String {
         var parts: [String] = []
         if control { parts.append("⌃") }
         if option { parts.append("⌥") }
         if shift { parts.append("⇧") }
         if command { parts.append("⌘") }
-        let keyText: String
+        return parts.joined()
+    }
+
+    var keyDisplayString: String {
         switch key {
         case "\t":
-            keyText = "TAB"
+            return "TAB"
         case "\r":
-            keyText = "↩"
+            return "↩"
         default:
-            keyText = key.uppercased()
+            return key.uppercased()
         }
-        parts.append(keyText)
-        return parts.joined()
     }
 
     var modifierFlags: NSEvent.ModifierFlags {
@@ -442,6 +498,8 @@ struct StoredShortcut: Codable, Equatable {
 struct KeyboardShortcutRecorder: View {
     let label: String
     @Binding var shortcut: StoredShortcut
+    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var transformRecordedShortcut: (StoredShortcut) -> StoredShortcut? = { $0 }
     @State private var isRecording = false
 
     var body: some View {
@@ -450,7 +508,12 @@ struct KeyboardShortcutRecorder: View {
 
             Spacer()
 
-            ShortcutRecorderButton(shortcut: $shortcut, isRecording: $isRecording)
+            ShortcutRecorderButton(
+                shortcut: $shortcut,
+                isRecording: $isRecording,
+                displayString: displayString,
+                transformRecordedShortcut: transformRecordedShortcut
+            )
                 .frame(width: 120)
         }
     }
@@ -459,10 +522,14 @@ struct KeyboardShortcutRecorder: View {
 private struct ShortcutRecorderButton: NSViewRepresentable {
     @Binding var shortcut: StoredShortcut
     @Binding var isRecording: Bool
+    let displayString: (StoredShortcut) -> String
+    let transformRecordedShortcut: (StoredShortcut) -> StoredShortcut?
 
     func makeNSView(context: Context) -> ShortcutRecorderNSButton {
         let button = ShortcutRecorderNSButton()
         button.shortcut = shortcut
+        button.displayString = displayString
+        button.transformRecordedShortcut = transformRecordedShortcut
         button.onShortcutRecorded = { newShortcut in
             shortcut = newShortcut
             isRecording = false
@@ -475,12 +542,16 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
 
     func updateNSView(_ nsView: ShortcutRecorderNSButton, context: Context) {
         nsView.shortcut = shortcut
+        nsView.displayString = displayString
+        nsView.transformRecordedShortcut = transformRecordedShortcut
         nsView.updateTitle()
     }
 }
 
 private class ShortcutRecorderNSButton: NSButton {
     var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault
+    var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var transformRecordedShortcut: (StoredShortcut) -> StoredShortcut? = { $0 }
     var onShortcutRecorded: ((StoredShortcut) -> Void)?
     var onRecordingChanged: ((Bool) -> Void)?
     private var isRecording = false
@@ -508,7 +579,7 @@ private class ShortcutRecorderNSButton: NSButton {
         if isRecording {
             title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
         } else {
-            title = shortcut.displayString
+            title = displayString(shortcut)
         }
     }
 
@@ -534,8 +605,12 @@ private class ShortcutRecorderNSButton: NSButton {
             }
 
             if let newShortcut = StoredShortcut.from(event: event) {
-                self.shortcut = newShortcut
-                self.onShortcutRecorded?(newShortcut)
+                guard let transformedShortcut = self.transformRecordedShortcut(newShortcut) else {
+                    NSSound.beep()
+                    return nil
+                }
+                self.shortcut = transformedShortcut
+                self.onShortcutRecorded?(transformedShortcut)
                 self.stopRecording()
                 return nil
             }

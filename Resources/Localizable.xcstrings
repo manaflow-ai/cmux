@@ -57395,13 +57395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show Cmd/Ctrl-Hold Shortcut Hints"
+            "value": "Show Shortcut Hints While Holding Modifiers"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd/Ctrl長押しのショートカットヒントを表示"
+            "value": "修飾キー長押しでショートカットヒントを表示"
           }
         },
         "zh-Hans": {
@@ -57508,13 +57508,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Holding Cmd or Ctrl keeps shortcut hint pills hidden."
+            "value": "Holding shortcut modifiers keeps shortcut hint pills hidden."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CmdまたはCtrlを長押ししてもショートカットヒントピルは非表示のままです。"
+            "value": "ショートカットの修飾キーを長押ししてもショートカットヒントピルは非表示のままです。"
           }
         },
         "zh-Hans": {
@@ -57621,13 +57621,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Holding Cmd (sidebar/titlebar) or Ctrl/Cmd (pane tabs) shows shortcut hint pills."
+            "value": "Holding the configured shortcut modifiers shows shortcut hint pills."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cmd（サイドバー/タイトルバー）またはCtrl/Cmd（ペインタブ）を長押しするとショートカットヒントピルが表示されます。"
+            "value": "設定されたショートカットの修飾キーを長押しするとショートカットヒントピルが表示されます。"
           }
         },
         "zh-Hans": {
@@ -61453,6 +61453,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Çalışma Alanını Yeniden Adlandır"
+          }
+        }
+      }
+    },
+    "shortcut.selectSurfaceByNumber.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Surface 1…9"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーフェス 1…9 を選択"
+          }
+        }
+      }
+    },
+    "shortcut.selectWorkspaceByNumber.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select Workspace 1…9"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース 1…9 を選択"
           }
         }
       }

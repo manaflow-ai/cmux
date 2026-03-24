@@ -166,6 +166,8 @@ int main(int argc, const char *argv[]) {
         NSString *intervalArgument = argumentValue(arguments, @"--interval-ms");
         NSInteger intervalMs = intervalArgument.length > 0 ? intervalArgument.integerValue : 40;
         useconds_t intervalMicros = (useconds_t)(MAX(1, intervalMs) * 1000);
+        NSString *startDelayArgument = argumentValue(arguments, @"--start-delay-ms");
+        NSInteger startDelayMs = startDelayArgument.length > 0 ? startDelayArgument.integerValue : 0;
 
         unsigned int width = 0;
         unsigned int height = 0;
@@ -229,7 +231,9 @@ int main(int argc, const char *argv[]) {
 
         if (iterations > 0 && modeSpecs.count > 1) {
             dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-                if (startPath.length > 0) {
+                if (startDelayMs > 0) {
+                    usleep((useconds_t)(startDelayMs * 1000));
+                } else if (startPath.length > 0) {
                     while (![[NSFileManager defaultManager] fileExistsAtPath:startPath]) {
                         usleep(20 * 1000);
                     }

@@ -1,18 +1,33 @@
 import Cocoa
 import Sparkle
 
+enum UpdateUserInitiatedCheckPresentation {
+    case dialog
+    case custom
+}
+
 /// SPUUserDriver that updates the view model for custom update UI.
 class UpdateDriver: NSObject, SPUUserDriver {
     let viewModel: UpdateViewModel
+    private let standard: SPUStandardUserDriver
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private var lastCheckStart: Date?
     private var pendingCheckTransition: DispatchWorkItem?
     private var checkTimeoutWorkItem: DispatchWorkItem?
     private var lastFeedURLString: String?
+    private var pendingUserInitiatedCheckPresentation: UpdateUserInitiatedCheckPresentation?
+    private var activeUserInitiatedCheckPresentation: UpdateUserInitiatedCheckPresentation?
 
-    init(viewModel: UpdateViewModel, hostBundle _: Bundle) {
+    init(viewModel: UpdateViewModel, hostBundle: Bundle) {
         self.viewModel = viewModel
+        self.standard = SPUStandardUserDriver(hostBundle: hostBundle, delegate: nil)
         super.init()
+    }
+
+    func prepareForUserInitiatedCheck(presentation: UpdateUserInitiatedCheckPresentation) {
+        runOnMain { [weak self] in
+            self?.pendingUserInitiatedCheckPresentation = presentation
+        }
     }
 
     func show(_ request: SPUUpdatePermissionRequest,
@@ -36,28 +51,65 @@ class UpdateDriver: NSObject, SPUUserDriver {
     }
 
     func showUserInitiatedUpdateCheck(cancellation: @escaping () -> Void) {
-        UpdateLogStore.shared.append("show user-initiated update check")
-        beginChecking(cancel: cancellation)
+        let presentation = activateUserInitiatedCheckPresentation()
+        UpdateLogStore.shared.append("show user-initiated update check (\(describe(presentation)))")
+        let cancel = { [weak self] in
+            self?.finishUserInitiatedCheckPresentation()
+            cancellation()
+        }
+
+        switch presentation {
+        case .dialog:
+            clearCustomStateForStandardPresentation()
+            standard.showUserInitiatedUpdateCheck(cancellation: cancel)
+        case .custom:
+            beginChecking(cancel: cancel)
+        }
     }
 
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show update found: \(appcastItem.displayVersionString)")
+        if usesStandardPresentation {
+            clearCustomStateForStandardPresentation()
+            standard.showUpdateFound(with: appcastItem, state: state) { [weak self] choice in
+                if choice != .install {
+                    self?.finishUserInitiatedCheckPresentation()
+                }
+                reply(choice)
+            }
+            return
+        }
         setStateAfterMinimumCheckDelay(.updateAvailable(.init(appcastItem: appcastItem, reply: reply)))
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
+        if usesStandardPresentation {
+            standard.showUpdateReleaseNotes(with: downloadData)
+        }
         // cmux uses Sparkle's UI for release notes links instead.
     }
 
     func showUpdateReleaseNotesFailedToDownloadWithError(_ error: any Error) {
+        if usesStandardPresentation {
+            standard.showUpdateReleaseNotesFailedToDownloadWithError(error)
+        }
         // Release notes are handled via link buttons.
     }
 
     func showUpdateNotFoundWithError(_ error: any Error,
                                      acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update not found: \(formatErrorForLog(error))")
+        if usesStandardPresentation {
+            clearCustomStateForStandardPresentation()
+            standard.showUpdateNotFoundWithError(error) { [weak self] in
+                self?.finishUserInitiatedCheckPresentation()
+                acknowledgement()
+            }
+            return
+        }
+        clearActiveUserInitiatedCheckPresentation()
         setStateAfterMinimumCheckDelay(.notFound(.init(acknowledgement: acknowledgement)))
     }
 
@@ -65,6 +117,15 @@ class UpdateDriver: NSObject, SPUUserDriver {
                           acknowledgement: @escaping () -> Void) {
         let details = formatErrorForLog(error)
         UpdateLogStore.shared.append("show updater error: \(details)")
+        if usesStandardPresentation {
+            clearCustomStateForStandardPresentation()
+            standard.showUpdaterError(error) { [weak self] in
+                self?.finishUserInitiatedCheckPresentation()
+                acknowledgement()
+            }
+            return
+        }
+        clearActiveUserInitiatedCheckPresentation()
         setState(.error(.init(
             error: error,
             retry: { [weak viewModel] in
@@ -85,6 +146,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         UpdateLogStore.shared.append("show download initiated")
+        if usesStandardPresentation {
+            standard.showDownloadInitiated(cancellation: cancellation)
+            return
+        }
         setState(.downloading(.init(
             cancel: cancellation,
             expectedLength: nil,
@@ -93,6 +158,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidReceiveExpectedContentLength(_ expectedContentLength: UInt64) {
         UpdateLogStore.shared.append("download expected length: \(expectedContentLength)")
+        if usesStandardPresentation {
+            standard.showDownloadDidReceiveExpectedContentLength(expectedContentLength)
+            return
+        }
         guard case let .downloading(downloading) = viewModel.state else {
             return
         }
@@ -105,6 +174,10 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
         UpdateLogStore.shared.append("download received data: \(length)")
+        if usesStandardPresentation {
+            standard.showDownloadDidReceiveData(ofLength: length)
+            return
+        }
         guard case let .downloading(downloading) = viewModel.state else {
             return
         }
@@ -117,21 +190,37 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showDownloadDidStartExtractingUpdate() {
         UpdateLogStore.shared.append("show extraction started")
+        if usesStandardPresentation {
+            standard.showDownloadDidStartExtractingUpdate()
+            return
+        }
         setState(.extracting(.init(progress: 0)))
     }
 
     func showExtractionReceivedProgress(_ progress: Double) {
         UpdateLogStore.shared.append(String(format: "show extraction progress: %.2f", progress))
+        if usesStandardPresentation {
+            standard.showExtractionReceivedProgress(progress)
+            return
+        }
         setState(.extracting(.init(progress: progress)))
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         UpdateLogStore.shared.append("show ready to install")
+        if usesStandardPresentation {
+            standard.showReady(toInstallAndRelaunch: reply)
+            return
+        }
         reply(.install)
     }
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         UpdateLogStore.shared.append("show installing update")
+        if usesStandardPresentation {
+            standard.showInstallingUpdate(withApplicationTerminated: applicationTerminated, retryTerminatingApplication: retryTerminatingApplication)
+            return
+        }
         setState(.installing(.init(
             retryTerminatingApplication: retryTerminatingApplication,
             dismiss: { [weak viewModel] in
@@ -142,16 +231,29 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
         UpdateLogStore.shared.append("show update installed (relaunched=\(relaunched))")
+        if usesStandardPresentation {
+            standard.showUpdateInstalledAndRelaunched(relaunched) { [weak self] in
+                self?.finishUserInitiatedCheckPresentation()
+                acknowledgement()
+            }
+            return
+        }
         setState(.idle)
         acknowledgement()
     }
 
     func showUpdateInFocus() {
-        // No-op; cmux never shows Sparkle dialogs.
+        if usesStandardPresentation {
+            standard.showUpdateInFocus()
+        }
     }
 
     func dismissUpdateInstallation() {
         UpdateLogStore.shared.append("dismiss update installation")
+        if usesStandardPresentation {
+            standard.dismissUpdateInstallation()
+            return
+        }
         if case .error = viewModel.state {
             UpdateLogStore.shared.append("dismiss update installation ignored (error visible)")
             return
@@ -230,6 +332,7 @@ class UpdateDriver: NSObject, SPUUserDriver {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard case .checking = self.viewModel.state else { return }
+            self.clearActiveUserInitiatedCheckPresentation()
             self.setState(.notFound(.init(acknowledgement: {})))
         }
         checkTimeoutWorkItem = workItem
@@ -275,6 +378,19 @@ class UpdateDriver: NSObject, SPUUserDriver {
         return parts.joined(separator: " | ")
     }
 
+    func finishUserInitiatedCheckPresentation() {
+        runOnMain { [weak self] in
+            self?.pendingUserInitiatedCheckPresentation = nil
+            self?.activeUserInitiatedCheckPresentation = nil
+        }
+    }
+
+    private func clearActiveUserInitiatedCheckPresentation() {
+        runOnMain { [weak self] in
+            self?.activeUserInitiatedCheckPresentation = nil
+        }
+    }
+
     private func describe(_ state: UpdateState) -> String {
         switch state {
         case .idle:
@@ -299,6 +415,45 @@ class UpdateDriver: NSObject, SPUUserDriver {
             return String(format: "extracting(%.0f%%)", extracting.progress * 100)
         case .installing(let installing):
             return "installing(auto=\(installing.isAutoUpdate))"
+        }
+    }
+
+    private func describe(_ presentation: UpdateUserInitiatedCheckPresentation) -> String {
+        switch presentation {
+        case .dialog:
+            return "dialog"
+        case .custom:
+            return "custom"
+        }
+    }
+
+    private var usesStandardPresentation: Bool {
+        currentUserInitiatedCheckPresentation() == .dialog
+    }
+
+    private func currentUserInitiatedCheckPresentation() -> UpdateUserInitiatedCheckPresentation? {
+        activeUserInitiatedCheckPresentation ?? pendingUserInitiatedCheckPresentation
+    }
+
+    private func activateUserInitiatedCheckPresentation() -> UpdateUserInitiatedCheckPresentation {
+        let presentation = currentUserInitiatedCheckPresentation() ?? .dialog
+        activeUserInitiatedCheckPresentation = presentation
+        pendingUserInitiatedCheckPresentation = nil
+        return presentation
+    }
+
+    private func clearCustomStateForStandardPresentation() {
+        runOnMain { [weak self] in
+            guard let self else { return }
+            pendingCheckTransition?.cancel()
+            pendingCheckTransition = nil
+            checkTimeoutWorkItem?.cancel()
+            checkTimeoutWorkItem = nil
+            lastCheckStart = nil
+            if case .idle = viewModel.state {
+                return
+            }
+            applyState(.idle)
         }
     }
 

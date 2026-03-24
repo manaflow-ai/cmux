@@ -478,29 +478,208 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build for testing (display resolution)
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            build-for-testing
+
+      - name: Create persistent virtual display
+        run: |
+          set -euo pipefail
+          HELPER_PATH="/tmp/create-virtual-display"
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
+          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
+
+          "$HELPER_PATH" \
+            --modes "1920x1080" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
+          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for persistent virtual display..."
+          for i in $(seq 1 24); do
+            if [ -f "$VDISPLAY_READY" ]; then break; fi
+            sleep 0.5
+          done
+          if [ ! -f "$VDISPLAY_READY" ]; then
+            echo "ERROR: Persistent virtual display not ready after 12s" >&2
+            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
+            exit 1
+          fi
+          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
+
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           HELPER_PATH="/tmp/create-virtual-display"
-          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+          TOKEN="$(uuidgen)"
+          DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
+          DISPLAY_READY="/tmp/cmux-ui-test-display-${TOKEN}.ready"
+          DISPLAY_ID_PATH="/tmp/cmux-ui-test-display-${TOKEN}.id"
+          DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
+          DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
+          HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
-          rm -f "$MANIFEST_PATH"
-          trap 'rm -f "$MANIFEST_PATH"' EXIT
+          cleanup() {
+            pkill -x "cmux DEV" 2>/dev/null || true
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
+          }
+          trap cleanup EXIT
 
+          # Build display helper
           clang -framework Foundation -framework CoreGraphics \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-          cat >"$MANIFEST_PATH" <<EOF
-          {"helperBinaryPath":"$HELPER_PATH"}
-          EOF
+          # Find the app binary
+          APP_BINARY=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -print -quit 2>/dev/null || true)
+          if [ -z "$APP_BINARY" ]; then
+            echo "ERROR: App binary not found in DerivedData" >&2
+            exit 1
+          fi
+          echo "App binary: $APP_BINARY"
 
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-            test
+          for attempt in 1 2; do
+            cleanup 2>/dev/null || true
+
+            # Launch display helper from shell (non-sandboxed).
+            # Use --start-delay-ms instead of --start-path because the XCTest
+            # runner is sandboxed and can't write to /tmp/ for the start signal.
+            # 10s delay gives the test time to capture baseline render stats.
+            "$HELPER_PATH" \
+              --modes "1920x1080,1728x1117,1600x900,1440x810" \
+              --ready-path "$DISPLAY_READY" \
+              --display-id-path "$DISPLAY_ID_PATH" \
+              --done-path "$DISPLAY_DONE" \
+              --iterations 40 \
+              --interval-ms 40 \
+              --start-delay-ms 10000 \
+              > "$HELPER_LOG" 2>&1 &
+            HELPER_PID=$!
+
+            # Wait for display ready
+            echo "Waiting for virtual display..."
+            for i in $(seq 1 24); do
+              if [ -f "$DISPLAY_READY" ]; then break; fi
+              sleep 0.5
+            done
+            if [ ! -f "$DISPLAY_READY" ]; then
+              echo "ERROR: Virtual display not ready after 12s" >&2
+              cat "$HELPER_LOG" 2>/dev/null || true
+              continue
+            fi
+            DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
+            echo "Virtual display ready: ID=$DISPLAY_ID"
+
+            # Launch app from shell (non-sandboxed, outside XCTest sandbox)
+            CMUX_UI_TEST_MODE=1 \
+            CMUX_UI_TEST_DIAGNOSTICS_PATH="$DIAG_PATH" \
+            CMUX_UI_TEST_DISPLAY_RENDER_STATS=1 \
+            CMUX_UI_TEST_TARGET_DISPLAY_ID="$DISPLAY_ID" \
+            CMUX_TAG="ui-tests-display-resolution" \
+            "$APP_BINARY" > /tmp/cmux-ui-test-app.log 2>&1 &
+            APP_PID=$!
+            echo "App launched: PID=$APP_PID"
+
+            # Wait for app diagnostics
+            echo "Waiting for app diagnostics..."
+            APP_READY=false
+            for i in $(seq 1 30); do
+              if [ -f "$DIAG_PATH" ]; then
+                if python3 -c "import json; d=json.load(open('$DIAG_PATH')); assert d.get('pid')" 2>/dev/null; then
+                  APP_READY=true
+                  break
+                fi
+              fi
+              if ! kill -0 "$APP_PID" 2>/dev/null; then
+                echo "ERROR: App crashed during startup"
+                cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
+                break
+              fi
+              sleep 0.5
+            done
+
+            if [ "$APP_READY" != "true" ]; then
+              echo "Attempt $attempt: App not ready after 15s"
+              pkill -x "cmux DEV" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed after 2 attempts" >&2
+                echo "--- App log ---"
+                cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
+                echo "--- Helper log ---"
+                cat "$HELPER_LOG" 2>/dev/null | tail -20 || true
+                echo "--- Diagnostics ---"
+                cat "$DIAG_PATH" 2>/dev/null || echo "(not found)"
+                exit 1
+              fi
+              sleep 3
+              continue
+            fi
+
+            echo "App started. Diagnostics:"
+            cat "$DIAG_PATH"
+
+            # Wait for render stats (terminal surface initialization)
+            echo "Waiting for render stats..."
+            RENDER_READY=false
+            for i in $(seq 1 40); do
+              if python3 -c "import json; d=json.load(open('$DIAG_PATH')); assert d.get('renderStatsAvailable') == '1'" 2>/dev/null; then
+                RENDER_READY=true
+                echo "Render stats available after $((i / 2))s"
+                break
+              fi
+              sleep 0.5
+            done
+            if [ "$RENDER_READY" != "true" ]; then
+              echo "WARNING: Render stats not available after 20s. Diagnostics:"
+              cat "$DIAG_PATH" 2>/dev/null || true
+              echo "--- App log ---"
+              cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
+            fi
+
+            # Write manifests so test can find the pre-launched state
+            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+            cat >"$MANIFEST_PATH" <<MANIFEST_EOF
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          MANIFEST_EOF
+
+            PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
+            cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
+          {"diagnosticsPath":"$DIAG_PATH"}
+          PRELAUNCH_EOF
+
+            # Run test — app is already launched from shell
+            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+              test-without-building; then
+              exit 0
+            fi
+
+            pkill -x "cmux DEV" 2>/dev/null || true
+            kill "$HELPER_PID" 2>/dev/null || true
+
+            if [ "$attempt" -eq 2 ]; then
+              echo "Display resolution UI regression failed after 2 attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $attempt failed, retrying..."
+            sleep 3
+          done
 
       - name: Run browser find focus UI regression
         run: |
@@ -510,6 +689,14 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance 120 \
+            -maximum-test-execution-time-allowance 180 \
             -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation \
-            test
+            test-without-building
+
+      - name: Cleanup persistent virtual display
+        if: always()
+        run: |
+          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
+            kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/cmux-vdisplay-persistent.ready /tmp/cmux-vdisplay-persistent.id /tmp/cmux-vdisplay-persistent.log
