@@ -15,21 +15,22 @@ On new Claude Code session:
 
 ### 2. Stop / Turn End (`cmux-tab-namer.sh`)
 
-After each Claude Code response, uses a **two-phase design**:
+After each Claude Code response, spawns `claude -p --model haiku` in a detached background process to generate a 2-5 word summary in the conversation's language. The result is written to a pending file.
 
-**Phase 1 (foreground):** If a pending AI label exists from the previous turn, apply it immediately via `cmux rename-tab` and `cmux rename-workspace`. This runs in the hook's main process which has full cmux socket access.
+The background process unsets `CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`, and `CMUX_TAB_ID` before calling `claude -p`, preventing the naming hooks from triggering recursively inside the subprocess.
 
-**Phase 2 (background):** Extract conversation context from the transcript, then spawn `claude -p --model haiku` in a detached background process to generate a 2-5 word summary in the conversation's language. The result is written to a pending file for the next Stop to pick up.
+The pending label is applied in `cmux-rename-namer.sh` (UserPromptSubmit hook), so the tab name updates the moment the user sends their next message — not after waiting for Claude's full response.
 
-Two-phase avoids:
+Background design avoids:
 - Blocking the hook with slow AI calls (~5-10s for Haiku)
 - cmux socket errors from detached background processes (socket is only accessible from the hook's foreground process)
 
-### 3. User Rename (`cmux-rename-namer.sh`)
+### 3. User Prompt Submit (`cmux-rename-namer.sh`)
 
-When a user `/rename`s their session:
-- Always updates the tab name to the custom title
-- Only updates workspace name if this tab is the workspace owner
+On every user message:
+- Applies any pending AI label from the previous Stop (faster than waiting for Claude's next response)
+- If a `/rename` custom title exists in the transcript, syncs it to the tab name and workspace (owner only)
+- Writes a marker file so the custom title suppresses AI naming even in long transcripts
 
 ## Naming priority
 
@@ -43,7 +44,7 @@ When a user `/rename`s their session:
 
 The first Claude Code session started in a workspace becomes the "owner". Only the owner's AI summary and `/rename` affect the workspace name. Other tabs in the same workspace manage their own tab names independently.
 
-Owner is tracked via `/tmp/cmux-ws-owner-{WORKSPACE_ID}` and resets when all sessions in the workspace end.
+Owner is tracked via `/tmp/cmux-ws-owner-{WORKSPACE_ID}`. This file persists in `/tmp/` until the OS clears it (typically on reboot); it is not removed when sessions end. The first session to start in a workspace wins ownership for the lifetime of that file.
 
 ## Custom title behavior
 

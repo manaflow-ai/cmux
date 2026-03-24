@@ -40,7 +40,7 @@ LINE_COUNT=$(wc -l < "$TRANSCRIPT" 2>/dev/null | tr -d ' ')
 # then fall back to tail-500 scan for /rename done in the current session.
 CUSTOM_MARKER="/tmp/cmux-custom-title-${CMUX_SURFACE_ID}"
 [ -f "$CUSTOM_MARKER" ] && exit 0
-HAS_CUSTOM_TITLE=$(tail -500 "$TRANSCRIPT" | grep -c '"custom-title"' 2>/dev/null; true)
+HAS_CUSTOM_TITLE=$(tail -500 "$TRANSCRIPT" | grep -c '"type":"custom-title"' 2>/dev/null; true)
 [ "${HAS_CUSTOM_TITLE:-0}" -gt 0 ] 2>/dev/null && exit 0
 
 if [ -f "$TAB_CACHE" ]; then
@@ -114,8 +114,12 @@ PYEOF
 
 # Spawn background: generate AI label → write to pending file
 # (applied on next UserPromptSubmit by cmux-rename-namer.sh for faster tab updates)
+# Unset cmux env vars so the `claude -p` subprocess does not inherit them and
+# re-trigger the naming hooks recursively (would corrupt cache/pending state).
 (
   set +e
+  unset CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID
+  # Timeout after 15s using perl alarm (POSIX-compatible, no external deps)
   LABEL=$(perl -e 'alarm 15; exec @ARGV' claude -p --model haiku < "$PROMPT_FILE" 2>/dev/null | head -1 | cut -c1-30)
   rm -f "$PROMPT_FILE" 2>/dev/null
   if [ -n "$LABEL" ]; then

@@ -61,7 +61,7 @@ TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.st
 [ -f "$TRANSCRIPT" ] || exit 0
 
 # Fast: grep last custom-title from transcript tail
-TITLE=$(tail -500 "$TRANSCRIPT" | grep '"custom-title"' | tail -1 | python3 -c "
+TITLE=$(tail -500 "$TRANSCRIPT" | grep '"type":"custom-title"' | tail -1 | python3 -c "
 import sys,json
 try:
     print(json.loads(sys.stdin.readline()).get('customTitle',''))

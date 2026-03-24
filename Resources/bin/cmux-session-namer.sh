@@ -33,7 +33,7 @@ CUSTOM_MARKER="/tmp/cmux-custom-title-${CMUX_SURFACE_ID}"
 TRANSCRIPT=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('transcript_path',''))" 2>/dev/null || true)
 
 if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
-  TITLE=$(grep '"custom-title"' "$TRANSCRIPT" 2>/dev/null | tail -1 | python3 -c "
+  TITLE=$(grep '"type":"custom-title"' "$TRANSCRIPT" 2>/dev/null | tail -1 | python3 -c "
 import sys,json
 try:
     print(json.loads(sys.stdin.readline()).get('customTitle',''))
