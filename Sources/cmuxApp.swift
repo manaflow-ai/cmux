@@ -593,6 +593,12 @@ struct cmuxApp: App {
                     panel.allowsMultipleSelection = false
                     panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
                     panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
+                    if let workspace = activeTabManager.selectedWorkspace {
+                        let directory = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !directory.isEmpty, FileManager.default.fileExists(atPath: directory) {
+                            panel.directoryURL = URL(fileURLWithPath: directory, isDirectory: true)
+                        }
+                    }
                     if panel.runModal() == .OK, let url = panel.url {
                         if let appDelegate = AppDelegate.shared {
                             if appDelegate.addWorkspaceInPreferredMainWindow(
