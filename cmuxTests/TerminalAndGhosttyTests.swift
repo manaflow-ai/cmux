@@ -2640,19 +2640,20 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         portal.bind(hostedView: activeHosted, to: activeAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(activeAnchor)
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(
+            retiredHosted.isHidden,
+            "A visible hosted terminal whose anchor vanished should hide as soon as the replacement anchor sync runs"
+        )
+        // Drain the queued full-sync turn so the portal clears any stale hit-test region left by the rebind.
+        drainMainQueue()
 
         let activeWindowPoint = activeAnchor.convert(
             NSPoint(x: activeAnchor.bounds.midX, y: activeAnchor.bounds.midY),
             to: nil
         )
-        XCTAssertTrue(
-            retiredHosted.isHidden,
-            "A visible hosted terminal whose anchor vanished should hide on the deferred full sync"
-        )
         XCTAssertNil(
             portal.terminalViewAtWindowPoint(retiredWindowPoint),
-            "Restore-like rebinds should clear stale portal hit regions after the old anchor disappears"
+            "Restore-like rebinds should clear stale portal hit regions on the queued portal resync"
         )
         XCTAssertTrue(
             portal.terminalViewAtWindowPoint(activeWindowPoint) === activeTerminal,
