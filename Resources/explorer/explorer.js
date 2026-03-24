@@ -1,4 +1,4 @@
-// cmux Sidebar Explorer — file tree with external file opening
+// cmux Sidebar Explorer — multi-root file tree with external file opening
 // Swift bridge via window.webkit.messageHandlers.cmuxExplorer
 
 (function () {
@@ -6,9 +6,9 @@
 
     let requestCounter = 0;
     const pendingRequests = new Map();
-    let lastTreeSnapshot = '';
-    let gitStatusMap = new Map();
-    let gitIgnoredSet = new Set();
+    let roots = []; // [{name, rootIndex}]
+    let gitStatusMaps = new Map(); // rootIndex -> Map(path -> status)
+    let gitIgnoredSets = new Map(); // rootIndex -> Set(path)
     let selectedTreePaths = new Set();
     let lastClickedPath = null;
     let selectedTreePath = null;
@@ -46,6 +46,17 @@
             r.setProperty('--input-fg', fg);
             r.setProperty('--context-menu-bg', sidebarBg);
             document.body.style.background = sidebarBg;
+        },
+        // Called from Swift to set/update the root folders
+        setRoots(newRoots) {
+            // newRoots = [{name: "cmux", rootIndex: 0}, {name: "web", rootIndex: 1}]
+            roots = newRoots;
+            window.cmuxExplorer._lastRoots = newRoots;
+            fullRefresh();
+        },
+        // Called from Swift on FSEvents file change — diffed, no flash
+        refresh() {
+            if (roots.length > 0) diffRefresh();
         }
     };
 
@@ -57,24 +68,22 @@
         });
     }
 
-    const readDir = (path) => post('readDir', { path });
-    const createFile = (path) => post('createFile', { path });
-    const createDir = (path) => post('createDir', { path });
-    const deleteFile = (path) => post('deleteFile', { path });
-    const renameFile = (oldPath, newPath) => post('renameFile', { oldPath, newPath });
-    const getGitStatus = () => post('gitStatus', {});
+    const readDir = (rootIndex, path) => post('readDir', { rootIndex, path });
+    const createFile = (rootIndex, path) => post('createFile', { rootIndex, path });
+    const createDir = (rootIndex, path) => post('createDir', { rootIndex, path });
+    const deleteFile = (rootIndex, path) => post('deleteFile', { rootIndex, path });
+    const renameFile = (rootIndex, oldPath, newPath) => post('renameFile', { rootIndex, oldPath, newPath });
+    const getGitStatus = (rootIndex) => post('gitStatus', { rootIndex });
 
-    function openFileExternal(path) {
+    function openFileExternal(rootIndex, path) {
         window.webkit.messageHandlers.cmuxExplorer.postMessage({
-            action: 'openFileExternal',
-            path: path
+            action: 'openFileExternal', rootIndex, path
         });
     }
 
-    function pinFileExternal(path) {
+    function pinFileExternal(rootIndex, path) {
         window.webkit.messageHandlers.cmuxExplorer.postMessage({
-            action: 'pinFileExternal',
-            path: path
+            action: 'pinFileExternal', rootIndex, path
         });
     }
 
@@ -101,27 +110,51 @@
     }
 
     // ── Git Status ─────────────────────────────────────────────────────
-    async function refreshGitStatus() {
+    async function refreshGitStatus(rootIndex) {
         try {
-            const result = await getGitStatus();
-            gitStatusMap.clear();
-            gitIgnoredSet.clear();
-            for (const f of (result.files || [])) gitStatusMap.set(f.path, f.status);
-            for (const f of (result.ignored || [])) gitIgnoredSet.add(f.path);
+            const result = await getGitStatus(rootIndex);
+            const statusMap = new Map();
+            const ignoredSet = new Set();
+            for (const f of (result.files || [])) statusMap.set(f.path, f.status);
+            for (const f of (result.ignored || [])) ignoredSet.add(f.path);
+            gitStatusMaps.set(rootIndex, statusMap);
+            gitIgnoredSets.set(rootIndex, ignoredSet);
         } catch { /* git not available */ }
     }
 
-    function getGitStatusForPath(path) {
-        if (gitStatusMap.has(path)) return gitStatusMap.get(path);
-        if (gitIgnoredSet.has(path)) return 'ignored';
+    function getGitStatusForPath(rootIndex, path) {
+        const m = gitStatusMaps.get(rootIndex);
+        if (m && m.has(path)) return m.get(path);
+        // Check if this path or any parent is ignored
+        const s = gitIgnoredSets.get(rootIndex);
+        if (s) {
+            if (s.has(path)) return 'ignored';
+            // Check parent paths (e.g. node_modules is ignored → node_modules/foo is too)
+            const parts = path.split('/');
+            for (let i = 1; i < parts.length; i++) {
+                if (s.has(parts.slice(0, i).join('/'))) return 'ignored';
+            }
+        }
         return null;
     }
 
-    function getFolderGitStatus(folderPath) {
+    function getFolderGitStatus(rootIndex, folderPath) {
+        // Check if the folder itself is ignored
+        const s = gitIgnoredSets.get(rootIndex);
+        if (s) {
+            if (s.has(folderPath)) return 'ignored';
+            const parts = folderPath.split('/');
+            for (let i = 1; i < parts.length; i++) {
+                if (s.has(parts.slice(0, i).join('/'))) return 'ignored';
+            }
+        }
+        const m = gitStatusMaps.get(rootIndex);
+        if (!m) return null;
         const prefix = folderPath ? folderPath + '/' : '';
         let dominated = null;
-        const priority = { conflict: 6, deleted: 5, modified: 4, renamed: 3, added: 2, untracked: 1 };
-        for (const [path, status] of gitStatusMap) {
+        // VS Code priority: conflict > modified > deleted > added > untracked > renamed
+        const priority = { conflict: 6, modified: 5, deleted: 4, added: 3, untracked: 2, renamed: 1 };
+        for (const [path, status] of m) {
             if (path.startsWith(prefix)) {
                 const p = priority[status] || 0;
                 if (!dominated || p > (priority[dominated] || 0)) dominated = status;
@@ -142,11 +175,14 @@
 
     // ── File Tree ──────────────────────────────────────────────────────
     const treeEl = document.getElementById('file-tree');
-    const expandedDirs = new Set();
+    const expandedDirs = new Set(); // "rootIndex:path" keys
+    const expandedRoots = new Set(); // rootIndex values
 
-    async function renderTree(parentEl, path, depth) {
+    function dirKey(rootIndex, path) { return rootIndex + ':' + path; }
+
+    async function renderTree(parentEl, rootIndex, path, depth) {
         let entries;
-        try { entries = await readDir(path); } catch { return; }
+        try { entries = await readDir(rootIndex, path); } catch { return; }
         entries.sort((a, b) => {
             if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
             return a.name.localeCompare(b.name);
@@ -154,16 +190,20 @@
 
         for (const entry of entries) {
             const fullPath = path ? path + '/' + entry.name : entry.name;
-            const isExpanded = expandedDirs.has(fullPath);
-            const gitStatus = entry.isDirectory ? getFolderGitStatus(fullPath) : getGitStatusForPath(fullPath);
+            const dk = dirKey(rootIndex, fullPath);
+            const isExpanded = expandedDirs.has(dk);
+            const gitStatus = entry.isDirectory
+                ? getFolderGitStatus(rootIndex, fullPath)
+                : getGitStatusForPath(rootIndex, fullPath);
 
             const row = document.createElement('div');
             row.className = 'tree-row';
-            row.dataset.path = fullPath;
+            row.dataset.path = dk;
+            row.dataset.rootIndex = rootIndex;
+            row.dataset.relPath = fullPath;
             row.dataset.isDir = entry.isDirectory ? '1' : '0';
-            if (fullPath === selectedTreePath) row.classList.add('selected');
+            if (dk === selectedTreePath) row.classList.add('selected');
 
-            // Indent guides
             const indent = document.createElement('span');
             indent.className = 'tree-indent';
             for (let i = 0; i < depth; i++) {
@@ -173,7 +213,6 @@
             }
             row.appendChild(indent);
 
-            // Twistie
             const twistie = document.createElement('span');
             twistie.className = 'tree-twistie';
             if (entry.isDirectory) {
@@ -184,20 +223,17 @@
             }
             row.appendChild(twistie);
 
-            // Icon
             const icon = document.createElement('span');
             icon.className = 'tree-icon ' + fileIconClass(entry.name, entry.isDirectory, isExpanded);
             icon.textContent = fileCodiconChar(entry.name, entry.isDirectory, isExpanded);
             row.appendChild(icon);
 
-            // Label
             const label = document.createElement('span');
             label.className = 'tree-label';
             if (gitStatus) label.classList.add(gitLabelClass(gitStatus));
             label.textContent = entry.name;
             row.appendChild(label);
 
-            // Git badge
             if (gitStatus && gitStatus !== 'ignored') {
                 if (entry.isDirectory) {
                     const dot = document.createElement('span');
@@ -224,25 +260,25 @@
                 children.className = 'tree-children';
                 if (isExpanded) {
                     children.classList.add('expanded');
-                    await renderTree(children, fullPath, depth + 1);
+                    await renderTree(children, rootIndex, fullPath, depth + 1);
                 }
                 parentEl.appendChild(children);
 
                 row.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    handleSelection(fullPath, e);
-                    if (expandedDirs.has(fullPath)) {
-                        expandedDirs.delete(fullPath);
+                    handleSelection(dk, e);
+                    if (expandedDirs.has(dk)) {
+                        expandedDirs.delete(dk);
                         twistie.classList.remove('expanded');
                         children.classList.remove('expanded');
                         children.innerHTML = '';
                         icon.className = 'tree-icon ' + fileIconClass(entry.name, true, false);
                         icon.textContent = fileCodiconChar(entry.name, true, false);
                     } else {
-                        expandedDirs.add(fullPath);
+                        expandedDirs.add(dk);
                         twistie.classList.add('expanded');
                         children.innerHTML = '';
-                        await renderTree(children, fullPath, depth + 1);
+                        await renderTree(children, rootIndex, fullPath, depth + 1);
                         children.classList.add('expanded');
                         icon.className = 'tree-icon ' + fileIconClass(entry.name, true, true);
                         icon.textContent = fileCodiconChar(entry.name, true, true);
@@ -251,116 +287,141 @@
             } else {
                 row.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    handleSelection(fullPath, e);
+                    handleSelection(dk, e);
                     if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                        openFileExternal(fullPath);
+                        openFileExternal(rootIndex, fullPath);
                     }
                 });
             }
 
-            // Context menu
             row.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!selectedTreePaths.has(fullPath)) selectSingle(fullPath);
-                showContextMenu(e.clientX, e.clientY, fullPath, entry.isDirectory, entry.name);
+                if (!selectedTreePaths.has(dk)) selectSingle(dk);
+                showContextMenu(e.clientX, e.clientY, rootIndex, fullPath, entry.isDirectory, entry.name);
             });
 
-            // Double-click: files → pin editor tab, directories → rename
             row.addEventListener('dblclick', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 if (entry.isDirectory) return;
-                // Double-click pins the file (opens it permanently)
-                pinFileExternal(fullPath);
+                pinFileExternal(rootIndex, fullPath);
             });
+        }
+    }
+
+    // ── Root Folder Rendering ──────────────────────────────────────────
+    async function renderAllRoots() {
+        treeEl.innerHTML = '';
+        if (roots.length === 1) {
+            // Single root — no wrapper, render tree directly
+            expandedRoots.add(roots[0].rootIndex);
+            await renderTree(treeEl, roots[0].rootIndex, '', 0);
+        } else {
+            // Multi-root — each root gets a collapsible header
+            for (const root of roots) {
+                const isExpanded = expandedRoots.has(root.rootIndex);
+                const section = document.createElement('div');
+                section.className = 'root-section';
+
+                const header = document.createElement('div');
+                header.className = 'tree-row root-header';
+                header.dataset.rootIndex = root.rootIndex;
+
+                const twistie = document.createElement('span');
+                twistie.className = 'tree-twistie';
+                twistie.textContent = '\uEAB6';
+                if (isExpanded) twistie.classList.add('expanded');
+                header.appendChild(twistie);
+
+                const icon = document.createElement('span');
+                icon.className = 'tree-icon icon-folder' + (isExpanded ? '-open' : '');
+                icon.textContent = fileCodiconChar(root.name, true, isExpanded);
+                header.appendChild(icon);
+
+                const label = document.createElement('span');
+                label.className = 'tree-label root-label';
+                label.textContent = root.name;
+                header.appendChild(label);
+
+                section.appendChild(header);
+
+                const children = document.createElement('div');
+                children.className = 'tree-children';
+                if (isExpanded) {
+                    children.classList.add('expanded');
+                    await renderTree(children, root.rootIndex, '', 1);
+                }
+                section.appendChild(children);
+
+                header.addEventListener('click', async () => {
+                    if (expandedRoots.has(root.rootIndex)) {
+                        expandedRoots.delete(root.rootIndex);
+                        twistie.classList.remove('expanded');
+                        children.classList.remove('expanded');
+                        children.innerHTML = '';
+                        icon.className = 'tree-icon icon-folder';
+                        icon.textContent = fileCodiconChar(root.name, true, false);
+                    } else {
+                        expandedRoots.add(root.rootIndex);
+                        twistie.classList.add('expanded');
+                        children.innerHTML = '';
+                        await renderTree(children, root.rootIndex, '', 1);
+                        children.classList.add('expanded');
+                        icon.className = 'tree-icon icon-folder-open';
+                        icon.textContent = fileCodiconChar(root.name, true, true);
+                    }
+                });
+
+                treeEl.appendChild(section);
+            }
         }
     }
 
     function highlightSelected() {
         treeEl.querySelectorAll('.tree-row').forEach(r => {
-            r.classList.toggle('selected', selectedTreePaths.has(r.dataset.path));
-            r.classList.toggle('focused', r.dataset.path === selectedTreePath);
+            const key = r.dataset.path || '';
+            r.classList.toggle('selected', selectedTreePaths.has(key));
+            r.classList.toggle('focused', key === selectedTreePath);
         });
     }
 
     function getVisiblePaths() {
-        return Array.from(treeEl.querySelectorAll('.tree-row')).map(r => r.dataset.path);
+        return Array.from(treeEl.querySelectorAll('.tree-row[data-path]')).map(r => r.dataset.path);
     }
 
-    function selectSingle(path) {
+    function selectSingle(key) {
         selectedTreePaths.clear();
-        selectedTreePaths.add(path);
-        selectedTreePath = path;
-        lastClickedPath = path;
+        selectedTreePaths.add(key);
+        selectedTreePath = key;
+        lastClickedPath = key;
         highlightSelected();
     }
 
-    function selectToggle(path) {
-        if (selectedTreePaths.has(path)) selectedTreePaths.delete(path);
-        else selectedTreePaths.add(path);
-        selectedTreePath = path;
-        lastClickedPath = path;
+    function selectToggle(key) {
+        if (selectedTreePaths.has(key)) selectedTreePaths.delete(key);
+        else selectedTreePaths.add(key);
+        selectedTreePath = key;
+        lastClickedPath = key;
         highlightSelected();
     }
 
-    function selectRange(toPath) {
+    function selectRange(toKey) {
         const paths = getVisiblePaths();
         const fromIdx = paths.indexOf(lastClickedPath);
-        const toIdx = paths.indexOf(toPath);
-        if (fromIdx === -1 || toIdx === -1) { selectSingle(toPath); return; }
+        const toIdx = paths.indexOf(toKey);
+        if (fromIdx === -1 || toIdx === -1) { selectSingle(toKey); return; }
         for (let i = Math.min(fromIdx, toIdx); i <= Math.max(fromIdx, toIdx); i++) {
             selectedTreePaths.add(paths[i]);
         }
-        selectedTreePath = toPath;
+        selectedTreePath = toKey;
         highlightSelected();
     }
 
-    function handleSelection(path, e) {
-        if (e.shiftKey && lastClickedPath) selectRange(path);
-        else if (e.metaKey || e.ctrlKey) selectToggle(path);
-        else selectSingle(path);
-    }
-
-    async function refreshTree() {
-        treeEl.innerHTML = '';
-        await renderTree(treeEl, '', 0);
-    }
-
-    // ── File Watching ──────────────────────────────────────────────────
-    async function buildSnapshot(path) {
-        try {
-            const entries = await readDir(path);
-            let s = '';
-            entries.sort((a, b) => a.name.localeCompare(b.name));
-            for (const e of entries) {
-                const fp = path ? path + '/' + e.name : e.name;
-                s += fp + (e.isDirectory ? '/' : '') + '\n';
-                if (e.isDirectory && expandedDirs.has(fp)) s += await buildSnapshot(fp);
-            }
-            return s;
-        } catch { return ''; }
-    }
-
-    let lastGitSnapshot = '';
-    let pollRunning = false;
-
-    async function poll() {
-        if (inlineInputActive) return;
-        if (pollRunning) return;
-        pollRunning = true;
-        try {
-            const snap = await buildSnapshot('');
-            const oldGitSnap = lastGitSnapshot;
-            await refreshGitStatus();
-            const gitSnap = Array.from(gitStatusMap.entries()).sort().map(e => e[0] + ':' + e[1]).join('\n')
-                + '\n---\n' + Array.from(gitIgnoredSet).sort().join('\n');
-            lastGitSnapshot = gitSnap;
-            if (snap !== lastTreeSnapshot || gitSnap !== oldGitSnap) {
-                lastTreeSnapshot = snap;
-                await refreshTree();
-            }
-        } finally { pollRunning = false; }
+    function handleSelection(key, e) {
+        if (e.shiftKey && lastClickedPath) selectRange(key);
+        else if (e.metaKey || e.ctrlKey) selectToggle(key);
+        else selectSingle(key);
     }
 
     // ── Context Menu ───────────────────────────────────────────────────
@@ -368,7 +429,7 @@
     function removeCtxMenu() { if (ctxMenu) { ctxMenu.remove(); ctxMenu = null; } }
     document.addEventListener('click', removeCtxMenu);
 
-    function showContextMenu(x, y, targetPath, isDir, name) {
+    function showContextMenu(x, y, rootIndex, targetPath, isDir, name) {
         removeCtxMenu();
         const menu = document.createElement('div');
         menu.className = 'context-menu';
@@ -377,14 +438,15 @@
 
         const parentDir = isDir ? targetPath : targetPath.substring(0, targetPath.lastIndexOf('/')) || '';
         const items = [
-            { label: 'New File...', action: () => promptNewFile(parentDir) },
-            { label: 'New Folder...', action: () => promptNewFolder(parentDir) },
+            { label: 'New File...', action: () => promptNewFile(rootIndex, parentDir) },
+            { label: 'New Folder...', action: () => promptNewFolder(rootIndex, parentDir) },
             { separator: true },
             { label: 'Rename', shortcut: 'F2', action: () => {
-                const row = treeEl.querySelector(`[data-path="${CSS.escape(targetPath)}"]`);
-                if (row) startInlineRename(row, targetPath, name);
+                const dk = dirKey(rootIndex, targetPath);
+                const row = treeEl.querySelector(`[data-path="${CSS.escape(dk)}"]`);
+                if (row) startInlineRename(row, rootIndex, targetPath, name);
             }},
-            { label: 'Delete', action: () => confirmDelete(targetPath, name, isDir) },
+            { label: 'Delete', action: () => confirmDelete(rootIndex, targetPath, name, isDir) },
             { separator: true },
             { label: 'Copy Path', action: () => navigator.clipboard.writeText(targetPath).catch(() => {}) },
         ];
@@ -416,17 +478,16 @@
         if (r.bottom > window.innerHeight) menu.style.top = (window.innerHeight - r.height - 4) + 'px';
     }
 
-    async function confirmDelete(path, name, isDir) {
+    async function confirmDelete(rootIndex, path, name, isDir) {
         if (!confirm(`Delete "${name}"?`)) return;
         try {
-            await deleteFile(path);
-            await refreshTree();
-            lastTreeSnapshot = await buildSnapshot('');
+            await deleteFile(rootIndex, path);
+            await renderAllRoots();
         } catch (err) { console.error('Delete failed:', err); }
     }
 
     // ── Inline Rename ──────────────────────────────────────────────────
-    function startInlineRename(row, path, name) {
+    function startInlineRename(row, rootIndex, path, name) {
         const label = row.querySelector('.tree-label');
         if (!label) return;
         inlineInputActive = true;
@@ -449,9 +510,8 @@
             if (newName && newName !== name && !newName.includes('/')) {
                 const parentDir = path.substring(0, path.lastIndexOf('/'));
                 const newPath = parentDir ? parentDir + '/' + newName : newName;
-                renameFile(path, newPath).then(async () => {
-                    await refreshTree();
-                    lastTreeSnapshot = await buildSnapshot('');
+                renameFile(rootIndex, path, newPath).then(async () => {
+                    await renderAllRoots();
                 }).catch(err => console.error('Rename failed:', err));
             }
         }
@@ -463,23 +523,20 @@
     }
 
     // ── New File / Folder ──────────────────────────────────────────────
-    function promptNewFile(parentDir) {
-        promptInlineCreate(parentDir, false);
-    }
-    function promptNewFolder(parentDir) {
-        promptInlineCreate(parentDir, true);
-    }
+    function promptNewFile(rootIndex, parentDir) { promptInlineCreate(rootIndex, parentDir, false); }
+    function promptNewFolder(rootIndex, parentDir) { promptInlineCreate(rootIndex, parentDir, true); }
 
-    function promptInlineCreate(parentDir, isDir) {
-        if (parentDir && !expandedDirs.has(parentDir)) {
-            expandedDirs.add(parentDir);
-            refreshTree().then(() => promptInlineCreate(parentDir, isDir));
+    function promptInlineCreate(rootIndex, parentDir, isDir) {
+        const dk = parentDir ? dirKey(rootIndex, parentDir) : null;
+        if (parentDir && !expandedDirs.has(dk)) {
+            expandedDirs.add(dk);
+            renderAllRoots().then(() => promptInlineCreate(rootIndex, parentDir, isDir));
             return;
         }
         inlineInputActive = true;
         let container = treeEl;
-        if (parentDir) {
-            const parentRow = treeEl.querySelector(`[data-path="${CSS.escape(parentDir)}"]`);
+        if (dk) {
+            const parentRow = treeEl.querySelector(`[data-path="${CSS.escape(dk)}"]`);
             if (parentRow) {
                 const children = parentRow.nextElementSibling;
                 if (children && children.classList.contains('tree-children')) container = children;
@@ -501,11 +558,10 @@
             inputRow.remove();
             if (!name || name.includes('/')) return;
             const fullPath = parentDir ? parentDir + '/' + name : name;
-            const op = isDir ? createDir(fullPath) : createFile(fullPath);
+            const op = isDir ? createDir(rootIndex, fullPath) : createFile(rootIndex, fullPath);
             op.then(async () => {
-                await refreshTree();
-                lastTreeSnapshot = await buildSnapshot('');
-                if (!isDir) openFileExternal(fullPath);
+                await renderAllRoots();
+                if (!isDir) openFileExternal(rootIndex, fullPath);
             }).catch(err => console.error('Create failed:', err));
         }
         input.addEventListener('blur', commit);
@@ -515,50 +571,116 @@
         });
     }
 
-    // ── Header Buttons ─────────────────────────────────────────────────
+    // ── Header ─────────────────────────────────────────────────────────
     function setupHeader() {
         const header = document.getElementById('sidebar-header');
         const btnGroup = document.createElement('div');
         btnGroup.className = 'header-buttons';
 
-        const newFileBtn = document.createElement('button');
-        newFileBtn.className = 'header-btn';
-        newFileBtn.title = 'New File';
-        newFileBtn.textContent = '\uEA7F';
-        newFileBtn.addEventListener('click', () => promptNewFile(''));
-
-        const newFolderBtn = document.createElement('button');
-        newFolderBtn.className = 'header-btn';
-        newFolderBtn.title = 'New Folder';
-        newFolderBtn.textContent = '\uEA83';
-        newFolderBtn.addEventListener('click', () => promptNewFolder(''));
-
         const refreshBtn = document.createElement('button');
         refreshBtn.className = 'header-btn';
         refreshBtn.title = 'Refresh';
         refreshBtn.textContent = '\uEB37';
-        refreshBtn.addEventListener('click', async () => {
-            lastTreeSnapshot = '';
-            await refreshGitStatus();
-            await refreshTree();
-            lastTreeSnapshot = await buildSnapshot('');
-        });
+        refreshBtn.addEventListener('click', () => fullRefresh());
 
-        btnGroup.appendChild(newFileBtn);
-        btnGroup.appendChild(newFolderBtn);
         btnGroup.appendChild(refreshBtn);
         header.appendChild(btnGroup);
     }
 
-    // ── Init ───────────────────────────────────────────────────────────
-    async function init() {
-        await refreshGitStatus();
-        await renderTree(treeEl, '', 0);
-        lastTreeSnapshot = await buildSnapshot('');
-        setupHeader();
-        setInterval(poll, 2000);
+    async function fullRefresh() {
+        for (const root of roots) {
+            await refreshGitStatus(root.rootIndex);
+        }
+        await renderAllRoots();
         document.getElementById('project-name').textContent = 'EXPLORER';
     }
 
-    init();
+    // Lightweight refresh: update git status badges in-place without re-rendering the tree.
+    // Only does a full re-render if the directory structure actually changed.
+    async function diffRefresh() {
+        // Snapshot current expanded dirs' entry names before refresh
+        const oldSnapshots = new Map();
+        for (const root of roots) {
+            if (!expandedRoots.has(root.rootIndex)) continue;
+            oldSnapshots.set(root.rootIndex, await quickSnapshot(root.rootIndex));
+            await refreshGitStatus(root.rootIndex);
+        }
+
+        // Check if any directory structure changed
+        let structureChanged = false;
+        for (const [rootIndex, oldSnap] of oldSnapshots) {
+            const newSnap = await quickSnapshot(rootIndex);
+            if (newSnap !== oldSnap) { structureChanged = true; break; }
+        }
+
+        if (structureChanged) {
+            await renderAllRoots();
+        } else {
+            // Just update git badges/labels in-place
+            treeEl.querySelectorAll('.tree-row[data-root-index]').forEach(row => {
+                const ri = parseInt(row.dataset.rootIndex);
+                const relPath = row.dataset.relPath;
+                if (relPath === undefined) return;
+                const isDir = row.dataset.isDir === '1';
+                const gitStatus = isDir
+                    ? getFolderGitStatus(ri, relPath)
+                    : getGitStatusForPath(ri, relPath);
+
+                // Update label class
+                const label = row.querySelector('.tree-label');
+                if (label) {
+                    label.className = 'tree-label';
+                    if (gitStatus) label.classList.add(gitLabelClass(gitStatus));
+                }
+
+                // Update badge
+                const oldBadge = row.querySelector('.tree-badge');
+                if (oldBadge) oldBadge.remove();
+                if (gitStatus && gitStatus !== 'ignored') {
+                    if (isDir) {
+                        const dot = document.createElement('span');
+                        dot.className = 'tree-badge badge-dot';
+                        const colorVar = gitStatus === 'modified' ? '--git-modified' :
+                                         gitStatus === 'added' ? '--git-added' :
+                                         gitStatus === 'untracked' ? '--git-untracked' :
+                                         gitStatus === 'deleted' ? '--git-deleted' :
+                                         gitStatus === 'conflict' ? '--git-conflict' : '--git-modified';
+                        dot.style.background = `var(${colorVar})`;
+                        row.appendChild(dot);
+                    } else {
+                        const badge = document.createElement('span');
+                        badge.className = 'tree-badge ' + gitBadgeClass(gitStatus);
+                        badge.textContent = gitBadgeLetter(gitStatus);
+                        row.appendChild(badge);
+                    }
+                }
+            });
+        }
+    }
+
+    // Quick snapshot of entry names for a root (only expanded dirs, no content)
+    async function quickSnapshot(rootIndex) {
+        return await buildEntryList(rootIndex, '');
+    }
+
+    async function buildEntryList(rootIndex, path) {
+        try {
+            const entries = await readDir(rootIndex, path);
+            let s = '';
+            entries.sort((a, b) => a.name.localeCompare(b.name));
+            for (const e of entries) {
+                const fp = path ? path + '/' + e.name : e.name;
+                s += fp + (e.isDirectory ? '/' : '') + '\n';
+                const dk = dirKey(rootIndex, fp);
+                if (e.isDirectory && expandedDirs.has(dk)) {
+                    s += await buildEntryList(rootIndex, fp);
+                }
+            }
+            return s;
+        } catch { return ''; }
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────
+    setupHeader();
+    document.getElementById('project-name').textContent = 'EXPLORER';
 })();

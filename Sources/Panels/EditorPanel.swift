@@ -19,6 +19,8 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
               let action = body["action"] as? String else { return }
 
         switch action {
+        case "statFile":
+            handleStatFile(body: body, webView: message.webView)
         case "readFile":
             handleReadFile(body: body, webView: message.webView)
         case "writeFile":
@@ -37,6 +39,26 @@ final class EditorMessageHandler: NSObject, WKScriptMessageHandler {
     }
 
     // MARK: - File Operations
+
+    private func handleStatFile(body: [String: Any], webView: WKWebView?) {
+        let relativePath = body["path"] as? String ?? ""
+        let requestId = body["requestId"] as? String ?? ""
+
+        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+            let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
+            guard let fullPath else {
+                self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
+                return
+            }
+            do {
+                let attrs = try FileManager.default.attributesOfItem(atPath: fullPath)
+                let size = (attrs[.size] as? Int) ?? 0
+                self.sendResponse(requestId: requestId, data: ["size": size], webView: webView)
+            } catch {
+                self.sendError(requestId: requestId, message: error.localizedDescription, webView: webView)
+            }
+        }
+    }
 
     private func handleReadFile(body: [String: Any], webView: WKWebView?) {
         let relativePath = body["path"] as? String ?? ""

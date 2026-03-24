@@ -5,10 +5,15 @@ import WebKit
 /// Message handler for the sidebar file explorer WebView.
 /// Self-contained file system handler that responds via `window.cmuxExplorer`.
 final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
-    var rootPath: String = ""
+    var rootPaths: [String] = []
     var onOpenFile: ((String) -> Void)?
-    /// Called on double-click — pins the file (prevents preview reuse).
     var onPinFile: ((String) -> Void)?
+
+    private func rootPath(for body: [String: Any]) -> String? {
+        let index = body["rootIndex"] as? Int ?? 0
+        guard index >= 0 && index < rootPaths.count else { return nil }
+        return rootPaths[index]
+    }
 
     func userContentController(
         _ userContentController: WKUserContentController,
@@ -19,14 +24,16 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
 
         switch action {
         case "pinFileExternal":
-            guard let relativePath = body["path"] as? String else { return }
-            let fullPath = (rootPath as NSString).appendingPathComponent(relativePath)
+            guard let relativePath = body["path"] as? String,
+                  let root = rootPath(for: body) else { return }
+            let fullPath = (root as NSString).appendingPathComponent(relativePath)
             DispatchQueue.main.async { [weak self] in
                 self?.onPinFile?(fullPath)
             }
         case "openFileExternal":
-            guard let relativePath = body["path"] as? String else { return }
-            let fullPath = (rootPath as NSString).appendingPathComponent(relativePath)
+            guard let relativePath = body["path"] as? String,
+                  let root = rootPath(for: body) else { return }
+            let fullPath = (root as NSString).appendingPathComponent(relativePath)
             DispatchQueue.main.async { [weak self] in
                 self?.onOpenFile?(fullPath)
             }
@@ -52,8 +59,11 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
     private func handleReadDir(body: [String: Any], webView: WKWebView?) {
         let relativePath = body["path"] as? String ?? ""
         let requestId = body["requestId"] as? String ?? ""
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
 
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        DispatchQueue.global(qos: .userInitiated).async {
             let fullPath = self.resolvedPath(relativePath, rootPath: rootPath)
             guard let fullPath else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView)
@@ -66,7 +76,7 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
             }
             var items: [[String: Any]] = []
             for entry in entries.sorted() {
-                if entry.hasPrefix(".") { continue }
+                if entry == ".git" { continue }
                 let entryPath = (fullPath as NSString).appendingPathComponent(entry)
                 var isDir: ObjCBool = false
                 fm.fileExists(atPath: entryPath, isDirectory: &isDir)
@@ -79,7 +89,10 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
     private func handleCreateFile(body: [String: Any], webView: WKWebView?) {
         let relativePath = body["path"] as? String ?? ""
         let requestId = body["requestId"] as? String ?? ""
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             guard let fullPath = self.resolvedPath(relativePath, rootPath: rootPath) else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView); return
             }
@@ -100,7 +113,10 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
     private func handleCreateDir(body: [String: Any], webView: WKWebView?) {
         let relativePath = body["path"] as? String ?? ""
         let requestId = body["requestId"] as? String ?? ""
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             guard let fullPath = self.resolvedPath(relativePath, rootPath: rootPath) else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView); return
             }
@@ -117,7 +133,10 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
         guard !relativePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             sendError(requestId: requestId, message: "Cannot delete root", webView: webView); return
         }
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             guard let fullPath = self.resolvedPath(relativePath, rootPath: rootPath),
                   fullPath != URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path else {
                 self.sendError(requestId: requestId, message: "Invalid path", webView: webView); return
@@ -136,7 +155,10 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
         guard !oldRelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             sendError(requestId: requestId, message: "Cannot rename root", webView: webView); return
         }
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
             let canonicalRoot = URL(fileURLWithPath: rootPath).resolvingSymlinksInPath().path
             guard let oldFull = self.resolvedPath(oldRelPath, rootPath: rootPath), oldFull != canonicalRoot,
                   let newFull = self.resolvedPath(newRelPath, rootPath: rootPath) else {
@@ -152,46 +174,45 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
 
     private func handleGitStatus(body: [String: Any], webView: WKWebView?) {
         let requestId = body["requestId"] as? String ?? ""
-        DispatchQueue.global(qos: .userInitiated).async { [rootPath] in
+        guard let rootPath = rootPath(for: body) else {
+            sendError(requestId: requestId, message: "Invalid root", webView: webView); return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            // git status --porcelain -unormal: fast, doesn't recurse into untracked dirs
             let statusProcess = Process()
             let statusPipe = Pipe()
             statusProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            statusProcess.arguments = ["-C", rootPath, "status", "--porcelain=v1", "-uall"]
+            statusProcess.arguments = ["-C", rootPath, "status", "--porcelain=v1", "-unormal", "--ignored"]
             statusProcess.standardOutput = statusPipe
             statusProcess.standardError = FileHandle.nullDevice
 
-            let ignoredProcess = Process()
-            let ignoredPipe = Pipe()
-            ignoredProcess.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            ignoredProcess.arguments = ["-C", rootPath, "ls-files", "--others", "--ignored", "--exclude-standard"]
-            ignoredProcess.standardOutput = ignoredPipe
-            ignoredProcess.standardError = FileHandle.nullDevice
-
-            do {
-                try statusProcess.run()
-                try ignoredProcess.run()
-            } catch {
+            do { try statusProcess.run() }
+            catch {
                 self.sendError(requestId: requestId, message: "git not available", webView: webView); return
             }
 
             let statusData = statusPipe.fileHandleForReading.readDataToEndOfFile()
-            let ignoredData = ignoredPipe.fileHandleForReading.readDataToEndOfFile()
             statusProcess.waitUntilExit()
-            ignoredProcess.waitUntilExit()
-
             let statusOutput = String(data: statusData, encoding: .utf8) ?? ""
-            let ignoredOutput = String(data: ignoredData, encoding: .utf8) ?? ""
 
             var files: [[String: String]] = []
+            var ignored: [[String: String]] = []
+
             for line in statusOutput.components(separatedBy: "\n") where line.count >= 3 {
                 let index = String(line[line.index(line.startIndex, offsetBy: 0)])
                 let workTree = String(line[line.index(line.startIndex, offsetBy: 1)])
                 var path = String(line[line.index(line.startIndex, offsetBy: 3)...])
+                // Strip trailing / from directory entries
+                if path.hasSuffix("/") { path = String(path.dropLast()) }
                 if path.contains(" -> ") { path = path.components(separatedBy: " -> ").last ?? path }
+
+                if index == "!" && workTree == "!" {
+                    ignored.append(["path": path, "status": "ignored"])
+                    continue
+                }
 
                 let status: String
                 if index == "?" && workTree == "?" { status = "untracked" }
-                else if index == "!" && workTree == "!" { status = "ignored" }
                 else if index == "U" || workTree == "U" || (index == "A" && workTree == "A") || (index == "D" && workTree == "D") { status = "conflict" }
                 else if index == "A" || workTree == "A" { status = "added" }
                 else if index == "D" || workTree == "D" { status = "deleted" }
@@ -201,11 +222,7 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
                 files.append(["path": path, "status": status])
             }
 
-            let ignoredFiles = ignoredOutput.components(separatedBy: "\n")
-                .filter { !$0.isEmpty }
-                .map { ["path": $0, "status": "ignored"] as [String: String] }
-
-            self.sendResponse(requestId: requestId, data: ["files": files, "ignored": ignoredFiles], webView: webView)
+            self.sendResponse(requestId: requestId, data: ["files": files, "ignored": ignored], webView: webView)
         }
     }
 
@@ -249,10 +266,12 @@ final class ExplorerMessageHandler: NSObject, WKScriptMessageHandler {
 
 @MainActor
 final class ExplorerSidebarPanel: ObservableObject {
-    @Published var rootPath: String
+    @Published var rootPaths: [String]
     private(set) var webView: WKWebView
     private var messageHandler: ExplorerMessageHandler
     private var themeObserver: NSObjectProtocol?
+    private var fsEventStream: FSEventStreamRef?
+    fileprivate var hasLoaded = false
 
     var onOpenFile: ((String) -> Void)? {
         didSet { messageHandler.onOpenFile = onOpenFile }
@@ -262,14 +281,14 @@ final class ExplorerSidebarPanel: ObservableObject {
         didSet { messageHandler.onPinFile = onPinFile }
     }
 
-    init(rootPath: String) {
-        self.rootPath = rootPath
+    init(rootPaths: [String]) {
+        self.rootPaths = rootPaths
 
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
         let handler = ExplorerMessageHandler()
-        handler.rootPath = rootPath
+        handler.rootPaths = rootPaths
         config.userContentController.add(handler, name: "cmuxExplorer")
         self.messageHandler = handler
 
@@ -281,6 +300,7 @@ final class ExplorerSidebarPanel: ObservableObject {
         self.webView = webView
 
         loadExplorerHTML()
+        startFSEvents()
 
         themeObserver = NotificationCenter.default.addObserver(
             forName: .ghosttyDefaultBackgroundDidChange,
@@ -295,13 +315,69 @@ final class ExplorerSidebarPanel: ObservableObject {
         if let observer = themeObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        if let stream = fsEventStream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+        }
     }
 
-    func updateRootPath(_ path: String) {
-        guard path != rootPath else { return }
-        rootPath = path
-        messageHandler.rootPath = path
-        loadExplorerHTML()
+    /// Update the root paths shown in the explorer. Only reloads JS if paths changed.
+    func updateRootPaths(_ paths: [String]) {
+        guard paths != rootPaths else { return }
+        rootPaths = paths
+        messageHandler.rootPaths = paths
+        startFSEvents()
+        if hasLoaded {
+            sendRootsToJS()
+        }
+    }
+
+    // MARK: - FSEvents File Watching
+
+    private func startFSEvents() {
+        stopFSEvents()
+        guard !rootPaths.isEmpty else { return }
+
+        let paths = rootPaths as CFArray
+        var context = FSEventStreamContext()
+        // Use Unmanaged to pass self as a pointer
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+
+        let callback: FSEventStreamCallback = { _, info, numEvents, eventPaths, _, _ in
+            guard let info else { return }
+            let panel = Unmanaged<ExplorerSidebarPanel>.fromOpaque(info).takeUnretainedValue()
+            DispatchQueue.main.async {
+                panel.handleFSEvent()
+            }
+        }
+
+        guard let stream = FSEventStreamCreate(
+            nil,
+            callback,
+            &context,
+            paths,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.05, // 50ms latency
+            UInt32(kFSEventStreamCreateFlagUseCFTypes)
+        ) else { return }
+
+        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        FSEventStreamStart(stream)
+        fsEventStream = stream
+    }
+
+    private func stopFSEvents() {
+        guard let stream = fsEventStream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        fsEventStream = nil
+    }
+
+    private func handleFSEvent() {
+        let js = "if (window.cmuxExplorer && window.cmuxExplorer.refresh) { window.cmuxExplorer.refresh(); }"
+        webView.evaluateJavaScript(js, completionHandler: nil)
     }
 
     private func loadExplorerHTML() {
@@ -343,12 +419,26 @@ final class ExplorerSidebarPanel: ObservableObject {
         let js = "if (window.cmuxExplorer && window.cmuxExplorer.updateTheme) { window.cmuxExplorer.updateTheme('\(bgHex)', '\(fg)', '\(borderColor)', '\(hoverBg)', '\(selectedBg)', '\(indentGuide)'); }"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
+
+    /// Send the current root paths to the JS explorer so it can render them.
+    func sendRootsToJS() {
+        let rootsJSON = rootPaths.enumerated().map { index, path in
+            let name = (path as NSString).lastPathComponent
+            return "{\"name\":\"\(name.replacingOccurrences(of: "\"", with: "\\\""))\",\"rootIndex\":\(index)}"
+        }.joined(separator: ",")
+        let js = "if (window.cmuxExplorer && window.cmuxExplorer.setRoots) { window.cmuxExplorer.setRoots([\(rootsJSON)]); }"
+        webView.evaluateJavaScript(js, completionHandler: nil)
+    }
 }
 
 final class ExplorerThemeInjector: NSObject, WKNavigationDelegate {
     weak var panel: ExplorerSidebarPanel?
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in panel?.injectThemeColors() }
+        Task { @MainActor in
+            panel?.hasLoaded = true
+            panel?.injectThemeColors()
+            panel?.sendRootsToJS()
+        }
     }
 }

@@ -73,9 +73,47 @@
         }
     };
 
+    const MAX_FILE_SIZE = 1024 * 1024; // 1 MB
+    const MAX_LINE_COUNT = 50000;
+
+    function showLargeFileNotice(fileName, reason) {
+        document.getElementById('editor-container').style.display = 'none';
+        const notice = document.getElementById('large-file-notice');
+        document.getElementById('large-file-name').textContent = fileName;
+        document.getElementById('large-file-message').textContent = reason;
+        notice.classList.add('visible');
+    }
+
+    function hideLargeFileNotice() {
+        document.getElementById('large-file-notice').classList.remove('visible');
+        document.getElementById('editor-container').style.display = '';
+    }
+
     async function doOpenFile(relativePath, fileName) {
         try {
+            // Check file size before reading content
+            const stat = await statFile(relativePath);
+            if (stat.size > MAX_FILE_SIZE) {
+                const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
+                currentFilePath = relativePath;
+                if (editor) editor.setModel(null);
+                showLargeFileNotice(fileName, `${sizeMB} MB — file is too large to open in the editor`);
+                notifyActive(fileName);
+                return;
+            }
+
             const content = await readFile(relativePath);
+
+            const lineCount = content.split('\n').length;
+            if (lineCount > MAX_LINE_COUNT) {
+                currentFilePath = relativePath;
+                if (editor) editor.setModel(null);
+                showLargeFileNotice(fileName, `${lineCount.toLocaleString()} lines — file is too large to open in the editor`);
+                notifyActive(fileName);
+                return;
+            }
+
+            hideLargeFileNotice();
             currentFilePath = relativePath;
             originalContent = content;
             isDirty = false;
@@ -107,6 +145,7 @@
 
     const readFile = async (path) => (await post('readFile', { path })).content;
     const writeFile = (path, content) => post('writeFile', { path, content });
+    const statFile = (path) => post('statFile', { path });
 
     function notifyDirty(d) {
         window.webkit.messageHandlers.cmuxEditor.postMessage({ action: 'dirtyState', isDirty: d });

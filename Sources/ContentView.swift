@@ -2096,14 +2096,15 @@ struct ContentView: View {
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .onAppear { setupExplorerPanel() }
-        .onChange(of: tabManager.selectedTabId) { _, _ in updateExplorerRootPath() }
+        .onChange(of: tabManager.selectedTabId) { _, _ in updateExplorerRootPaths() }
+        .onChange(of: tabManager.tabs.count) { _, _ in updateExplorerRootPaths() }
+        .onReceive(selectedWorkspacePanelDirectoriesPublisher) { _ in updateExplorerRootPaths() }
     }
 
     private func setupExplorerPanel() {
         guard explorerPanel == nil else { return }
-        let rootPath = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId })?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let panel = ExplorerSidebarPanel(rootPath: rootPath)
+        let rootPaths = collectCurrentWorkspaceRootPaths()
+        let panel = ExplorerSidebarPanel(rootPaths: rootPaths)
         panel.onOpenFile = { [weak tabManager] filePath in
             guard let tabManager else { return }
             guard let workspaceId = tabManager.selectedTabId,
@@ -2141,9 +2142,48 @@ struct ContentView: View {
         explorerPanel = panel
     }
 
-    private func updateExplorerRootPath() {
-        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else { return }
-        explorerPanel?.updateRootPath(workspace.currentDirectory)
+    /// Publisher that fires when the selected workspace's panelDirectories change.
+    /// Debounced to avoid constant re-renders from shell integration cwd updates.
+    private var selectedWorkspacePanelDirectoriesPublisher: AnyPublisher<[UUID: String], Never> {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else {
+            return Empty().eraseToAnyPublisher()
+        }
+        return workspace.$panelDirectories
+            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    private func updateExplorerRootPaths() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        explorerPanel?.updateRootPaths(paths)
+    }
+
+    /// Collect unique directories from the current workspace's panels.
+    private func collectCurrentWorkspaceRootPaths() -> [String] {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else {
+            return [FileManager.default.homeDirectoryForCurrentUser.path]
+        }
+
+        var seen = Set<String>()
+        var paths: [String] = []
+
+        // Always include the workspace's own current directory first
+        let wsDir = workspace.currentDirectory
+        if seen.insert(wsDir).inserted {
+            paths.append(wsDir)
+        }
+
+        // Add unique directories from all panels in this workspace
+        for dir in workspace.panelDirectories.values {
+            let trimmed = dir.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                paths.append(trimmed)
+            }
+        }
+
+        return paths
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar

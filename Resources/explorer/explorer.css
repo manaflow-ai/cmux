@@ -162,6 +162,8 @@ html, body {
 .tree-label.git-modified { color: var(--git-modified); }
 .tree-label.git-added { color: var(--git-added); }
 .tree-label.git-deleted { color: var(--git-deleted); text-decoration: line-through; }
+/* Folders never get strikethrough even if they contain deleted files */
+.tree-row[data-is-dir="1"] .tree-label.git-deleted { text-decoration: none; }
 .tree-label.git-untracked { color: var(--git-untracked); }
 .tree-label.git-renamed { color: var(--git-renamed); }
 .tree-label.git-conflict { color: var(--git-conflict); }
@@ -179,6 +181,11 @@ html, body {
 
 .tree-children { display: none; }
 .tree-children.expanded { display: block; }
+
+/* Root folder headers in multi-root mode */
+.root-header { font-weight: 600; }
+.root-header .tree-label { text-transform: uppercase; font-size: 11px; letter-spacing: 0.3px; }
+.root-section { margin-bottom: 2px; }
 
 .context-menu {
     position: fixed;
