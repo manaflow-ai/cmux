@@ -2341,6 +2341,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
         installShortcutDefaultsObserver()
+
+        // Import Chrome cookies if enabled — run early so cookies are ready before browser panels open.
+        if !isRunningUnderXCTest && UserDefaults.standard.bool(forKey: ChromeCookieSettings.autoImportEnabledKey) {
+            ChromeCookieImporter.importCookies { result in
+                if let error = result.error {
+                    NSLog("[ChromeCookieImporter] auto-import failed: \(error.localizedDescription)")
+                } else if result.cookieCount > 0 {
+                    NSLog("[ChromeCookieImporter] auto-imported \(result.cookieCount) cookies from Chrome")
+                }
+            }
+        }
+
         NSApp.servicesProvider = self
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)

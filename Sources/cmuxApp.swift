@@ -768,6 +768,17 @@ struct cmuxApp: App {
                     }
                 }
 
+                if ChromeCookieImporter.isChromeInstalled {
+                    Button(String(localized: "menu.view.importChromeSessions", defaultValue: "Import Chrome Sessions")) {
+                        ChromeCookieImporter.importCookies { result in
+                            if let error = result.error {
+                                NSLog("[ChromeCookieImporter] manual import failed: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                    .keyboardShortcut("i", modifiers: [.command, .shift])
+                }
+
                 splitCommandButton(title: String(localized: "menu.view.nextWorkspace", defaultValue: "Next Workspace"), shortcut: nextWorkspaceMenuShortcut) {
                     activeTabManager.selectNextTab()
                 }
@@ -3811,6 +3822,10 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @AppStorage(ChromeCookieSettings.autoImportEnabledKey)
+    private var chromeCookieAutoImport = ChromeCookieSettings.defaultAutoImportEnabled
+    @AppStorage(ChromeCookieSettings.profileKey)
+    private var chromeCookieProfile = ChromeCookieSettings.defaultProfile
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
@@ -3865,6 +3880,9 @@ struct SettingsView: View {
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var browserHistoryEntryCount: Int = 0
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
+    @State private var chromeCookieImportStatus: String?
+    @State private var chromeCookieImporting = false
+    @State private var chromeProfiles: [(directory: String, displayName: String)] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
     @State private var socketPasswordStatusMessage: String?
@@ -4307,6 +4325,72 @@ struct SettingsView: View {
         } catch {
             socketPasswordStatusMessage = String(localized: "settings.automation.socketPassword.clearFailed", defaultValue: "Failed to clear password (\(error.localizedDescription)).")
             socketPasswordStatusIsError = true
+        }
+    }
+
+    @ViewBuilder
+    private var chromeSessionsSection: some View {
+        if ChromeCookieImporter.isChromeInstalled {
+            SettingsSectionHeader(title: String(localized: "settings.section.chromeSessions", defaultValue: "Chrome Sessions"))
+            SettingsCard {
+                SettingsCardRow(
+                    String(localized: "settings.browser.chromeCookie.autoImport", defaultValue: "Auto-Import Chrome Sessions"),
+                    subtitle: String(localized: "settings.browser.chromeCookie.autoImport.subtitle", defaultValue: "On launch and when opening new browser tabs, copies your Chrome login cookies into cmux's browser so you're already signed in.")
+                ) {
+                    Toggle("", isOn: $chromeCookieAutoImport)
+                        .labelsHidden()
+                        .controlSize(.small)
+                }
+
+                SettingsCardDivider()
+
+                SettingsPickerRow(
+                    String(localized: "settings.browser.chromeCookie.profile", defaultValue: "Chrome Profile"),
+                    subtitle: String(localized: "settings.browser.chromeCookie.profile.subtitle", defaultValue: "Which Chrome profile to import cookies from."),
+                    controlWidth: pickerColumnWidth,
+                    selection: $chromeCookieProfile
+                ) {
+                    ForEach(chromeProfiles, id: \.directory) { profile in
+                        Text(profile.displayName).tag(profile.directory)
+                    }
+                }
+
+                SettingsCardDivider()
+
+                SettingsCardRow(
+                    String(localized: "settings.browser.chromeCookie.importNow", defaultValue: "Chrome Sessions"),
+                    subtitle: chromeCookieImportStatus ?? String(localized: "settings.browser.chromeCookie.importNow.subtitle", defaultValue: "Import cookies from Chrome now.")
+                ) {
+                    Button(String(localized: "settings.browser.chromeCookie.importButton", defaultValue: "Import Now")) {
+                        chromeCookieImporting = true
+                        chromeCookieImportStatus = nil
+                        ChromeCookieImporter.importCookies(profile: chromeCookieProfile) { result in
+                            chromeCookieImporting = false
+                            if let error = result.error {
+                                chromeCookieImportStatus = String(
+                                    localized: "settings.browser.chromeCookie.importFailed",
+                                    defaultValue: "Couldn't import Chrome sessions."
+                                )
+                                NSLog("[ChromeCookieImporter] import failed: \(error.localizedDescription)")
+                            } else {
+                                let count = result.cookieCount
+                                chromeCookieImportStatus = count == 1
+                                    ? String(localized: "settings.browser.chromeCookie.importSuccess.one", defaultValue: "Imported 1 cookie from Chrome.")
+                                    : String(localized: "settings.browser.chromeCookie.importSuccess.other", defaultValue: "Imported \(count) cookies from Chrome.")
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(chromeCookieImporting || chromeProfiles.isEmpty)
+                }
+            }
+            .onAppear {
+                chromeProfiles = ChromeCookieImporter.availableProfiles()
+                if !chromeProfiles.contains(where: { $0.directory == chromeCookieProfile }) {
+                    chromeCookieProfile = chromeProfiles.first?.directory ?? ChromeCookieSettings.defaultProfile
+                }
+            }
         }
     }
 
@@ -5302,6 +5386,8 @@ struct SettingsView: View {
                         }
                     }
 
+                    chromeSessionsSection
+
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                         .id(SettingsNavigationTarget.keyboardShortcuts)
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
@@ -5555,6 +5641,8 @@ struct SettingsView: View {
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
+        chromeCookieAutoImport = ChromeCookieSettings.defaultAutoImportEnabled
+        chromeCookieProfile = ChromeCookieSettings.defaultProfile
         notificationSound = NotificationSoundSettings.defaultValue
         notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
         notificationCustomSoundStatusMessage = nil
