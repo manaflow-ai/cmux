@@ -9261,6 +9261,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // When the browser address bar is focused, let Cmd+Shift+Arrow through for
+        // text selection (select-to-beginning/end-of-line) instead of consuming it
+        // for surface switching.
+        if browserAddressBarFocusedPanelId != nil {
+            let arrowNormalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            let isHorizontalArrow = event.keyCode == 123 || event.keyCode == 124
+            if isHorizontalArrow && arrowNormalizedFlags == [.command, .shift] {
+                return false
+            }
+        }
+
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             _ = toggleSidebarInActiveMainWindow()
@@ -9353,6 +9365,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Surface navigation (arrow-key alternatives): Cmd+Shift+→ / Cmd+Shift+←
+        if matchArrowShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "→", command: true, shift: true, option: false, control: false),
+            keyCode: 124
+        ) {
+            tabManager?.selectNextSurface()
+            return true
+        }
+        if matchArrowShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "←", command: true, shift: true, option: false, control: false),
+            keyCode: 123
+        ) {
+            tabManager?.selectPreviousSurface()
+            return true
+        }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleTerminalCopyMode)) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
 #if DEBUG
@@ -9385,6 +9415,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "ws.shortcut dir=prev repeat=\(event.isARepeat ? 1 : 0) keyCode=\(event.keyCode) selected=\(selected)"
             )
 #endif
+            tabManager?.selectPreviousTab()
+            return true
+        }
+
+        // Workspace navigation (arrow-key alternatives): Cmd+Ctrl+→ / Cmd+Ctrl+←
+        if matchArrowShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "→", command: true, shift: false, option: false, control: true),
+            keyCode: 124
+        ) {
+            tabManager?.selectNextTab()
+            return true
+        }
+        if matchArrowShortcut(
+            event: event,
+            shortcut: StoredShortcut(key: "←", command: true, shift: false, option: false, control: true),
+            keyCode: 123
+        ) {
             tabManager?.selectPreviousTab()
             return true
         }
