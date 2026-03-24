@@ -2222,7 +2222,8 @@ class TabManager: ObservableObject {
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
             )
-            if let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance(),
+            if config.font_size <= 0,
+               let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance(),
                fallbackFontPoints > 0 {
                 config.font_size = fallbackFontPoints
             }

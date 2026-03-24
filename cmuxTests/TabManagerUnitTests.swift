@@ -1552,6 +1552,61 @@ final class TabManagerResizeSplitsTests: XCTestCase {
 
 @MainActor
 final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 360),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func attachAndWaitForRuntimeSurface(
+        _ panel: TerminalPanel,
+        frame: NSRect,
+        in window: NSWindow,
+        testCase: XCTestCase
+    ) {
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        panel.hostedView.frame = frame
+        panel.hostedView.setVisibleInUI(true)
+        contentView.addSubview(panel.hostedView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        let ready = testCase.expectation(description: "terminal surface ready \(panel.id)")
+        var didFulfillReady = false
+        var observer: NSObjectProtocol?
+        observer = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: panel.surface,
+            queue: .main
+        ) { _ in
+            guard !didFulfillReady else { return }
+            didFulfillReady = true
+            ready.fulfill()
+        }
+
+        defer {
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
+            }
+        }
+
+        if panel.surface.surface != nil, !didFulfillReady {
+            didFulfillReady = true
+            ready.fulfill()
+        }
+
+        wait(for: [ready], timeout: 5.0)
+        drainMainQueue()
+    }
+
     func testUsesFocusedTerminalWhenTerminalIsFocused() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -1603,6 +1658,78 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
             sourcePanel?.id,
             leftTerminalPanelId,
             "Expected workspace inheritance source to use last focused terminal across panes"
+        )
+    }
+
+    func testNewWorkspaceUsesLatestLiveZoomWhenRememberedZoomIsStale() {
+        let manager = TabManager()
+        guard let sourceWorkspace = manager.selectedWorkspace,
+              let sourcePanelId = sourceWorkspace.focusedPanelId,
+              let sourcePanel = sourceWorkspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:20"),
+            "Expected source terminal to accept initial font-size binding action"
+        )
+        drainMainQueue()
+        sourceWorkspace.focusPanel(sourcePanel.id)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            Double(sourceWorkspace.lastRememberedTerminalFontPointsForConfigInheritance() ?? 0),
+            20,
+            accuracy: 0.6,
+            "Expected focusing the source panel to seed remembered workspace inheritance zoom"
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept updated font-size binding action"
+        )
+        drainMainQueue()
+
+        XCTAssertEqual(
+            Double(sourceWorkspace.lastRememberedTerminalFontPointsForConfigInheritance() ?? 0),
+            20,
+            accuracy: 0.6,
+            "Expected remembered zoom to stay stale until another inheritance refresh occurs"
+        )
+
+        let newWorkspace = manager.addWorkspace()
+        guard let newPanelId = newWorkspace.focusedPanelId,
+              let newPanel = newWorkspace.terminalPanel(for: newPanelId) else {
+            XCTFail("Expected new workspace with focused terminal")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            newPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        newWorkspace.focusPanel(newPanel.id)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            Double(newWorkspace.lastRememberedTerminalFontPointsForConfigInheritance() ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected new workspace creation to preserve the latest live zoom instead of stale remembered zoom"
         )
     }
 }
