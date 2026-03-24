@@ -5372,6 +5372,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.allowsMultipleSelection = false
         panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
         panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
+        if let context = contextForMainWindow(NSApp.keyWindow),
+           let cwd = context.tabManager.selectedWorkspace?.currentDirectory,
+           !cwd.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: cwd)
+        }
         if panel.runModal() == .OK, let url = panel.url {
             if addWorkspaceInPreferredMainWindow(
                 workingDirectory: url.path,
