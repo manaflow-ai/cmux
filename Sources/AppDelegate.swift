@@ -5377,7 +5377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: url.path,
                 debugSource: "shortcut.openFolder"
             ) == nil {
-                openNewMainWindow(nil)
+                createMainWindow(initialWorkingDirectory: url.path)
             }
         }
     }
