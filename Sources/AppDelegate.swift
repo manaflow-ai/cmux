@@ -2151,6 +2151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+
+    /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
+    /// Reset to `.zero` so the first window seeds the point from its own position.
+    private var lastCascadePoint = NSPoint.zero
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     private var didAttemptStartupSessionRestore = false
@@ -5868,11 +5872,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
-        } else if let existingFrame, sessionWindowSnapshot == nil {
-            // Cascade from the existing window so the new one doesn't stack exactly on top.
-            window.cascadeTopLeft(from: NSPoint(x: existingFrame.minX, y: existingFrame.maxY))
         } else {
             window.center()
+            // Cascade using the same algorithm as upstream Ghostty: seed from
+            // the window's own top-left on the first call, then advance the
+            // cascade point for each subsequent window.
+            if mainWindowContexts.count >= 1 {
+                lastCascadePoint = window.cascadeTopLeft(from: lastCascadePoint)
+            } else {
+                lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
+            }
         }
         window.contentView = MainWindowHostingView(rootView: root)
 
@@ -11083,6 +11092,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        // Reset cascade point so the next new window appears near the closing
+        // window's position, matching upstream Ghostty behavior.
+        let frame = window.frame
+        lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+
         // Keep geometry available as a fallback even if the full session snapshot
         // is removed when the last window closes.
         persistWindowGeometry(from: window)
