@@ -13205,6 +13205,36 @@ class TerminalController {
         case "backspace":
             sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
             return true
+        case "up", "arrow_up", "arrowup":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_UpArrow))
+            return true
+        case "down", "arrow_down", "arrowdown":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_DownArrow))
+            return true
+        case "left", "arrow_left", "arrowleft":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_LeftArrow))
+            return true
+        case "right", "arrow_right", "arrowright":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_RightArrow))
+            return true
+        case "shift+tab", "shift-tab", "backtab":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab), mods: GHOSTTY_MODS_SHIFT)
+            return true
+        case "home":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Home))
+            return true
+        case "end":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_End))
+            return true
+        case "delete", "del", "forward_delete":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ForwardDelete))
+            return true
+        case "pageup", "page_up":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageUp))
+            return true
+        case "pagedown", "page_down":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageDown))
+            return true
         default:
             if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
                 let letter = keyName.dropFirst(5)
