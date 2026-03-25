@@ -2733,9 +2733,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
-    /// Tracks the last focus state to avoid sending redundant focus events.
-    /// This prevents prompt redraw issues with zsh themes like Powerlevel10k.
-    private var lastFocusState: Bool = false
+    /// The desired focus state for the Ghostty C surface. May be set before the
+    /// C surface exists (e.g. during layout restoration); `createSurface` syncs
+    /// it on creation. Also used as a dedup guard to avoid redundant
+    /// `ghostty_surface_set_focus` calls (prevents prompt redraws with P10k).
+    /// Initialized to `true` to match Ghostty's default (Terminal.zig focused=true).
+    private var desiredFocusState: Bool = true
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
 #endif
@@ -3548,6 +3551,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Sync the desired focus state to the newly created C surface. Ghostty
+        // surfaces default to focused=true, but this surface may have been
+        // logically unfocused before the C surface existed (e.g. during layout
+        // restoration). Always sync unconditionally so we don't couple to
+        // Ghostty's default.
+        ghostty_surface_set_focus(createdSurface, desiredFocusState)
+
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
             object: self,
@@ -3672,12 +3682,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceView.applyWindowBackgroundIfActive()
     }
 
+    /// Keep `desiredFocusState` in sync when the hosted view's responder chain
+    /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
+    /// Without this, `createSurface` would replay a stale state on recreation.
+    func recordExternalFocusState(_ focused: Bool) {
+        desiredFocusState = focused
+    }
+
     func setFocus(_ focused: Bool) {
-        guard let surface = surface else { return }
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
-        guard focused != lastFocusState else { return }
-        lastFocusState = focused
+        guard focused != desiredFocusState else { return }
+        desiredFocusState = focused
+        // Track desired state even before the C surface exists (e.g. during
+        // layout restoration). createSurface syncs the state once created.
+        guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
@@ -4950,6 +4969,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     ]
                 )
             }
+            terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -4973,6 +4993,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+            terminalSurface?.recordExternalFocusState(false)
             ghostty_surface_set_focus(surface, false)
         }
         return result
@@ -5260,6 +5281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // This avoids intermittent drops after rapid split close/reparent transitions.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+            terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
