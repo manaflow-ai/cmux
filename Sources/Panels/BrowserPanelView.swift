@@ -4313,6 +4313,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var onGeometryChanged: (() -> Void)?
         private(set) var geometryRevision: UInt64 = 0
         private var lastReportedGeometryState: GeometryState?
+        private var hasPendingGeometryNotification = false
         private weak var hostedWebView: WKWebView?
         private var hostedWebViewConstraints: [NSLayoutConstraint] = []
         private weak var localInlineSlotView: WindowBrowserSlotView?
@@ -4647,7 +4648,30 @@ struct WebViewRepresentable: NSViewRepresentable {
             )
         }
 
+        /// Record that geometry changed without firing the callback immediately.
+        /// `setFrameOrigin`/`setFrameSize` can fire multiple times before `layout()`;
+        /// deferring avoids redundant portal-sync cascades during divider drag.
+        /// A dispatch fallback ensures the callback fires even if `layout()` is not called.
+        /// Note: `lastReportedGeometryState` and `geometryRevision` are only updated
+        /// when the callback actually fires, so `updateNSView` sees a revision that
+        /// is strictly tied to emitted callbacks (no premature increments).
+        private func markGeometryDirtyIfNeeded() {
+            let state = currentGeometryState()
+            guard state != lastReportedGeometryState else { return }
+            guard !hasPendingGeometryNotification else { return }
+            hasPendingGeometryNotification = true
+            DispatchQueue.main.async { [weak self] in
+                self?.notifyGeometryChangedIfNeeded()
+            }
+        }
+
+        /// Check for geometry changes and fire the callback. Also flushes any pending
+        /// dirty state from `markGeometryDirtyIfNeeded` so `layout()` supersedes the
+        /// async fallback.  Only updates `lastReportedGeometryState` / `geometryRevision`
+        /// when the callback is emitted, keeping the revision in sync with actual
+        /// notifications.
         private func notifyGeometryChangedIfNeeded() {
+            hasPendingGeometryNotification = false
             let state = currentGeometryState()
             guard state != lastReportedGeometryState else { return }
             lastReportedGeometryState = state
@@ -5070,7 +5094,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func setFrameOrigin(_ newOrigin: NSPoint) {
             super.setFrameOrigin(newOrigin)
             window?.invalidateCursorRects(for: self)
-            notifyGeometryChangedIfNeeded()
+            // Mark dirty; the callback fires from layout() with the settled geometry.
+            markGeometryDirtyIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameOrigin")
 #endif
@@ -5079,7 +5104,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         override func setFrameSize(_ newSize: NSSize) {
             super.setFrameSize(newSize)
             window?.invalidateCursorRects(for: self)
-            notifyGeometryChangedIfNeeded()
+            // Mark dirty; the callback fires from layout() with the settled geometry.
+            markGeometryDirtyIfNeeded()
 #if DEBUG
             debugLogHostedInspectorLayoutIfNeeded(reason: "setFrameSize")
 #endif

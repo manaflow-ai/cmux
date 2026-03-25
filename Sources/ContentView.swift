@@ -339,7 +339,10 @@ enum SidebarResizeInteraction {
     // Keep a generous drag target inside the sidebar itself, but make the
     // terminal-side overlap very small so column-0 text selection still wins.
     static let sidebarSideHitWidth: CGFloat = 6
-    static let contentSideHitWidth: CGFloat = 2
+    // 4 pt matches the 4 pt padding used in GhosttySurfaceScrollView drop zone overlays
+    // (dropZoneOverlayFrame). This prevents column-0 text near the leading edge from
+    // accidentally triggering the sidebar resize when interacting with leftmost content.
+    static let contentSideHitWidth: CGFloat = 4
 
     static var totalHitWidth: CGFloat {
         sidebarSideHitWidth + contentSideHitWidth
@@ -1550,6 +1553,7 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -2465,6 +2469,7 @@ struct ContentView: View {
                 // Draggable folder icon + focused command name
                 if let directory = focusedDirectory {
                     DraggableFolderIcon(directory: directory)
+                        .padding(.leading, -6)
                 }
 
                 Text(titlebarText)
@@ -4655,7 +4660,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
-        commandsContext.snapshot.fingerprint()
+        var hasher = Hasher()
+        hasher.combine(commandsContext.snapshot.fingerprint())
+        hasher.combine(cmuxConfigStore.configRevision)
+        return hasher.finalize()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
@@ -5959,7 +5967,35 @@ struct ContentView: View {
             )
         )
 
+        let cmuxConfigDefaultSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
+        for command in cmuxConfigStore.loadedCommands {
+            let commandName = sanitizeCmuxConfigPaletteText(command.name)
+            let subtitle = command.description
+                .map { sanitizeCmuxConfigPaletteText($0) }
+                .flatMap { $0.isEmpty ? nil : constant($0) }
+                ?? cmuxConfigDefaultSubtitle
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: command.id,
+                    title: constant(String(localized: "command.cmuxConfig.customTitle", defaultValue: "Custom: \(commandName)")),
+                    subtitle: subtitle,
+                    keywords: command.keywords ?? []
+                )
+            )
+        }
+
         return contributions
+    }
+
+    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+            "\u{FEFF}",
+        ]
+        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
+        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
@@ -6288,6 +6324,24 @@ struct ContentView: View {
                   tabManager.equalizeSplits(tabId: workspace.id) else {
                 NSSound.beep()
                 return
+            }
+        }
+
+        for command in cmuxConfigStore.loadedCommands {
+            let captured = command
+            let sourcePath = cmuxConfigStore.commandSourcePaths[command.id]
+            let globalPath = cmuxConfigStore.globalConfigPath
+            registry.register(commandId: command.id) {
+                let rawCwd = tabManager.selectedWorkspace?.currentDirectory
+                let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                    : FileManager.default.homeDirectoryForCurrentUser.path
+                CmuxConfigExecutor.execute(
+                    command: captured,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd,
+                    configSourcePath: sourcePath,
+                    globalConfigPath: globalPath
+                )
             }
         }
     }
@@ -10892,9 +10946,15 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // the parent rebuilds with unchanged values. Without this, every TabManager
 // or NotificationStore publish causes ALL tab items to re-evaluate (~18% of
 // main thread during typing). If you add new properties, update == below.
+// Reactive workspace state inside the row must not rely on parent diffs alone:
+// `.equatable()` can otherwise leave sidebar badges/details stale until an
+// unrelated parent change sneaks through. Keep the workspace reference plain
+// and bridge its objectWillChange into local state instead.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 private struct TabItemView: View, Equatable {
+    private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+
     // Closures, Bindings, and object references are excluded from ==
     // because they're recreated every parent eval but don't affect rendering.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
@@ -10920,7 +10980,7 @@ private struct TabItemView: View, Equatable {
     let tabManager: TabManager
     let notificationStore: TerminalNotificationStore
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject var tab: Tab
+    let tab: Tab
     let index: Int
     let isActive: Bool
     let workspaceShortcutDigit: Int?
@@ -10940,6 +11000,7 @@ private struct TabItemView: View, Equatable {
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    @State private var workspaceObservationGeneration: UInt64 = 0
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
@@ -11147,6 +11208,7 @@ private struct TabItemView: View, Equatable {
     }
 
     var body: some View {
+        let _ = workspaceObservationGeneration
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
         let protectedWorkspaceTooltip = String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
@@ -11482,6 +11544,16 @@ private struct TabItemView: View, Equatable {
                     .padding(.horizontal, 8)
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
             }
+        }
+        .onReceive(
+            tab.objectWillChange
+                .receive(on: RunLoop.main)
+                // Prompt-time sidebar telemetry can arrive as a short burst
+                // (pwd, branch, PR, shell state). Coalesce that burst so the
+                // row redraws once with the settled state instead of blinking.
+                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
+        ) { _ in
+            workspaceObservationGeneration &+= 1
         }
         .onDrag {
             #if DEBUG

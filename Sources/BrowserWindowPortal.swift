@@ -2904,7 +2904,11 @@ final class WindowBrowserPortal: NSObject {
             synchronizeWebView(withId: primaryWebViewId, source: "anchorPrimary")
         }
 
-        synchronizeAllWebViews(excluding: primaryWebViewId, source: "anchorSecondary")
+        // During rapid geometry changes (e.g. divider drag), syncing every web view
+        // on every frame is expensive and causes stuttering.  Each panel's
+        // HostContainerView fires its own geometry callback, so secondary web views
+        // will sync themselves.  Defer the all-sync to coalesce with the next
+        // run-loop turn instead.
         scheduleDeferredFullSynchronizeAll()
     }
 

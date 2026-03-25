@@ -698,6 +698,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private static let workspaceGitMetadataPollInterval: TimeInterval = 30
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     @Published var selectedTabId: UUID? {
         willSet {
@@ -809,6 +810,7 @@ class TabManager: ObservableObject {
         }
     }
     private var agentPIDSweepTimer: DispatchSourceTimer?
+    private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -855,7 +857,7 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-
+        startWorkspaceGitMetadataPollTimer()
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -867,6 +869,7 @@ class TabManager: ObservableObject {
     deinit {
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
+        workspaceGitMetadataPollTimer?.cancel()
     }
 
     // MARK: - Agent PID Sweep
@@ -886,6 +889,93 @@ class TabManager: ObservableObject {
         }
         timer.resume()
         agentPIDSweepTimer = timer
+    }
+
+    /// Periodically refreshes git/PR metadata for tracked workspace branches so
+    /// remote GitHub state changes (e.g. PR open -> merged) reach sidebar state
+    /// even when the local branch/directory does not change.
+    private func startWorkspaceGitMetadataPollTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        let interval = Self.workspaceGitMetadataPollInterval
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.refreshTrackedWorkspaceGitMetadata()
+            }
+        }
+        timer.resume()
+        workspaceGitMetadataPollTimer = timer
+    }
+
+    private func refreshTrackedWorkspaceGitMetadata() {
+        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+
+        for workspace in tabs {
+            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
+                in: workspace,
+                activeProbeKeys: activeProbeKeys
+            ) {
+                scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "periodicPoll"
+                )
+            }
+        }
+    }
+
+    func refreshTrackedWorkspaceGitMetadataForTesting() {
+        refreshTrackedWorkspaceGitMetadata()
+    }
+
+    func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return []
+        }
+        return trackedWorkspaceGitMetadataPollCandidatePanelIds(
+            in: workspace,
+            activeProbeKeys: activeProbeKeys
+        )
+    }
+
+    private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
+        in workspace: Workspace,
+        activeProbeKeys: Set<WorkspaceGitProbeKey>
+    ) -> Set<UUID> {
+        var candidatePanelIds = Set(workspace.panelGitBranches.keys)
+        candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
+
+        if candidatePanelIds.isEmpty,
+           let focusedPanelId = workspace.focusedPanelId,
+           workspace.gitBranch != nil || workspace.pullRequest != nil {
+            candidatePanelIds.insert(focusedPanelId)
+        }
+
+        return Set(candidatePanelIds.filter { panelId in
+            let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+            guard !activeProbeKeys.contains(probeKey) else { return false }
+            return shouldPollTrackedWorkspaceGitMetadata(in: workspace, panelId: panelId)
+        })
+    }
+
+    private func shouldPollTrackedWorkspaceGitMetadata(in workspace: Workspace, panelId: UUID) -> Bool {
+        guard let branch = trackedWorkspaceGitBranch(in: workspace, panelId: panelId) else {
+            return true
+        }
+        return !Self.shouldSkipWorkspacePullRequestLookup(branch: branch)
+    }
+
+    private func trackedWorkspaceGitBranch(in workspace: Workspace, panelId: UUID) -> String? {
+        if let branch = workspace.panelGitBranches[panelId]?.branch {
+            return branch
+        }
+        if workspace.focusedPanelId == panelId {
+            return workspace.gitBranch?.branch
+        }
+        return nil
     }
 
     private func sweepStaleAgentPIDs() {
@@ -1070,6 +1160,10 @@ class TabManager: ObservableObject {
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
         let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace(snapshot: snapshot)
+        // Resolve placement against the pre-creation snapshot before Workspace init
+        // boots terminal state. The ssh/new-workspace path can otherwise crash while
+        // reading @Published placement state from existing workspaces mid-creation.
+        let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = Workspace(
@@ -1082,7 +1176,6 @@ class TabManager: ObservableObject {
         )
         newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
-        let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
         if eagerLoadTerminal && !select {
             requestBackgroundWorkspaceLoad(for: newWorkspace.id)
         }
@@ -1409,6 +1502,10 @@ class TabManager: ObservableObject {
         directory: String,
         branch: String
     ) -> WorkspacePullRequestSnapshot {
+        guard !shouldSkipWorkspacePullRequestLookup(branch: branch) else {
+            return .notFound
+        }
+
         let repoSlugs = githubRepositorySlugs(directory: directory)
         guard !repoSlugs.isEmpty else {
             return .unsupportedRepository
@@ -1699,6 +1796,69 @@ class TabManager: ObservableObject {
         }
     }
 
+    private nonisolated static let fallbackCommandSearchDirectories: [String] = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+    ]
+
+    nonisolated static func resolvedCommandPathForTesting(
+        executable: String,
+        environment: [String: String],
+        fallbackDirectories: [String]
+    ) -> String? {
+        resolvedCommandPath(
+            executable: executable,
+            environment: environment,
+            fallbackDirectories: fallbackDirectories
+        )
+    }
+
+    private nonisolated static func resolvedCommandPath(
+        executable: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fallbackDirectories: [String] = fallbackCommandSearchDirectories
+    ) -> String? {
+        guard !executable.isEmpty else { return nil }
+        let fileManager = FileManager.default
+        if executable.contains("/") {
+            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
+        }
+
+        var searchDirectories: [String] = []
+        var seenDirectories: Set<String> = []
+
+        func appendSearchPath(_ path: String?) {
+            guard let path else { return }
+            for rawComponent in path.split(separator: ":") {
+                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !component.isEmpty,
+                      seenDirectories.insert(component).inserted else {
+                    continue
+                }
+                searchDirectories.append(component)
+            }
+        }
+
+        appendSearchPath(environment["PATH"])
+        appendSearchPath(getenv("PATH").map { String(cString: $0) })
+        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            appendSearchPath(bundledBinPath)
+        }
+        fallbackDirectories.forEach { appendSearchPath($0) }
+        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
+
+        for directory in searchDirectories {
+            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
+                .appendingPathComponent(executable)
+                .path
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     private nonisolated static func runCommand(
         directory: String,
         executable: String,
@@ -1728,8 +1888,13 @@ class TabManager: ObservableObject {
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
+        if let resolvedExecutable = resolvedCommandPath(executable: executable) {
+            process.executableURL = URL(fileURLWithPath: resolvedExecutable)
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executable] + arguments
+        }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.standardOutput = stdout
         process.standardError = stderr
@@ -1889,6 +2054,15 @@ class TabManager: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    nonisolated static func shouldSkipWorkspacePullRequestLookup(branch: String) -> Bool {
+        switch normalizedBranchName(branch) {
+        case "main", "master":
+            return true
+        default:
+            return false
+        }
+    }
+
     func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
         guard !pendingBackgroundWorkspaceLoadIds.contains(workspaceId) else { return }
         var updated = pendingBackgroundWorkspaceLoadIds
@@ -2003,17 +2177,28 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let pinnedCount = snapshot.tabs.filter { $0.isPinned }.count
-        let selectedIndex = snapshot.selectedTabId.flatMap { tabId in
-            snapshot.tabs.firstIndex(where: { $0.id == tabId })
+        let tabs = snapshot.tabs
+        var pinnedCount = 0
+        var selectedIndex: Int?
+        var selectedIsPinned = false
+        let selectedTabId = snapshot.selectedTabId
+
+        for (index, tab) in tabs.enumerated() {
+            if tab.isPinned {
+                pinnedCount += 1
+            }
+            if selectedIndex == nil, tab.id == selectedTabId {
+                selectedIndex = index
+                selectedIsPinned = tab.isPinned
+            }
         }
-        let selectedIsPinned = selectedIndex.map { snapshot.tabs[$0].isPinned } ?? false
+
         return WorkspacePlacementSettings.insertionIndex(
             placement: placement,
             selectedIndex: selectedIndex,
             selectedIsPinned: selectedIsPinned,
             pinnedCount: pinnedCount,
-            totalCount: snapshot.tabs.count
+            totalCount: tabs.count
         )
     }
 
@@ -2666,13 +2851,26 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
+        let keepsRemoteWorkspaceOpen =
+            tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         dlog(
             "surface.close.childExited tab=\(tabId.uuidString.prefix(5)) " +
-            "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count)"
+            "surface=\(surfaceId.uuidString.prefix(5)) panels=\(tab.panels.count) workspaces=\(tabs.count) " +
+            "remoteWorkspace=\(tab.isRemoteWorkspace ? 1 : 0) keepRemote=\(keepsRemoteWorkspaceOpen ? 1 : 0)"
         )
 #endif
+
+        // Exiting the last SSH surface should demote the workspace back to a local one.
+        // Route through Workspace close handling so remote teardown and replacement-panel
+        // logic run before TabManager considers removing the workspace itself, including
+        // session-end paths where remote configuration was cleared before Ghostty delivered
+        // the child-exit callback.
+        if keepsRemoteWorkspaceOpen {
+            closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
+            return
+        }
 
         // Child-exit on the last panel should collapse the workspace, matching explicit close
         // semantics (and close the window when it was the last workspace).
@@ -3393,9 +3591,36 @@ class TabManager: ObservableObject {
 
     /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
-        // Bonsplit handles resize through its own divider dragging
-        // This is a no-op for now as bonsplit manages divider positions internally
-        return false
+        guard amount > 0,
+              let tab = tabs.first(where: { $0.id == tabId }),
+              let paneId = tab.paneId(forPanelId: surfaceId) else { return false }
+
+        let paneUUID = paneId.id
+        guard tab.bonsplitController.allPaneIds.contains(where: { $0.id == paneUUID }) else {
+            return false
+        }
+
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = resizeSplitCollectCandidates(
+            node: tab.bonsplitController.treeSnapshot(),
+            targetPaneId: paneUUID.uuidString,
+            candidates: &candidates
+        )
+        guard trace.containsTarget else { return false }
+
+        let orientationMatches = candidates.filter { $0.orientation == direction.splitOrientation }
+        guard !orientationMatches.isEmpty else { return false }
+
+        guard let candidate = orientationMatches.first(where: {
+            $0.paneInFirstChild == direction.requiresPaneInFirstChild
+        }) else {
+            return false
+        }
+
+        let delta = CGFloat(amount) / candidate.axisPixels
+        let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
+        let clamped = min(max(requested, 0.1), 0.9)
+        return tab.bonsplitController.setDividerPosition(clamped, forSplit: candidate.splitId, fromExternal: true)
     }
 
     /// Equalize splits - not directly supported by bonsplit
@@ -3459,6 +3684,68 @@ class TabManager: ObservableObject {
                 foundSplit: &foundSplit,
                 allSucceeded: &allSucceeded
             )
+        }
+    }
+
+    private struct ResizeSplitCandidate {
+        let splitId: UUID
+        let orientation: String
+        let paneInFirstChild: Bool
+        let dividerPosition: CGFloat
+        let axisPixels: CGFloat
+    }
+
+    private struct ResizeSplitTrace {
+        let containsTarget: Bool
+        let bounds: CGRect
+    }
+
+    private func resizeSplitCollectCandidates(
+        node: ExternalTreeNode,
+        targetPaneId: String,
+        candidates: inout [ResizeSplitCandidate]
+    ) -> ResizeSplitTrace {
+        switch node {
+        case .pane(let pane):
+            let bounds = CGRect(
+                x: pane.frame.x,
+                y: pane.frame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            return ResizeSplitTrace(containsTarget: pane.id == targetPaneId, bounds: bounds)
+
+        case .split(let split):
+            let first = resizeSplitCollectCandidates(
+                node: split.first,
+                targetPaneId: targetPaneId,
+                candidates: &candidates
+            )
+            let second = resizeSplitCollectCandidates(
+                node: split.second,
+                targetPaneId: targetPaneId,
+                candidates: &candidates
+            )
+
+            let combinedBounds = first.bounds.union(second.bounds)
+            let containsTarget = first.containsTarget || second.containsTarget
+
+            if containsTarget,
+               let splitUUID = UUID(uuidString: split.id) {
+                let orientation = split.orientation.lowercased()
+                let axisPixels: CGFloat = orientation == "horizontal"
+                    ? combinedBounds.width
+                    : combinedBounds.height
+                candidates.append(ResizeSplitCandidate(
+                    splitId: splitUUID,
+                    orientation: orientation,
+                    paneInFirstChild: first.containsTarget,
+                    dividerPosition: CGFloat(split.dividerPosition),
+                    axisPixels: max(axisPixels, 1)
+                ))
+            }
+
+            return ResizeSplitTrace(containsTarget: containsTarget, bounds: combinedBounds)
         }
     }
 
@@ -5034,8 +5321,19 @@ extension TabManager {
         )
     }
 
+    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
+        // Session restore replaces the bootstrap workspace objects with freshly
+        // restored ones. Tear the old graph down after the atomic swap so late
+        // panel/socket callbacks cannot keep mutating hidden pre-restore state.
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownAllPanels()
+        workspace.teardownRemoteConnection()
+        workspace.owningTabManager = nil
+    }
+
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
-        for tab in tabs {
+        let previousTabs = tabs
+        for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
         }
         let existingProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
@@ -5099,6 +5397,12 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+        let existingIds = Set(newTabs.map(\.id))
+        pruneBackgroundWorkspaceLoads(existingIds: existingIds)
+        sidebarSelectedWorkspaceIds.formIntersection(existingIds)
+        for workspace in previousTabs {
+            releaseRestoredAwayWorkspace(workspace)
+        }
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
@@ -5147,6 +5451,31 @@ enum SplitDirection {
 /// Resize direction for backwards compatibility
 enum ResizeDirection {
     case left, right, up, down
+
+    var splitOrientation: String {
+        switch self {
+        case .left, .right:
+            return "horizontal"
+        case .up, .down:
+            return "vertical"
+        }
+    }
+
+    /// A split controls the target pane's right/bottom edge when the target is
+    /// the first child, and left/top edge when the target is the second child.
+    var requiresPaneInFirstChild: Bool {
+        switch self {
+        case .right, .down:
+            return true
+        case .left, .up:
+            return false
+        }
+    }
+
+    /// Positive values move the divider toward the second child (right/down).
+    var dividerDeltaSign: CGFloat {
+        requiresPaneInFirstChild ? 1 : -1
+    }
 }
 
 extension Notification.Name {

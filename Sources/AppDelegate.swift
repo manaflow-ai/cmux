@@ -1504,12 +1504,31 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
+func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+    guard let responder else { return false }
+
+    // During IME composition, Return/Enter belongs to the text system so the
+    // candidate list can commit or confirm the marked text.
+    if let textInputClient = responder as? NSTextInputClient {
+        return textInputClient.hasMarkedText()
+    }
+
+    if let textField = responder as? NSTextField,
+       let editor = textField.currentEditor() as? NSTextView {
+        return editor.hasMarkedText()
+    }
+
+    return false
+}
+
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsBrowser: Bool,
+    firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
+    guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
     // Keep browser Return forwarding narrow: only plain/Shift Return should be
     // treated as submit-intent. Command-modified Return is reserved for app shortcuts
@@ -4897,10 +4916,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
-        guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+        if let window = context.window {
+            return window
+        }
+        guard let window = windowForMainWindowId(context.windowId) else {
             return nil
         }
-        context.window = window
+        reindexMainWindowContextIfNeeded(context, for: window)
         return window
     }
 
@@ -5363,6 +5385,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
+    /// Called from both the SwiftUI menu and `handleCustomShortcut`.
+    func showOpenFolderPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
+        panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
+        // Seed the panel with the active workspace's directory. Use the shared
+        // main-window resolver so this works even when an auxiliary window is key.
+        if let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed"),
+           let cwd = context.tabManager.selectedWorkspace?.currentDirectory,
+           !cwd.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: cwd)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            openWorkspaceForExternalDirectory(
+                workingDirectory: url.path,
+                debugSource: "shortcut.openFolder"
+            )
+        }
+    }
+
     @objc func openWindow(
         _ pasteboard: NSPasteboard,
         userData: String?,
@@ -5786,11 +5832,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let notificationStore = TerminalNotificationStore.shared
 
+        let cmuxConfigStore = CmuxConfigStore()
+        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+        cmuxConfigStore.loadAll()
+
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(cmuxConfigStore)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
@@ -9314,6 +9365,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Open Folder: Cmd+O
+        // Handled here to prevent AppKit's default NSDocumentController from opening
+        // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openFolder)) {
+            showOpenFolderPanel()
+            return true
+        }
+
         // Check Show Notifications shortcut
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
@@ -9486,18 +9545,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for specific workspaces (9 = last workspace)
-        if let manager = tabManager,
-           let digit = numberedShortcutDigit(
-               event: event,
-               shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-           ),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+        // Always consume the event when the digit matches to prevent Ghostty's
+        // goto_tab fallback from creating a new window when the index is out of bounds.
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        ) {
+            if let manager = tabManager,
+               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
-            dlog(
-                "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-            )
+                dlog(
+                    "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                )
 #endif
-            manager.selectTab(at: targetIndex)
+                manager.selectTab(at: targetIndex)
+            }
             return true
         }
 
@@ -12393,6 +12455,7 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
@@ -12436,6 +12499,7 @@ private extension NSWindow {
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.

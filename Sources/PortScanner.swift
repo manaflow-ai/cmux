@@ -15,8 +15,8 @@ import Foundation
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
-    /// Callback delivers `(workspaceId, panelId, ports)` on main thread.
-    var onPortsUpdated: ((_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
+    /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
+    var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
 
     // MARK: - State (all guarded by `queue`)
 
@@ -171,7 +171,7 @@ final class PortScanner: @unchecked Sendable {
 
     private func deliverResults(_ results: [(PanelKey, [Int])]) {
         guard let callback = onPortsUpdated else { return }
-        DispatchQueue.main.async {
+        Task { @MainActor in
             for (key, ports) in results {
                 callback(key.workspaceId, key.panelId, ports)
             }
