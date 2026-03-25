@@ -73,10 +73,10 @@
 			<key>NSMenuItem</key>
 			<dict>
 				<key>default</key>
-				<string>New $(PRODUCT_NAME) Workspace Here</string>
+				<string>Open in $(PRODUCT_NAME)</string>
 			</dict>
 			<key>NSMessage</key>
-			<string>openTab</string>
+			<string>openInCmux</string>
 			<key>NSRequiredContext</key>
 			<dict>
 				<key>NSTextContent</key>
@@ -85,26 +85,6 @@
 			<key>NSSendTypes</key>
 			<array>
 				<string>NSFilenamesPboardType</string>
-				<string>public.plain-text</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSMenuItem</key>
-			<dict>
-				<key>default</key>
-				<string>New $(PRODUCT_NAME) Window Here</string>
-			</dict>
-			<key>NSMessage</key>
-			<string>openWindow</string>
-			<key>NSRequiredContext</key>
-			<dict>
-				<key>NSTextContent</key>
-				<string>FilePath</string>
-			</dict>
-			<key>NSSendTypes</key>
-			<array>
-				<string>NSFilenamesPboardType</string>
-				<string>public.plain-text</string>
 			</array>
 		</dict>
 	</array>

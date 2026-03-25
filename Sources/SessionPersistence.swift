@@ -340,11 +340,21 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+    /// Indices into the parent snapshot's workspaces array for child workspaces.
+    var childWorkspaceIndices: [Int]?
+    /// Whether this workspace's children are collapsed in the sidebar.
+    var isCollapsed: Bool?
+    /// The startup command to re-run on session restore.
+    var startupCommand: String?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    /// Legacy field for backward compatibility with old group-based layout.
+    var sidebarLayout: SessionSidebarLayoutSnapshot?
+    /// Top-level workspace indices for the new parent-child model.
+    var topLevelWorkspaceIndices: [Int]?
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

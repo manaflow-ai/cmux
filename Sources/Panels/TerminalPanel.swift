@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import Carbon.HIToolbox
 import Bonsplit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
@@ -180,6 +181,55 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func sendText(_ text: String) {
         surface.sendText(text)
+    }
+
+    /// Send text as interactive terminal input, properly handling control characters
+    /// (\r as Enter, \t as Tab, \x1b as Escape, etc.) via Ghostty key events.
+    /// This is the correct path for commands, scripts, and automation — NOT raw PTY writes.
+    func sendInteractiveText(_ text: String) {
+        guard let ghosttySurface = surface.surface else {
+            // Surface not initialized yet — fall back to raw sendText
+            surface.sendText(text)
+            return
+        }
+        let chunks = TerminalController.socketTextChunks(text)
+        for chunk in chunks {
+            switch chunk {
+            case .text(let value):
+                var keyEvent = ghostty_input_key_s()
+                keyEvent.action = GHOSTTY_ACTION_PRESS
+                keyEvent.keycode = 0
+                keyEvent.mods = GHOSTTY_MODS_NONE
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.unshifted_codepoint = 0
+                keyEvent.composing = false
+                value.withCString { ptr in
+                    keyEvent.text = ptr
+                    _ = ghostty_surface_key(ghosttySurface, keyEvent)
+                }
+            case .control(let scalar):
+                var keyEvent = ghostty_input_key_s()
+                keyEvent.action = GHOSTTY_ACTION_PRESS
+                keyEvent.mods = GHOSTTY_MODS_NONE
+                keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+                keyEvent.unshifted_codepoint = 0
+                keyEvent.composing = false
+                keyEvent.text = nil
+                switch scalar.value {
+                case 0x0A, 0x0D:
+                    keyEvent.keycode = UInt32(kVK_Return)
+                case 0x09:
+                    keyEvent.keycode = UInt32(kVK_Tab)
+                case 0x1B:
+                    keyEvent.keycode = UInt32(kVK_Escape)
+                case 0x7F:
+                    keyEvent.keycode = UInt32(kVK_Delete)
+                default:
+                    continue
+                }
+                _ = ghostty_surface_key(ghosttySurface, keyEvent)
+            }
+        }
     }
 
     func performBindingAction(_ action: String) -> Bool {

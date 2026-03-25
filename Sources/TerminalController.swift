@@ -2084,6 +2084,55 @@ class TerminalController {
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
 
+        // Groups
+        case "group.create":
+            return v2Result(id: id, self.v2GroupCreate(params: params))
+        case "group.list":
+            return v2Result(id: id, self.v2GroupList(params: params))
+        case "group.delete":
+            return v2Result(id: id, self.v2GroupDelete(params: params))
+        case "group.collapse":
+            return v2Result(id: id, self.v2GroupCollapse(params: params))
+        case "group.expand":
+            return v2Result(id: id, self.v2GroupExpand(params: params))
+        case "group.rename":
+            return v2Result(id: id, self.v2GroupRename(params: params))
+        case "group.set_color":
+            return v2Result(id: id, self.v2GroupSetColor(params: params))
+        case "group.add_workspace":
+            return v2Result(id: id, self.v2GroupAddWorkspace(params: params))
+        case "group.remove_workspace":
+            return v2Result(id: id, self.v2GroupRemoveWorkspace(params: params))
+
+        case "group.install_template":
+            return v2Result(id: id, self.v2GroupInstallTemplate(params: params))
+
+        // Project
+        case "project.open":
+            return v2Result(id: id, self.v2ProjectOpen(params: params))
+        case "project.open_template":
+            return v2Result(id: id, self.v2ProjectOpenTemplate(params: params))
+
+        // Scripts
+        case "script.list":
+            return v2Result(id: id, self.v2ScriptList(params: params))
+        case "script.get":
+            return v2Result(id: id, self.v2ScriptGet(params: params))
+        case "script.save":
+            return v2Result(id: id, self.v2ScriptSave(params: params))
+        case "script.delete":
+            return v2Result(id: id, self.v2ScriptDelete(params: params))
+
+        // Templates
+        case "template.list":
+            return v2Result(id: id, self.v2TemplateList(params: params))
+        case "template.get":
+            return v2Result(id: id, self.v2TemplateGet(params: params))
+        case "template.save":
+            return v2Result(id: id, self.v2TemplateSave(params: params))
+        case "template.delete":
+            return v2Result(id: id, self.v2TemplateDelete(params: params))
+
         // Settings
         case "settings.open":
             return v2Result(id: id, self.v2SettingsOpen(params: params))
@@ -2573,6 +2622,26 @@ class TerminalController {
             "browser.input_mouse",
             "browser.input_keyboard",
             "browser.input_touch",
+            "group.create",
+            "group.list",
+            "group.delete",
+            "group.collapse",
+            "group.expand",
+            "group.rename",
+            "group.set_color",
+            "group.add_workspace",
+            "group.remove_workspace",
+            "group.install_template",
+            "project.open",
+            "project.open_template",
+            "script.list",
+            "script.get",
+            "script.save",
+            "script.delete",
+            "template.list",
+            "template.get",
+            "template.save",
+            "template.delete",
         ]
 #if DEBUG
         methods.append(contentsOf: [
@@ -2911,7 +2980,7 @@ class TerminalController {
         return NSNull()
     }
 
-    private func v2MainSync<T>(_ body: () -> T) -> T {
+    func v2MainSync<T>(_ body: () -> T) -> T {
         if Thread.isMainThread {
             return body()
         }
@@ -2938,7 +3007,7 @@ class TerminalController {
         ])
     }
 
-    private enum V2CallResult {
+    enum V2CallResult {
         case ok(Any)
         case err(code: String, message: String, data: Any?)
     }
@@ -3174,7 +3243,7 @@ class TerminalController {
 
     // MARK: - V2 Context Resolution
 
-    private func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
+    func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
         if let windowId = v2UUID(params, "window_id") {

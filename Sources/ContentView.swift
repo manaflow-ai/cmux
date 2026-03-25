@@ -7,17 +7,7 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-private extension Color {
-    init?(hex: String) {
-        let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))
-        guard hex.count == 6, let value = UInt64(hex, radix: 16) else { return nil }
-        self.init(
-            red:   Double((value >> 16) & 0xFF) / 255.0,
-            green: Double((value >> 8)  & 0xFF) / 255.0,
-            blue:  Double( value        & 0xFF) / 255.0
-        )
-    }
-}
+// Color(hex:) extension is defined in GroupHeaderView.swift (module-scoped)
 
 private func coloredCircleImage(color: NSColor) -> NSImage {
     let size = NSSize(width: 14, height: 14)
@@ -2200,7 +2190,7 @@ struct ContentView: View {
                     anchorView: fullscreenControlsViewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { tabManager.addTab() },
+            onNewTab: { addTab() },
             visibilityMode: .alwaysVisible
         )
     }
@@ -3152,7 +3142,7 @@ struct ContentView: View {
     }
 
     private func addTab() {
-        tabManager.addTab()
+        guard tabManager.addWorkspaceViaDialog() != nil else { return }
         sidebarSelectionState.selection = .tabs
     }
 
@@ -8217,49 +8207,31 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
-                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                            let visibleWorkspaces = tabManager.groupManager.visibleWorkspaces()
+                            let visibleCount = visibleWorkspaces.count
+                            ForEach(tabManager.items, id: \.self) { wsId in
+                                if let tab = tabManager.workspace(for: wsId) {
+                                    let visibleIndex = visibleWorkspaces.firstIndex(where: { $0.id == wsId }) ?? 0
+                                    sidebarTabItemView(
+                                        tab: tab,
+                                        visibleIndex: visibleIndex,
+                                        visibleCount: visibleCount,
+                                        workspaceCount: workspaceCount,
+                                        canCloseWorkspace: canCloseWorkspace,
+                                        depth: 0
+                                    )
+                                    if tab.hasChildren && !tab.isCollapsed {
+                                        sidebarChildWorkspaces(
+                                            parentIds: tab.childWorkspaceIds,
+                                            depth: 1,
+                                            visibleWorkspaces: visibleWorkspaces,
+                                            visibleCount: visibleCount,
+                                            workspaceCount: workspaceCount,
+                                            canCloseWorkspace: canCloseWorkspace,
+                                            parentCustomColorHex: tab.customColor
+                                        )
+                                    }
                                 }
-                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
-                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
-                                }
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.commandDigitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
-                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
-                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
-                                )
-                                .equatable()
                             }
                         }
                         .padding(.vertical, 8)
@@ -8362,6 +8334,112 @@ struct VerticalTabsSidebar: View {
             draggedTabId = nil
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // MARK: - Group-Aware Sidebar Helpers
+
+    @ViewBuilder
+    private func sidebarTabItemView(
+        tab: Workspace,
+        visibleIndex: Int,
+        visibleCount: Int,
+        workspaceCount: Int,
+        canCloseWorkspace: Bool,
+        depth: Int,
+        parentCustomColorHex: String? = nil
+    ) -> some View {
+        let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
+        let contextTargetIds = tabManager.tabs.compactMap { workspace in
+            selectedContextIds.contains(workspace.id) ? workspace.id : nil
+        }
+        let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
+            contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
+        }
+        TabItemView(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            tab: tab,
+            index: visibleIndex,
+            isActive: tabManager.selectedTabId == tab.id,
+            workspaceShortcutDigit: WorkspaceShortcutMapper.commandDigitForWorkspace(
+                at: visibleIndex,
+                workspaceCount: visibleCount
+            ),
+            canCloseWorkspace: canCloseWorkspace,
+            accessibilityWorkspaceCount: workspaceCount,
+            unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+            latestNotificationText: {
+                guard showsSidebarNotificationMessage,
+                      let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                    return nil
+                }
+                let text = notification.body.isEmpty ? notification.title : notification.body
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }(),
+            rowSpacing: tabRowSpacing,
+            setSelectionToTabs: { selection = .tabs },
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+            dragAutoScrollController: dragAutoScrollController,
+            draggedTabId: $draggedTabId,
+            dropIndicator: $dropIndicator,
+            remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
+            allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
+            allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected },
+            depth: depth,
+            hasChildren: tab.hasChildren,
+            isCollapsed: tab.isCollapsed,
+            parentCustomColorHex: parentCustomColorHex,
+            hasStartupCommand: tab.startupCommand != nil
+        )
+        .equatable()
+    }
+
+    /// Renders child workspaces (max 3 levels deep, no recursion needed).
+    @ViewBuilder
+    private func sidebarChildWorkspaces(
+        parentIds: [UUID],
+        depth: Int,
+        visibleWorkspaces: [Workspace],
+        visibleCount: Int,
+        workspaceCount: Int,
+        canCloseWorkspace: Bool,
+        parentCustomColorHex: String?
+    ) -> some View {
+        ForEach(parentIds, id: \.self) { childId in
+            if let childTab = tabManager.workspace(for: childId) {
+                let visibleIndex = visibleWorkspaces.firstIndex(where: { $0.id == childId }) ?? 0
+                sidebarTabItemView(
+                    tab: childTab,
+                    visibleIndex: visibleIndex,
+                    visibleCount: visibleCount,
+                    workspaceCount: workspaceCount,
+                    canCloseWorkspace: canCloseWorkspace,
+                    depth: depth,
+                    parentCustomColorHex: parentCustomColorHex
+                )
+                // Level 3 children (depth+1 == 2 means grandchildren at depth 3)
+                if childTab.hasChildren && !childTab.isCollapsed {
+                    let grandparentColorHex = childTab.customColor ?? parentCustomColorHex
+                    ForEach(childTab.childWorkspaceIds, id: \.self) { grandchildId in
+                        if let grandchildTab = tabManager.workspace(for: grandchildId) {
+                            let gcIndex = visibleWorkspaces.firstIndex(where: { $0.id == grandchildId }) ?? 0
+                            sidebarTabItemView(
+                                tab: grandchildTab,
+                                visibleIndex: gcIndex,
+                                visibleCount: visibleCount,
+                                workspaceCount: workspaceCount,
+                                canCloseWorkspace: canCloseWorkspace,
+                                depth: depth + 1,
+                                parentCustomColorHex: grandparentColorHex
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {
@@ -10519,6 +10597,33 @@ private struct SidebarEmptyArea: View {
                         .offset(y: -(rowSpacing / 2))
                 }
             }
+            .contextMenu {
+                let templates = TemplateRepository.shared.listTemplates()
+                Menu(String(localized: "contextMenu.openTemplate", defaultValue: "Open Template")) {
+                    ForEach(templates, id: \.self) { templateName in
+                        Button(templateName) {
+                            let panel = NSOpenPanel()
+                            panel.canChooseDirectories = true
+                            panel.canChooseFiles = false
+                            panel.allowsMultipleSelection = false
+                            panel.prompt = String(localized: "dialog.openTemplate.open", defaultValue: "Open")
+                            guard panel.runModal() == .OK, let url = panel.url else { return }
+                            if let template = try? TemplateRepository.shared.getTemplate(named: templateName) {
+                                tabManager.openTemplate(template, directory: url.path)
+                            }
+                        }
+                    }
+                    if !templates.isEmpty {
+                        Divider()
+                    }
+                    Button(String(localized: "contextMenu.openTemplatesFolder", defaultValue: "Open Templates Folder…")) {
+                        NSWorkspace.shared.open(TemplateRepository.shared.directory)
+                    }
+                }
+                Button(String(localized: "contextMenu.newWorkspace", defaultValue: "New Workspace")) {
+                    tabManager.addWorkspaceViaDialog()
+                }
+            }
     }
 
     private var shouldShowTopDropIndicator: Bool {
@@ -10645,7 +10750,12 @@ private struct TabItemView: View, Equatable {
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.depth == rhs.depth &&
+        lhs.hasChildren == rhs.hasChildren &&
+        lhs.isCollapsed == rhs.isCollapsed &&
+        lhs.parentCustomColorHex == rhs.parentCustomColorHex &&
+        lhs.hasStartupCommand == rhs.hasStartupCommand
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -10673,6 +10783,11 @@ private struct TabItemView: View, Equatable {
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    var depth: Int = 0
+    var hasChildren: Bool = false
+    var isCollapsed: Bool = false
+    var parentCustomColorHex: String?
+    var hasStartupCommand: Bool = false
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1
     @AppStorage(ShortcutHintDebugSettings.sidebarHintXKey) private var sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
@@ -10712,7 +10827,9 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showsLeadingRail: Bool {
-        explicitRailColor != nil
+        // Hide the rail for children that have a parent color card background
+        if resolvedCardColor != nil && !isActive { return false }
+        return explicitRailColor != nil
     }
 
     private var activeBorderLineWidth: CGFloat {
@@ -10927,6 +11044,18 @@ private struct TabItemView: View, Equatable {
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
+                if hasChildren {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .foregroundColor(.secondary)
+                        .frame(width: 12, height: 12)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            tabManager.toggleWorkspaceCollapsed(tab.id)
+                        }
+                }
+
                 if unreadCount > 0 {
                     ZStack {
                         Circle()
@@ -10942,6 +11071,13 @@ private struct TabItemView: View, Equatable {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
+                }
+
+                if hasStartupCommand {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(activeSecondaryColor(0.6))
+                        .accessibilityLabel(String(localized: "accessibility.startupCommand", defaultValue: "Has startup command"))
                 }
 
                 Text(tab.title)
@@ -11178,6 +11314,7 @@ private struct TabItemView: View, Equatable {
                 }
         )
         .padding(.horizontal, 6)
+        .padding(.leading, CGFloat(depth) * 16)
         .background {
             GeometryReader { proxy in
                 Color.clear
@@ -11383,6 +11520,31 @@ private struct TabItemView: View, Equatable {
 
         Divider()
 
+        runScriptSubmenu
+
+        if depth < 2 {
+            Button(String(localized: "contextMenu.addChildWorkspace", defaultValue: "Add Child Workspace")) {
+                tabManager.addChildWorkspace(for: tab.id)
+            }
+        }
+
+        Button(String(localized: "contextMenu.makeChild", defaultValue: "Make Child")) {
+            if tabManager.groupManager.indentWorkspace(tab.id) {
+                tabManager.items = tabManager.groupManager.items
+            }
+        }
+        .disabled(!canMakeChild)
+
+        if depth > 0 {
+            Button(String(localized: "contextMenu.raiseLevel", defaultValue: "Raise Level")) {
+                if tabManager.groupManager.outdentWorkspace(tab.id) {
+                    tabManager.items = tabManager.groupManager.items
+                }
+            }
+        }
+
+        Divider()
+
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveBy(-1)
         }
@@ -11469,8 +11631,13 @@ private struct TabItemView: View, Equatable {
     private var backgroundColor: Color {
         switch activeTabIndicatorStyle {
         case .leftRail:
+            // Active/selected always gets standard blue selection
             if isActive        { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
             if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
+            // At rest: children of a colored parent show parent color as card background
+            if let parentColor = resolvedCardColor {
+                return parentColor.opacity(colorScheme == .dark ? 0.55 : 0.40)
+            }
             return Color.clear
         case .solidFill:
             if isActive { return Color(nsColor: sidebarSelectedWorkspaceBackgroundNSColor(for: colorScheme)) }
@@ -11479,6 +11646,10 @@ private struct TabItemView: View, Equatable {
                 return custom.opacity(0.7)
             }
             if isMultiSelected { return cmuxAccentColor().opacity(0.25) }
+            // At rest: children of a colored parent show parent color as card background
+            if let parentColor = resolvedCardColor {
+                return parentColor.opacity(colorScheme == .dark ? 0.55 : 0.40)
+            }
             return Color.clear
         }
     }
@@ -11504,6 +11675,25 @@ private struct TabItemView: View, Equatable {
         )
     }
 
+    /// Color for the card background: workspace's own color first, then parent's color as fallback.
+    private var resolvedCardColor: Color? {
+        // Own color takes priority
+        if let ownHex = tab.customColor {
+            return WorkspaceTabColorSettings.displayColor(
+                hex: ownHex,
+                colorScheme: colorScheme,
+                forceBright: false
+            )
+        }
+        // Fall back to parent's color only for children
+        guard depth > 0, let hex = parentCustomColorHex else { return nil }
+        return WorkspaceTabColorSettings.displayColor(
+            hex: hex,
+            colorScheme: colorScheme,
+            forceBright: false
+        )
+    }
+
     private func tabColorSwatchColor(for hex: String) -> NSColor {
         WorkspaceTabColorSettings.displayNSColor(
             hex: hex,
@@ -11525,6 +11715,25 @@ private struct TabItemView: View, Equatable {
             return false
         }
         return tabManager.tabs[currentIndex - 1].id == indicator.tabId
+    }
+
+    /// Whether this workspace can be nested under the sibling above it.
+    private var canMakeChild: Bool {
+        // Check depth constraint (max 3 levels)
+        let currentDepth = tabManager.groupManager.depthOf(workspaceId: tab.id)
+        guard currentDepth < 3 else { return false }
+        // Must have a sibling above at the same level to nest under
+        if currentDepth <= 1 {
+            // Top-level: check if there's a top-level item above this one
+            guard let idx = tabManager.groupManager.items.firstIndex(of: tab.id),
+                  idx > 0 else { return false }
+        } else {
+            // Child: check if there's a sibling above in the parent's children
+            guard let parent = tabManager.groupManager.parentWorkspace(of: tab.id),
+                  let idx = parent.childWorkspaceIds.firstIndex(of: tab.id),
+                  idx > 0 else { return false }
+        }
+        return true
     }
 
     private var accessibilityTitle: String {
@@ -12077,6 +12286,61 @@ private struct TabItemView: View, Equatable {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+
+    @ViewBuilder
+    private var runScriptSubmenu: some View {
+        let isAtPrompt = tab.isFocusedPanelAtPrompt
+        let scripts = ScriptRepository.shared.listScripts()
+        Menu(String(localized: "contextMenu.runScript", defaultValue: "Run Script")) {
+            ForEach(scripts, id: \.self) { scriptName in
+                Button(scriptName) {
+                    runScriptInTerminal(named: scriptName)
+                }
+            }
+            if !scripts.isEmpty {
+                Divider()
+            }
+            Button(String(localized: "contextMenu.openScriptsFolder", defaultValue: "Open Scripts Folder…")) {
+                NSWorkspace.shared.open(ScriptRepository.shared.directory)
+            }
+        }
+        .disabled(!isAtPrompt)
+    }
+
+    private func runScriptInTerminal(named scriptName: String) {
+        guard let scriptContent = ScriptRepository.shared.getScript(named: scriptName),
+              let terminalPanel = tab.focusedTerminalPanel else { return }
+        let lines = StartupScriptRunner.prepareScriptLines(scriptContent)
+        guard !lines.isEmpty else { return }
+        let text = lines.joined(separator: "\n") + "\n"
+        terminalPanel.sendInteractiveText(text)
+    }
+
+    @ViewBuilder
+    private var templatesSubmenu: some View {
+        let hasTerminal = tab.focusedTerminalPanel != nil
+        let templates = TemplateRepository.shared.listTemplates()
+        Menu(String(localized: "contextMenu.openTemplate", defaultValue: "Open Template")) {
+            ForEach(templates, id: \.self) { templateName in
+                Button(templateName) {
+                    openTemplateInWorkspace(named: templateName)
+                }
+            }
+            if !templates.isEmpty {
+                Divider()
+            }
+            Button(String(localized: "contextMenu.openTemplatesFolder", defaultValue: "Open Templates Folder…")) {
+                NSWorkspace.shared.open(TemplateRepository.shared.directory)
+            }
+        }
+        .disabled(!hasTerminal)
+    }
+
+    private func openTemplateInWorkspace(named templateName: String) {
+        guard let template = try? TemplateRepository.shared.getTemplate(named: templateName) else { return }
+        let directory = tab.currentDirectory
+        tabManager.openTemplate(template, directory: directory)
     }
 }
 

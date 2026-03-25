@@ -1403,9 +1403,16 @@ struct CMUXCLI {
             return
         }
 
+        // Explicit `open` command: cmux open /path/to/folder [--window <id>]
+        if command == "open" {
+            let openPath = commandArgs.first ?? "."
+            try openProjectPath(openPath, socketPath: resolvedSocketPath, windowId: windowId)
+            return
+        }
+
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
-            try openPath(command, socketPath: resolvedSocketPath)
+            try openProjectPath(command, socketPath: resolvedSocketPath, windowId: windowId)
             return
         }
 
@@ -2487,6 +2494,45 @@ struct CMUXCLI {
         }
 
         // Bring the app to front
+        try activateApp()
+    }
+
+    /// Open a project via the project.open socket command (supports .cmux.yaml).
+    private func openProjectPath(_ path: String, socketPath: String, windowId: String?) throws {
+        let resolved = resolvePath(path)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
+
+        let directory: String
+        if exists && isDir.boolValue {
+            directory = resolved
+        } else if exists {
+            directory = (resolved as NSString).deletingLastPathComponent
+        } else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+
+        let client = SocketClient(path: socketPath)
+        if (try? client.connect()) == nil {
+            client.close()
+            try launchApp()
+            let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
+            defer { launchedClient.close() }
+            var params: [String: Any] = ["path": directory]
+            if let windowId { params["window_id"] = windowId }
+            let response = try launchedClient.sendV2(method: "project.open", params: params)
+            let groupId = (response["group_id"] as? String) ?? ""
+            if !groupId.isEmpty { print("OK \(groupId)") }
+            try activateApp()
+            return
+        }
+        defer { client.close() }
+
+        var params: [String: Any] = ["path": directory]
+        if let windowId { params["window_id"] = windowId }
+        let response = try client.sendV2(method: "project.open", params: params)
+        let groupId = (response["group_id"] as? String) ?? ""
+        if !groupId.isEmpty { print("OK \(groupId)") }
         try activateApp()
     }
 

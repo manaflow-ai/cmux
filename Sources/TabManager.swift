@@ -693,6 +693,14 @@ class TabManager: ObservableObject {
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
 
+    /// Manages sidebar layout (parent-child workspace relationships).
+    /// Initialized lazily after `self` is fully constructed.
+    private(set) lazy var groupManager = WorkspaceGroupManager(tabManager: self)
+
+    /// Top-level workspace IDs for sidebar rendering order.
+    /// Each workspace may have children via its own `childWorkspaceIds`.
+    @Published var items: [SidebarItem] = []
+
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
@@ -1051,6 +1059,38 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.hideFind()
     }
 
+    /// Look up a workspace by UUID in the tabs array.
+    func workspace(for id: UUID) -> Workspace? {
+        tabs.first(where: { $0.id == id })
+    }
+
+    // MARK: - Parent-Child Workspace Forwarding
+
+    func toggleWorkspaceCollapsed(_ workspaceId: UUID) {
+        groupManager.toggleCollapsed(workspaceId)
+        items = groupManager.items
+    }
+
+    /// Adds a child workspace under the given parent workspace.
+    /// The parent workspace keeps its own terminal — it just gains a child.
+    /// Returns the newly created child workspace, or nil if depth >= 3.
+    @discardableResult
+    func addChildWorkspace(for parentId: UUID) -> Workspace? {
+        guard let parent = tabs.first(where: { $0.id == parentId }) else { return nil }
+        let depth = groupManager.depthOf(workspaceId: parentId)
+        guard depth > 0, depth < 3 else { return nil }
+
+        let workingDir = parent.currentDirectory
+        let ws = addWorkspace(
+            workingDirectory: workingDir,
+            select: true,
+            skipStandaloneRegistration: true
+        )
+        groupManager.addChildId(ws.id, to: parentId)
+        items = groupManager.items
+        return ws
+    }
+
     @discardableResult
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
@@ -1059,7 +1099,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        skipStandaloneRegistration: Bool = false
     ) -> Workspace {
         // Snapshot current published state once so workspace creation doesn't repeatedly
         // bounce through Combine-backed accessors while we're preparing the new workspace.
@@ -1092,6 +1133,10 @@ class TabManager: ObservableObject {
             updatedTabs.append(newWorkspace)
         }
         tabs = updatedTabs
+        if !skipStandaloneRegistration {
+            groupManager.registerWorkspaceAsStandalone(newWorkspace.id)
+            items = groupManager.items
+        }
         if let explicitWorkingDirectory,
            let terminalPanel = newWorkspace.focusedTerminalPanel {
             scheduleInitialWorkspaceGitMetadataRefresh(
@@ -1817,6 +1862,93 @@ class TabManager: ObservableObject {
         addWorkspace(select: select, eagerLoadTerminal: eagerLoadTerminal)
     }
 
+    /// Shows the new-workspace dialog and creates a workspace if confirmed.
+    /// Returns nil if the user cancelled.
+    @discardableResult
+    func addWorkspaceViaDialog() -> Workspace? {
+        guard let result = NewWorkspaceDialog.run() else { return nil }
+
+        // If a template was selected, create the full workspace hierarchy
+        if let templateName = result.templateName,
+           let template = try? TemplateRepository.shared.getTemplate(named: templateName) {
+            return openTemplate(template, directory: result.directory)
+        }
+
+        // Plain workspace (no template)
+        let workspace = addWorkspace(workingDirectory: result.directory, select: true)
+        workspace.title = URL(fileURLWithPath: result.directory).lastPathComponent
+        return workspace
+    }
+
+    /// Creates a full workspace hierarchy from a template at the given directory.
+    @discardableResult
+    func openTemplate(_ template: WorkspaceTemplate, directory: String) -> Workspace? {
+        let scriptRunner = StartupScriptRunner()
+
+        // Create root workspace
+        let rootWs = addWorkspace(workingDirectory: directory, select: true)
+        rootWs.title = template.root.title
+        if let color = template.root.color {
+            rootWs.customColor = color
+        }
+        if let command = template.root.command {
+            rootWs.startupCommand = command
+            if let panelId = rootWs.focusedPanelId ?? rootWs.panels.values.first(where: { $0 is TerminalPanel })?.id {
+                scriptRunner.scheduleCommand(command, workspace: rootWs, panelId: panelId)
+            }
+        }
+
+        // Create children recursively
+        createTemplateChildren(
+            template.root.children,
+            parentId: rootWs.id,
+            workingDirectory: directory,
+            scriptRunner: scriptRunner
+        )
+
+        items = groupManager.items
+        selectedTabId = rootWs.id
+        return rootWs
+    }
+
+    /// Recursively create child workspaces from template nodes.
+    private func createTemplateChildren(
+        _ children: [TemplateNode],
+        parentId: UUID,
+        workingDirectory: String,
+        scriptRunner: StartupScriptRunner
+    ) {
+        for child in children {
+            let ws = addWorkspace(
+                workingDirectory: workingDirectory,
+                select: false,
+                eagerLoadTerminal: true,
+                skipStandaloneRegistration: true
+            )
+            ws.title = child.title
+            if let color = child.color {
+                ws.customColor = color
+            }
+            groupManager.addChildId(ws.id, to: parentId)
+
+            if let command = child.command {
+                ws.startupCommand = command
+                if let panelId = ws.focusedPanelId ?? ws.panels.values.first(where: { $0 is TerminalPanel })?.id {
+                    scriptRunner.scheduleCommand(command, workspace: ws, panelId: panelId)
+                }
+            }
+
+            if !child.children.isEmpty {
+                createTemplateChildren(
+                    child.children,
+                    parentId: ws.id,
+                    workingDirectory: workingDirectory,
+                    scriptRunner: scriptRunner
+                )
+            }
+        }
+    }
+
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
         terminalPanelForWorkspaceConfigInheritanceSource(snapshot: workspaceCreationSnapshot())
     }
@@ -2090,6 +2222,18 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace) {
         guard tabs.count > 1 else { return }
+
+        // Close children first (recursively)
+        let childIds = workspace.childWorkspaceIds
+        for childId in childIds {
+            if let child = tabs.first(where: { $0.id == childId }) {
+                closeWorkspace(child)
+            }
+        }
+
+        // After closing children, recheck count
+        guard tabs.count > 1 else { return }
+
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
@@ -2102,11 +2246,10 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            groupManager.removeWorkspace(workspace.id)
+            items = groupManager.items
 
             if selectedTabId == workspace.id {
-                // Keep the "focused index" stable when possible:
-                // - If we closed workspace i and there is still a workspace at index i, focus it (the one that moved up).
-                // - Otherwise (we closed the last workspace), focus the new last workspace (i-1).
                 let newIndex = min(index, max(0, tabs.count - 1))
                 selectedTabId = tabs[newIndex].id
             }
@@ -2122,6 +2265,8 @@ class TabManager: ObservableObject {
         sidebarSelectedWorkspaceIds.remove(tabId)
 
         let removed = tabs.remove(at: index)
+        groupManager.removeWorkspace(removed.id)
+        items = groupManager.items
         unwireClosedBrowserTracking(for: removed)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
@@ -2149,6 +2294,8 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        groupManager.registerWorkspaceAsStandalone(workspace.id)
+        items = groupManager.items
         if select {
             selectedTabId = workspace.id
         }
@@ -2933,27 +3080,31 @@ class TabManager: ObservableObject {
     }
 
     func selectNextTab() {
-        guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let nextIndex = (currentIndex + 1) % tabs.count
+        let visible = groupManager.visibleWorkspaces()
+        guard !visible.isEmpty,
+              let currentId = selectedTabId,
+              let currentIndex = visible.firstIndex(where: { $0.id == currentId }) else { return }
+        let nextIndex = (currentIndex + 1) % visible.count
 #if DEBUG
-        let nextId = tabs[nextIndex].id
+        let nextId = visible[nextIndex].id
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[nextIndex].id
+        selectedTabId = visible[nextIndex].id
     }
 
     func selectPreviousTab() {
-        guard let currentId = selectedTabId,
-              let currentIndex = tabs.firstIndex(where: { $0.id == currentId }) else { return }
-        let prevIndex = (currentIndex - 1 + tabs.count) % tabs.count
+        let visible = groupManager.visibleWorkspaces()
+        guard !visible.isEmpty,
+              let currentId = selectedTabId,
+              let currentIndex = visible.firstIndex(where: { $0.id == currentId }) else { return }
+        let prevIndex = (currentIndex - 1 + visible.count) % visible.count
 #if DEBUG
-        let prevId = tabs[prevIndex].id
+        let prevId = visible[prevIndex].id
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[prevIndex].id
+        selectedTabId = visible[prevIndex].id
     }
 
     private func activateWorkspaceCycleHotWindow() {
@@ -3068,15 +3219,17 @@ class TabManager: ObservableObject {
 #endif
 
     func selectTab(at index: Int) {
-        guard index >= 0 && index < tabs.count else { return }
+        let visible = groupManager.visibleWorkspaces()
+        guard index >= 0 && index < visible.count else { return }
 #if DEBUG
-        debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
+        debugPrimeWorkspaceSwitchTrigger("select_index", to: visible[index].id)
 #endif
-        selectedTabId = tabs[index].id
+        selectedTabId = visible[index].id
     }
 
     func selectLastTab() {
-        guard let lastTab = tabs.last else { return }
+        let visible = groupManager.visibleWorkspaces()
+        guard let lastTab = visible.last else { return }
         selectedTabId = lastTab.id
     }
 
@@ -4891,14 +5044,30 @@ extension TabManager {
         let restorableTabs = tabs
             .filter { !$0.isRemoteWorkspace }
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        // Build UUID → positional index map for child workspace index resolution
+        var uuidToIndex: [UUID: Int] = [:]
+        for (index, ws) in restorableTabs.enumerated() {
+            uuidToIndex[ws.id] = index
+        }
+
         let workspaceSnapshots = restorableTabs
-            .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
+            .map { ws -> SessionWorkspaceSnapshot in
+                var snap = ws.sessionSnapshot(includeScrollback: includeScrollback)
+                let childIndices = ws.childWorkspaceIds.compactMap { uuidToIndex[$0] }
+                snap.childWorkspaceIndices = childIndices.isEmpty ? nil : childIndices
+                snap.isCollapsed = ws.isCollapsed ? true : nil
+                return snap
+            }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
+
+        let topLevelIndices = groupManager.items.compactMap { uuidToIndex[$0] }
+
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            topLevelWorkspaceIndices: topLevelIndices.isEmpty ? nil : topLevelIndices
         )
     }
 
@@ -4963,10 +5132,41 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
+        // Restore child workspace relationships from snapshot
+        let workspaceSnapArr = Array(snapshot.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow))
+        for (i, wsSnap) in workspaceSnapArr.enumerated() where newTabs.indices.contains(i) {
+            if let childIndices = wsSnap.childWorkspaceIndices {
+                newTabs[i].childWorkspaceIds = childIndices.compactMap { idx in
+                    guard newTabs.indices.contains(idx) else { return nil }
+                    return newTabs[idx].id
+                }
+            }
+            if wsSnap.isCollapsed == true {
+                newTabs[i].isCollapsed = true
+            }
+        }
+
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+
+        // Rebuild sidebar layout from snapshot
+        if let topLevelIndices = snapshot.topLevelWorkspaceIndices {
+            groupManager.items = topLevelIndices.compactMap { index in
+                guard newTabs.indices.contains(index) else { return nil }
+                return newTabs[index].id
+            }
+        } else if let sidebarLayout = snapshot.sidebarLayout {
+            // Legacy restore: flatten old group-based layout
+            restoreLegacySidebarLayout(sidebarLayout, workspaces: newTabs)
+        } else {
+            for ws in newTabs {
+                groupManager.registerWorkspaceAsStandalone(ws.id)
+            }
+        }
+        items = groupManager.items
+
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
@@ -4981,6 +5181,17 @@ extension TabManager {
             }
         }
 
+        // Re-run startup commands for restored workspaces
+        let scriptRunner = StartupScriptRunner()
+        for workspace in newTabs {
+            guard let command = workspace.startupCommand else { continue }
+            let panelId = workspace.focusedPanelId
+                ?? workspace.panels.values.first(where: { $0 is TerminalPanel })?.id
+            guard let panelId else { continue }
+            requestBackgroundWorkspaceLoad(for: workspace.id)
+            scriptRunner.scheduleCommand(command, workspace: workspace, panelId: panelId)
+        }
+
         if let selectedTabId {
             NotificationCenter.default.post(
                 name: .ghosttyDidFocusTab,
@@ -4988,6 +5199,47 @@ extension TabManager {
                 userInfo: [GhosttyNotificationKey.tabId: selectedTabId]
             )
         }
+    }
+
+    /// Legacy restore for old group-based sidebar layout snapshots.
+    /// Flattens the group hierarchy into workspace parent-child relationships.
+    private func restoreLegacySidebarLayout(
+        _ layout: SessionSidebarLayoutSnapshot, workspaces: [Workspace]
+    ) {
+        for item in layout.items {
+            switch item {
+            case .standalone(let index):
+                guard workspaces.indices.contains(index) else { continue }
+                groupManager.registerWorkspaceAsStandalone(workspaces[index].id)
+            case .group(let groupSnapshot):
+                // Legacy groups become the first workspace as parent with rest as children
+                let childIndices = collectLegacyGroupWorkspaceIndices(groupSnapshot)
+                guard let firstIndex = childIndices.first,
+                      workspaces.indices.contains(firstIndex) else { continue }
+                let parentWs = workspaces[firstIndex]
+                groupManager.registerWorkspaceAsStandalone(parentWs.id)
+                parentWs.isCollapsed = groupSnapshot.isCollapsed
+                for childIndex in childIndices.dropFirst() {
+                    guard workspaces.indices.contains(childIndex) else { continue }
+                    parentWs.childWorkspaceIds.append(workspaces[childIndex].id)
+                }
+            }
+        }
+    }
+
+    private func collectLegacyGroupWorkspaceIndices(
+        _ snapshot: SessionWorkspaceGroupSnapshot
+    ) -> [Int] {
+        var indices: [Int] = []
+        for item in snapshot.items {
+            switch item {
+            case .workspace(let index):
+                indices.append(index)
+            case .group(let sub):
+                indices.append(contentsOf: collectLegacyGroupWorkspaceIndices(sub))
+            }
+        }
+        return indices
     }
 }
 

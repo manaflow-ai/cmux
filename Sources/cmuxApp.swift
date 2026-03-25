@@ -444,6 +444,10 @@ struct cmuxApp: App {
                 .disabled(!snapshot.hasNotifications)
             }
 
+            CommandMenu(String(localized: "menu.scripts.title", defaultValue: "Scripts")) {
+                ScriptsMenuContent(activeTabManager: activeTabManager)
+            }
+
 #if DEBUG
             CommandMenu("Debug") {
                 Button("New Tab With Lorem Search Text") {

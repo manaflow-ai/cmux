@@ -207,7 +207,8 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            startupCommand: startupCommand
         )
     }
 
@@ -255,6 +256,7 @@ extension Workspace {
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
         gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
+        startupCommand = snapshot.startupCommand
 
         recomputeListeningPorts()
 
@@ -4964,6 +4966,17 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published var currentDirectory: String
+    /// IDs of child workspaces nested under this workspace in the sidebar.
+    @Published var childWorkspaceIds: [UUID] = []
+    /// Whether this workspace's children are collapsed in the sidebar.
+    @Published var isCollapsed: Bool = false
+    /// True when this workspace has at least one child workspace.
+    var hasChildren: Bool { !childWorkspaceIds.isEmpty }
+    /// Name of a startup script from ScriptRepository to run when this workspace is opened.
+    var startupScriptName: String?
+    /// The command text that was run when this workspace was created from a template.
+    /// Persisted across sessions so it can be re-run on restore.
+    @Published var startupCommand: String?
     private(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -5072,6 +5085,9 @@ final class Workspace: Identifiable, ObservableObject {
         return formatter
     }()
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    /// One-shot callback fired when a panel first reaches promptIdle.
+    /// Keyed by panel ID. Removed after firing.
+    var onPromptReady: [UUID: () -> Void] = [:]
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
@@ -5842,6 +5858,16 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+        // Fire one-shot prompt-ready callback
+        if state == .promptIdle, let callback = onPromptReady.removeValue(forKey: panelId) {
+            callback()
+        }
+    }
+
+    /// Whether the focused terminal panel is at a shell prompt (idle), not running a command.
+    var isFocusedPanelAtPrompt: Bool {
+        guard let panelId = focusedPanelId else { return false }
+        return panelShellActivityStates[panelId] == .promptIdle
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {

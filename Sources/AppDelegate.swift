@@ -2331,6 +2331,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             installMenuBarVisibilityObserver()
             syncMenuBarExtraVisibility()
             updateController.startUpdaterIfNeeded()
+            NSApp.servicesProvider = self
+            ScriptRepository.shared.seedDefaultScripts()
+            TemplateRepository.shared.seedDefaultTemplates()
         }
         titlebarAccessoryController.start()
         windowDecorationsController.start()
@@ -4229,6 +4232,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func tabManagerFor(windowId: UUID) -> TabManager? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+    }
+
+    /// Returns all TabManagers across all windows.
+    func allTabManagers() -> [TabManager] {
+        mainWindowContexts.values.map(\.tabManager)
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {
@@ -11330,6 +11338,129 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    // MARK: - Finder Services
+
+    /// macOS Services handler: "Open in cmux"
+    /// Accepts folder paths from Finder right-click > Services.
+    @objc func openInCmux(
+        _ pasteboard: NSPasteboard,
+        userData: String,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        guard let items = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] else { return }
+
+        // Use the first window's tab manager, or create a window if none exists
+        let tm: TabManager
+        if let firstWindowSummary = listMainWindowSummaries().first,
+           let existingTm = tabManagerFor(windowId: firstWindowSummary.windowId) {
+            tm = existingTm
+        } else if let firstURL = items.first {
+            let path = resolvedDirectoryPath(for: firstURL)
+            _ = createMainWindow(initialWorkingDirectory: path)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        } else {
+            return
+        }
+
+        for url in items {
+            var isDir: ObjCBool = false
+            let path: String
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                path = url.path
+            } else {
+                path = url.deletingLastPathComponent().path
+            }
+
+            let dirURL = URL(fileURLWithPath: path)
+            let canonicalPath = dirURL.resolvingSymlinksInPath().path
+
+            // Dedupe: check if a parent workspace already targets this directory
+            var found = false
+            for wsId in tm.items {
+                guard let ws = tm.workspace(for: wsId),
+                      ws.hasChildren else { continue }
+                let wsPath = URL(fileURLWithPath: ws.currentDirectory)
+                    .resolvingSymlinksInPath().path
+                if wsPath == canonicalPath {
+                    tm.selectedTabId = ws.id
+                    found = true
+                    break
+                }
+            }
+            if found { continue }
+
+            // Create project workspace
+            let projectName = dirURL.lastPathComponent
+            let ws = tm.addWorkspace(workingDirectory: path, select: true)
+            ws.title = projectName
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Finder Services (Builder / Fixer)
+
+    @objc func openInCmuxBuilder(
+        _ pasteboard: NSPasteboard,
+        userData: String,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        openInCmuxWithTemplate(pasteboard, templateName: "Builder", error: error)
+    }
+
+    @objc func openInCmuxFixer(
+        _ pasteboard: NSPasteboard,
+        userData: String,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        openInCmuxWithTemplate(pasteboard, templateName: "Fixer", error: error)
+    }
+
+    private func openInCmuxWithTemplate(
+        _ pasteboard: NSPasteboard,
+        templateName: String,
+        error: AutoreleasingUnsafeMutablePointer<NSString>
+    ) {
+        guard let items = pasteboard.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true
+        ]) as? [URL] else { return }
+
+        guard let firstWindowSummary = listMainWindowSummaries().first,
+              let tm = tabManagerFor(windowId: firstWindowSummary.windowId) else {
+            // No window exists — create one for the first directory
+            if let firstURL = items.first {
+                let path = resolvedDirectoryPath(for: firstURL)
+                _ = createMainWindow(initialWorkingDirectory: path)
+            }
+            return
+        }
+
+        let template = try? TemplateRepository.shared.getTemplate(named: templateName)
+
+        for url in items {
+            let path = resolvedDirectoryPath(for: url)
+            if let template {
+                tm.openTemplate(template, directory: path)
+            } else {
+                // Fallback: plain workspace if template not found
+                let ws = tm.addWorkspace(workingDirectory: path, select: true)
+                ws.title = URL(fileURLWithPath: path).lastPathComponent
+            }
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func resolvedDirectoryPath(for url: URL) -> String {
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            return url.path
+        }
+        return url.deletingLastPathComponent().path
+    }
 }
 
 @MainActor
@@ -12673,5 +12804,4 @@ private extension NSWindow {
         }
         return hitWebView === webView
     }
-
 }
