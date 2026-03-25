@@ -216,6 +216,18 @@ class TerminalController {
         }
     }
 
+    /// Remove all per-surface browser state accumulated for the given surface ID.
+    /// Must be called on the main thread when a surface is destroyed.
+    @MainActor
+    func cleanupBrowserSurface(surfaceId: UUID) {
+        v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+        v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
+        v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
+        v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+        v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+        v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+    }
+
     private nonisolated func withListenerState<T>(_ body: () -> T) -> T {
         listenerStateLock.lock()
         defer { listenerStateLock.unlock() }
@@ -5278,7 +5290,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5329,7 +5350,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5363,7 +5393,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5414,7 +5453,16 @@ class TerminalController {
                 return
             }
 
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
