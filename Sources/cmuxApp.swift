@@ -1257,6 +1257,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
     "cmux.licenses",
+    "cmux.configuration-errors",
     "cmux.browser-popup",
     "cmux.settingsAboutTitlebarDebug",
     "cmux.debugWindowControls",
@@ -1272,6 +1273,15 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
 func cmuxWindowShouldOwnCloseShortcut(_ window: NSWindow?) -> Bool {
     guard let identifier = window?.identifier?.rawValue else { return false }
     return cmuxAuxiliaryWindowIdentifiers.contains(identifier)
+}
+
+func cmuxShouldHandleCloseShortcutDirectly(window: NSWindow?, event: NSEvent) -> Bool {
+    guard event.type == .keyDown, cmuxWindowShouldOwnCloseShortcut(window) else { return false }
+    let flags = event.modifierFlags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard flags == [.command] else { return false }
+    return (event.charactersIgnoringModifiers ?? "").lowercased() == "w"
 }
 
 private enum SettingsAboutWindowKind: String, CaseIterable, Identifiable {

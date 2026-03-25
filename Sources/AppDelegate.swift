@@ -2132,6 +2132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+    private var hasRegisteredMainWindowOnce = false
+    private var mainWindowCreationDepth = 0
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     private var didAttemptStartupSessionRestore = false
@@ -3739,6 +3741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         sidebarSelectionState: SidebarSelectionState
     ) {
+        hasRegisteredMainWindowOnce = true
         tabManager.window = window
 
         let key = ObjectIdentifier(window)
@@ -5366,6 +5369,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = createMainWindow()
     }
 
+    @discardableResult
+    func ensureMainWindowVisibleForConfigurationWarning() -> NSWindow? {
+        if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
+            setActiveMainWindow(keyWindow)
+            bringToFront(keyWindow)
+            return keyWindow
+        }
+
+        if let mainWindow = NSApp.mainWindow, isMainTerminalWindow(mainWindow) {
+            setActiveMainWindow(mainWindow)
+            bringToFront(mainWindow)
+            return mainWindow
+        }
+
+        for window in NSApp.orderedWindows where isMainTerminalWindow(window) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+            return window
+        }
+
+        if let context = mainWindowContexts.values.first,
+           let window = resolvedWindow(for: context) {
+            setActiveMainWindow(window)
+            bringToFront(window)
+            return window
+        }
+
+        // During initial launch, the primary SwiftUI window may still be wiring itself up.
+        // Avoid re-entering window creation from the config warning path until a real main
+        // window has registered at least once and we're not already creating one.
+        guard hasRegisteredMainWindowOnce, mainWindowCreationDepth == 0 else {
+            return nil
+        }
+
+        let windowId = createMainWindow()
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            if let window = resolvedWindow(for: context) {
+                setActiveMainWindow(window)
+                bringToFront(window)
+                return window
+            }
+        }
+
+        return nil
+    }
+
     @objc func openWindow(
         _ pasteboard: NSPasteboard,
         userData: String?,
@@ -5771,6 +5820,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         initialWorkingDirectory: String? = nil,
         sessionWindowSnapshot: SessionWindowSnapshot? = nil
     ) -> UUID {
+        mainWindowCreationDepth += 1
+        defer { mainWindowCreationDepth -= 1 }
+
         let windowId = UUID()
         let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
@@ -9422,20 +9474,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
         ) {
-            // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
-            // This AppDelegate path is a fallback for cases where AppKit routes the
-            // event through the global shortcut handler first.
-            if let targetWindow = [NSApp.keyWindow, event.window]
+            // Auxiliary windows can still route through the app-level handler first.
+            if let targetWindow = [event.window, NSApp.keyWindow, NSApp.mainWindow]
                 .compactMap({ $0 })
-                .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
+                .first(where: { cmuxShouldHandleCloseShortcutDirectly(window: $0, event: event) }) {
 #if DEBUG
-                dlog("shortcut.cmdW route=browserPopup")
+                dlog("shortcut.cmdW route=auxiliary window=\(targetWindow.identifier?.rawValue ?? "nil")")
 #endif
                 targetWindow.performClose(nil)
                 return true
-            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
-               cmuxWindowShouldOwnCloseShortcut(targetWindow) {
-                targetWindow.performClose(nil)
             } else {
                 let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
                 if let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow) {
@@ -12371,6 +12418,14 @@ private extension NSWindow {
         let frType = self.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         dlog("performKeyEquiv: \(Self.keyDescription(event)) fr=\(frType)")
 #endif
+
+        if cmuxShouldHandleCloseShortcutDirectly(window: self, event: event) {
+#if DEBUG
+            dlog("  → consumed by auxiliary Cmd+W close")
+#endif
+            performClose(nil)
+            return true
+        }
 
         // When the terminal surface is the first responder, prevent SwiftUI's
         // hosting view from consuming key events via performKeyEquivalent.

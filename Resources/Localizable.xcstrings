@@ -33142,6 +33142,74 @@
         }
       }
     },
+    "config.errors.ignore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        }
+      }
+    },
+    "config.errors.reload": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Configuration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成を再読み込み"
+          }
+        }
+      }
+    },
+    "config.errors.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld configuration error(s) were found. Review them below, reload your configuration, or close this warning and keep working."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成エラーが %lld 件見つかりました。以下を確認して構成を再読み込みするか、この警告を閉じてそのまま作業を続けてください。"
+          }
+        }
+      }
+    },
+    "config.errors.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration Errors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構成エラー"
+          }
+        }
+      }
+    },
     "menu.app.settings": {
       "extractionState": "manual",
       "localizations": {

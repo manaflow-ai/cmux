@@ -827,11 +827,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-#if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-        throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
-#endif
+        XCTAssertTrue(auxiliaryWindow.performKeyEquivalent(with: event))
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
@@ -839,6 +835,61 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in auxiliary window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in auxiliary window should not close a terminal panel")
         XCTAssertNotEqual(NSApp.keyWindow?.identifier?.rawValue, "cmux.about", "Closed auxiliary window should not remain key")
+    }
+
+    func testCmdWClosesConfigurationErrorsWindowInsteadOfMainTerminalPanel() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        XCTAssertNotNil(window(withId: windowId), "Expected test window")
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test manager")
+            return
+        }
+
+        let mainWorkspaceCount = manager.tabs.count
+        let configurationErrorsWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        configurationErrorsWindow.isReleasedWhenClosed = false
+        configurationErrorsWindow.identifier = NSUserInterfaceItemIdentifier("cmux.configuration-errors")
+        configurationErrorsWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        defer {
+            if configurationErrorsWindow.isVisible {
+                configurationErrorsWindow.performClose(nil)
+                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            }
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: configurationErrorsWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+        XCTAssertTrue(configurationErrorsWindow.performKeyEquivalent(with: event))
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(configurationErrorsWindow.isVisible, "Cmd+W should close the configuration errors window")
+        XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in configuration errors window should not close the main window")
+        XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in configuration errors window should not close a terminal panel")
+        XCTAssertNotEqual(NSApp.keyWindow?.identifier?.rawValue, "cmux.configuration-errors", "Closed configuration errors window should not remain key")
     }
 
     func testCmdPhysicalIWithDvorakCharactersDoesNotTriggerShowNotifications() {
