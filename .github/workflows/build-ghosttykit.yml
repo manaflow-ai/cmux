@@ -12,8 +12,6 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
@@ -95,6 +93,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "GHOSTTY_RELEASE_TOKEN not available (fork PR), skipping upload"
+            exit 0
+          fi
           TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
