@@ -77797,6 +77797,40 @@
           }
         }
       }
+    },
+    "update.relaunchWarning.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This update will relaunch cmux and terminate in-app terminal sessions.\n\nWorkspaces affected: %1$lld\nTerminal sessions affected: %2$lld\nRunning commands detected: %3$lld\nRemote / SSH terminal sessions: %4$lld\n\nShells, SSH connections, and agents attached to these PTYs will be terminated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアップデートを適用すると cmux が再起動し、アプリ内のターミナルセッションが終了します。\n\n影響を受けるワークスペース: %1$lld\n影響を受けるターミナルセッション: %2$lld\n実行中コマンドの検出数: %3$lld\nリモート / SSH ターミナルセッション: %4$lld\n\nこれらの PTY に接続されたシェル、SSH 接続、エージェントは終了します。"
+          }
+        }
+      }
+    },
+    "update.relaunchWarning.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Will Close Terminal Sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートでターミナルセッションが終了します"
+          }
+        }
+      }
     }
   }
 }

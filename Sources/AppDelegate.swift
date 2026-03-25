@@ -1994,6 +1994,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let display: SessionDisplaySnapshot?
     }
 
+    private struct UpdateRelaunchTerminalSummary {
+        let workspaceCount: Int
+        let terminalSessionCount: Int
+        let runningCommandCount: Int
+        let remoteTerminalSessionCount: Int
+    }
+
     private static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v1"
 
     weak var tabManager: TabManager?
@@ -5889,6 +5896,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.attemptUpdate()
     }
 
+    func confirmUpdateRelaunchIfNeeded() -> Bool {
+        guard let summary = updateRelaunchTerminalSummary() else {
+            UpdateLogStore.shared.append("update relaunch warning skipped (no active terminal sessions)")
+            return true
+        }
+
+        UpdateLogStore.shared.append(
+            "update relaunch warning shown " +
+            "(workspaces=\(summary.workspaceCount), sessions=\(summary.terminalSessionCount), " +
+            "running=\(summary.runningCommandCount), remote=\(summary.remoteTerminalSessionCount))"
+        )
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "update.relaunchWarning.title",
+            defaultValue: "Update Will Close Terminal Sessions"
+        )
+        alert.informativeText = String(
+            localized: "update.relaunchWarning.message",
+            defaultValue: """
+            This update will relaunch cmux and terminate in-app terminal sessions.
+
+            Workspaces affected: \(summary.workspaceCount)
+            Terminal sessions affected: \(summary.terminalSessionCount)
+            Running commands detected: \(summary.runningCommandCount)
+            Remote / SSH terminal sessions: \(summary.remoteTerminalSessionCount)
+
+            Shells, SSH connections, and agents attached to these PTYs will be terminated.
+            """
+        )
+        alert.addButton(withTitle: String(localized: "common.restartNow", defaultValue: "Restart Now"))
+        alert.addButton(withTitle: String(localized: "common.later", defaultValue: "Later"))
+
+        if let updateNowButton = alert.buttons.first {
+            updateNowButton.keyEquivalent = "\r"
+            updateNowButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = updateNowButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = updateNowButton
+        }
+        if let deferButton = alert.buttons.dropFirst().first {
+            deferButton.keyEquivalent = "\u{1b}"
+        }
+
+        if NSApp.activationPolicy() == .regular {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+
+        let confirmed = alert.runModal() == .alertFirstButtonReturn
+        UpdateLogStore.shared.append("update relaunch warning result=\(confirmed ? "confirm" : "defer")")
+        return confirmed
+    }
+
     func isCmuxCLIInstalledInPATH() -> Bool {
         CmuxCLIPathInstaller().isInstalled()
     }
@@ -5956,6 +6016,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         } else {
             _ = alert.runModal()
         }
+    }
+
+    private func updateRelaunchTerminalSummary() -> UpdateRelaunchTerminalSummary? {
+        var seenManagers = Set<ObjectIdentifier>()
+        var managers: [TabManager] = []
+
+        for context in mainWindowContexts.values {
+            let managerId = ObjectIdentifier(context.tabManager)
+            guard seenManagers.insert(managerId).inserted else { continue }
+            managers.append(context.tabManager)
+        }
+
+        if managers.isEmpty, let tabManager {
+            managers.append(tabManager)
+        }
+
+        var workspaceCount = 0
+        var terminalSessionCount = 0
+        var runningCommandCount = 0
+        var remoteTerminalSessionCount = 0
+
+        for manager in managers {
+            for workspace in manager.tabs {
+                var workspaceHasTerminalSession = false
+
+                for (panelId, panel) in workspace.panels {
+                    guard let terminalPanel = panel as? TerminalPanel else { continue }
+                    workspaceHasTerminalSession = true
+                    terminalSessionCount += 1
+
+                    if workspace.panelNeedsConfirmClose(
+                        panelId: panelId,
+                        fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+                    ) {
+                        runningCommandCount += 1
+                    }
+
+                    if workspace.isRemoteTerminalSurface(panelId) {
+                        remoteTerminalSessionCount += 1
+                    }
+                }
+
+                if workspaceHasTerminalSession {
+                    workspaceCount += 1
+                }
+            }
+        }
+
+        guard terminalSessionCount > 0 else { return nil }
+        return UpdateRelaunchTerminalSummary(
+            workspaceCount: workspaceCount,
+            terminalSessionCount: terminalSessionCount,
+            runningCommandCount: runningCommandCount,
+            remoteTerminalSessionCount: remoteTerminalSessionCount
+        )
     }
 
     @objc func restartSocketListener(_ sender: Any?) {

@@ -217,12 +217,19 @@ class UpdateDriver: NSObject, SPUUserDriver {
 
     func showInstallingUpdate(withApplicationTerminated applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         UpdateLogStore.shared.append("show installing update")
+        let guardedRetryTerminatingApplication = makeGuardedUpdateRelaunchAction(
+            applicationTerminated: applicationTerminated,
+            action: retryTerminatingApplication
+        )
         if usesStandardPresentation {
-            standard.showInstallingUpdate(withApplicationTerminated: applicationTerminated, retryTerminatingApplication: retryTerminatingApplication)
+            standard.showInstallingUpdate(
+                withApplicationTerminated: applicationTerminated,
+                retryTerminatingApplication: guardedRetryTerminatingApplication
+            )
             return
         }
         setState(.installing(.init(
-            retryTerminatingApplication: retryTerminatingApplication,
+            retryTerminatingApplication: guardedRetryTerminatingApplication,
             dismiss: { [weak viewModel] in
                 viewModel?.state = .idle
             }
@@ -454,6 +461,28 @@ class UpdateDriver: NSObject, SPUUserDriver {
                 return
             }
             applyState(.idle)
+        }
+    }
+
+    private func makeGuardedUpdateRelaunchAction(
+        applicationTerminated: Bool,
+        action: @escaping () -> Void
+    ) -> () -> Void {
+        { [weak self] in
+            Task { @MainActor [weak self] in
+                guard self != nil else { return }
+                if applicationTerminated {
+                    action()
+                    return
+                }
+
+                guard AppDelegate.shared?.confirmUpdateRelaunchIfNeeded() ?? true else {
+                    UpdateLogStore.shared.append("update relaunch deferred due to active terminal sessions")
+                    return
+                }
+
+                action()
+            }
         }
     }
 
