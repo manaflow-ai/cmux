@@ -148,6 +148,20 @@ struct ScriptManagerView: View {
                     onChange: viewModel.textDidChange
                 )
 
+                if let error = viewModel.errorMessage {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.red)
+                        Text(error)
+                            .foregroundColor(.red)
+                            .font(.caption)
+                            .lineLimit(2)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                }
+
                 HStack {
                     Spacer()
                     Button(String(localized: "common.revert", defaultValue: "Revert")) {

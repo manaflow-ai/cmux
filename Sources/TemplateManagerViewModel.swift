@@ -58,6 +58,7 @@ final class TemplateManagerViewModel: ObservableObject {
     }
 
     func addTemplate() {
+        errorMessage = nil
         var baseName = String(
             localized: "templateManager.newTemplateName",
             defaultValue: "New Template"
@@ -77,12 +78,17 @@ final class TemplateManagerViewModel: ObservableObject {
             - title: Shell
               command: ""
         """
-        try? repo.saveTemplate(named: baseName, rawYaml: defaultContent)
-        reload()
-        selectTemplate(named: baseName)
+        do {
+            try repo.saveTemplate(named: baseName, rawYaml: defaultContent)
+            reload()
+            selectTemplate(named: baseName)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func duplicateSelected() {
+        errorMessage = nil
         guard let name = selectedName,
               let yaml = repo.rawYaml(named: name) else { return }
         var copyName = "\(name) Copy"
@@ -91,20 +97,28 @@ final class TemplateManagerViewModel: ObservableObject {
             counter += 1
             copyName = "\(name) Copy \(counter)"
         }
-        try? repo.saveTemplate(named: copyName, rawYaml: yaml)
-        reload()
-        selectTemplate(named: copyName)
+        do {
+            try repo.saveTemplate(named: copyName, rawYaml: yaml)
+            reload()
+            selectTemplate(named: copyName)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func deleteSelected() {
-        guard let name = selectedName else { return }
-        try? repo.deleteTemplate(named: name)
-        selectedName = nil
-        editorText = ""
-        loadedText = ""
-        isDirty = false
         errorMessage = nil
-        reload()
+        guard let name = selectedName else { return }
+        do {
+            try repo.deleteTemplate(named: name)
+            selectedName = nil
+            editorText = ""
+            loadedText = ""
+            isDirty = false
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func textDidChange(_ newText: String) {

@@ -7,6 +7,7 @@ final class ScriptManagerViewModel: ObservableObject {
     @Published var scriptNames: [String] = []
     @Published var selectedName: String?
     @Published var editorText: String = ""
+    @Published var errorMessage: String?
     @Published private(set) var isDirty: Bool = false
 
     private var loadedText: String = ""
@@ -33,9 +34,14 @@ final class ScriptManagerViewModel: ObservableObject {
 
     func save() {
         guard let name = selectedName else { return }
-        try? repo.saveScript(named: name, content: editorText)
-        loadedText = editorText
-        isDirty = false
+        errorMessage = nil
+        do {
+            try repo.saveScript(named: name, content: editorText)
+            loadedText = editorText
+            isDirty = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func revert() {
@@ -44,6 +50,7 @@ final class ScriptManagerViewModel: ObservableObject {
     }
 
     func addScript() {
+        errorMessage = nil
         var baseName = String(
             localized: "scriptManager.newScriptName",
             defaultValue: "New Script"
@@ -57,12 +64,17 @@ final class ScriptManagerViewModel: ObservableObject {
             )
         }
         let defaultContent = "#!/bin/bash\n# New script\n"
-        try? repo.saveScript(named: baseName, content: defaultContent)
-        reload()
-        selectScript(named: baseName)
+        do {
+            try repo.saveScript(named: baseName, content: defaultContent)
+            reload()
+            selectScript(named: baseName)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func duplicateSelected() {
+        errorMessage = nil
         guard let name = selectedName,
               let content = repo.getScript(named: name) else { return }
         var copyName = "\(name) Copy"
@@ -71,19 +83,28 @@ final class ScriptManagerViewModel: ObservableObject {
             counter += 1
             copyName = "\(name) Copy \(counter)"
         }
-        try? repo.saveScript(named: copyName, content: content)
-        reload()
-        selectScript(named: copyName)
+        do {
+            try repo.saveScript(named: copyName, content: content)
+            reload()
+            selectScript(named: copyName)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func deleteSelected() {
+        errorMessage = nil
         guard let name = selectedName else { return }
-        try? repo.deleteScript(named: name)
-        selectedName = nil
-        editorText = ""
-        loadedText = ""
-        isDirty = false
-        reload()
+        do {
+            try repo.deleteScript(named: name)
+            selectedName = nil
+            editorText = ""
+            loadedText = ""
+            isDirty = false
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     func textDidChange(_ newText: String) {
