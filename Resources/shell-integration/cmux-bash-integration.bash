@@ -1,26 +1,35 @@
 # cmux shell integration for bash
 
+# Cache which send tool is available to avoid repeated PATH lookups.
+_CMUX_SEND_TOOL=""
+_cmux_detect_send_tool() {
+    if command -v ncat >/dev/null 2>&1; then
+        _CMUX_SEND_TOOL=ncat
+    elif command -v socat >/dev/null 2>&1; then
+        _CMUX_SEND_TOOL=socat
+    elif command -v nc >/dev/null 2>&1; then
+        _CMUX_SEND_TOOL=nc
+    fi
+}
+# Detection deferred to after _cmux_fix_path (end of file).
+
 _cmux_send() {
     local payload="$1"
-    if command -v ncat >/dev/null 2>&1; then
-        printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
-    elif command -v socat >/dev/null 2>&1; then
-        printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
-    elif command -v nc >/dev/null 2>&1; then
-        # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
-        #
-        # Important: macOS/BSD nc will often wait for the peer to close the socket
-        # after it has finished writing. cmux keeps the connection open, so
-        # a plain `nc -U` can hang indefinitely and leak background processes.
-        #
-        # Prefer flags that guarantee we exit after sending, and fall back to a
-        # short timeout so we never block sidebar updates.
-        if printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
-            :
-        else
-            printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
-        fi
-    fi
+    case "$_CMUX_SEND_TOOL" in
+        ncat)
+            printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
+            ;;
+        socat)
+            printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+            ;;
+        nc)
+            if printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+                :
+            else
+                printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+            fi
+            ;;
+    esac
 }
 
 _cmux_restore_scrollback_once() {
@@ -271,6 +280,7 @@ _cmux_clear_pr_for_panel() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    # Synchronous: must arrive before the next report_pr from the poll loop.
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
@@ -445,9 +455,10 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Use SIGKILL directly to avoid blocking sleep in preexec.
-        # The poll loop is lightweight and safe to kill abruptly.
-        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
+        # Process-group kill: background jobs are process-group leaders, so
+        # negative PID kills the loop + all descendants (gh, sleep) without
+        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
         _CMUX_PR_POLL_PID=""
     fi
 }
@@ -701,5 +712,7 @@ _cmux_fix_path() {
 }
 _cmux_fix_path
 unset -f _cmux_fix_path
+
+_cmux_detect_send_tool
 
 _cmux_install_prompt_command
