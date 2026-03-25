@@ -67,6 +67,15 @@ private struct ProcessRunResult {
     let stderr: String
 }
 
+private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
+    switch node {
+    case .pane:
+        return []
+    case .split(let split):
+        return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+    }
+}
+
 private func runProcess(
     executablePath: String,
     arguments: [String],
