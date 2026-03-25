@@ -397,6 +397,27 @@ enum GhosttyPasteboardHelper {
     }
 }
 
+struct GhosttySystemClipboardWriteScope: Equatable {
+    let appIsActive: Bool
+    let windowIsKey: Bool
+    let tabIsSelected: Bool
+    let surfaceIsFocused: Bool
+}
+
+func shouldAllowGhosttyClipboardWrite(
+    location: ghostty_clipboard_e,
+    scope: GhosttySystemClipboardWriteScope?
+) -> Bool {
+    // Terminal-owned clipboard writes should not let background surfaces clobber
+    // the user's global pasteboard. Non-system clipboards remain surface-local.
+    guard location == GHOSTTY_CLIPBOARD_STANDARD else { return true }
+    guard let scope else { return false }
+    return scope.appIsActive &&
+        scope.windowIsKey &&
+        scope.tabIsSelected &&
+        scope.surfaceIsFocused
+}
+
 #if DEBUG
 func cmuxPasteboardStringContentsForTesting(_ pasteboard: NSPasteboard) -> String? {
     GhosttyPasteboardHelper.stringContents(from: pasteboard)
@@ -1213,10 +1234,10 @@ class GhosttyApp {
 
             ghostty_surface_complete_clipboard_request(surface, content, state, true)
         }
-        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
-            // Write clipboard
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, _ in
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
+            let callbackContext = GhosttyApp.callbackContext(from: userdata)
 
             var fallback: String?
             for item in buffer {
@@ -1226,7 +1247,25 @@ class GhosttyApp {
                 if let mimePtr = item.mime {
                     let mime = String(cString: mimePtr)
                     if mime.hasPrefix("text/plain") {
-                        GhosttyPasteboardHelper.writeString(value, to: location)
+                        let scope = GhosttyApp.shared.performOnMain {
+                            GhosttyApp.clipboardWriteScope(from: callbackContext)
+                        }
+                        guard shouldAllowGhosttyClipboardWrite(location: location, scope: scope) else {
+#if DEBUG
+                            dlog(
+                                "clipboard.write.drop surface=\(callbackContext?.surfaceId.uuidString.prefix(5) ?? "nil") " +
+                                "location=\(Int(location.rawValue)) active=\(scope?.appIsActive == true ? 1 : 0) " +
+                                "key=\(scope?.windowIsKey == true ? 1 : 0) " +
+                                "selected=\(scope?.tabIsSelected == true ? 1 : 0) " +
+                                "focused=\(scope?.surfaceIsFocused == true ? 1 : 0)"
+                            )
+#endif
+                            return
+                        }
+
+                        GhosttyApp.shared.performOnMain {
+                            GhosttyPasteboardHelper.writeString(value, to: location)
+                        }
                         return
                     }
                 }
@@ -1237,7 +1276,25 @@ class GhosttyApp {
             }
 
             if let fallback {
-                GhosttyPasteboardHelper.writeString(fallback, to: location)
+                let scope = GhosttyApp.shared.performOnMain {
+                    GhosttyApp.clipboardWriteScope(from: callbackContext)
+                }
+                guard shouldAllowGhosttyClipboardWrite(location: location, scope: scope) else {
+#if DEBUG
+                    dlog(
+                        "clipboard.write.drop surface=\(callbackContext?.surfaceId.uuidString.prefix(5) ?? "nil") " +
+                        "location=\(Int(location.rawValue)) active=\(scope?.appIsActive == true ? 1 : 0) " +
+                        "key=\(scope?.windowIsKey == true ? 1 : 0) " +
+                        "selected=\(scope?.tabIsSelected == true ? 1 : 0) " +
+                        "focused=\(scope?.surfaceIsFocused == true ? 1 : 0)"
+                    )
+#endif
+                    return
+                }
+
+                GhosttyApp.shared.performOnMain {
+                    GhosttyPasteboardHelper.writeString(fallback, to: location)
+                }
             }
         }
         runtimeConfig.close_surface_cb = { userdata, needsConfirmClose in
@@ -2039,6 +2096,24 @@ class GhosttyApp {
     private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    @MainActor
+    private static func clipboardWriteScope(
+        from callbackContext: GhosttySurfaceCallbackContext?
+    ) -> GhosttySystemClipboardWriteScope? {
+        guard let callbackContext,
+              let tabId = callbackContext.tabId,
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) else {
+            return nil
+        }
+
+        return GhosttySystemClipboardWriteScope(
+            appIsActive: NSApp.isActive,
+            windowIsKey: callbackContext.surfaceView?.window?.isKeyWindow == true,
+            tabIsSelected: tabManager.selectedTabId == tabId,
+            surfaceIsFocused: tabManager.focusedSurfaceId(for: tabId) == callbackContext.surfaceId
+        )
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
