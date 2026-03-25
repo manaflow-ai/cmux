@@ -44,6 +44,12 @@ struct TmuxOverlayExperimentSettings {
     }
 }
 
+private enum WorkspaceTitlebarInteractionMetrics {
+    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
+    // the minimal-mode titlebar strip.
+    static let minimalModeTopStripHeight: CGFloat = 30
+}
+
 struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
     let paneId: String
     let left: Int
@@ -373,6 +379,12 @@ struct WorkspaceContentView: View {
             if isMinimalMode {
                 bonsplitView
                     .ignoresSafeArea(.container, edges: .top)
+                    .overlay(alignment: .top) {
+                        if isWorkspaceInputActive {
+                            TitlebarDoubleClickMonitorView()
+                                .frame(height: WorkspaceTitlebarInteractionMetrics.minimalModeTopStripHeight)
+                        }
+                    }
             } else {
                 bonsplitView
             }

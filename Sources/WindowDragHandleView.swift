@@ -84,23 +84,23 @@ private func windowDragHandleShouldResolveActiveHitCapture(
 
 /// Runs the same action macOS titlebars use for double-click:
 /// zoom by default, or minimize when the user preference is set.
-@discardableResult
-func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
-    guard let window else { return false }
+enum StandardTitlebarDoubleClickAction: Equatable {
+    case miniaturize
+    case zoom
+    case none
+}
 
-    let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain) ?? [:]
+func resolvedStandardTitlebarDoubleClickAction(globalDefaults: [String: Any]) -> StandardTitlebarDoubleClickAction {
     if let action = (globalDefaults["AppleActionOnDoubleClick"] as? String)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .lowercased() {
         switch action {
-        case "minimize":
-            window.miniaturize(nil)
-            return true
-        case "none":
-            return false
-        case "maximize", "zoom":
-            window.zoom(nil)
-            return true
+        case "minimize", "miniaturize":
+            return .miniaturize
+        case "maximize", "zoom", "fill":
+            return .zoom
+        case "none", "no action":
+            return .none
         default:
             break
         }
@@ -108,12 +108,29 @@ func performStandardTitlebarDoubleClick(window: NSWindow?) -> Bool {
 
     if let miniaturizeOnDoubleClick = globalDefaults["AppleMiniaturizeOnDoubleClick"] as? Bool,
        miniaturizeOnDoubleClick {
-        window.miniaturize(nil)
-        return true
+        return .miniaturize
     }
 
-    window.zoom(nil)
-    return true
+    return .zoom
+}
+
+/// Runs the same action macOS titlebars use for double-click:
+/// zoom by default, or minimize when the user preference is set.
+@discardableResult
+func performStandardTitlebarDoubleClick(window: NSWindow?) -> StandardTitlebarDoubleClickAction? {
+    guard let window else { return nil }
+
+    let globalDefaults = UserDefaults.standard.persistentDomain(forName: UserDefaults.globalDomain) ?? [:]
+    let action = resolvedStandardTitlebarDoubleClickAction(globalDefaults: globalDefaults)
+    switch action {
+    case .miniaturize:
+        window.miniaturize(nil)
+    case .zoom:
+        window.zoom(nil)
+    case .none:
+        break
+    }
+    return action
 }
 
 private enum WindowDragHandleAssociatedObjectKeys {
@@ -410,11 +427,11 @@ struct WindowDragHandleView: NSViewRepresentable {
             #endif
 
             if event.clickCount >= 2 {
-                let handled = performStandardTitlebarDoubleClick(window: window)
+                let action = performStandardTitlebarDoubleClick(window: window)
                 #if DEBUG
-                dlog("titlebar.dragHandle.mouseDownDoubleClick handled=\(handled ? 1 : 0)")
+                dlog("titlebar.dragHandle.mouseDownDoubleClick action=\(String(describing: action))")
                 #endif
-                if handled {
+                if action != nil {
                     return
                 }
             }
@@ -438,5 +455,50 @@ struct WindowDragHandleView: NSViewRepresentable {
                 super.mouseDown(with: event)
             }
         }
+    }
+}
+
+/// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
+/// the standard macOS titlebar action even when the visible strip is hosted by
+/// higher-level SwiftUI/AppKit container views.
+struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
+    final class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.wantsLayer = true
+        view.layer?.backgroundColor = NSColor.clear.cgColor
+
+        context.coordinator.view = view
+
+        let coordinator = context.coordinator
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak coordinator] event in
+            guard event.clickCount >= 2 else { return event }
+            guard let coordinator, let view = coordinator.view, let window = view.window else { return event }
+            guard event.window === window else { return event }
+
+            let point = view.convert(event.locationInWindow, from: nil)
+            guard view.bounds.contains(point) else { return event }
+
+            let action = performStandardTitlebarDoubleClick(window: window)
+            return action == nil ? event : nil
+        }
+
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.view = nsView
     }
 }
