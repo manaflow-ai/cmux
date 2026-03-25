@@ -1,6 +1,5 @@
 import XCTest
 import Foundation
-import AppKit
 
 final class DisplayResolutionRegressionUITests: XCTestCase {
     private let defaultDisplayHarnessManifestPath = "/tmp/cmux-ui-test-display-harness.json"
@@ -12,7 +11,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private var displayDonePath = ""
     private var helperBinaryPath = ""
     private var helperLogPath = ""
-    private var launchedRunningApp: NSRunningApplication?
+    private var appProcess: Process?
     private var helperProcess: Process?
 
     override func setUp() {
@@ -24,7 +23,9 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             .appendingPathComponent("cmux-ui-test-display-\(token)")
             .path
         launchTag = "ui-tests-display-resolution-\(token.prefix(8))"
-        diagnosticsPath = "/tmp/cmux-ui-test-display-churn-\(token).json"
+        diagnosticsPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-display-churn-\(token).json")
+            .path
         displayReadyPath = "\(tempPrefix).ready"
         displayIDPath = "\(tempPrefix).id"
         displayStartPath = "\(tempPrefix).start"
@@ -36,7 +37,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     }
 
     override func tearDown() {
-        terminateLaunchedAppIfNeeded()
+        terminateAppProcess()
         helperProcess?.terminate()
         helperProcess?.waitUntilExit()
         helperProcess = nil
@@ -44,7 +45,17 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         super.tearDown()
     }
 
+    private let prelaunchManifestPath = "/tmp/cmux-ui-test-prelaunch.json"
+
     func testRapidDisplayResolutionChangesKeepTerminalResponsive() throws {
+        // On CI, the app is pre-launched from the shell (outside the XCTest
+        // runner's sandbox) so it can write to /tmp/ and activate properly.
+        // The CI step writes a manifest with the diagnostics path.
+        let prelaunch = loadPrelaunchManifest()
+        if let diagPath = prelaunch?.diagnosticsPath, !diagPath.isEmpty {
+            diagnosticsPath = diagPath
+        }
+
         try prepareDisplayHarnessIfNeeded()
 
         XCTAssertTrue(waitForFile(atPath: displayReadyPath, timeout: 12.0), "Expected display harness ready file at \(displayReadyPath)")
@@ -53,7 +64,10 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             return
         }
 
-        try launchAppProcess(targetDisplayID: targetDisplayID)
+        if prelaunch == nil {
+            try launchAppProcess(targetDisplayID: targetDisplayID)
+        }
+
         XCTAssertTrue(
             waitForTargetDisplayMove(targetDisplayID: targetDisplayID, timeout: 12.0),
             "Expected app window to move to display \(targetDisplayID). diagnostics=\(loadDiagnostics() ?? [:]) app=\(launchedAppDiagnostics())"
@@ -68,11 +82,16 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         var maxDiagnosticsUpdatedAt = baselineStats.diagnosticsUpdatedAt
         var lastStats = baselineStats
 
-        do {
-            try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
-        } catch {
-            XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
-            return
+        // When pre-launched from CI, the display helper uses --start-delay-ms
+        // instead of a start signal file (sandbox prevents writing to /tmp/).
+        // displayStartPath is empty when the harness manifest omits startPath.
+        if prelaunch == nil && !displayStartPath.isEmpty {
+            do {
+                try Data("start\n".utf8).write(to: URL(fileURLWithPath: displayStartPath), options: .atomic)
+            } catch {
+                XCTFail("Expected start signal file to be created at \(displayStartPath): \(error)")
+                return
+            }
         }
 
         let deadline = Date().addingTimeInterval(30.0)
@@ -135,7 +154,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             guard let readyPath = externalHarness.readyPath, !readyPath.isEmpty,
                   let displayIDPath = externalHarness.displayIDPath, !displayIDPath.isEmpty,
-                  let startPath = externalHarness.startPath, !startPath.isEmpty,
                   let donePath = externalHarness.donePath, !donePath.isEmpty else {
                 throw NSError(domain: "DisplayResolutionRegressionUITests", code: 3, userInfo: [
                     NSLocalizedDescriptionKey: "Incomplete external display harness configuration"
@@ -143,7 +161,13 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
             }
             displayReadyPath = readyPath
             self.displayIDPath = displayIDPath
-            displayStartPath = startPath
+            // startPath is optional — CI uses --start-delay-ms instead of a start
+            // signal file because the XCTest sandbox can't write to /tmp/.
+            if let startPath = externalHarness.startPath, !startPath.isEmpty {
+                displayStartPath = startPath
+            } else {
+                displayStartPath = ""
+            }
             displayDonePath = donePath
             if let logPath = externalHarness.logPath, !logPath.isEmpty {
                 helperLogPath = logPath
@@ -166,7 +190,6 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
     private func loadExternalHarnessFromEnvironment(_ env: [String: String]) -> ExternalDisplayHarness? {
         guard let readyPath = env["CMUX_UI_TEST_DISPLAY_READY_PATH"], !readyPath.isEmpty,
               let displayIDPath = env["CMUX_UI_TEST_DISPLAY_ID_PATH"], !displayIDPath.isEmpty,
-              let startPath = env["CMUX_UI_TEST_DISPLAY_START_PATH"], !startPath.isEmpty,
               let donePath = env["CMUX_UI_TEST_DISPLAY_DONE_PATH"], !donePath.isEmpty else {
             return nil
         }
@@ -174,7 +197,7 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         return ExternalDisplayHarness(
             readyPath: readyPath,
             displayIDPath: displayIDPath,
-            startPath: startPath,
+            startPath: env["CMUX_UI_TEST_DISPLAY_START_PATH"],
             donePath: donePath,
             logPath: env["CMUX_UI_TEST_DISPLAY_LOG_PATH"],
             helperBinaryPath: nil
@@ -240,69 +263,69 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         helperProcess = proc
     }
 
-    // Launch the app via NSWorkspace instead of XCUIApplication to avoid
-    // the 60-second foreground activation timeout that kills UI tests on
-    // headless CI runners. NSWorkspace.openApplication passes environment
-    // variables through OpenConfiguration and returns immediately.
+    // Launch the app binary directly via Process. XCUIApplication.launch() blocks
+    // for 60s on headless CI trying to foreground-activate. NSWorkspace.openApplication
+    // causes the app to die immediately on headless runners. Process works because
+    // it doesn't need WindowServer activation.
+    //
+    // The child process inherits the test runner's sandbox, so all temp file paths
+    // (diagnostics, etc.) must use FileManager.default.temporaryDirectory (which
+    // resolves to the sandbox container's tmp) instead of hardcoded /tmp/.
     private func launchAppProcess(targetDisplayID: String) throws {
-        let appBundlePath = try resolveAppBundlePath()
-        let appURL = URL(fileURLWithPath: appBundlePath)
+        let binaryPath = try resolveAppBinaryPath()
 
-        let config = NSWorkspace.OpenConfiguration()
-        config.environment = launchEnvironment(targetDisplayID: targetDisplayID)
-        config.activates = true
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var launchError: Error?
-        var runningApp: NSRunningApplication?
-
-        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { app, error in
-            runningApp = app
-            launchError = error
-            semaphore.signal()
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: binaryPath)
+        // Don't set proc.environment — inherit the test runner's full environment
+        // so the child gets the same sandbox context and system state. Just add our
+        // test-specific vars on top.
+        var env = ProcessInfo.processInfo.environment
+        for (key, value) in launchEnvironment(targetDisplayID: targetDisplayID) {
+            env[key] = value
         }
+        proc.environment = env
 
-        let waitResult = semaphore.wait(timeout: .now() + 30.0)
-        if waitResult == .timedOut {
-            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "NSWorkspace.openApplication timed out after 30s for \(appBundlePath)"
-            ])
-        }
+        let logPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-test-app-\(launchTag).log").path
+        FileManager.default.createFile(atPath: logPath, contents: nil)
+        let logHandle = FileHandle(forWritingAtPath: logPath)
+        proc.standardOutput = logHandle
+        proc.standardError = logHandle
 
-        if let error = launchError {
-            throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "NSWorkspace.openApplication failed: \(error.localizedDescription) path=\(appBundlePath)"
-            ])
-        }
-
-        launchedRunningApp = runningApp
+        try proc.run()
+        appProcess = proc
 
         if !waitForAppLaunchDiagnostics(timeout: 15.0) {
-            let isAlive = launchedRunningApp?.isTerminated == false
+            let isAlive = proc.isRunning
+            let appLog = (try? String(contentsOfFile: logPath, encoding: .utf8))
+                .map { String($0.suffix(2000)) } ?? "<empty>"
             throw NSError(domain: "DisplayResolutionRegressionUITests", code: 2, userInfo: [
-                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:])"
+                NSLocalizedDescriptionKey: "App failed to write launch diagnostics. alive=\(isAlive) diagnostics=\(loadDiagnostics() ?? [:]) diagPath=\(diagnosticsPath) appLog=[\(appLog)]"
             ])
         }
     }
 
-    private func resolveAppBundlePath() throws -> String {
+    private func resolveAppBinaryPath() throws -> String {
         // UI test bundle is at:
         //   .../Build/Products/Debug/cmuxUITests-Runner.app/Contents/PlugIns/cmuxUITests.xctest
-        // The app is at:
-        //   .../Build/Products/Debug/cmux DEV.app
+        // The app binary is at:
+        //   .../Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV
         let testBundle = Bundle(for: Self.self)
         let productsDir = testBundle.bundleURL
             .deletingLastPathComponent()  // -> .../Contents/PlugIns
             .deletingLastPathComponent()  // -> .../Contents
             .deletingLastPathComponent()  // -> .../cmuxUITests-Runner.app
             .deletingLastPathComponent()  // -> .../Debug
-        let appPath = productsDir.appendingPathComponent("cmux DEV.app").path
-        if FileManager.default.fileExists(atPath: appPath) {
-            return appPath
+        let binaryPath = productsDir
+            .appendingPathComponent("cmux DEV.app")
+            .appendingPathComponent("Contents/MacOS/cmux DEV")
+            .path
+        if FileManager.default.fileExists(atPath: binaryPath) {
+            return binaryPath
         }
 
         throw NSError(domain: "DisplayResolutionRegressionUITests", code: 4, userInfo: [
-            NSLocalizedDescriptionKey: "App bundle not found at \(appPath). testBundle=\(testBundle.bundleURL.path)"
+            NSLocalizedDescriptionKey: "App binary not found at \(binaryPath). testBundle=\(testBundle.bundleURL.path)"
         ])
     }
 
@@ -316,24 +339,24 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         ]
     }
 
-    private func terminateLaunchedAppIfNeeded() {
-        guard let app = launchedRunningApp else { return }
-        defer { launchedRunningApp = nil }
+    private func terminateAppProcess() {
+        guard let proc = appProcess else { return }
+        defer { appProcess = nil }
 
-        if app.isTerminated { return }
-        app.terminate()
+        if !proc.isRunning { return }
+        proc.terminate()
         let deadline = Date().addingTimeInterval(5.0)
-        while !app.isTerminated && Date() < deadline {
+        while proc.isRunning && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        if !app.isTerminated {
-            app.forceTerminate()
+        if proc.isRunning {
+            proc.interrupt()
         }
     }
 
     private func launchedAppDiagnostics() -> String {
-        guard let app = launchedRunningApp else { return "not-launched" }
-        return "pid=\(app.processIdentifier) terminated=\(app.isTerminated)"
+        guard let proc = appProcess else { return "not-launched" }
+        return "pid=\(proc.processIdentifier) running=\(proc.isRunning)"
     }
 
     private func waitForAppLaunchDiagnostics(timeout: TimeInterval) -> Bool {
@@ -468,5 +491,15 @@ final class DisplayResolutionRegressionUITests: XCTestCase {
         let donePath: String?
         let logPath: String?
         let helperBinaryPath: String?
+    }
+
+    private struct PrelaunchManifest: Decodable {
+        let diagnosticsPath: String?
+    }
+
+    private func loadPrelaunchManifest() -> PrelaunchManifest? {
+        let url = URL(fileURLWithPath: prelaunchManifestPath)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(PrelaunchManifest.self, from: data)
     }
 }

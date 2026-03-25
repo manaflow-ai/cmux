@@ -268,6 +268,6 @@ cmux er gratis, åpen kildekode, og vil alltid være det. Hvis du vil støtte ut
 
 ## Lisens
 
-Dette prosjektet er lisensiert under GNU Affero General Public License v3.0 eller nyere (`AGPL-3.0-or-later`).
+cmux er åpen kildekode under [AGPL-3.0-or-later](LICENSE).
 
-Se `LICENSE` for den fullstendige teksten.
+Hvis organisasjonen din ikke kan overholde AGPL, er en kommersiell lisens tilgjengelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.

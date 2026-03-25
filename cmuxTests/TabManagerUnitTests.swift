@@ -23,6 +23,96 @@ func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+@discardableResult
+private func waitForCondition(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping () -> Bool
+) -> Bool {
+    if condition() {
+        return true
+    }
+
+    let expectation = XCTestExpectation(description: "wait for condition")
+    let deadline = Date().addingTimeInterval(timeout)
+
+    func poll() {
+        if condition() {
+            expectation.fulfill()
+            return
+        }
+        guard Date() < deadline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
+            poll()
+        }
+    }
+
+    DispatchQueue.main.async {
+        poll()
+    }
+
+    let result = XCTWaiter().wait(for: [expectation], timeout: timeout + pollInterval + 0.1)
+    if result != .completed {
+        XCTFail("Timed out waiting for condition", file: file, line: line)
+        return false
+    }
+    return true
+}
+
+private struct ProcessRunResult {
+    let status: Int32
+    let stdout: String
+    let stderr: String
+}
+
+private func runProcess(
+    executablePath: String,
+    arguments: [String],
+    environment: [String: String]? = nil,
+    currentDirectoryURL: URL? = nil
+) throws -> ProcessRunResult {
+    let process = Process()
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+    process.environment = environment
+    process.currentDirectoryURL = currentDirectoryURL
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+    try process.run()
+    process.waitUntilExit()
+    return ProcessRunResult(
+        status: process.terminationStatus,
+        stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+        stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    )
+}
+
+private func runGit(
+    _ arguments: [String],
+    in directoryURL: URL,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> String {
+    let result = try runProcess(
+        executablePath: "/usr/bin/env",
+        arguments: ["git"] + arguments,
+        currentDirectoryURL: directoryURL
+    )
+    XCTAssertEqual(
+        result.status,
+        0,
+        "git \(arguments.joined(separator: " ")) failed: \(result.stderr)",
+        file: file,
+        line: line
+    )
+    return result.stdout
+}
+
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
@@ -209,6 +299,88 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             ]),
             valid
         )
+    }
+
+    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
+        let fileManager = FileManager.default
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-command-path-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let executableName = "cmux-gh-test-\(UUID().uuidString)"
+        let executableURL = tempDir.appendingPathComponent(executableName)
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: executableURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+        XCTAssertEqual(
+            TabManager.resolvedCommandPathForTesting(
+                executable: executableName,
+                environment: ["PATH": "/usr/bin:/bin"],
+                fallbackDirectories: [tempDir.path]
+            ),
+            executableURL.path
+        )
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-refresh-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+        try runGit(["checkout", "-b", "feature/sidebar-pr"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 1052,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/1052")),
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/sidebar-pr")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 1052)
+        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().map(\.number), [1052])
+
+        try runGit(["checkout", "main"], in: repoURL)
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelPullRequests[panelId] == nil
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
 }
 

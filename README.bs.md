@@ -268,6 +268,6 @@ cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvo
 
 ## Licenca
 
-Ovaj projekat je licenciran pod GNU Affero General Public License v3.0 ili novijom (`AGPL-3.0-or-later`).
+cmux je otvorenog koda pod [AGPL-3.0-or-later](LICENSE) licencom.
 
-Pogledajte `LICENSE` za puni tekst.
+Ako vaša organizacija ne može ispuniti uslove AGPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) za detalje.
