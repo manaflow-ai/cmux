@@ -11045,37 +11045,45 @@ struct CMUXCLI {
 
     /// The hooks.json content that cmux installs into ~/.codex/.
     /// Each hook calls `cmux codex-hook <event>` which gracefully no-ops
-    /// when not running inside cmux.
+    /// when not running inside cmux. The command checks for cmux on PATH
+    /// first so it silently succeeds even when cmux is not installed
+    /// (e.g. user opened codex in a non-cmux terminal).
+    private static func codexHookCommand(_ event: String) -> String {
+        "command -v cmux >/dev/null 2>&1 && cmux codex-hook \(event) || echo '{}'"
+    }
+
     private static let codexHooksJSON: [String: Any] = [
         "hooks": [
             "SessionStart": [[
                 "hooks": [[
                     "type": "command",
-                    "command": "cmux codex-hook session-start",
+                    "command": codexHookCommand("session-start"),
                     "timeout": 10
                 ] as [String: Any]]
             ] as [String: Any]],
             "UserPromptSubmit": [[
                 "hooks": [[
                     "type": "command",
-                    "command": "cmux codex-hook prompt-submit",
+                    "command": codexHookCommand("prompt-submit"),
                     "timeout": 10
                 ] as [String: Any]]
             ] as [String: Any]],
             "Stop": [[
                 "hooks": [[
                     "type": "command",
-                    "command": "cmux codex-hook stop",
+                    "command": codexHookCommand("stop"),
                     "timeout": 10
                 ] as [String: Any]]
             ] as [String: Any]]
         ] as [String: Any]
     ]
 
-    /// Identifier prefix used to detect cmux-owned hooks during uninstall.
-    private static let codexHookCommandPrefix = "cmux codex-hook "
+    /// Identifier used to detect cmux-owned hooks during uninstall.
+    private static let codexHookCommandMarker = "cmux codex-hook"
 
     private func runCodexInstallHooks() throws {
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
         let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
             ?? NSString(string: "~/.codex").expandingTildeInPath
         let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
@@ -11085,49 +11093,104 @@ struct CMUXCLI {
         // Ensure ~/.codex/ exists
         try fm.createDirectory(atPath: codexHome, withIntermediateDirectories: true, attributes: nil)
 
-        // 1. Merge hooks into existing hooks.json (or create new)
+        // Read existing state
+        let existingHooksContent: String? = fm.fileExists(atPath: hooksPath)
+            ? (try? String(contentsOfFile: hooksPath, encoding: .utf8))
+            : nil
+
+        // Build merged hooks
         var existing: [String: Any] = [:]
-        if fm.fileExists(atPath: hooksPath),
-           let data = try? Data(contentsOf: URL(fileURLWithPath: hooksPath)),
+        if let existingHooksContent,
+           let data = existingHooksContent.data(using: .utf8),
            let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             existing = parsed
         }
 
         var hooks = existing["hooks"] as? [String: Any] ?? [:]
-
         let cmuxHooks = Self.codexHooksJSON["hooks"] as! [String: Any]
         for (eventName, cmuxGroups) in cmuxHooks {
             guard let cmuxGroupArray = cmuxGroups as? [[String: Any]] else { continue }
             var eventGroups = hooks[eventName] as? [[String: Any]] ?? []
-
-            // Remove any existing cmux hooks for this event (identified by command prefix)
             eventGroups.removeAll { group in
                 guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
                 return groupHooks.allSatisfy { hook in
-                    (hook["command"] as? String)?.hasPrefix(Self.codexHookCommandPrefix) == true
+                    (hook["command"] as? String)?.contains(Self.codexHookCommandMarker) == true
                 }
             }
-
-            // Append cmux hooks
             eventGroups.append(contentsOf: cmuxGroupArray)
             hooks[eventName] = eventGroups
         }
-
         existing["hooks"] = hooks
-        let jsonData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
-        try jsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+        let newJsonData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+        let newHooksContent = String(data: newJsonData, encoding: .utf8) ?? ""
 
-        // 2. Enable codex_hooks feature in config.toml
-        enableCodexHooksFeature(configPath: configPath)
+        // Build new config.toml content
+        let existingConfigContent: String = fm.fileExists(atPath: configPath)
+            ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
+            : ""
+        let newConfigContent = buildConfigWithCodexHooks(existingConfigContent)
 
-        print("Installed cmux hooks into \(hooksPath)")
-        print("Enabled codex_hooks feature in \(configPath)")
+        // Check if anything would change
+        let hooksChanged = existingHooksContent != newHooksContent
+        let configChanged = existingConfigContent != newConfigContent
+
+        if !hooksChanged && !configChanged {
+            print("cmux hooks are already installed. Nothing to change.")
+            return
+        }
+
+        // Show diff and ask for confirmation
+        if hooksChanged {
+            print("  \(hooksPath):")
+            if let existingHooksContent {
+                printSimpleDiff(old: existingHooksContent, new: newHooksContent)
+            } else {
+                print("    (new file)")
+                for line in newHooksContent.components(separatedBy: "\n") {
+                    print("    \u{001B}[32m+ \(line)\u{001B}[0m")
+                }
+            }
+            print("")
+        }
+
+        if configChanged {
+            print("  \(configPath):")
+            if existingConfigContent.isEmpty {
+                print("    (new file)")
+                for line in newConfigContent.components(separatedBy: "\n") where !line.isEmpty {
+                    print("    \u{001B}[32m+ \(line)\u{001B}[0m")
+                }
+            } else {
+                printSimpleDiff(old: existingConfigContent, new: newConfigContent)
+            }
+            print("")
+        }
+
+        if !skipConfirm {
+            print("Apply these changes? [Y/n] ", terminator: "")
+            if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               !response.isEmpty && response != "y" && response != "yes" {
+                print("Aborted.")
+                return
+            }
+        }
+
+        // Apply changes
+        if hooksChanged {
+            try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+        }
+        if configChanged {
+            try newConfigContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+        }
+
         print("")
-        print("Hooks will activate inside cmux and silently no-op elsewhere.")
+        print("Installed. Hooks activate inside cmux and silently no-op elsewhere.")
         print("To remove: cmux codex uninstall-hooks")
     }
 
     private func runCodexUninstallHooks() throws {
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
         let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
             ?? NSString(string: "~/.codex").expandingTildeInPath
         let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
@@ -11145,6 +11208,7 @@ struct CMUXCLI {
             return
         }
 
+        // Build the new state without cmux hooks
         var removedCount = 0
         for eventName in hooks.keys {
             guard var eventGroups = hooks[eventName] as? [[String: Any]] else { continue }
@@ -11152,7 +11216,7 @@ struct CMUXCLI {
             eventGroups.removeAll { group in
                 guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
                 return groupHooks.allSatisfy { hook in
-                    (hook["command"] as? String)?.hasPrefix(Self.codexHookCommandPrefix) == true
+                    (hook["command"] as? String)?.contains(Self.codexHookCommandMarker) == true
                 }
             }
             removedCount += before - eventGroups.count
@@ -11163,54 +11227,76 @@ struct CMUXCLI {
             }
         }
 
-        parsed["hooks"] = hooks
-        let jsonData = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
-        try jsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
-
-        if removedCount > 0 {
-            print("Removed \(removedCount) cmux hook(s) from \(hooksPath)")
-        } else {
+        if removedCount == 0 {
             print("No cmux hooks found in \(hooksPath)")
+            return
+        }
+
+        parsed["hooks"] = hooks
+        let newJsonData = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
+        let newContent = String(data: newJsonData, encoding: .utf8) ?? ""
+        let oldContent = String(data: data, encoding: .utf8) ?? ""
+
+        // Show diff and ask for confirmation
+        print("  \(hooksPath):")
+        printSimpleDiff(old: oldContent, new: newContent)
+        print("")
+
+        if !skipConfirm {
+            print("Remove \(removedCount) cmux hook(s)? [Y/n] ", terminator: "")
+            if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               !response.isEmpty && response != "y" && response != "yes" {
+                print("Aborted.")
+                return
+            }
+        }
+
+        try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+        print("Removed \(removedCount) cmux hook(s).")
+    }
+
+    private func printSimpleDiff(old: String, new: String) {
+        let oldLines = old.components(separatedBy: "\n")
+        let newLines = new.components(separatedBy: "\n")
+        let oldSet = Set(oldLines)
+        let newSet = Set(newLines)
+        for line in oldLines where !newSet.contains(line) && !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            print("    \u{001B}[31m- \(line)\u{001B}[0m")
+        }
+        for line in newLines where !oldSet.contains(line) && !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            print("    \u{001B}[32m+ \(line)\u{001B}[0m")
         }
     }
 
-    /// Best-effort: ensure [features] codex_hooks = true in config.toml.
-    private func enableCodexHooksFeature(configPath: String) {
-        let fm = FileManager.default
-        var content = ""
-        if fm.fileExists(atPath: configPath) {
-            content = (try? String(contentsOfFile: configPath, encoding: .utf8)) ?? ""
-        }
+    /// Returns config.toml content with codex_hooks = true under [features].
+    private func buildConfigWithCodexHooks(_ content: String) -> String {
+        var result = content
 
-        // Check if codex_hooks is already enabled
-        if content.contains("codex_hooks") {
-            // Replace any existing codex_hooks line
-            let lines = content.components(separatedBy: "\n")
-            var result: [String] = []
+        if result.contains("codex_hooks") {
+            let lines = result.components(separatedBy: "\n")
+            var output: [String] = []
             for line in lines {
                 let trimmed = line.trimmingCharacters(in: .whitespaces)
                 if trimmed.hasPrefix("codex_hooks") && trimmed.contains("=") {
-                    result.append("codex_hooks = true")
+                    output.append("codex_hooks = true")
                 } else {
-                    result.append(line)
+                    output.append(line)
                 }
             }
-            content = result.joined(separator: "\n")
-        } else if content.contains("[features]") {
-            // Append under existing [features] section
-            content = content.replacingOccurrences(
+            result = output.joined(separator: "\n")
+        } else if result.contains("[features]") {
+            result = result.replacingOccurrences(
                 of: "[features]",
                 with: "[features]\ncodex_hooks = true"
             )
         } else {
-            // Add new [features] section
-            if !content.isEmpty && !content.hasSuffix("\n") {
-                content += "\n"
+            if !result.isEmpty && !result.hasSuffix("\n") {
+                result += "\n"
             }
-            content += "\n[features]\ncodex_hooks = true\n"
+            result += "\n[features]\ncodex_hooks = true\n"
         }
 
-        try? content.write(toFile: configPath, atomically: true, encoding: .utf8)
+        return result
     }
 
     /// Codex hook handler. Gracefully no-ops when not running inside cmux.
