@@ -3882,6 +3882,69 @@ final class TerminalSurface: Identifiable, ObservableObject {
         writeTextData(data, to: surface)
     }
 
+    /// Send text with control characters (Return, Tab, etc.) delivered as key
+    /// events so the shell processes them, while regular text is sent via the
+    /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
+    func sendInput(_ text: String) {
+        guard let surface = surface else { return }
+        var bufferedText = ""
+        var previousWasCR = false
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x0A: // \n — skip if preceded by \r (already sent Return)
+                if !previousWasCR {
+                    flushText(&bufferedText, surface: surface)
+                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                }
+                previousWasCR = false
+            case 0x0D:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                previousWasCR = true
+            case 0x09:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+                previousWasCR = false
+            case 0x1B:
+                flushText(&bufferedText, surface: surface)
+                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+                previousWasCR = false
+            default:
+                bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
+            }
+        }
+        flushText(&bufferedText, surface: surface)
+    }
+
+    private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
+        guard !buffer.isEmpty else { return }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 0
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        buffer.withCString { ptr in
+            keyEvent.text = ptr
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
+        buffer.removeAll(keepingCapacity: true)
+    }
+
+    private func sendKeyEvent(surface: ghostty_surface_t, keycode: UInt32) {
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = keycode
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        keyEvent.text = nil
+        _ = ghostty_surface_key(surface, keyEvent)
+    }
+
     func requestBackgroundSurfaceStartIfNeeded() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in

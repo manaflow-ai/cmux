@@ -1553,6 +1553,7 @@ struct ContentView: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
+    @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -4659,7 +4660,10 @@ struct ContentView: View {
     }
 
     private func commandPaletteCommandsFingerprint(commandsContext: CommandPaletteCommandsContext) -> Int {
-        commandsContext.snapshot.fingerprint()
+        var hasher = Hasher()
+        hasher.combine(commandsContext.snapshot.fingerprint())
+        hasher.combine(cmuxConfigStore.configRevision)
+        return hasher.finalize()
     }
 
     private func commandPaletteSwitcherEntriesFingerprint(includeSurfaces: Bool) -> Int {
@@ -5963,7 +5967,35 @@ struct ContentView: View {
             )
         )
 
+        let cmuxConfigDefaultSubtitle = constant(String(localized: "command.cmuxConfig.subtitle", defaultValue: "cmux.json"))
+        for command in cmuxConfigStore.loadedCommands {
+            let commandName = sanitizeCmuxConfigPaletteText(command.name)
+            let subtitle = command.description
+                .map { sanitizeCmuxConfigPaletteText($0) }
+                .flatMap { $0.isEmpty ? nil : constant($0) }
+                ?? cmuxConfigDefaultSubtitle
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: command.id,
+                    title: constant(String(localized: "command.cmuxConfig.customTitle", defaultValue: "Custom: \(commandName)")),
+                    subtitle: subtitle,
+                    keywords: command.keywords ?? []
+                )
+            )
+        }
+
         return contributions
+    }
+
+    private func sanitizeCmuxConfigPaletteText(_ text: String) -> String {
+        let dangerous: Set<Unicode.Scalar> = [
+            "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+            "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+            "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+            "\u{FEFF}",
+        ]
+        let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
+        return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
@@ -6292,6 +6324,24 @@ struct ContentView: View {
                   tabManager.equalizeSplits(tabId: workspace.id) else {
                 NSSound.beep()
                 return
+            }
+        }
+
+        for command in cmuxConfigStore.loadedCommands {
+            let captured = command
+            let sourcePath = cmuxConfigStore.commandSourcePaths[command.id]
+            let globalPath = cmuxConfigStore.globalConfigPath
+            registry.register(commandId: command.id) {
+                let rawCwd = tabManager.selectedWorkspace?.currentDirectory
+                let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
+                    : FileManager.default.homeDirectoryForCurrentUser.path
+                CmuxConfigExecutor.execute(
+                    command: captured,
+                    tabManager: tabManager,
+                    baseCwd: baseCwd,
+                    configSourcePath: sourcePath,
+                    globalConfigPath: globalPath
+                )
             }
         }
     }
