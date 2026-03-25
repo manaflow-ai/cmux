@@ -5849,18 +5849,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
-        let existingFrame = NSApp.keyWindow.flatMap { contextForMainTerminalWindow($0) != nil ? $0 : nil }?.frame
-            ?? mainWindowContexts.values.first?.window?.frame
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let existingFrame = preferredMainWindowContextForWorkspaceCreation(
+            debugSource: "createMainWindow.initialGeometry"
+        ).flatMap { resolvedWindow(for: $0)?.frame }
         let initialRect: NSRect
         if sessionWindowSnapshot == nil, let existingFrame {
-            initialRect = NSRect(x: 0, y: 0, width: existingFrame.width, height: existingFrame.height)
+            // Convert frame rect to content rect so the new window matches the
+            // source window's actual size (frame includes titlebar insets).
+            initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
         } else {
             initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
         }
 
         let window = NSWindow(
             contentRect: initialRect,
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
