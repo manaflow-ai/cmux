@@ -8076,6 +8076,28 @@ class TerminalController {
         }
     }
 
+    /// JavaScript snippet that sets an input element's value using the native
+    /// prototype setter. Frameworks like React, Vue, and Angular override the
+    /// value property on instances, so a plain `el.value = x` assignment only
+    /// updates the DOM without notifying the framework's internal state.
+    /// Calling the native setter from the prototype bypasses the override and
+    /// triggers the framework's change-detection when followed by an `input`
+    /// event. Walks the prototype chain instead of using instanceof so it
+    /// works with cross-realm elements (iframes) and custom web components.
+    /// Expects `el` and `newValue` to be in scope.
+    private static let reactCompatibleSetValue = """
+        let nativeSetter = null;
+        for (let proto = Object.getPrototypeOf(el); proto; proto = Object.getPrototypeOf(proto)) {
+          const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+          if (desc && desc.set) { nativeSetter = desc.set; break; }
+        }
+        if (nativeSetter) {
+          nativeSetter.call(el, newValue);
+        } else {
+          el.value = newValue;
+        }
+    """
+
     private func v2BrowserType(params: [String: Any]) -> V2CallResult {
         guard let text = v2String(params, "text") else {
             return .err(code: "invalid_params", message: "Missing text", data: nil)
@@ -8089,7 +8111,8 @@ class TerminalController {
               if (typeof el.focus === 'function') el.focus();
               const chunk = String(\(textLiteral));
               if ('value' in el) {
-                el.value = (el.value || '') + chunk;
+                const newValue = (el.value || '') + chunk;
+                \(Self.reactCompatibleSetValue)
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
@@ -8113,13 +8136,13 @@ class TerminalController {
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (typeof el.focus === 'function') el.focus();
-              const value = String(\(textLiteral));
+              const newValue = String(\(textLiteral));
               if ('value' in el) {
-                el.value = value;
+                \(Self.reactCompatibleSetValue)
                 el.dispatchEvent(new Event('input', { bubbles: true }));
                 el.dispatchEvent(new Event('change', { bubbles: true }));
               } else {
-                el.textContent = value;
+                el.textContent = newValue;
               }
               return { ok: true };
             })()
@@ -8251,7 +8274,8 @@ class TerminalController {
               const el = document.querySelector(\(selectorLiteral));
               if (!el) return { ok: false, error: 'not_found' };
               if (!('value' in el)) return { ok: false, error: 'not_select' };
-              el.value = String(\(valueLiteral));
+              const newValue = String(\(valueLiteral));
+              \(Self.reactCompatibleSetValue)
               el.dispatchEvent(new Event('input', { bubbles: true }));
               el.dispatchEvent(new Event('change', { bubbles: true }));
               return { ok: true };
