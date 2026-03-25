@@ -11,7 +11,7 @@ _cmux_detect_send_tool() {
         _CMUX_SEND_TOOL=nc
     fi
 }
-_cmux_detect_send_tool
+# Detection deferred to after _cmux_fix_path (end of file).
 
 _cmux_send() {
     local payload="$1"
@@ -280,9 +280,8 @@ _cmux_clear_pr_for_panel() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    {
-        _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    # Synchronous: must arrive before the next report_pr from the poll loop.
+    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_pr_output_indicates_no_pull_request() {
@@ -456,9 +455,10 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Direct kill avoids the synchronous /bin/ps + awk of tree-kill (~5-13ms).
-        # Orphaned children (gh, sleep) finish on their own within seconds.
-        kill -KILL "$_CMUX_PR_POLL_PID" 2>/dev/null || true
+        # Process-group kill: background jobs are process-group leaders, so
+        # negative PID kills the loop + all descendants (gh, sleep) without
+        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
         _CMUX_PR_POLL_PID=""
     fi
 }
@@ -712,5 +712,7 @@ _cmux_fix_path() {
 }
 _cmux_fix_path
 unset -f _cmux_fix_path
+
+_cmux_detect_send_tool
 
 _cmux_install_prompt_command

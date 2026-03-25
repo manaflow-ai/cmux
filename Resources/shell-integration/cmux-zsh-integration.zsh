@@ -579,9 +579,10 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Direct kill avoids the synchronous /bin/ps + awk of tree-kill (~5-13ms).
-        # Orphaned children (gh, sleep) finish on their own within seconds.
-        kill -KILL "$_CMUX_PR_POLL_PID" 2>/dev/null || true
+        # Process-group kill: background jobs are process-group leaders, so
+        # negative PID kills the loop + all descendants (gh, sleep) without
+        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
         _CMUX_PR_POLL_PID=""
     fi
 }
