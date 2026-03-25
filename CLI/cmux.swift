@@ -11146,8 +11146,10 @@ struct CMUXCLI {
                 printSimpleDiff(old: existingHooksContent, new: newHooksContent)
             } else {
                 print("    (new file)")
-                for line in newHooksContent.components(separatedBy: "\n") {
-                    print("    \u{001B}[32m+ \(line)\u{001B}[0m")
+                let lines = newHooksContent.components(separatedBy: "\n")
+                for (i, line) in lines.enumerated() {
+                    let lineLabel = String(format: "%3d", i + 1)
+                    print("    \u{001B}[32m\(lineLabel) +\(line)\u{001B}[0m")
                 }
             }
             print("")
@@ -11157,8 +11159,10 @@ struct CMUXCLI {
             print("  \(configPath):")
             if existingConfigContent.isEmpty {
                 print("    (new file)")
-                for line in newConfigContent.components(separatedBy: "\n") where !line.isEmpty {
-                    print("    \u{001B}[32m+ \(line)\u{001B}[0m")
+                let lines = newConfigContent.components(separatedBy: "\n")
+                for (i, line) in lines.enumerated() where !line.isEmpty {
+                    let lineLabel = String(format: "%3d", i + 1)
+                    print("    \u{001B}[32m\(lineLabel) +\(line)\u{001B}[0m")
                 }
             } else {
                 printSimpleDiff(old: existingConfigContent, new: newConfigContent)
@@ -11255,17 +11259,94 @@ struct CMUXCLI {
         print("Removed \(removedCount) cmux hook(s).")
     }
 
-    private func printSimpleDiff(old: String, new: String) {
+    /// Print a unified-diff-style view with context lines and line numbers.
+    private func printSimpleDiff(old: String, new: String, contextLines: Int = 2) {
+        let red = "\u{001B}[31m"
+        let green = "\u{001B}[32m"
+        let dim = "\u{001B}[2m"
+        let reset = "\u{001B}[0m"
+
         let oldLines = old.components(separatedBy: "\n")
         let newLines = new.components(separatedBy: "\n")
-        let oldSet = Set(oldLines)
-        let newSet = Set(newLines)
-        for line in oldLines where !newSet.contains(line) && !line.trimmingCharacters(in: .whitespaces).isEmpty {
-            print("    \u{001B}[31m- \(line)\u{001B}[0m")
+
+        // Simple LCS-based diff: find matching lines
+        let lcs = longestCommonSubsequence(oldLines, newLines)
+        var oldIdx = 0, newIdx = 0, lcsIdx = 0
+
+        struct DiffLine {
+            enum Kind { case context, remove, add }
+            let kind: Kind
+            let lineNo: Int // 1-based, refers to old line for context/remove, new line for add
+            let text: String
         }
-        for line in newLines where !oldSet.contains(line) && !line.trimmingCharacters(in: .whitespaces).isEmpty {
-            print("    \u{001B}[32m+ \(line)\u{001B}[0m")
+        var allDiffs: [DiffLine] = []
+
+        while oldIdx < oldLines.count || newIdx < newLines.count {
+            if lcsIdx < lcs.count && oldIdx < oldLines.count && newIdx < newLines.count
+                && oldLines[oldIdx] == lcs[lcsIdx] && newLines[newIdx] == lcs[lcsIdx] {
+                allDiffs.append(DiffLine(kind: .context, lineNo: newIdx + 1, text: newLines[newIdx]))
+                oldIdx += 1; newIdx += 1; lcsIdx += 1
+            } else if oldIdx < oldLines.count && (lcsIdx >= lcs.count || oldLines[oldIdx] != lcs[lcsIdx]) {
+                allDiffs.append(DiffLine(kind: .remove, lineNo: oldIdx + 1, text: oldLines[oldIdx]))
+                oldIdx += 1
+            } else if newIdx < newLines.count {
+                allDiffs.append(DiffLine(kind: .add, lineNo: newIdx + 1, text: newLines[newIdx]))
+                newIdx += 1
+            }
         }
+
+        // Find ranges with changes and expand by context
+        var changedIndices = Set<Int>()
+        for (i, d) in allDiffs.enumerated() where d.kind != .context {
+            for j in max(0, i - contextLines)...min(allDiffs.count - 1, i + contextLines) {
+                changedIndices.insert(j)
+            }
+        }
+
+        var lastPrinted = -1
+        for i in changedIndices.sorted() {
+            if lastPrinted >= 0 && i > lastPrinted + 1 {
+                print("    \(dim)...\(reset)")
+            }
+            let d = allDiffs[i]
+            let lineLabel = String(format: "%3d", d.lineNo)
+            switch d.kind {
+            case .context:
+                print("    \(dim)\(lineLabel)  \(d.text)\(reset)")
+            case .remove:
+                print("    \(red)\(lineLabel) -\(d.text)\(reset)")
+            case .add:
+                print("    \(green)\(lineLabel) +\(d.text)\(reset)")
+            }
+            lastPrinted = i
+        }
+    }
+
+    private func longestCommonSubsequence(_ a: [String], _ b: [String]) -> [String] {
+        let m = a.count, n = b.count
+        var dp = Array(repeating: Array(repeating: 0, count: n + 1), count: m + 1)
+        for i in 1...m {
+            for j in 1...n {
+                if a[i - 1] == b[j - 1] {
+                    dp[i][j] = dp[i - 1][j - 1] + 1
+                } else {
+                    dp[i][j] = max(dp[i - 1][j], dp[i][j - 1])
+                }
+            }
+        }
+        var result: [String] = []
+        var i = m, j = n
+        while i > 0 && j > 0 {
+            if a[i - 1] == b[j - 1] {
+                result.append(a[i - 1])
+                i -= 1; j -= 1
+            } else if dp[i - 1][j] > dp[i][j - 1] {
+                i -= 1
+            } else {
+                j -= 1
+            }
+        }
+        return result.reversed()
     }
 
     /// Returns config.toml content with codex_hooks = true under [features].
