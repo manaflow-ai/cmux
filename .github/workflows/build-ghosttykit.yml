@@ -88,7 +88,7 @@ jobs:
           tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
 
       - name: Upload xcframework release
-        if: steps.check-release.outputs.exists == 'false'
+        if: steps.check-release.outputs.exists == 'false' && secrets.GHOSTTY_RELEASE_TOKEN != ''
         env:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
         run: |

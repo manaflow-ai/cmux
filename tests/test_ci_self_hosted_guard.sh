@@ -6,41 +6,32 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
+COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 
-# tests: must use WarpBuild runner (paid runner)
-if ! awk '
-  /^  tests:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  END { exit !(saw_warp) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests block must use warp-macos-15-arm64-6x runner"
-  exit 1
-fi
+check_warp_runner() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_warp=1 }
+    in_job && /os: warp-macos-.*-arm64/ { saw_warp=1 }
+    END { exit !(saw_warp) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must use a WarpBuild runner"
+    exit 1
+  fi
+  echo "PASS: $job WarpBuild runner is present"
+}
 
-# tests-build-and-lag: must use WarpBuild runner (paid runner)
-if ! awk '
-  /^  tests-build-and-lag:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  END { exit !(saw_warp) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-build-and-lag block must use warp-macos-15-arm64-6x runner"
-  exit 1
-fi
+# ci.yml jobs
+check_warp_runner "$CI_FILE" "tests"
+check_warp_runner "$CI_FILE" "tests-build-and-lag"
+check_warp_runner "$CI_FILE" "ui-regressions"
 
-# ui-regressions: must use WarpBuild runner (paid runner)
-if ! awk '
-  /^  ui-regressions:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  END { exit !(saw_warp) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-regressions block must use warp-macos-15-arm64-6x runner"
-  exit 1
-fi
+# build-ghosttykit.yml
+check_warp_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-echo "PASS: tests WarpBuild runner is present"
-echo "PASS: tests-build-and-lag WarpBuild runner is present"
-echo "PASS: ui-regressions WarpBuild runner is present"
+# ci-macos-compat.yml (uses matrix.os with WarpBuild runners)
+check_warp_runner "$COMPAT_FILE" "compat-tests"
