@@ -5833,6 +5833,10 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    // When the last live remote terminal is detached out, the source workspace may be
+    // closed immediately after the move succeeds. That teardown must not shut down the
+    // shared SSH control master that is still serving the moved terminal.
+    private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -6787,6 +6791,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         remoteDetectedPorts = []
@@ -6837,7 +6842,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
         let shouldCleanupControlMaster =
-            clearConfiguration && !isDetachingCloseTransaction && pendingDetachedSurfaces.isEmpty
+            clearConfiguration
+            && !isDetachingCloseTransaction
+            && pendingDetachedSurfaces.isEmpty
+            && !skipControlMasterCleanupAfterDetachedRemoteTransfer
         let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
         let previousController = remoteSessionController
         activeRemoteSessionControllerID = nil
@@ -6861,6 +6869,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
             remoteConfiguration = nil
+            skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -6888,6 +6897,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -8166,6 +8176,10 @@ final class Workspace: Identifiable, ObservableObject {
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard panels[panelId] != nil else { return nil }
+        let shouldSkipControlMasterCleanupAfterDetach =
+            activeRemoteTerminalSurfaceIds.contains(panelId)
+            && activeRemoteTerminalSurfaceIds.count == 1
+            && panels.count == 1
 #if DEBUG
         let detachStart = ProcessInfo.processInfo.systemUptime
         dlog(
@@ -8193,6 +8207,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+        if shouldSkipControlMasterCleanupAfterDetach, detached?.isRemoteTerminal == true {
+            skipControlMasterCleanupAfterDetachedRemoteTransfer = true
+        }
 #if DEBUG
         dlog(
             "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
