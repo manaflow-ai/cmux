@@ -591,24 +591,7 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: openFolderMenuShortcut) {
-                    let panel = NSOpenPanel()
-                    panel.canChooseFiles = false
-                    panel.canChooseDirectories = true
-                    panel.allowsMultipleSelection = false
-                    panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
-                    panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
-                    if panel.runModal() == .OK, let url = panel.url {
-                        if let appDelegate = AppDelegate.shared {
-                            if appDelegate.addWorkspaceInPreferredMainWindow(
-                                workingDirectory: url.path,
-                                debugSource: "menu.openFolder"
-                            ) == nil {
-                                appDelegate.openNewMainWindow(nil)
-                            }
-                        } else {
-                            activeTabManager.addWorkspace(workingDirectory: url.path)
-                        }
-                    }
+                    AppDelegate.shared?.showOpenFolderPanel()
                 }
             }
 
