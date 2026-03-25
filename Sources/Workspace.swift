@@ -9386,6 +9386,16 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    /// Hide browser portals for tabs that are no longer selected in the given pane.
+    private func hideBrowserPortalsForDeselectedTabs(inPane pane: PaneID, selectedTabId: TabID) {
+        for tab in bonsplitController.tabs(inPane: pane) {
+            guard tab.id != selectedTabId else { continue }
+            guard let panelId = panelIdFromSurfaceId(tab.id),
+                  let browserPanel = panels[panelId] as? BrowserPanel else { continue }
+            browserPanel.hideBrowserPortalView(source: "tabDeselected")
+        }
+    }
+
     private func applyTabSelectionNow(
         tabId: TabID,
         inPane pane: PaneID,
@@ -9464,6 +9474,13 @@ extension Workspace: BonsplitDelegate {
         for (id, p) in panels where id != effectiveFocusedPanelId {
             p.unfocus()
         }
+
+        // Explicitly hide browser portals for deselected tabs in this pane.
+        // Bonsplit's keepAllAlive mode hides non-selected tabs via SwiftUI .opacity(0),
+        // but portal-hosted WKWebViews render at the window level in AppKit and are not
+        // affected by SwiftUI opacity. Without an explicit hide, the deselected browser's
+        // portal layer can remain visible above the newly selected tab.
+        hideBrowserPortalsForDeselectedTabs(inPane: focusedPane, selectedTabId: selectedTabId)
 
         if let focusWindow = activationWindow(for: panel) {
             yieldForeignOwnedFocusIfNeeded(
