@@ -75,8 +75,6 @@ jobs:
         run: bun tsc --noEmit
 
   tests:
-    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 30
     steps:
@@ -241,7 +239,6 @@ jobs:
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
@@ -404,7 +401,6 @@ jobs:
           rm -f /tmp/create-virtual-display
 
   ui-regressions:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
     steps:
