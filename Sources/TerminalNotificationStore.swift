@@ -1095,13 +1095,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func stripMarkdown(_ text: String) -> String {
         var result = text
 
-        // Headings: ## Heading → Heading
-        result = result.replacingOccurrences(
-            of: #"^#{1,6}\s+"#,
-            with: "",
-            options: [.regularExpression, .anchored]
-        )
-        // Also handle headings mid-line (after a newline)
+        // Headings: ## Heading → Heading (multiline mode covers all lines including the first)
         result = result.replacingOccurrences(
             of: #"(?m)^#{1,6}\s+"#,
             with: "",
