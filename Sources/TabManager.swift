@@ -1120,6 +1120,10 @@ class TabManager: ObservableObject {
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
         let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace(snapshot: snapshot)
+        // Resolve placement against the pre-creation snapshot before Workspace init
+        // boots terminal state. The ssh/new-workspace path can otherwise crash while
+        // reading @Published placement state from existing workspaces mid-creation.
+        let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = Workspace(
@@ -1132,7 +1136,6 @@ class TabManager: ObservableObject {
         )
         newWorkspace.owningTabManager = self
         wireClosedBrowserTracking(for: newWorkspace)
-        let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
         if eagerLoadTerminal && !select {
             requestBackgroundWorkspaceLoad(for: newWorkspace.id)
         }
