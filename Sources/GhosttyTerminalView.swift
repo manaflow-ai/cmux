@@ -4174,11 +4174,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// and schedules exactly one async flush.
     func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
         _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
         _pendingScrollbar = newValue
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
-        _scrollbarLock.unlock()
 
         // If a flush is already scheduled, skip the dispatch — the scheduled
         // block will pick up the latest value.
@@ -4190,10 +4190,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
         _pendingScrollbar = nil
-        _scrollbarLock.unlock()
 
         guard let pending else { return }
         scrollbar = pending
