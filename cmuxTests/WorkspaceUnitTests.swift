@@ -448,6 +448,58 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
+    func testAddWorkspaceAfterCurrentUsesSnapshotPinnedStateWhenPinningMutatesAfterSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        manager.setPinned(first, pinned: true)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(first)
+        let baselineOrder = manager.tabs.map(\.id)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.setPinned(first, pinned: false)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, inserted.id, second.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentFollowsLiveReorderUsingSnapshotTabValues() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(second)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            XCTAssertTrue(
+                manager.reorderWorkspace(tabId: third.id, toIndex: 0),
+                "Expected to reorder live workspaces after the snapshot is captured"
+            )
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id).filter { $0 != inserted.id },
+            [third.id, first.id, second.id]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
     private func makeManagerWithThreeWorkspaces() -> TabManager {
         let manager = TabManager()
         _ = manager.addWorkspace()

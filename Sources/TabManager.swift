@@ -2178,34 +2178,73 @@ class TabManager: ObservableObject {
     private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
         let currentTabs = tabs
         let currentSelectedTabId = selectedTabId
+        let tabSnapshots = currentTabs.map { WorkspaceCreationTabSnapshot(workspace: $0) }
+        let selectedTabSnapshot = currentSelectedTabId.flatMap { selectedTabId in
+            tabSnapshots.first(where: { $0.id == selectedTabId })
+        }
         let selectedWorkspace = currentSelectedTabId.flatMap { selectedTabId in
             currentTabs.first(where: { $0.id == selectedTabId })
         }
 
         return WorkspaceCreationSnapshot(
-            tabs: currentTabs.map { WorkspaceCreationTabSnapshot(workspace: $0) },
+            tabs: tabSnapshots,
             selectedTabId: currentSelectedTabId,
-            selectedTabWasPinned: selectedWorkspace?.isPinned ?? false,
+            selectedTabWasPinned: selectedTabSnapshot?.isPinned ?? false,
             preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace),
             inheritedTerminalConfig: inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
         )
+    }
+
+    private func orderedLiveWorkspaceCreationTabs(
+        from snapshot: WorkspaceCreationSnapshot
+    ) -> [WorkspaceCreationTabSnapshot]? {
+        let currentTabs = tabs
+        let snapshotTabsById = Dictionary(uniqueKeysWithValues: snapshot.tabs.map { ($0.id, $0) })
+        var orderedTabs: [WorkspaceCreationTabSnapshot] = []
+        orderedTabs.reserveCapacity(currentTabs.count)
+
+        for workspace in currentTabs {
+            guard let tabSnapshot = snapshotTabsById[workspace.id] else {
+#if DEBUG
+                dlog(
+                    "workspace.create.reentrantSnapshotFallback " +
+                    "snapshotCount=\(snapshot.tabs.count) liveCount=\(currentTabs.count)"
+                )
+#endif
+                return nil
+            }
+            orderedTabs.append(tabSnapshot)
+        }
+
+        return orderedTabs
     }
 
     private func terminalPanelForWorkspaceConfigInheritanceSource(
         workspace: Workspace?
     ) -> TerminalPanel? {
         guard let workspace else { return nil }
-        if let focusedTerminal = workspace.focusedTerminalPanel {
-            return focusedTerminal
+        // Prefer cached/published panel state here instead of walking live Bonsplit focus
+        // during Cmd+N; rapid workspace creation can observe transient pane/tab selection.
+        let panels = workspace.panels
+        var candidates: [TerminalPanel] = []
+        var seen: Set<UUID> = []
+
+        func appendCandidate(_ panel: TerminalPanel?) {
+            guard let panel, seen.insert(panel.id).inserted else { return }
+            candidates.append(panel)
         }
-        if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance() {
-            return rememberedTerminal
+
+        appendCandidate(workspace.lastRememberedTerminalPanelForConfigInheritance())
+        for terminalPanel in panels.values
+            .compactMap({ $0 as? TerminalPanel })
+            .sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            appendCandidate(terminalPanel)
         }
-        if let focusedPaneId = workspace.bonsplitController.focusedPaneId,
-           let paneTerminal = workspace.terminalPanelForConfigInheritance(inPane: focusedPaneId) {
-            return paneTerminal
+
+        if let livePanel = candidates.first(where: { $0.surface.hasLiveSurface && $0.surface.surface != nil }) {
+            return livePanel
         }
-        return workspace.terminalPanelForConfigInheritance()
+        return candidates.first
     }
 
     private func inheritedTerminalConfigForNewWorkspace() -> ghostty_surface_config_s? {
@@ -2248,7 +2287,7 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let liveTabs = tabs.map { WorkspaceCreationTabSnapshot(workspace: $0) }
+        let liveTabs = orderedLiveWorkspaceCreationTabs(from: snapshot) ?? snapshot.tabs
         let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
                 partial += 1
@@ -2285,12 +2324,15 @@ class TabManager: ObservableObject {
         guard let workspace else {
             return nil
         }
-        let focusedDirectory = workspace.focusedPanelId
-            .flatMap { workspace.panelDirectories[$0] }
-        let candidate = focusedDirectory ?? workspace.currentDirectory
-        let normalized = normalizeDirectory(candidate)
-        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : normalized
+        // Use cached directory state only; avoiding live focus traversal keeps workspace
+        // creation resilient when Bonsplit is in the middle of a rapid Cmd+N churn.
+        if let currentDirectory = normalizedWorkingDirectory(workspace.currentDirectory) {
+            return currentDirectory
+        }
+
+        return workspace.panelDirectories.values.lazy.compactMap { directory in
+            self.normalizedWorkingDirectory(directory)
+        }.first
     }
 
     func moveTabToTop(_ tabId: UUID) {
