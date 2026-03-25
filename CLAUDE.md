@@ -10,31 +10,47 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script with a tag to launch the Debug app:
+After making code changes, always run the reload script with a tag to build the Debug app:
 
 ```bash
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
 ```
 
-When reporting a tagged reload result in chat, use the format for your agent type:
+By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. Pass `--launch` to kill any existing instance and open the app automatically:
 
-**Claude Code** (markdown link with correct derived-data path, cmd+clickable):
+```bash
+./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
+```
+
+`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use that path to build a cmd-clickable `file://` URL. Steps:
+
+1. Grab the path from the `App path:` line in `reload.sh` output.
+2. Prepend `file://` and URL-encode spaces as `%20`. Do not hardcode any part of the path.
+3. Format it as a markdown link using the template for your agent type.
+
+Example. If `reload.sh` output contains:
+```
+App path:
+  /Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux DEV my-tag.app
+```
+
+**Claude Code** outputs:
 ```markdown
 =======================================================
-[cmux DEV <tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[cmux DEV my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
 
-**Codex** (plain text format):
+**Codex** outputs:
 ```
 =======================================================
-[<tag-name>: file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[my-tag: file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
 
-Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
+Never use `/tmp/cmux-<tag>/...` app links in chat output.
 
-After making code changes, always use `reload.sh --tag` to build and launch. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
 ./scripts/reload.sh --tag <your-branch-slug>
@@ -58,10 +74,11 @@ When rebuilding cmuxd for release/bundling, always use ReleaseFast:
 cd cmuxd && zig build -Doptimize=ReleaseFast
 ```
 
-`reload` = kill and launch the Debug app only (tag required):
+`reload` = build the Debug app (tag required). Pass `--launch` to also kill existing and open:
 
 ```bash
 ./scripts/reload.sh --tag <tag>
+./scripts/reload.sh --tag <tag> --launch
 ```
 
 `reloadp` = kill and launch the Release app:

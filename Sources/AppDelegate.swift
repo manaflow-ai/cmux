@@ -427,6 +427,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case cursor
     case finder
     case ghostty
+    case intellij
     case iterm2
     case terminal
     case tower
@@ -475,6 +476,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return String(localized: "menu.openInFinder", defaultValue: "Open Current Directory in Finder")
         case .ghostty:
             return String(localized: "menu.openInGhostty", defaultValue: "Open Current Directory in Ghostty")
+        case .intellij:
+            return String(localized: "menu.openInIntelliJ", defaultValue: "Open Current Directory in IntelliJ IDEA")
         case .iterm2:
             return String(localized: "menu.openInITerm2", defaultValue: "Open Current Directory in iTerm2")
         case .terminal:
@@ -509,6 +512,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return common + ["finder", "file", "manager", "reveal"]
         case .ghostty:
             return common + ["ghostty", "terminal", "shell"]
+        case .intellij:
+            return common + ["intellij", "idea", "jetbrains"]
         case .iterm2:
             return common + ["iterm", "iterm2", "terminal", "shell"]
         case .terminal:
@@ -602,6 +607,8 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             return ["/System/Library/CoreServices/Finder.app"]
         case .ghostty:
             return ["/Applications/Ghostty.app"]
+        case .intellij:
+            return ["/Applications/IntelliJ IDEA.app"]
         case .iterm2:
             return [
                 "/Applications/iTerm.app",
@@ -1107,9 +1114,9 @@ final class ServeWebOutputCollector {
 }
 
 enum WorkspaceShortcutMapper {
-    /// Maps Cmd+digit workspace shortcuts to a zero-based workspace index.
-    /// Cmd+1...Cmd+8 target fixed indices; Cmd+9 always targets the last workspace.
-    static func workspaceIndex(forCommandDigit digit: Int, workspaceCount: Int) -> Int? {
+    /// Maps numbered workspace shortcuts to a zero-based workspace index.
+    /// 1...8 target fixed indices; 9 always targets the last workspace.
+    static func workspaceIndex(forDigit digit: Int, workspaceCount: Int) -> Int? {
         guard workspaceCount > 0 else { return nil }
         guard (1...9).contains(digit) else { return nil }
 
@@ -1121,12 +1128,12 @@ enum WorkspaceShortcutMapper {
         return index < workspaceCount ? index : nil
     }
 
-    /// Returns the primary Cmd+digit badge to display for a workspace row.
+    /// Returns the primary digit badge to display for a workspace row.
     /// Picks the lowest digit that maps to that row index.
-    static func commandDigitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
+    static func digitForWorkspace(at index: Int, workspaceCount: Int) -> Int? {
         guard index >= 0 && index < workspaceCount else { return nil }
         for digit in 1...9 {
-            if workspaceIndex(forCommandDigit: digit, workspaceCount: workspaceCount) == index {
+            if workspaceIndex(forDigit: digit, workspaceCount: workspaceCount) == index {
                 return digit
             }
         }
@@ -1497,12 +1504,31 @@ func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     return normalizedFlags == [] || normalizedFlags == [.shift]
 }
 
+func browserResponderHasMarkedText(_ responder: NSResponder?) -> Bool {
+    guard let responder else { return false }
+
+    // During IME composition, Return/Enter belongs to the text system so the
+    // candidate list can commit or confirm the marked text.
+    if let textInputClient = responder as? NSTextInputClient {
+        return textInputClient.hasMarkedText()
+    }
+
+    if let textField = responder as? NSTextField,
+       let editor = textField.currentEditor() as? NSTextView {
+        return editor.hasMarkedText()
+    }
+
+    return false
+}
+
 func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     keyCode: UInt16,
     firstResponderIsBrowser: Bool,
+    firstResponderHasMarkedText: Bool = false,
     flags: NSEvent.ModifierFlags
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
+    guard !firstResponderHasMarkedText else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
     // Keep browser Return forwarding narrow: only plain/Shift Return should be
     // treated as submit-intent. Command-modified Return is reserved for app shortcuts
@@ -1914,7 +1940,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
-    static var shared: AppDelegate?
+    nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
@@ -2383,6 +2409,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                // On headless CI runners, activate() silently fails (no GUI session).
+                // Force windows visible so the terminal surface starts rendering.
+                for window in NSApp.windows {
+                    window.orderFrontRegardless()
+                }
                 self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
@@ -4445,9 +4476,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               commandPaletteEscapeSuppressionByWindowId.contains(windowId) else {
             return false
         }
-        if event.isARepeat {
-            return true
-        }
         let startedAt = commandPaletteEscapeSuppressionStartedAtByWindowId[windowId] ?? 0
         if ProcessInfo.processInfo.systemUptime - startedAt <= 0.35 {
             return true
@@ -4888,10 +4916,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
-        guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+        if let window = context.window {
+            return window
+        }
+        guard let window = windowForMainWindowId(context.windowId) else {
             return nil
         }
-        context.window = window
+        reindexMainWindowContextIfNeeded(context, for: window)
         return window
     }
 
@@ -5777,11 +5808,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let notificationStore = TerminalNotificationStore.shared
 
+        let cmuxConfigStore = CmuxConfigStore()
+        cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+        cmuxConfigStore.loadAll()
+
         let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
+            .environmentObject(cmuxConfigStore)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
@@ -8882,7 +8918,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func handleCustomShortcut(event: NSEvent) -> Bool {
         // `charactersIgnoringModifiers` can be nil for some synthetic NSEvents and certain special keys.
         // Treat nil as "" and rely on keyCode/layout-aware fallback logic where needed.
-        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
+        // charactersIgnoringModifiers returns non-ASCII characters that never match
+        // Latin shortcut keys. Normalize via KeyboardLayout so downstream comparisons
+        // (Cmd+1-9, Ctrl+1-9, omnibar N/P, command palette, etc.) work correctly.
+        let chars = KeyboardLayout.normalizedCharacters(for: event)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let hasControl = flags.contains(.control)
         let hasCommand = flags.contains(.command)
@@ -9467,30 +9507,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for specific sidebar tabs: Cmd+1-9 (9 = last workspace)
-        if flags == [.command],
-           let manager = tabManager,
-           let num = Int(chars),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: num, workspaceCount: manager.tabs.count) {
+        // Numeric shortcuts for specific workspaces (9 = last workspace)
+        // Always consume the event when the digit matches to prevent Ghostty's
+        // goto_tab fallback from creating a new window when the index is out of bounds.
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        ) {
+            if let manager = tabManager,
+               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
-            dlog(
-                "shortcut.action name=workspaceDigit digit=\(num) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-            )
+                dlog(
+                    "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                )
 #endif
-            manager.selectTab(at: targetIndex)
+                manager.selectTab(at: targetIndex)
+            }
             return true
         }
 
-        // Numeric shortcuts for surfaces within pane: Ctrl+1-9 (9 = last)
-        if flags == [.control] {
-            if let num = Int(chars), num >= 1 && num <= 9 {
-                if num == 9 {
-                    tabManager?.selectLastSurface()
-                } else {
-                    tabManager?.selectSurface(at: num - 1)
-                }
-                return true
+        // Numeric shortcuts for surfaces within the focused pane (9 = last)
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
+        ) {
+            if digit == 9 {
+                tabManager?.selectLastSurface()
+            } else {
+                tabManager?.selectSurface(at: digit - 1)
             }
+            return true
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
@@ -10472,8 +10518,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
+        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
+        // charactersIgnoringModifiers returns non-ASCII characters that can never match
+        // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+        let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
         if hasEventChars,
+           eventCharsAreASCII,
            flags.contains(.command),
            !flags.contains(.control),
            shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
@@ -10496,17 +10547,60 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
+        // When a non-Latin input source is active, treat non-ASCII event chars the same as
+        // absent chars — they carry no usable Latin key identity.
+        let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || (!hasUsableEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
         }
         return false
+    }
+
+    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard flags == shortcut.modifierFlags else { return nil }
+
+        if let digit = numberedShortcutDigit(
+            eventCharacter: event.charactersIgnoringModifiers,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: event.keyCode
+        ) {
+            return digit
+        }
+
+        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+        if let digit = numberedShortcutDigit(
+            eventCharacter: layoutCharacter,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: event.keyCode
+        ) {
+            return digit
+        }
+
+        return digitForNumberKeyCode(event.keyCode)
+    }
+
+    private func numberedShortcutDigit(
+        eventCharacter: String?,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Int? {
+        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
+        let normalized = normalizedShortcutEventCharacter(
+            eventCharacter,
+            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
+            eventKeyCode: eventKeyCode
+        )
+        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
+        return digit
     }
 
     private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
@@ -10623,6 +10717,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "→": return 124 // kVK_RightArrow
         case "↓": return 125 // kVK_DownArrow
         case "↑": return 126 // kVK_UpArrow
+        default:
+            return nil
+        }
+    }
+
+    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
+        switch keyCode {
+        case 18: return 1 // kVK_ANSI_1
+        case 19: return 2 // kVK_ANSI_2
+        case 20: return 3 // kVK_ANSI_3
+        case 21: return 4 // kVK_ANSI_4
+        case 23: return 5 // kVK_ANSI_5
+        case 22: return 6 // kVK_ANSI_6
+        case 26: return 7 // kVK_ANSI_7
+        case 28: return 8 // kVK_ANSI_8
+        case 25: return 9 // kVK_ANSI_9
         default:
             return nil
         }
@@ -11002,6 +11112,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Returns the `TabManager` that owns `tabId`, if any.
     func tabManagerFor(tabId: UUID) -> TabManager? {
         contextContainingTabId(tabId)?.tabManager
+    }
+
+    private func workspaceForMainActor(tabId: UUID) -> Workspace? {
+        contextContainingTabId(tabId)?.tabManager.tabs.first(where: { $0.id == tabId })
+    }
+
+    /// Returns the `Workspace` that owns `tabId`, if any.
+    @MainActor
+    func workspaceFor(tabId: UUID) -> Workspace? {
+        workspaceForMainActor(tabId: tabId)
     }
 
     func closeMainWindowContainingTabId(_ tabId: UUID) {
@@ -12298,6 +12418,7 @@ private extension NSWindow {
         let firstResponderWebView = self.firstResponder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: event)
         }
+        let firstResponderHasMarkedText = browserResponderHasMarkedText(self.firstResponder)
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
@@ -12341,6 +12462,7 @@ private extension NSWindow {
         if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
             // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
@@ -12448,6 +12570,13 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
+        // Browser find runs in the portal slot alongside the hosted WKWebView.
+        // Treat its native field editor chain as browser chrome, not as web content,
+        // so Cmd+F can move first responder into the find field while web focus is suppressed.
+        if BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: window) != nil {
+            return nil
+        }
+
         if let webView = cmuxOwningWebView(for: responder) {
             return webView
         }

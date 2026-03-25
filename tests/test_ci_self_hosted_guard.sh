@@ -1,56 +1,37 @@
 #!/usr/bin/env bash
 # Regression test for https://github.com/manaflow-ai/cmux/issues/385.
-# Ensures paid/gated CI jobs are never run for fork pull requests.
+# Ensures paid CI jobs use WarpBuild runners.
+# Fork PRs are gated by GitHub's built-in "Require approval for outside
+# collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
+COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 
-EXPECTED_IF="if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository"
+check_warp_runner() {
+  local file="$1" job="$2"
+  if ! awk -v job="$job" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]]/ { in_job=0 }
+    in_job && /runs-on:.*warp-macos-.*-arm64/ { saw_warp=1 }
+    in_job && /os: warp-macos-.*-arm64/ { saw_warp=1 }
+    END { exit !(saw_warp) }
+  ' "$file"; then
+    echo "FAIL: $job in $(basename "$file") must use a WarpBuild runner"
+    exit 1
+  fi
+  echo "PASS: $job WarpBuild runner is present"
+}
 
-if ! grep -Fq "$EXPECTED_IF" "$WORKFLOW_FILE"; then
-  echo "FAIL: Missing fork pull_request guard in $WORKFLOW_FILE"
-  echo "Expected line:"
-  echo "  $EXPECTED_IF"
-  exit 1
-fi
+# ci.yml jobs
+check_warp_runner "$CI_FILE" "tests"
+check_warp_runner "$CI_FILE" "tests-build-and-lag"
+check_warp_runner "$CI_FILE" "ui-regressions"
 
-# tests: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
+# build-ghosttykit.yml
+check_warp_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
-# tests-build-and-lag: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  tests-build-and-lag:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: tests-build-and-lag block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
-
-# ui-display-resolution-regression: must use WarpBuild runner with fork guard (paid runner)
-if ! awk '
-  /^  ui-display-resolution-regression:/ { in_tests=1; next }
-  in_tests && /^  [^[:space:]]/ { in_tests=0 }
-  in_tests && /runs-on: warp-macos-15-arm64-6x/ { saw_warp=1 }
-  in_tests && /github.event.pull_request.head.repo.full_name == github.repository/ { saw_guard=1 }
-  END { exit !(saw_warp && saw_guard) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: ui-display-resolution-regression block must keep both warp-macos-15-arm64-6x runner and fork guard"
-  exit 1
-fi
-
-echo "PASS: tests WarpBuild runner fork guard is present"
-echo "PASS: tests-build-and-lag WarpBuild runner fork guard is present"
-echo "PASS: ui-display-resolution-regression WarpBuild runner fork guard is present"
+# ci-macos-compat.yml (uses matrix.os with WarpBuild runners)
+check_warp_runner "$COMPAT_FILE" "compat-tests"

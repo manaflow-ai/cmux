@@ -13,9 +13,8 @@ on:
 
 concurrency:
   group: nightly-build-${{ github.ref_name }}
-  # Only the newest nightly matters. Cancel older runs so a fresh main push
-  # does not sit behind an outdated build that would be discarded anyway.
-  cancel-in-progress: true
+  # Queue concurrent runs instead of canceling them so no build is lost.
+  cancel-in-progress: false
 
 permissions:
   contents: write

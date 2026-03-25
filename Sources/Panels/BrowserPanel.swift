@@ -2192,6 +2192,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
     }
+    @Published private(set) var isElementFullscreenActive: Bool = false
     private var searchNeedleCancellable: AnyCancellable?
     let portalAnchorView = BrowserPortalAnchorView(frame: .zero)
     private struct PortalHostLease {
@@ -2447,33 +2448,9 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> CmuxWebView {
         let config = WKWebViewConfiguration()
-        config.processPool = BrowserPanel.sharedProcessPool
-        config.mediaTypesRequiringUserActionForPlayback = []
-        // Ensure browser cookies/storage persist across navigations and launches.
-        // This reduces repeated consent/bot-challenge flows on sites like Google.
-        config.websiteDataStore = websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
-
-        // Enable developer extras (DevTools)
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-
-        // Enable JavaScript
-        config.defaultWebpagePreferences.allowsContentJavaScript = true
-        // Keep browser console/error/dialog telemetry active from document start on every navigation.
-        config.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.telemetryHookBootstrapScriptSource,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
-        )
-        // Track the last editable focused element continuously so omnibar exit can
-        // restore page input focus even if capture runs after first-responder handoff.
-        config.userContentController.addUserScript(
-            WKUserScript(
-                source: Self.addressBarFocusTrackingBootstrapScript,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
-            )
+        configureWebViewConfiguration(
+            config,
+            websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
         let webView = CmuxWebView(frame: .zero, configuration: config)
@@ -2487,6 +2464,46 @@ final class BrowserPanel: Panel, ObservableObject {
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         return webView
+    }
+
+    static func configureWebViewConfiguration(
+        _ configuration: WKWebViewConfiguration,
+        websiteDataStore: WKWebsiteDataStore,
+        processPool: WKProcessPool = BrowserPanel.sharedProcessPool
+    ) {
+        configuration.processPool = processPool
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        // Ensure browser cookies/storage persist across navigations and launches.
+        // This reduces repeated consent/bot-challenge flows on sites like Google.
+        configuration.websiteDataStore = websiteDataStore
+
+        // Enable developer extras (DevTools)
+        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        configuration.preferences.isElementFullscreenEnabled = true
+
+        // Enable JavaScript
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // Keep browser console/error/dialog telemetry active from document start on every navigation.
+        // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
+        // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
+        // methods and __cmux* globals as environment tampering, failing the challenge.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.telemetryHookBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        // Track the last editable focused element continuously so omnibar exit can
+        // restore page input focus even if capture runs after first-responder handoff.
+        // Main frame only — same CAPTCHA interference concern as telemetry hooks.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: Self.addressBarFocusTrackingBootstrapScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
@@ -2514,6 +2531,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFinish = { [weak self] webView in
             Task { @MainActor [weak self] in
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
                 self.applyBrowserThemeModeIfNeeded()
@@ -2847,7 +2865,8 @@ final class BrowserPanel: Panel, ObservableObject {
         return true
     }
 
-    func triggerFlash() {
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
         guard NotificationPaneFlashSettings.isEnabled() else { return }
         focusFlashToken &+= 1
     }
@@ -2856,20 +2875,109 @@ final class BrowserPanel: Panel, ObservableObject {
         backHistoryURLStrings: [String],
         forwardHistoryURLStrings: [String]
     ) {
+        realignRestoredSessionHistoryToLiveCurrentIfPossible()
+
+        let nativeBack = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        let nativeForward = webView.backForwardList.forwardList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+
         if usesRestoredSessionHistory {
             let back = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
             // `restoredForwardHistoryStack` stores nearest-forward entries at the end.
-            let forward = restoredForwardHistoryStack.reversed().compactMap { Self.serializableSessionHistoryURLString($0) }
-            return (back, forward)
+            let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
+                Self.serializableSessionHistoryURLString($0)
+            }
+
+            if isLiveSessionHistoryAlignedWithRestoredCurrent {
+                return (
+                    back,
+                    restoredForward.isEmpty ? nativeForward : restoredForward
+                )
+            }
+
+            return (back + nativeBack, nativeForward)
         }
 
-        let back = webView.backForwardList.backList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
+        return (nativeBack, nativeForward)
+    }
+
+    private func resolvedLiveSessionHistoryURL() -> URL? {
+        if let webViewURL = Self.remoteProxyDisplayURL(for: webView.url),
+           Self.serializableSessionHistoryURLString(webViewURL) != nil {
+            return webViewURL
         }
-        let forward = webView.backForwardList.forwardList.compactMap {
-            Self.serializableSessionHistoryURLString($0.url)
+        if let currentURL,
+           Self.serializableSessionHistoryURLString(currentURL) != nil {
+            return currentURL
         }
-        return (back, forward)
+        return nil
+    }
+
+    private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
+        let liveCurrent = Self.serializableSessionHistoryURLString(resolvedLiveSessionHistoryURL())
+        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
+        guard let liveCurrent, let restoredCurrent else { return true }
+        return liveCurrent == restoredCurrent
+    }
+
+    private func realignRestoredSessionHistoryToLiveCurrentIfPossible() {
+        guard usesRestoredSessionHistory else { return }
+        guard let liveCurrent = resolvedLiveSessionHistoryURL(),
+              let liveCurrentString = Self.serializableSessionHistoryURLString(liveCurrent) else {
+            return
+        }
+        guard Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL) != liveCurrentString else {
+            return
+        }
+
+        let restoredBack = restoredBackHistoryStack.compactMap { Self.serializableSessionHistoryURLString($0) }
+        let restoredForward = restoredForwardHistoryStack.reversed().compactMap {
+            Self.serializableSessionHistoryURLString($0)
+        }
+        let restoredCurrent = Self.serializableSessionHistoryURLString(restoredHistoryCurrentURL)
+
+        if let backIndex = restoredBack.lastIndex(of: liveCurrentString) {
+            let newBack = Array(restoredBack[..<backIndex])
+            var newForward = Array(restoredBack[(backIndex + 1)...])
+            if let restoredCurrent {
+                newForward.append(restoredCurrent)
+            }
+            newForward.append(contentsOf: restoredForward)
+
+            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
+            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
+            restoredHistoryCurrentURL = liveCurrent
+            refreshNavigationAvailability()
+            return
+        }
+
+        if let forwardIndex = restoredForward.firstIndex(of: liveCurrentString) {
+            var newBack = restoredBack
+            if let restoredCurrent {
+                newBack.append(restoredCurrent)
+            }
+            newBack.append(contentsOf: restoredForward[..<forwardIndex])
+            let newForward = Array(restoredForward[(forwardIndex + 1)...])
+
+            restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(newBack)
+            restoredForwardHistoryStack = Array(Self.sanitizedSessionHistoryURLs(newForward).reversed())
+            restoredHistoryCurrentURL = liveCurrent
+            refreshNavigationAvailability()
+            return
+        }
+
+        guard !restoredForwardHistoryStack.isEmpty else { return }
+#if DEBUG
+        dlog(
+            "browser.history.restore.forward.clear panel=\(id.uuidString.prefix(5)) " +
+            "current=\(liveCurrentString)"
+        )
+#endif
+        restoredForwardHistoryStack.removeAll(keepingCapacity: false)
+        refreshNavigationAvailability()
     }
 
     func restoreSessionNavigationHistory(
@@ -2916,10 +3024,16 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(titleObserver)
 
         // Loading state
-        let loadingObserver = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+        // Capture the KVO-provided value at observation time rather than reading
+        // webView.isLoading inside the deferred Task. For fast navigations (e.g.
+        // back-forward cache), isLoading can flip true→false before the first Task
+        // runs, causing handleWebViewLoadingChanged(true) to be missed entirely.
+        // That skips favicon/loading-state cleanup and leaves stale icons visible.
+        let loadingObserver = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, change in
+            let newValue = change.newValue ?? webView.isLoading
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.handleWebViewLoadingChanged(webView.isLoading)
+                self.handleWebViewLoadingChanged(newValue)
             }
         }
         webViewObservers.append(loadingObserver)
@@ -2952,6 +3066,27 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         webViewObservers.append(progressObserver)
+
+        let fullscreenObserver = webView.observe(\.fullscreenState, options: [.initial, .new]) { [weak self] webView, _ in
+            let isElementFullscreenActive = webView.cmuxIsElementFullscreenActiveOrTransitioning
+            let fullscreenState = webView.fullscreenState
+            Task { @MainActor in
+                guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
+                self.isElementFullscreenActive = isElementFullscreenActive
+                BrowserWindowPortalRegistry.refresh(
+                    webView: webView,
+                    reason: "fullscreenStateChanged"
+                )
+#if DEBUG
+                dlog(
+                    "browser.fullscreen.state panel=\(self.id.uuidString.prefix(5)) " +
+                    "web=\(ObjectIdentifier(webView)) state=\(String(describing: fullscreenState)) " +
+                    "active=\(isElementFullscreenActive ? 1 : 0)"
+                )
+#endif
+            }
+        }
+        webViewObservers.append(fullscreenObserver)
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -3197,6 +3332,27 @@ final class BrowserPanel: Panel, ObservableObject {
             }
             guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
             guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+
+            // SPAs often inject <link rel="icon"> via JavaScript after the initial
+            // HTML loads. If no link tag was found, wait briefly and retry once to
+            // give client-side scripts time to add the tag.
+            if discoveredURL == nil {
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
+                guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+                if let href = await self.evaluateJavaScriptString(
+                    js,
+                    in: webView,
+                    timeoutNanoseconds: 400_000_000
+                ) {
+                    let trimmed = href.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty, let u = URL(string: trimmed) {
+                        discoveredURL = u
+                    }
+                }
+                guard self.isCurrentWebView(webView, instanceID: refreshWebViewInstanceID) else { return }
+                guard self.isCurrentFaviconRefresh(generation: refreshGeneration) else { return }
+            }
 
             let fallbackURL = URL(string: "/favicon.ico", relativeTo: pageURL)
             let iconURL = discoveredURL ?? fallbackURL
@@ -3868,20 +4024,29 @@ extension BrowserPanel {
     func goBack() {
         guard canGoBack else { return }
         if usesRestoredSessionHistory {
-            guard let targetURL = restoredBackHistoryStack.popLast() else {
+            realignRestoredSessionHistoryToLiveCurrentIfPossible()
+
+            if (isLiveSessionHistoryAlignedWithRestoredCurrent || !nativeCanGoBack),
+               let targetURL = restoredBackHistoryStack.popLast() {
+                if let current = resolvedCurrentSessionHistoryURL() {
+                    restoredForwardHistoryStack.append(current)
+                }
+                restoredHistoryCurrentURL = targetURL
                 refreshNavigationAvailability()
+                navigateWithoutInsecureHTTPPrompt(
+                    to: targetURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: true
+                )
                 return
             }
-            if let current = resolvedCurrentSessionHistoryURL() {
-                restoredForwardHistoryStack.append(current)
+
+            if nativeCanGoBack {
+                webView.goBack()
+                return
             }
-            restoredHistoryCurrentURL = targetURL
+
             refreshNavigationAvailability()
-            navigateWithoutInsecureHTTPPrompt(
-                to: targetURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: true
-            )
             return
         }
 
@@ -3892,6 +4057,13 @@ extension BrowserPanel {
     func goForward() {
         guard canGoForward else { return }
         if usesRestoredSessionHistory {
+            realignRestoredSessionHistoryToLiveCurrentIfPossible()
+
+            if nativeCanGoForward {
+                webView.goForward()
+                return
+            }
+
             guard let targetURL = restoredForwardHistoryStack.popLast() else {
                 refreshNavigationAvailability()
                 return
@@ -4577,6 +4749,8 @@ extension BrowserPanel {
         if created {
             searchState = BrowserSearchState()
         }
+        pendingAddressBarFocusRequestId = nil
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
         let generation = beginSearchFocusRequest(reason: "startFind")
 #if DEBUG
         let window = webView.window
@@ -5157,8 +5331,8 @@ extension BrowserPanel {
         let resolvedCanGoBack: Bool
         let resolvedCanGoForward: Bool
         if usesRestoredSessionHistory {
-            resolvedCanGoBack = !restoredBackHistoryStack.isEmpty
-            resolvedCanGoForward = !restoredForwardHistoryStack.isEmpty
+            resolvedCanGoBack = nativeCanGoBack || !restoredBackHistoryStack.isEmpty
+            resolvedCanGoForward = nativeCanGoForward || !restoredForwardHistoryStack.isEmpty
         } else {
             resolvedCanGoBack = nativeCanGoBack
             resolvedCanGoForward = nativeCanGoForward

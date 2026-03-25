@@ -243,8 +243,8 @@ final class WindowTerminalHostView: NSView {
             return false
         }
 
-        let regionMinX = dividerX - SidebarResizeInteraction.hitWidthPerSide
-        let regionMaxX = dividerX + SidebarResizeInteraction.hitWidthPerSide
+        let regionMinX = dividerX - SidebarResizeInteraction.sidebarSideHitWidth
+        let regionMaxX = dividerX + SidebarResizeInteraction.contentSideHitWidth
         return point.x >= regionMinX && point.x <= regionMaxX
     }
 
@@ -1211,18 +1211,33 @@ final class WindowTerminalPortal: NSObject {
             return
         }
         guard let anchorView = entry.anchorView, let window else {
-            // Only hide if the entry is not marked visibleInUI. When a workspace is
-            // remounting, updateNSView sets visibleInUI=true before the deferred bind
-            // provides an anchor — hiding here would race with that and cause a flash.
-            if !entry.visibleInUI {
+            if entry.visibleInUI {
+                let shouldPreserveVisibleOnTransient = !hostedView.isHidden &&
+                    scheduleTransientRecoveryRetryIfNeeded(
+                        forHostedId: hostedId,
+                        entry: &entry,
+                        hostedView: hostedView,
+                        reason: "missingAnchorOrWindow"
+                    )
+                if shouldPreserveVisibleOnTransient {
 #if DEBUG
-                if !hostedView.isHidden {
-                    dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
-                }
+                    dlog(
+                        "portal.hidden.deferKeep hosted=\(portalDebugToken(hostedView)) " +
+                        "reason=missingAnchorOrWindow frame=\(portalDebugFrame(hostedView.frame))"
+                    )
 #endif
-                hostedView.isHidden = true
-                resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+                    return
+                }
             } else {
+                resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
+            }
+#if DEBUG
+            if !hostedView.isHidden {
+                dlog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
+            }
+#endif
+            hostedView.isHidden = true
+            if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
                     entry: &entry,

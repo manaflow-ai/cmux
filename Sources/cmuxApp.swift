@@ -139,6 +139,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var cmuxConfigStore = CmuxConfigStore()
     private let primaryWindowId = UUID()
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -155,6 +156,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.prevSurface.defaultsKey) private var prevSurfaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.nextSidebarTab.defaultsKey) private var nextWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.prevSidebarTab.defaultsKey) private var prevWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey) private var selectWorkspaceByNumberShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitRight.defaultsKey) private var splitRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitDown.defaultsKey) private var splitDownShortcutData = Data()
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
@@ -336,6 +338,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .environmentObject(cmuxConfigStore)
                 .onAppear {
 #if DEBUG
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_MODE"] == "1" {
@@ -345,6 +348,8 @@ struct cmuxApp: App {
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
+                    cmuxConfigStore.loadAll()
                     applyAppearance()
                     if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
                         DispatchQueue.main.async {
@@ -799,15 +804,18 @@ struct cmuxApp: App {
 
                 Divider()
 
-                // Cmd+1 through Cmd+9 for workspace selection (9 = last workspace)
+                // Numbered workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forCommandDigit: number, workspaceCount: manager.tabs.count) {
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
                             manager.selectTab(at: targetIndex)
                         }
                     }
-                    .keyboardShortcut(KeyEquivalent(Character("\(number)")), modifiers: .command)
+                    .keyboardShortcut(
+                        KeyEquivalent(Character("\(number)")),
+                        modifiers: selectWorkspaceByNumberMenuShortcut.eventModifiers
+                    )
                 }
 
                 Divider()
@@ -918,6 +926,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: prevWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.prevSidebarTab.defaultShortcut
+        )
+    }
+
+    private var selectWorkspaceByNumberMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: selectWorkspaceByNumberShortcutData,
+            fallback: KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
         )
     }
 
@@ -1067,21 +1082,21 @@ struct cmuxApp: App {
     private func closeOtherSelectedWorkspacePeers(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace else { return }
         let workspaceIds = manager.tabs.compactMap { $0.id == workspace.id ? nil : $0.id }
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesBelow(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.suffix(from: anchorIndex + 1).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func closeSelectedWorkspacesAbove(in manager: TabManager) {
         guard let workspace = manager.selectedWorkspace,
               let anchorIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
         let workspaceIds = manager.tabs.prefix(upTo: anchorIndex).map(\.id)
-        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
+        closeWorkspaceIds(workspaceIds, in: manager, allowPinned: true)
     }
 
     private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
@@ -3684,17 +3699,48 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode) {
         switch mode {
         case .automatic:
-            // Let the asset catalog handle appearance-based icon selection (macOS 15+).
-            // Reset to the default bundle icon.
-            NSApplication.shared.applicationIconImage = nil
+            AppIconAppearanceObserver.shared.startObserving()
         case .light:
+            AppIconAppearanceObserver.shared.stopObserving()
             if let icon = NSImage(named: "AppIconLight") {
                 NSApplication.shared.applicationIconImage = icon
             }
         case .dark:
+            AppIconAppearanceObserver.shared.stopObserving()
             if let icon = NSImage(named: "AppIconDark") {
                 NSApplication.shared.applicationIconImage = icon
             }
+        }
+    }
+}
+
+final class AppIconAppearanceObserver: NSObject {
+    static let shared = AppIconAppearanceObserver()
+    private var observation: NSKeyValueObservation?
+
+    private override init() { super.init() }
+
+    func startObserving() {
+        applyIconForCurrentAppearance()
+        guard observation == nil else { return }
+        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                guard let self, self.observation != nil else { return }
+                self.applyIconForCurrentAppearance()
+            }
+        }
+    }
+
+    func stopObserving() {
+        observation?.invalidate()
+        observation = nil
+    }
+
+    private func applyIconForCurrentAppearance() {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let imageName = isDark ? "AppIconDark" : "AppIconLight"
+        if let icon = NSImage(named: imageName) {
+            NSApplication.shared.applicationIconImage = icon
         }
     }
 }
@@ -3867,6 +3913,7 @@ struct SettingsView: View {
     @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+    @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -4065,6 +4112,14 @@ struct SettingsView: View {
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
+    }
+
+    private func saveTrustedDirectories() {
+        let paths = trustedDirectoriesDraft
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        CmuxDirectoryTrust.shared.replaceAll(with: paths)
     }
 
     private var hasCustomNotificationSoundFilePath: Bool {
@@ -5032,6 +5087,38 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
+                    SettingsCard {
+                        VStack(alignment: .leading, spacing: 6) {
+                            SettingsCardRow(
+                                String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
+                                subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
+                            ) {
+                                EmptyView()
+                            }
+
+                            TextEditor(text: $trustedDirectoriesDraft)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 60, maxHeight: 120)
+                                .scrollContentBackground(.hidden)
+                                .padding(6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                                .onChange(of: trustedDirectoriesDraft) { _ in
+                                    saveTrustedDirectories()
+                                }
+                        }
+
+                        SettingsCardDivider()
+                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trust a directory from the confirmation dialog, or add paths here. For git repos, trusting the root covers all subdirectories."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
@@ -6129,7 +6216,12 @@ private struct ShortcutSettingRow: View {
     }
 
     var body: some View {
-        KeyboardShortcutRecorder(label: action.label, shortcut: $shortcut)
+        KeyboardShortcutRecorder(
+            label: action.label,
+            shortcut: $shortcut,
+            displayString: { action.displayedShortcutString(for: $0) },
+            transformRecordedShortcut: { action.normalizedRecordedShortcut($0) }
+        )
             .onChange(of: shortcut) { newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
             }

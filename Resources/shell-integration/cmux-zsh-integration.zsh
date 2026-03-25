@@ -1,26 +1,44 @@
 # cmux shell integration for zsh
 # Injected automatically — do not source manually
 
+# Prefer zsh/net/unix for socket sends (no fork, ~0.2ms per send vs ~3ms
+# for fork+exec of ncat/socat/nc).  Falls back to external tools if the
+# module is unavailable.
+typeset -g _CMUX_HAS_ZSOCKET=0
+if zmodload zsh/net/unix 2>/dev/null; then
+    _CMUX_HAS_ZSOCKET=1
+fi
+
 _cmux_send() {
     local payload="$1"
+    if (( _CMUX_HAS_ZSOCKET )); then
+        local fd
+        zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
+        fd=$REPLY
+        print -u $fd -r -- "$payload" 2>/dev/null
+        exec {fd}>&- 2>/dev/null
+        return 0
+    fi
     if command -v ncat >/dev/null 2>&1; then
         print -r -- "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
     elif command -v socat >/dev/null 2>&1; then
         print -r -- "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
     elif command -v nc >/dev/null 2>&1; then
-        # Some nc builds don't support unix sockets, but keep as a last-ditch fallback.
-        #
-        # Important: macOS/BSD nc will often wait for the peer to close the socket
-        # after it has finished writing. cmux keeps the connection open, so
-        # a plain `nc -U` can hang indefinitely and leak background processes.
-        #
-        # Prefer flags that guarantee we exit after sending, and fall back to a
-        # short timeout so we never block sidebar updates.
         if print -r -- "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
             :
         else
             print -r -- "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
         fi
+    fi
+}
+
+# Fire-and-forget send: synchronous when zsocket is available (fast, no fork),
+# backgrounded otherwise.
+_cmux_send_bg() {
+    if (( _CMUX_HAS_ZSOCKET )); then
+        _cmux_send "$1"
+    else
+        { _cmux_send "$1" } >/dev/null 2>&1 &!
     fi
 }
 
@@ -60,6 +78,129 @@ typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
+typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
+typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
+typeset -ga _CMUX_TMUX_SYNC_KEYS=(
+    CMUX_BUNDLED_CLI_PATH
+    CMUX_BUNDLE_ID
+    CMUXD_UNIX_PATH
+    CMUXTERM_REPO_ROOT
+    CMUX_DEBUG_LOG
+    CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
+    CMUX_PORT
+    CMUX_PORT_END
+    CMUX_PORT_RANGE
+    CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD
+    CMUX_SHELL_INTEGRATION
+    CMUX_SHELL_INTEGRATION_DIR
+    CMUX_SOCKET_ENABLE
+    CMUX_SOCKET_MODE
+    CMUX_SOCKET_PATH
+    CMUX_TAB_ID
+    CMUX_TAG
+    CMUX_WORKSPACE_ID
+)
+typeset -ga _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
+    CMUX_PANEL_ID
+    CMUX_SURFACE_ID
+)
+
+_cmux_tmux_sync_key_is_managed() {
+    local candidate="$1"
+    local key
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        [[ "$key" == "$candidate" ]] && return 0
+    done
+    return 1
+}
+
+_cmux_tmux_shell_env_signature() {
+    local key value
+    local -a parts
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${(P)key}"
+        [[ -n "$value" ]] || continue
+        parts+=("${key}=${value}")
+    done
+    print -r -- "${(j:\x1f:)parts}"
+}
+
+_cmux_tmux_publish_cmux_environment() {
+    [[ -z "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local signature
+    signature="$(_cmux_tmux_shell_env_signature)"
+    [[ -n "$signature" ]] || return 0
+    [[ "$signature" == "$_CMUX_TMUX_PUSH_SIGNATURE" ]] && return 0
+
+    local key value
+    for key in "${_CMUX_TMUX_SYNC_KEYS[@]}"; do
+        value="${(P)key}"
+        [[ -n "$value" ]] || continue
+        tmux set-environment -g "$key" "$value" >/dev/null 2>&1 || return 0
+    done
+
+    for key in "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"; do
+        tmux set-environment -gu "$key" >/dev/null 2>&1 || return 0
+    done
+
+    _CMUX_TMUX_PUSH_SIGNATURE="$signature"
+}
+
+_cmux_tmux_refresh_cmux_environment() {
+    [[ -n "$TMUX" ]] || return 0
+    command -v tmux >/dev/null 2>&1 || return 0
+
+    local output
+    output="$(tmux show-environment -g 2>/dev/null)" || return 0
+
+    local line key filtered="" did_change=0
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        filtered+="${line}"$'\n'
+    done <<< "$output"
+
+    [[ -n "$filtered" ]] || return 0
+    [[ "$filtered" == "$_CMUX_TMUX_PULL_SIGNATURE" ]] && return 0
+
+    local value
+    while IFS= read -r line; do
+        [[ "$line" == CMUX_* ]] || continue
+        key="${line%%=*}"
+        _cmux_tmux_sync_key_is_managed "$key" || continue
+        value="${line#*=}"
+        if [[ "${(P)key}" != "$value" ]]; then
+            export "$key=$value"
+            did_change=1
+        fi
+    done <<< "$filtered"
+
+    _CMUX_TMUX_PULL_SIGNATURE="$filtered"
+    if (( did_change )); then
+        _CMUX_TTY_REPORTED=0
+        _CMUX_SHELL_ACTIVITY_LAST=""
+        _CMUX_PWD_LAST_PWD=""
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
+        _CMUX_GIT_HEAD_SIGNATURE=""
+        _CMUX_GIT_FORCE=1
+        _CMUX_PR_FORCE=1
+        _cmux_stop_pr_poll_loop
+        _cmux_stop_git_head_watch
+    fi
+}
+
+_cmux_tmux_sync_cmux_environment() {
+    if [[ -n "$TMUX" ]]; then
+        _cmux_tmux_refresh_cmux_environment
+    else
+        _cmux_tmux_publish_cmux_environment
+    fi
+}
 
 _cmux_ensure_ghostty_preexec_strips_both_marks() {
     local fn_name="$1"
@@ -190,18 +331,31 @@ _cmux_git_head_signature() {
     return 1
 }
 
+_cmux_report_tty_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload="report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID"
+    if [[ -z "$TMUX" ]]; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    print -r -- "$payload"
+}
+
 _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
-    [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tty_payload)"
+    [[ -n "$payload" ]] || return 0
+
     _CMUX_TTY_REPORTED=1
-    {
-        _cmux_send "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &!
+    _cmux_send_bg "$payload"
 }
 
 _cmux_report_shell_activity_state() {
@@ -212,9 +366,7 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
-        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &!
+    _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_ports_kick() {
@@ -224,9 +376,7 @@ _cmux_ports_kick() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
-    {
-        _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 &!
+    _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_report_git_branch_for_path() {
@@ -235,6 +385,9 @@ _cmux_report_git_branch_for_path() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    # Skip git operations if not in a git repository to avoid TCC prompts
+    git -C "$repo_path" rev-parse --git-dir >/dev/null 2>&1 || return 0
 
     local branch dirty_opt="" first
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
@@ -251,7 +404,7 @@ _cmux_clear_pr_for_panel() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    _cmux_send_bg "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
 _cmux_pr_output_indicates_no_pull_request() {
@@ -426,9 +579,10 @@ _cmux_run_pr_probe_with_timeout() {
 
 _cmux_stop_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
-        # Use SIGKILL directly to avoid blocking sleep in preexec.
-        # The poll loop is lightweight and safe to kill abruptly.
-        _cmux_kill_process_tree "$_CMUX_PR_POLL_PID" KILL
+        # Process-group kill: background jobs are process-group leaders, so
+        # negative PID kills the loop + all descendants (gh, sleep) without
+        # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
+        kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
         _CMUX_PR_POLL_PID=""
     fi
 }
@@ -503,6 +657,8 @@ _cmux_start_git_head_watch() {
 }
 
 _cmux_preexec() {
+    _cmux_tmux_sync_cmux_environment
+
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
         t="$(tty 2>/dev/null || true)"
@@ -530,6 +686,7 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     _cmux_stop_git_head_watch
+    _cmux_tmux_sync_cmux_environment
 
     # Skip if socket doesn't exist yet
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
@@ -538,7 +695,7 @@ _cmux_precmd() {
     _cmux_report_shell_activity_state prompt
 
     # Handle cases where Ghostty integration initializes after this file.
-    _cmux_patch_ghostty_semantic_redraw
+    (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -573,11 +730,8 @@ _cmux_precmd() {
     # This is also the simplest way to test sidebar directory behavior end-to-end.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
-            # Quote to preserve spaces.
-            local qpwd="${pwd//\"/\\\"}"
-            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 &!
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
 
     # Git branch/dirty: update immediately on directory change, otherwise every ~3s.

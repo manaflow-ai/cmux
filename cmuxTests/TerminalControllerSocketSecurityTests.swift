@@ -216,6 +216,44 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
     }
 
+    func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
+        let socketPath = makeSocketPath("close-pinned")
+        let manager = TabManager()
+        let pinnedWorkspace = manager.addWorkspace(select: false)
+        manager.setPinned(pinnedWorkspace, pinned: true)
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try self.sendV2Request(
+                        method: "workspace.close",
+                        params: ["workspace_id": pinnedWorkspace.id.uuidString],
+                        to: socketPath
+                    )
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "protected")
+
+        let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload")
+        XCTAssertEqual(data["workspace_id"] as? String, pinnedWorkspace.id.uuidString)
+        XCTAssertEqual(data["pinned"] as? Bool, true)
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
+    }
+
     private func waitForSocket(at path: String, timeout: TimeInterval = 2.0) throws {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in

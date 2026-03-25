@@ -23,13 +23,94 @@ func drainMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
-private func splitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
-    switch node {
-    case .pane:
-        return []
-    case .split(let split):
-        return [split] + splitNodes(in: split.first) + splitNodes(in: split.second)
+@discardableResult
+private func waitForCondition(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @escaping () -> Bool
+) -> Bool {
+    if condition() {
+        return true
     }
+
+    let expectation = XCTestExpectation(description: "wait for condition")
+    let deadline = Date().addingTimeInterval(timeout)
+
+    func poll() {
+        if condition() {
+            expectation.fulfill()
+            return
+        }
+        guard Date() < deadline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
+            poll()
+        }
+    }
+
+    DispatchQueue.main.async {
+        poll()
+    }
+
+    let result = XCTWaiter().wait(for: [expectation], timeout: timeout + pollInterval + 0.1)
+    if result != .completed {
+        XCTFail("Timed out waiting for condition", file: file, line: line)
+        return false
+    }
+    return true
+}
+
+private struct ProcessRunResult {
+    let status: Int32
+    let stdout: String
+    let stderr: String
+}
+
+private func runProcess(
+    executablePath: String,
+    arguments: [String],
+    environment: [String: String]? = nil,
+    currentDirectoryURL: URL? = nil
+) throws -> ProcessRunResult {
+    let process = Process()
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: executablePath)
+    process.arguments = arguments
+    process.environment = environment
+    process.currentDirectoryURL = currentDirectoryURL
+    process.standardInput = FileHandle.nullDevice
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+    try process.run()
+    process.waitUntilExit()
+    return ProcessRunResult(
+        status: process.terminationStatus,
+        stdout: String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+        stderr: String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    )
+}
+
+private func runGit(
+    _ arguments: [String],
+    in directoryURL: URL,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> String {
+    let result = try runProcess(
+        executablePath: "/usr/bin/env",
+        arguments: ["git"] + arguments,
+        currentDirectoryURL: directoryURL
+    )
+    XCTAssertEqual(
+        result.status,
+        0,
+        "git \(arguments.joined(separator: " ")) failed: \(result.stderr)",
+        file: file,
+        line: line
+    )
+    return result.stdout
 }
 
 @MainActor
@@ -123,6 +204,249 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, initialSelectedTabId)
         XCTAssertEqual(externalWorkspace.panels.count, externalPanelCountBefore)
         XCTAssertEqual(externalWorkspace.panelTitles, externalPanelTitlesBefore)
+    }
+}
+
+@MainActor
+final class TabManagerPullRequestProbeTests: XCTestCase {
+    func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
+        let output = """
+        origin https://github.com/austinwang/cmux.git (fetch)
+        origin https://github.com/austinwang/cmux.git (push)
+        upstream git@github.com:manaflow-ai/cmux.git (fetch)
+        upstream git@github.com:manaflow-ai/cmux.git (push)
+        backup ssh://git@github.com/manaflow-ai/cmux.git (fetch)
+        mirror https://gitlab.com/manaflow-ai/cmux.git (fetch)
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitRemoteVOutput: output),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
+    func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
+        let candidates = [
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1889,
+                state: "MERGED",
+                url: "https://github.com/manaflow-ai/cmux/pull/1889",
+                updatedAt: "2026-03-20T18:00:00Z"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1891,
+                state: "OPEN",
+                url: "https://github.com/manaflow-ai/cmux/pull/1891",
+                updatedAt: "2026-03-19T18:00:00Z"
+            ),
+            TabManager.GitHubPullRequestProbeItem(
+                number: 1800,
+                state: "CLOSED",
+                url: "https://github.com/manaflow-ai/cmux/pull/1800",
+                updatedAt: "2026-03-21T18:00:00Z"
+            ),
+        ]
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: candidates),
+            candidates[1]
+        )
+    }
+
+    func testPreferredPullRequestPrefersMostRecentlyUpdatedWithinSameStatus() {
+        let olderOpen = TabManager.GitHubPullRequestProbeItem(
+            number: 1880,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1880",
+            updatedAt: "2026-03-18T18:00:00Z"
+        )
+        let newerOpen = TabManager.GitHubPullRequestProbeItem(
+            number: 1890,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1890",
+            updatedAt: "2026-03-20T18:00:00Z"
+        )
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: [olderOpen, newerOpen]),
+            newerOpen
+        )
+    }
+
+    func testPreferredPullRequestIgnoresMalformedCandidates() {
+        let valid = TabManager.GitHubPullRequestProbeItem(
+            number: 1888,
+            state: "OPEN",
+            url: "https://github.com/manaflow-ai/cmux/pull/1888",
+            updatedAt: "2026-03-20T18:00:00Z"
+        )
+
+        XCTAssertEqual(
+            TabManager.preferredPullRequest(from: [
+                TabManager.GitHubPullRequestProbeItem(
+                    number: 9999,
+                    state: "WHATEVER",
+                    url: "https://github.com/manaflow-ai/cmux/pull/9999",
+                    updatedAt: "2026-03-21T18:00:00Z"
+                ),
+                TabManager.GitHubPullRequestProbeItem(
+                    number: 10000,
+                    state: "OPEN",
+                    url: "not a url",
+                    updatedAt: "2026-03-21T18:00:00Z"
+                ),
+                valid,
+            ]),
+            valid
+        )
+    }
+
+    func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: " master \n"))
+
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "Main"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "mainline"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "feature/main"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
+    }
+
+    func testTrackedWorkspaceGitMetadataPollCandidatesSkipMainAndMasterPanelsOnly() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let mainPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let masterPanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal),
+              let featurePanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .vertical),
+              let mainlinePanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panels to be created")
+            return
+        }
+
+        let staleURL = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/371"))
+        workspace.updatePanelGitBranch(panelId: mainPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: mainPanelId,
+            number: 371,
+            label: "PR",
+            url: staleURL,
+            status: .open,
+            branch: "main"
+        )
+        workspace.updatePanelGitBranch(panelId: masterPanel.id, branch: "master", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: featurePanel.id, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: mainlinePanel.id, branch: "mainline", isDirty: false)
+
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([featurePanel.id, mainlinePanel.id])
+        )
+    }
+
+    func testTrackedWorkspaceGitMetadataPollCandidatesSkipFocusedFallbackOnMainOnly() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: false)
+        XCTAssertTrue(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+        )
+
+        workspace.gitBranch = SidebarGitBranchState(branch: "feature/sidebar-pr", isDirty: false)
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([panelId])
+        )
+    }
+
+    func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
+        let fileManager = FileManager.default
+        let tempDir = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-command-path-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let executableName = "cmux-gh-test-\(UUID().uuidString)"
+        let executableURL = tempDir.appendingPathComponent(executableName)
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: executableURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executableURL.path)
+
+        XCTAssertEqual(
+            TabManager.resolvedCommandPathForTesting(
+                executable: executableName,
+                environment: ["PATH": "/usr/bin:/bin"],
+                fallbackDirectories: [tempDir.path]
+            ),
+            executableURL.path
+        )
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-refresh-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+        try runGit(["checkout", "-b", "feature/sidebar-pr"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 1052,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/1052")),
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/sidebar-pr")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 1052)
+        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder().map(\.number), [1052])
+
+        try runGit(["checkout", "main"], in: repoURL)
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelPullRequests[panelId] == nil
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
 }
 
@@ -311,6 +635,75 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
         XCTAssertNil(secondWorkspace.panels[secondPanelId])
         XCTAssertTrue(secondWorkspace.panels.isEmpty)
+    }
+
+    func testCloseCurrentPanelPromptsBeforeClosingPinnedWorkspaceLastSurface() {
+        let manager = TabManager()
+        _ = manager.tabs[0]
+        let pinnedWorkspace = manager.addWorkspace()
+        manager.setPinned(pinnedWorkspace, pinned: true)
+        manager.selectWorkspace(pinnedWorkspace)
+
+        guard let pinnedPanelId = pinnedWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in pinned workspace")
+            return
+        }
+
+        XCTAssertEqual(manager.selectedTabId, pinnedWorkspace.id)
+        XCTAssertEqual(pinnedWorkspace.panels.count, 1)
+
+        var prompts: [(title: String, message: String, acceptCmdD: Bool)] = []
+        manager.confirmCloseHandler = { title, message, acceptCmdD in
+            prompts.append((title, message, acceptCmdD))
+            return false
+        }
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(prompts.count, 1)
+        XCTAssertEqual(
+            prompts.first?.title,
+            String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?")
+        )
+        XCTAssertEqual(
+            prompts.first?.message,
+            String(
+                localized: "dialog.closePinnedWorkspace.message",
+                defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+            )
+        )
+        XCTAssertEqual(prompts.first?.acceptCmdD, false)
+        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
+        XCTAssertEqual(manager.selectedTabId, pinnedWorkspace.id)
+        XCTAssertNotNil(pinnedWorkspace.panels[pinnedPanelId])
+        XCTAssertEqual(pinnedWorkspace.panels.count, 1)
+    }
+
+    func testCloseCurrentPanelClosesPinnedWorkspaceAfterConfirmation() {
+        let manager = TabManager()
+        let firstWorkspace = manager.tabs[0]
+        let pinnedWorkspace = manager.addWorkspace()
+        manager.setPinned(pinnedWorkspace, pinned: true)
+        manager.selectWorkspace(pinnedWorkspace)
+
+        guard let pinnedPanelId = pinnedWorkspace.focusedPanelId else {
+            XCTFail("Expected focused panel in pinned workspace")
+            return
+        }
+
+        manager.confirmCloseHandler = { _, _, _ in true }
+
+        manager.closeCurrentPanelWithConfirmation()
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [firstWorkspace.id])
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertNil(pinnedWorkspace.panels[pinnedPanelId])
+        XCTAssertTrue(pinnedWorkspace.panels.isEmpty)
     }
 
     func testCloseCurrentPanelKeepsWorkspaceOpenWhenKeepWorkspaceOpenPreferenceIsEnabled() {
@@ -525,6 +918,80 @@ final class TabManagerNotificationFocusTests: XCTestCase {
         }
 
         XCTAssertFalse(manager.focusTabFromNotification(workspace.id, surfaceId: UUID()))
+    }
+
+    func testFocusTabFromNotificationDismissesUnreadWithDismissFlash() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        workspace.focusPanel(leftPanelId)
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: rightPanel.id,
+            title: "Unread",
+            subtitle: "",
+            body: "Right pane should dismiss attention when focused from a notification"
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
+
+        XCTAssertTrue(manager.focusTabFromNotification(workspace.id, surfaceId: rightPanel.id))
+
+        let expectation = XCTestExpectation(description: "notification focus flash")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            expectation.fulfill()
+        }
+        wait(for: [expectation], timeout: 1)
+
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: rightPanel.id))
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 1)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, rightPanel.id)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
     }
 }
 
@@ -1048,6 +1515,178 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
     }
 }
 
+
+@MainActor
+final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
+    func testFocusPanelDismissesUnreadNotificationWithDismissFlash() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        store.addNotification(
+            tabId: workspace.id,
+            surfaceId: leftPanelId,
+            title: "Unread",
+            subtitle: "",
+            body: "Left pane should dismiss attention when focused"
+        )
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
+        XCTAssertEqual(workspace.focusedPanelId, rightPanel.id)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
+
+        workspace.focusPanel(leftPanelId)
+
+        XCTAssertEqual(workspace.focusedPanelId, leftPanelId)
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: leftPanelId))
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: leftPanelId))
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 1)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, leftPanelId)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
+    }
+
+    func testDismissNotificationOnDirectInteractionClearsFocusedNotificationIndicator() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+
+        XCTAssertTrue(
+            manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId)
+        )
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+    }
+
+    func testDismissNotificationOnDirectInteractionTriggersDismissFlashForFocusedIndicatorOnly() {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)
+        XCTAssertTrue(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashToken, 0)
+
+        XCTAssertTrue(
+            manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId)
+        )
+
+        XCTAssertFalse(store.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId))
+        XCTAssertEqual(
+            workspace.tmuxWorkspaceFlashToken,
+            1,
+            "Expected dismissing a focused-read indicator to emit a dismiss flash even when unread is already cleared"
+        )
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashPanelId, panelId)
+        XCTAssertEqual(workspace.tmuxWorkspaceFlashReason, .notificationDismiss)
+    }
+}
 
 @MainActor
 final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {

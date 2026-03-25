@@ -1,12 +1,14 @@
 import SwiftUI
 import Foundation
 import AppKit
+import Bonsplit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int
@@ -21,6 +23,7 @@ struct TerminalPanelView: View {
         // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
         GhosttyTerminalView(
             terminalSurface: panel.surface,
+            paneId: paneId,
             isActive: isFocused,
             isVisibleInUI: isVisibleInUI,
             portalZPriority: portalPriority,

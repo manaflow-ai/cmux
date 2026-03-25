@@ -56,6 +56,21 @@ func installCmuxUnitTestInspectorOverride() {
     cmuxUnitTestInspectorOverrideInstalled = true
 }
 
+private final class BrowserMarkedTextProbeTextView: NSTextView {
+    var hasMarkedTextForTesting = false
+    private(set) var keyDownEvents: [NSEvent] = []
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func hasMarkedText() -> Bool {
+        hasMarkedTextForTesting
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownEvents.append(event)
+    }
+}
+
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     private final class ActionSpy: NSObject {
         private(set) var invoked: Bool = false
@@ -1515,6 +1530,49 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    private func writeBrowserFixturePage(
+        at url: URL,
+        title: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let html = """
+        <html>
+        <head><title>\(title)</title></head>
+        <body>\(title)</body>
+        </html>
+        """
+
+        do {
+            try html.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            XCTFail("Failed to write browser fixture page: \(error)", file: file, line: line)
+            throw error
+        }
+    }
+
+    private func waitForBrowserPanel(
+        _ panel: BrowserPanel,
+        url: URL,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            if panel.preferredURLStringForOmnibar() == url.absoluteString && !panel.isLoading {
+                return
+            }
+        }
+
+        XCTFail(
+            "Timed out waiting for browser panel to load \(url.absoluteString). Current=\(panel.preferredURLStringForOmnibar() ?? "nil") loading=\(panel.isLoading)",
+            file: file,
+            line: line
+        )
+    }
+
     func testSessionNavigationHistorySnapshotUsesRestoredStacks() {
         let panel = BrowserPanel(workspaceId: UUID())
 
@@ -1576,6 +1634,47 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertEqual(afterForward.forwardHistoryURLStrings, ["https://example.com/d"])
         XCTAssertTrue(panel.canGoBack)
         XCTAssertTrue(panel.canGoForward)
+    }
+
+    func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-browser-history-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let pageA = tempDir.appendingPathComponent("a.html")
+        let pageB = tempDir.appendingPathComponent("b.html")
+        let pageC = tempDir.appendingPathComponent("c.html")
+        try writeBrowserFixturePage(at: pageA, title: "A")
+        try writeBrowserFixturePage(at: pageB, title: "B")
+        try writeBrowserFixturePage(at: pageC, title: "C")
+
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: pageB
+        )
+        waitForBrowserPanel(panel, url: pageB)
+
+        panel.restoreSessionNavigationHistory(
+            backHistoryURLStrings: [pageA.absoluteString],
+            forwardHistoryURLStrings: [],
+            currentURLString: pageB.absoluteString
+        )
+
+        _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
+        waitForBrowserPanel(panel, url: pageC)
+
+        let snapshot = panel.sessionNavigationHistorySnapshot()
+        XCTAssertEqual(
+            snapshot.backHistoryURLStrings,
+            [pageA.absoluteString, pageB.absoluteString]
+        )
+
+        panel.goBack()
+        waitForBrowserPanel(panel, url: pageB)
+
+        panel.goBack()
+        waitForBrowserPanel(panel, url: pageA)
     }
 
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
@@ -2371,6 +2470,107 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
 }
 
 
+final class BrowserIMEKeyDownRoutingTests: XCTestCase {
+    @MainActor
+    func testWindowPerformKeyEquivalentDoesNotForwardReturnDuringMarkedTextComposition() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        responder.hasMarkedTextForTesting = true
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        let consumed = window.performKeyEquivalent(with: event)
+
+        XCTAssertFalse(consumed, "Return should stay in the IME path while marked text is active")
+        XCTAssertTrue(responder.hasMarkedText(), "Marked text should still be active until the input method commits it")
+        XCTAssertEqual(responder.keyDownEvents.count, 0, "Return should not be force-forwarded to the browser responder during IME composition")
+    }
+
+    @MainActor
+    func testWindowPerformKeyEquivalentDoesNotForwardKeypadEnterDuringMarkedTextComposition() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        responder.hasMarkedTextForTesting = true
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 76
+        ) else {
+            XCTFail("Failed to construct keypad Enter event")
+            return
+        }
+
+        let consumed = window.performKeyEquivalent(with: event)
+
+        XCTAssertFalse(consumed, "Keypad Enter should stay in the IME path while marked text is active")
+        XCTAssertTrue(responder.hasMarkedText(), "Marked text should still be active until the input method commits it")
+        XCTAssertEqual(responder.keyDownEvents.count, 0, "Keypad Enter should not be force-forwarded to the browser responder during IME composition")
+    }
+}
+
+
 final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     func testRoutesForReturnWhenBrowserFirstResponder() {
         XCTAssertTrue(
@@ -2407,6 +2607,28 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
                 firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteReturnWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteKeypadEnterWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 76,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
                 flags: []
             )
         )

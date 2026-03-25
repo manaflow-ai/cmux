@@ -42,12 +42,21 @@ enum NotificationSoundSettings {
     )
     private static let pendingCustomSoundPreparationLock = NSLock()
     private static var pendingCustomSoundPreparationPaths: Set<String> = []
+    private static let activePlaybackSoundsLock = NSLock()
+    private static var activePlaybackSounds: [ObjectIdentifier: NSSound] = [:]
+    private static let activePlaybackSoundDelegate = ActivePlaybackSoundDelegate()
     private static let notificationSoundSupportedExtensions: Set<String> = [
         "aif",
         "aiff",
         "caf",
         "wav",
     ]
+
+    private final class ActivePlaybackSoundDelegate: NSObject, NSSoundDelegate {
+        func sound(_ sound: NSSound, didFinishPlaying finishedPlaying: Bool) {
+            NotificationSoundSettings.releaseActivePlaybackSound(sound)
+        }
+    }
 
     private struct CustomSoundSourceMetadata: Codable, Equatable {
         let sourcePath: String
@@ -260,7 +269,16 @@ enum NotificationSoundSettings {
         playSoundFile(at: url)
     }
 
+    static func playSelectedSound(defaults: UserDefaults = .standard) {
+        let value = defaults.string(forKey: key) ?? defaultValue
+        playSound(value: value, defaults: defaults)
+    }
+
     static func previewSound(value: String, defaults: UserDefaults = .standard) {
+        playSound(value: value, defaults: defaults)
+    }
+
+    private static func playSound(value: String, defaults: UserDefaults) {
         switch value {
         case "default":
             NSSound.beep()
@@ -331,8 +349,24 @@ enum NotificationSoundSettings {
                 NSLog("Notification custom sound failed to load from path: \(url.path)")
                 return
             }
-            sound.play()
+            retainActivePlaybackSound(sound)
+            sound.delegate = activePlaybackSoundDelegate
+            if !sound.play() {
+                releaseActivePlaybackSound(sound)
+            }
         }
+    }
+
+    private static func retainActivePlaybackSound(_ sound: NSSound) {
+        activePlaybackSoundsLock.lock()
+        activePlaybackSounds[ObjectIdentifier(sound)] = sound
+        activePlaybackSoundsLock.unlock()
+    }
+
+    private static func releaseActivePlaybackSound(_ sound: NSSound) {
+        activePlaybackSoundsLock.lock()
+        activePlaybackSounds.removeValue(forKey: ObjectIdentifier(sound))
+        activePlaybackSoundsLock.unlock()
     }
 
     private static func cleanupStaleStagedSoundFiles(
@@ -663,6 +697,7 @@ final class TerminalNotificationStore: ObservableObject {
             refreshDockBadge()
         }
     }
+    @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
     private let center = UNUserNotificationCenter.current()
@@ -692,6 +727,11 @@ final class TerminalNotificationStore: ObservableObject {
         store,
         notification in
         store.scheduleUserNotification(notification)
+    }
+    private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification) -> Void = {
+        store,
+        notification in
+        store.playSuppressedNotificationFeedback(for: notification)
     }
     private var indexes = NotificationIndexes()
 
@@ -837,8 +877,17 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
+        hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
+            focusedReadIndicatorByTabId[tabId] == surfaceId
+    }
+
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
-        indexes.latestUnreadByTabId[tabId] ?? indexes.latestByTabId[tabId]
+        indexes.latestUnreadByTabId[tabId]
+    }
+
+    func focusedReadIndicatorSurfaceId(forTabId tabId: UUID) -> UUID? {
+        focusedReadIndicatorByTabId[tabId]
     }
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
@@ -850,12 +899,20 @@ final class TerminalNotificationStore: ObservableObject {
             return true
         }
 
+        if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId],
+           existingIndicatorSurfaceId != surfaceId {
+            focusedReadIndicatorByTabId.removeValue(forKey: tabId)
+        }
+
         let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
         let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
         let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
+        if shouldSuppressExternalDelivery {
+            setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+        }
 
         if WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
@@ -877,7 +934,9 @@ final class TerminalNotificationStore: ObservableObject {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
-        if !shouldSuppressExternalDelivery {
+        if shouldSuppressExternalDelivery {
+            suppressedNotificationFeedbackHandler(self, notification)
+        } else {
             notificationDeliveryHandler(self, notification)
         }
     }
@@ -938,6 +997,24 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func setFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID?) {
+        guard let surfaceId else { return }
+        guard focusedReadIndicatorByTabId[tabId] != surfaceId else { return }
+        focusedReadIndicatorByTabId[tabId] = surfaceId
+    }
+
+    func clearFocusedReadIndicator(forTabId tabId: UUID, surfaceId: UUID? = nil) {
+        guard let existingSurfaceId = focusedReadIndicatorByTabId[tabId] else { return }
+        guard surfaceId == nil || existingSurfaceId == surfaceId else { return }
+        focusedReadIndicatorByTabId.removeValue(forKey: tabId)
+    }
+
+    func clearFocusedReadIndicatorIfSurfaceChanged(forTabId tabId: UUID, surfaceId: UUID?) {
+        guard let existingSurfaceId = focusedReadIndicatorByTabId[tabId] else { return }
+        guard existingSurfaceId != surfaceId else { return }
+        focusedReadIndicatorByTabId.removeValue(forKey: tabId)
+    }
+
     func markAllRead() {
         var updated = notifications
         var idsToClear: [String] = []
@@ -956,17 +1033,22 @@ final class TerminalNotificationStore: ObservableObject {
 
     func remove(id: UUID) {
         var updated = notifications
+        let removed = updated.first(where: { $0.id == id })
         let originalCount = updated.count
         updated.removeAll { $0.id == id }
         guard updated.count != originalCount else { return }
         notifications = updated
+        if let removed {
+            clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+        }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
     func clearAll() {
-        guard !notifications.isEmpty else { return }
+        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
         let ids = notifications.map { $0.id.uuidString }
         notifications.removeAll()
+        focusedReadIndicatorByTabId.removeAll()
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
@@ -984,6 +1066,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
+        clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
@@ -1001,8 +1084,16 @@ final class TerminalNotificationStore: ObservableObject {
         }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
+        clearFocusedReadIndicator(forTabId: tabId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+    }
+
+    private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "cmux"
+        return notification.title.isEmpty ? appName : notification.title
     }
 
     private func scheduleUserNotification(_ notification: TerminalNotification) {
@@ -1010,10 +1101,7 @@ final class TerminalNotificationStore: ObservableObject {
             guard let self, authorized else { return }
 
             let content = UNMutableNotificationContent()
-            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-                ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-                ?? "cmux"
-            content.title = notification.title.isEmpty ? appName : notification.title
+            content.title = self.resolvedNotificationTitle(for: notification)
             content.subtitle = notification.subtitle
             content.body = notification.body
             content.sound = NotificationSoundSettings.sound()
@@ -1044,6 +1132,15 @@ final class TerminalNotificationStore: ObservableObject {
                 }
             }
         }
+    }
+
+    private func playSuppressedNotificationFeedback(for notification: TerminalNotification) {
+        NotificationSoundSettings.playSelectedSound()
+        NotificationSoundSettings.runCustomCommand(
+            title: resolvedNotificationTitle(for: notification),
+            subtitle: notification.subtitle,
+            body: notification.body
+        )
     }
 
     private func ensureAuthorization(
@@ -1262,12 +1359,25 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    func configureSuppressedNotificationFeedbackHandlerForTesting(
+        _ handler: @escaping (TerminalNotificationStore, TerminalNotification) -> Void
+    ) {
+        suppressedNotificationFeedbackHandler = handler
+    }
+
+    func resetSuppressedNotificationFeedbackHandlerForTesting() {
+        suppressedNotificationFeedbackHandler = { store, notification in
+            store.playSuppressedNotificationFeedback(for: notification)
+        }
+    }
+
     func promptToEnableNotificationsForTesting() {
         promptToEnableNotifications()
     }
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         self.notifications = notifications
+        focusedReadIndicatorByTabId.removeAll()
     }
 #endif
 
