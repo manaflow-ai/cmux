@@ -44,7 +44,7 @@ export function DocsSidebar({ onNavigate }: { onNavigate?: () => void }) {
       {navItems.map((entry) => {
         if (isSection(entry)) {
           return (
-            <div key={entry.sectionKey} className="pt-3 first:pt-0">
+            <div key={entry.sectionKey} className="pt-5 pb-2 first:pt-0">
               <div className="px-3 pb-1 text-[12px] font-medium text-muted tracking-wider">
                 {t(entry.sectionKey)}
               </div>
