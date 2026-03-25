@@ -1160,6 +1160,9 @@ class TabManager: ObservableObject {
         )
     }
 
+    /// Test seam for mutating live workspace state after the creation snapshot is captured.
+    func didCaptureWorkspaceCreationSnapshot() {}
+
 #if DEBUG
     private func maybeMutateSelectionDuringWorkspaceCreationForDev(
         snapshot: WorkspaceCreationSnapshot
@@ -1197,6 +1200,7 @@ class TabManager: ObservableObject {
         // Snapshot current published state once so workspace creation doesn't repeatedly
         // bounce through Combine-backed accessors while we're preparing the new workspace.
         let snapshot = workspaceCreationSnapshot()
+        didCaptureWorkspaceCreationSnapshot()
 #if DEBUG
         maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
 #endif
