@@ -800,6 +800,7 @@ class TabManager: ObservableObject {
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
+    private let loadGhosttyConfig: () -> GhosttyConfig
     private struct WorkspaceCreationSnapshot {
         let tabs: [Workspace]
         let selectedTabId: UUID?
@@ -828,7 +829,11 @@ class TabManager: ObservableObject {
     private var uiTestCancellables = Set<AnyCancellable>()
 #endif
 
-    init(initialWorkingDirectory: String? = nil) {
+    init(
+        initialWorkingDirectory: String? = nil,
+        loadGhosttyConfig: @escaping () -> GhosttyConfig = { GhosttyConfig.load() }
+    ) {
+        self.loadGhosttyConfig = loadGhosttyConfig
         addWorkspace(workingDirectory: initialWorkingDirectory)
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -1118,7 +1123,7 @@ class TabManager: ObservableObject {
         let nextTabCount = snapshot.tabs.count + 1
         sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-        let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
+        let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewWorkspace(snapshot: snapshot)
         let inheritedConfig = inheritedTerminalConfigForNewWorkspace(snapshot: snapshot)
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
@@ -2148,6 +2153,20 @@ class TabManager: ObservableObject {
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
         preferredWorkingDirectoryForNewTab(snapshot: workspaceCreationSnapshot())
+    }
+
+    private func preferredWorkingDirectoryForNewWorkspace(
+        snapshot: WorkspaceCreationSnapshot
+    ) -> String? {
+        configuredWorkingDirectoryForNewWorkspace() ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
+    }
+
+    private func configuredWorkingDirectoryForNewWorkspace() -> String? {
+        guard let configuredDirectory = loadGhosttyConfig().workingDirectory else {
+            return nil
+        }
+        let expandedDirectory = NSString(string: configuredDirectory).expandingTildeInPath
+        return normalizedWorkingDirectory(expandedDirectory)
     }
 
     private func preferredWorkingDirectoryForNewTab(

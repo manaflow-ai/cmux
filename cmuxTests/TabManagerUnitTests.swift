@@ -1215,6 +1215,46 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
     }
 }
 
+@MainActor
+final class TabManagerWorkspaceWorkingDirectoryPreferenceTests: XCTestCase {
+    func testConfiguredGhosttyWorkingDirectoryOverridesInheritedWorkspaceDirectory() {
+        let configuredDirectory = NSString(string: "~/Projects").expandingTildeInPath
+        var config = GhosttyConfig()
+        config.workingDirectory = "~/Projects"
+        let inheritedDirectory = "/tmp/cmux-inherited-cwd-\(UUID().uuidString)"
+        let manager = TabManager(
+            initialWorkingDirectory: inheritedDirectory,
+            loadGhosttyConfig: { config }
+        )
+
+        let newWorkspace = manager.addWorkspace()
+
+        XCTAssertEqual(
+            newWorkspace.currentDirectory,
+            configuredDirectory,
+            "Expected Ghostty's configured working-directory to override inherited workspace cwd"
+        )
+        XCTAssertEqual(
+            newWorkspace.focusedTerminalPanel?.requestedWorkingDirectory,
+            configuredDirectory,
+            "Expected new workspace terminal to start in Ghostty's configured working-directory"
+        )
+    }
+
+    func testFallsBackToInheritedWorkspaceDirectoryWhenGhosttyWorkingDirectoryIsUnset() {
+        let inheritedDirectory = "/tmp/cmux-inherited-cwd-\(UUID().uuidString)"
+        let manager = TabManager(
+            initialWorkingDirectory: inheritedDirectory,
+            loadGhosttyConfig: { GhosttyConfig() }
+        )
+
+        let newWorkspace = manager.addWorkspace()
+
+        XCTAssertEqual(newWorkspace.currentDirectory, inheritedDirectory)
+        XCTAssertEqual(newWorkspace.focusedTerminalPanel?.requestedWorkingDirectory, inheritedDirectory)
+    }
+}
+
 
 @MainActor
 final class TabManagerFocusedNotificationIndicatorTests: XCTestCase {
