@@ -800,14 +800,23 @@ class TabManager: ObservableObject {
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
-    private struct WorkspaceCreationSnapshot {
-        let tabs: [Workspace]
-        let selectedTabId: UUID?
+    private struct WorkspaceCreationTabSnapshot {
+        let id: UUID
+        let isPinned: Bool
 
-        var selectedWorkspace: Workspace? {
-            guard let selectedTabId else { return nil }
-            return tabs.first(where: { $0.id == selectedTabId })
+        @MainActor
+        init(workspace: Workspace) {
+            self.id = workspace.id
+            self.isPinned = workspace.isPinned
         }
+    }
+
+    private struct WorkspaceCreationSnapshot {
+        let tabs: [WorkspaceCreationTabSnapshot]
+        let selectedTabId: UUID?
+        let selectedTabWasPinned: Bool
+        let preferredWorkingDirectory: String?
+        let inheritedTerminalConfig: ghostty_surface_config_s?
     }
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -1176,14 +1185,15 @@ class TabManager: ObservableObject {
         }()
         guard isEnabled,
               let selectedTabId = snapshot.selectedTabId,
-              let target = snapshot.tabs.first(where: { $0.id != selectedTabId }) else {
+              let targetId = snapshot.tabs.lazy.map(\.id).first(where: { $0 != selectedTabId }),
+              tabs.contains(where: { $0.id == targetId }) else {
             return
         }
         dlog(
             "workspace.create.devSelectionMutation from=\(selectedTabId.uuidString.prefix(5)) " +
-            "to=\(target.id.uuidString.prefix(5))"
+            "to=\(targetId.uuidString.prefix(5))"
         )
-        self.selectedTabId = target.id
+        self.selectedTabId = targetId
     }
 #endif
 
@@ -1207,8 +1217,8 @@ class TabManager: ObservableObject {
         let nextTabCount = snapshot.tabs.count + 1
         sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
-        let workingDirectory = explicitWorkingDirectory ?? preferredWorkingDirectoryForNewTab(snapshot: snapshot)
-        let inheritedConfig = inheritedTerminalConfigForNewWorkspace(snapshot: snapshot)
+        let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+        let inheritedConfig = snapshot.inheritedTerminalConfig
         // Resolve placement against the pre-creation snapshot before Workspace init
         // boots terminal state. The ssh/new-workspace path can otherwise crash while
         // reading @Published placement state from existing workspaces mid-creation.
@@ -1228,7 +1238,9 @@ class TabManager: ObservableObject {
         if eagerLoadTerminal && !select {
             requestBackgroundWorkspaceLoad(for: newWorkspace.id)
         }
-        var updatedTabs = snapshot.tabs
+        // Apply insertion to the current live array so post-snapshot closes/reorders
+        // are preserved instead of reintroducing stale workspace instances.
+        var updatedTabs = tabs
         if insertIndex >= 0 && insertIndex <= updatedTabs.count {
             updatedTabs.insert(newWorkspace, at: insertIndex)
         } else {
@@ -2160,20 +2172,29 @@ class TabManager: ObservableObject {
     }
 
     func terminalPanelForWorkspaceConfigInheritanceSource() -> TerminalPanel? {
-        terminalPanelForWorkspaceConfigInheritanceSource(snapshot: workspaceCreationSnapshot())
+        terminalPanelForWorkspaceConfigInheritanceSource(workspace: selectedWorkspace)
     }
 
     private func workspaceCreationSnapshot() -> WorkspaceCreationSnapshot {
-        WorkspaceCreationSnapshot(
-            tabs: tabs,
-            selectedTabId: selectedTabId
+        let currentTabs = tabs
+        let currentSelectedTabId = selectedTabId
+        let selectedWorkspace = currentSelectedTabId.flatMap { selectedTabId in
+            currentTabs.first(where: { $0.id == selectedTabId })
+        }
+
+        return WorkspaceCreationSnapshot(
+            tabs: currentTabs.map { WorkspaceCreationTabSnapshot(workspace: $0) },
+            selectedTabId: currentSelectedTabId,
+            selectedTabWasPinned: selectedWorkspace?.isPinned ?? false,
+            preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace),
+            inheritedTerminalConfig: inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
         )
     }
 
     private func terminalPanelForWorkspaceConfigInheritanceSource(
-        snapshot: WorkspaceCreationSnapshot
+        workspace: Workspace?
     ) -> TerminalPanel? {
-        guard let workspace = snapshot.selectedWorkspace else { return nil }
+        guard let workspace else { return nil }
         if let focusedTerminal = workspace.focusedTerminalPanel {
             return focusedTerminal
         }
@@ -2188,13 +2209,13 @@ class TabManager: ObservableObject {
     }
 
     private func inheritedTerminalConfigForNewWorkspace() -> ghostty_surface_config_s? {
-        inheritedTerminalConfigForNewWorkspace(snapshot: workspaceCreationSnapshot())
+        inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
     }
 
     private func inheritedTerminalConfigForNewWorkspace(
-        snapshot: WorkspaceCreationSnapshot
+        workspace: Workspace?
     ) -> ghostty_surface_config_s? {
-        if let panel = terminalPanelForWorkspaceConfigInheritanceSource(snapshot: snapshot),
+        if let panel = terminalPanelForWorkspaceConfigInheritanceSource(workspace: workspace),
            panel.surface.hasLiveSurface,
            let sourceSurface = panel.surface.surface {
             return cmuxInheritedSurfaceConfig(
@@ -2202,7 +2223,7 @@ class TabManager: ObservableObject {
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
             )
         }
-        if let fallbackFontPoints = snapshot.selectedWorkspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
+        if let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
             var config = ghostty_surface_config_new()
             config.font_size = fallbackFontPoints
             return config
@@ -2226,44 +2247,46 @@ class TabManager: ObservableObject {
         placementOverride: NewWorkspacePlacement? = nil
     ) -> Int {
         let placement = placementOverride ?? WorkspacePlacementSettings.current()
-        let tabs = snapshot.tabs
-        var pinnedCount = 0
-        var selectedIndex: Int?
-        var selectedIsPinned = false
-        let selectedTabId = snapshot.selectedTabId
-
-        for (index, tab) in tabs.enumerated() {
+        let liveTabs = tabs.map { WorkspaceCreationTabSnapshot(workspace: $0) }
+        let pinnedCount = liveTabs.reduce(into: 0) { partial, tab in
             if tab.isPinned {
-                pinnedCount += 1
-            }
-            if selectedIndex == nil, tab.id == selectedTabId {
-                selectedIndex = index
-                selectedIsPinned = tab.isPinned
+                partial += 1
             }
         }
 
-        return WorkspacePlacementSettings.insertionIndex(
-            placement: placement,
-            selectedIndex: selectedIndex,
-            selectedIsPinned: selectedIsPinned,
-            pinnedCount: pinnedCount,
-            totalCount: tabs.count
-        )
+        switch placement {
+        case .top:
+            return pinnedCount
+        case .end:
+            return liveTabs.count
+        case .afterCurrent:
+            if let selectedTabId = snapshot.selectedTabId,
+               let selectedIndex = liveTabs.firstIndex(where: { $0.id == selectedTabId }) {
+                return WorkspacePlacementSettings.insertionIndex(
+                    placement: placement,
+                    selectedIndex: selectedIndex,
+                    selectedIsPinned: snapshot.selectedTabWasPinned,
+                    pinnedCount: pinnedCount,
+                    totalCount: liveTabs.count
+                )
+            }
+            return snapshot.selectedTabWasPinned ? pinnedCount : liveTabs.count
+        }
     }
 
     private func preferredWorkingDirectoryForNewTab() -> String? {
-        preferredWorkingDirectoryForNewTab(snapshot: workspaceCreationSnapshot())
+        preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace)
     }
 
     private func preferredWorkingDirectoryForNewTab(
-        snapshot: WorkspaceCreationSnapshot
+        workspace: Workspace?
     ) -> String? {
-        guard let tab = snapshot.selectedWorkspace else {
+        guard let workspace else {
             return nil
         }
-        let focusedDirectory = tab.focusedPanelId
-            .flatMap { tab.panelDirectories[$0] }
-        let candidate = focusedDirectory ?? tab.currentDirectory
+        let focusedDirectory = workspace.focusedPanelId
+            .flatMap { workspace.panelDirectories[$0] }
+        let candidate = focusedDirectory ?? workspace.currentDirectory
         let normalized = normalizeDirectory(candidate)
         let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : normalized
