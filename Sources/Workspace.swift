@@ -6714,7 +6714,7 @@ final class Workspace: Identifiable, ObservableObject {
             process.arguments = arguments
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
-            process.standardError = Pipe()
+            process.standardError = FileHandle.nullDevice
 
             do {
                 try process.run()

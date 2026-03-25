@@ -346,7 +346,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "-o", "BatchMode=yes",
                 "-o", "ControlMaster=no",
                 "-o", "ControlPath=/tmp/cmux-ssh-%C",
-                "-o", "StrictHostKeyChecking=accept-new",
                 "-O", "exit",
                 "cmux-macmini",
             ]
