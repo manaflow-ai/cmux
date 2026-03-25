@@ -447,6 +447,59 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testClosingSourceWorkspaceAfterDetachingRemoteSurfaceSkipsControlMasterCleanup() throws {
+        let manager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let destinationWorkspace = manager.addWorkspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64017,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        let restoredPanelID = destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertNotNil(restoredPanelID)
+        XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
+
+        manager.closeWorkspace(sourceWorkspace)
+
+        wait(for: [cleanupRequested], timeout: 0.2)
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
+        XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+    }
+
+    @MainActor
     func testRemoteTerminalSessionEndSkipsControlMasterCleanupWhenBrowserPanelsKeepWorkspaceRemote() throws {
         let workspace = Workspace()
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
