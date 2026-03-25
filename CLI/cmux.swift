@@ -9450,31 +9450,49 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-opencode"
 
-    private func omoOpenCodeConfigURL() -> URL {
+    private func resolveExecutableInPath(_ name: String) -> String? {
+        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent(name, isDirectory: false)
+                .path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func omoUserConfigDir() -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         return URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent(".config", isDirectory: true)
             .appendingPathComponent("opencode", isDirectory: true)
     }
 
-    /// Returns true if `oh-my-opencode` is listed in the opencode.json plugin array.
-    private func omoPluginIsRegistered(configDir: URL) -> Bool {
-        let jsonURL = configDir.appendingPathComponent("opencode.json")
-        guard let data = try? Data(contentsOf: jsonURL),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let plugins = obj["plugin"] as? [String] else {
-            return false
-        }
-        return plugins.contains { $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@") }
+    private func omoShadowConfigDir() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-config", isDirectory: true)
     }
 
-    /// Adds `oh-my-opencode` to the opencode.json plugin array, creating the file if needed.
-    private func omoRegisterPlugin(configDir: URL) throws {
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true, attributes: nil)
-        let jsonURL = configDir.appendingPathComponent("opencode.json")
+    /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
+    /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
+    /// to point at the shadow directory.
+    private func omoEnsurePlugin() throws {
+        let userDir = omoUserConfigDir()
+        let shadowDir = omoShadowConfigDir()
+        let fm = FileManager.default
+
+        try fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
+
+        // Read the user's opencode.json (if any), add the plugin, write to shadow dir
+        let userJsonURL = userDir.appendingPathComponent("opencode.json")
+        let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
 
         var config: [String: Any]
-        if let data = try? Data(contentsOf: jsonURL),
+        if let data = try? Data(contentsOf: userJsonURL),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             config = existing
         } else {
@@ -9491,72 +9509,83 @@ struct CMUXCLI {
         config["plugin"] = plugins
 
         let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        try output.write(to: jsonURL, options: .atomic)
-    }
+        try output.write(to: shadowJsonURL, options: .atomic)
 
-    /// Returns true if the oh-my-opencode package exists in node_modules.
-    private func omoPackageIsInstalled(configDir: URL) -> Bool {
-        let packageDir = configDir
-            .appendingPathComponent("node_modules", isDirectory: true)
-            .appendingPathComponent(Self.omoPluginName, isDirectory: true)
-        return FileManager.default.fileExists(atPath: packageDir.path)
-    }
-
-    /// Installs the oh-my-opencode npm package in the config directory using bun or npm.
-    private func omoInstallPackage(configDir: URL) throws {
-        let process = Process()
-        process.currentDirectoryURL = configDir
-
-        // Prefer bun, fall back to npm
-        if let bunPath = resolveExecutableInPath("bun") {
-            process.executableURL = URL(fileURLWithPath: bunPath)
-            process.arguments = ["add", Self.omoPluginName]
-        } else if let npmPath = resolveExecutableInPath("npm") {
-            process.executableURL = URL(fileURLWithPath: npmPath)
-            process.arguments = ["install", Self.omoPluginName]
-        } else {
-            throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
-        }
-
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
-        try process.run()
-        process.waitUntilExit()
-
-        if process.terminationStatus != 0 {
-            let errText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
-        }
-    }
-
-    private func resolveExecutableInPath(_ name: String) -> String? {
-        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        for entry in entries where !entry.isEmpty {
-            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
+        // Symlink node_modules from the user's config dir so installed packages resolve
+        let shadowNodeModules = shadowDir.appendingPathComponent("node_modules")
+        let userNodeModules = userDir.appendingPathComponent("node_modules")
+        if fm.fileExists(atPath: userNodeModules.path) {
+            // Remove stale symlink or directory if it exists
+            if let attrs = try? fm.attributesOfItem(atPath: shadowNodeModules.path),
+               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+                let target = try? fm.destinationOfSymbolicLink(atPath: shadowNodeModules.path)
+                if target != userNodeModules.path {
+                    try? fm.removeItem(at: shadowNodeModules)
+                }
+            }
+            if !fm.fileExists(atPath: shadowNodeModules.path) {
+                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
             }
         }
-        return nil
-    }
 
-    /// Ensures oh-my-opencode plugin is registered and installed before launching opencode.
-    private func omoEnsurePlugin() throws {
-        let configDir = omoOpenCodeConfigURL()
-        if !omoPluginIsRegistered(configDir: configDir) {
-            try omoRegisterPlugin(configDir: configDir)
-            FileHandle.standardError.write("Registered oh-my-opencode plugin in opencode.json\n".data(using: .utf8)!)
+        // Symlink package.json and bun.lock so bun/npm can resolve in the shadow dir
+        for filename in ["package.json", "bun.lock"] {
+            let userFile = userDir.appendingPathComponent(filename)
+            let shadowFile = shadowDir.appendingPathComponent(filename)
+            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
+                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
+            }
         }
-        if !omoPackageIsInstalled(configDir: configDir) {
-            try omoInstallPackage(configDir: configDir)
+
+        // Copy oh-my-opencode plugin config (jsonc) if the user has one
+        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+            let userFile = userDir.appendingPathComponent(filename)
+            let shadowFile = shadowDir.appendingPathComponent(filename)
+            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
+                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
+            }
+        }
+
+        // Install the package if not available via the symlinked node_modules
+        let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
+        if !fm.fileExists(atPath: pluginPackageDir.path) {
+            // Need to install into the real user config dir so the symlink picks it up
+            let installDir = fm.fileExists(atPath: userNodeModules.path) ? userDir : shadowDir
+            // If installing into shadow dir, remove the symlink first
+            if installDir == shadowDir {
+                try? fm.removeItem(at: shadowNodeModules)
+            }
+            let process = Process()
+            process.currentDirectoryURL = installDir
+            if let bunPath = resolveExecutableInPath("bun") {
+                process.executableURL = URL(fileURLWithPath: bunPath)
+                process.arguments = ["add", Self.omoPluginName]
+            } else if let npmPath = resolveExecutableInPath("npm") {
+                process.executableURL = URL(fileURLWithPath: npmPath)
+                process.arguments = ["install", Self.omoPluginName]
+            } else {
+                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+            }
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                let errText = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
+            }
             FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+            // Re-create symlink if we installed into user dir
+            if installDir == userDir && !fm.fileExists(atPath: shadowNodeModules.path) {
+                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
+            }
         }
+
+        // Point OpenCode at the shadow config
+        setenv("OPENCODE_CONFIG_DIR", shadowDir.path, 1)
     }
 
     private func configureOMOEnvironment(
