@@ -9433,19 +9433,44 @@ struct CMUXCLI {
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("omo-bin", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+
+        // tmux shim: redirects tmux commands to cmux __tmux-compat
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
-        let script = """
+        let tmuxScript = """
         #!/usr/bin/env bash
         set -euo pipefail
         exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
-        let normalizedScript = script.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingScript = try? String(contentsOf: tmuxURL, encoding: .utf8)
-        if existingScript?.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedScript {
-            try script.write(to: tmuxURL, atomically: false, encoding: .utf8)
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
+        try writeShimIfChanged(tmuxScript, to: tmuxURL)
+
+        // terminal-notifier shim: intercepts macOS notifications and routes to cmux notify
+        let notifierURL = root.appendingPathComponent("terminal-notifier", isDirectory: false)
+        let notifierScript = """
+        #!/usr/bin/env bash
+        # Intercept terminal-notifier calls and route through cmux notify.
+        # oh-my-openagent calls: terminal-notifier -title <t> -message <m> [-activate <id>]
+        TITLE="" BODY=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -title)   TITLE="$2"; shift 2 ;;
+            -message) BODY="$2"; shift 2 ;;
+            *)        shift ;;
+          esac
+        done
+        exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
+        """
+        try writeShimIfChanged(notifierScript, to: notifierURL)
+
         return root
+    }
+
+    private func writeShimIfChanged(_ script: String, to url: URL) throws {
+        let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        if existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized {
+            try script.write(to: url, atomically: false, encoding: .utf8)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
     private static let omoPluginName = "oh-my-opencode"
