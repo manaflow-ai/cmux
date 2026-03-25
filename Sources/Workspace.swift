@@ -6615,7 +6615,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
-        let configurationForCleanup = clearConfiguration ? remoteConfiguration : nil
+        let shouldCleanupControlMaster =
+            clearConfiguration && !isDetachingCloseTransaction && pendingDetachedSurfaces.isEmpty
+        let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
         let previousController = remoteSessionController
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
@@ -6648,7 +6650,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearRemoteConfigurationIfWorkspaceBecameLocal() {
-        guard panels.isEmpty, remoteConfiguration != nil else { return }
+        guard !isDetachingCloseTransaction, panels.isEmpty, remoteConfiguration != nil else { return }
         disconnectRemoteConnection(clearConfiguration: true)
     }
 
@@ -6673,6 +6675,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
     }
 
@@ -6715,10 +6718,19 @@ final class Workspace: Identifiable, ObservableObject {
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
+            let exitSemaphore = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in
+                exitSemaphore.signal()
+            }
 
             do {
                 try process.run()
-                process.waitUntilExit()
+                if exitSemaphore.wait(timeout: .now() + 5) == .timedOut {
+                    if process.isRunning {
+                        process.terminate()
+                    }
+                    _ = exitSemaphore.wait(timeout: .now() + 1)
+                }
             } catch {
                 return
             }
