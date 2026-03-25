@@ -596,10 +596,9 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
-            let initialURL = snapshot.browser?.urlString.flatMap { URL(string: $0) }
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
-                url: initialURL,
+                url: nil,
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID
             ) else {
@@ -655,16 +654,12 @@ extension Workspace {
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
-            browserPanel.restoreSessionNavigationHistory(
-                backHistoryURLStrings: browserSnapshot.backHistoryURLStrings ?? [],
-                forwardHistoryURLStrings: browserSnapshot.forwardHistoryURLStrings ?? [],
-                currentURLString: browserSnapshot.urlString
-            )
-
             let pageZoom = CGFloat(max(0.25, min(5.0, browserSnapshot.pageZoom)))
             if pageZoom.isFinite {
                 _ = browserPanel.setPageZoomFactor(pageZoom)
             }
+
+            browserPanel.restoreSessionSnapshot(browserSnapshot)
 
             if browserSnapshot.developerToolsVisible {
                 _ = browserPanel.showDeveloperTools()
