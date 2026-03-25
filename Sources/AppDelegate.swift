@@ -5364,7 +5364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Shows the "Open Folder" panel and creates a workspace for the selected directory.
-    /// Extracted so it can be called from both the SwiftUI menu and `handleCustomShortcut`.
+    /// Called from both the SwiftUI menu and `handleCustomShortcut`.
     func showOpenFolderPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -5372,18 +5372,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.allowsMultipleSelection = false
         panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
         panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
-        if let context = contextForMainWindow(NSApp.keyWindow),
+        // Seed the panel with the active workspace's directory. Use the shared
+        // main-window resolver so this works even when an auxiliary window is key.
+        if let context = preferredMainWindowContextForWorkspaceCreation(debugSource: "openFolderPanel.seed"),
            let cwd = context.tabManager.selectedWorkspace?.currentDirectory,
            !cwd.isEmpty {
             panel.directoryURL = URL(fileURLWithPath: cwd)
         }
         if panel.runModal() == .OK, let url = panel.url {
-            if addWorkspaceInPreferredMainWindow(
+            openWorkspaceForExternalDirectory(
                 workingDirectory: url.path,
                 debugSource: "shortcut.openFolder"
-            ) == nil {
-                createMainWindow(initialWorkingDirectory: url.path)
-            }
+            )
         }
     }
 
