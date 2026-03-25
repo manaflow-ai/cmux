@@ -10,7 +10,11 @@ enum UpdateTestSupport {
         if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
            !detectedVersion.isEmpty {
             DispatchQueue.main.async {
-                viewModel.detectedUpdateVersion = UpdateViewModel.normalizedDetectedUpdateVersion(from: detectedVersion)
+                if let item = makeAppcastItem(displayVersion: detectedVersion) {
+                    viewModel.recordDetectedUpdate(item)
+                } else {
+                    viewModel.detectedUpdateVersion = UpdateViewModel.normalizedDetectedUpdateVersion(from: detectedVersion)
+                }
             }
         }
 
@@ -87,6 +91,7 @@ enum UpdateTestSupport {
         ]
         let dict: [String: Any] = [
             "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)

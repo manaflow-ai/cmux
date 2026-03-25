@@ -1,19 +1,27 @@
 import AppKit
-import SwiftUI
 import Sparkle
+import SwiftUI
 
 /// Popover view that displays detailed update information and actions.
 struct UpdatePopoverView: View {
     @ObservedObject var model: UpdateViewModel
-    @Environment(\.dismiss) private var dismiss
+    let dismiss: () -> Void
+
+    init(model: UpdateViewModel, dismiss: @escaping () -> Void = {}) {
+        self.model = model
+        self.dismiss = dismiss
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             switch model.effectiveState {
             case .idle:
-                if let detectedVersion = model.detectedUpdateVersion,
-                   model.showsDetectedBackgroundUpdate {
-                    DetectedBackgroundUpdateView(version: detectedVersion)
+                if model.showsDetectedBackgroundUpdate,
+                   let detectedItem = model.detectedUpdateItem {
+                    DetectedBackgroundUpdateView(item: detectedItem, dismiss: dismiss)
+                } else if let detectedVersion = model.detectedUpdateVersion,
+                          model.showsDetectedBackgroundUpdate {
+                    DetectedBackgroundUpdatePendingView(version: detectedVersion)
                 } else {
                     EmptyView()
                 }
@@ -47,7 +55,113 @@ struct UpdatePopoverView: View {
     }
 }
 
+fileprivate struct UpdateMetadataView: View {
+    let item: SUAppcastItem
+    let labelWidth: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(String(localized: "update.popover.version", defaultValue: "Version:"))
+                    .foregroundColor(.secondary)
+                    .frame(width: labelWidth, alignment: .trailing)
+                Text(item.displayVersionString)
+            }
+            .font(.system(size: 11))
+
+            if item.contentLength > 0 {
+                HStack(spacing: 6) {
+                    Text(String(localized: "update.popover.size", defaultValue: "Size:"))
+                        .foregroundColor(.secondary)
+                        .frame(width: labelWidth, alignment: .trailing)
+                    Text(ByteCountFormatter.string(fromByteCount: Int64(item.contentLength), countStyle: .file))
+                }
+                .font(.system(size: 11))
+            }
+
+            if let date = item.date {
+                HStack(spacing: 6) {
+                    Text(String(localized: "update.popover.released", defaultValue: "Released:"))
+                        .foregroundColor(.secondary)
+                        .frame(width: labelWidth, alignment: .trailing)
+                    Text(date.formatted(date: .abbreviated, time: .omitted))
+                }
+                .font(.system(size: 11))
+            }
+        }
+        .textSelection(.enabled)
+    }
+}
+
+fileprivate struct UpdateReleaseNotesLink: View {
+    let notes: UpdateState.ReleaseNotes
+
+    var body: some View {
+        Link(destination: notes.url) {
+            HStack {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 11))
+                Text(notes.label)
+                    .font(.system(size: 11, weight: .medium))
+                Spacer()
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 10))
+            }
+            .foregroundColor(.primary)
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 fileprivate struct DetectedBackgroundUpdateView: View {
+    let item: SUAppcastItem
+    let dismiss: () -> Void
+
+    private let labelWidth: CGFloat = 60
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
+                        .font(.system(size: 13, weight: .semibold))
+
+                    UpdateMetadataView(item: item, labelWidth: labelWidth)
+                }
+
+                HStack(spacing: 8) {
+                    Button(String(localized: "common.later", defaultValue: "Later")) {
+                        dismiss()
+                    }
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
+
+                    Spacer()
+
+                    Button(String(localized: "common.installAndRelaunch", defaultValue: "Install and Relaunch")) {
+                        AppDelegate.shared?.attemptUpdate(nil)
+                        dismiss()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+            .padding(16)
+
+            if let notes = UpdateState.ReleaseNotes(displayVersionString: item.displayVersionString) {
+                Divider()
+                UpdateReleaseNotesLink(notes: notes)
+            }
+        }
+    }
+}
+
+fileprivate struct DetectedBackgroundUpdatePendingView: View {
     let version: String
 
     var body: some View {
@@ -78,7 +192,7 @@ fileprivate struct DetectedBackgroundUpdateView: View {
 
 fileprivate struct PermissionRequestView: View {
     let request: UpdateState.PermissionRequest
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -96,7 +210,8 @@ fileprivate struct PermissionRequestView: View {
                 Button(String(localized: "common.notNow", defaultValue: "Not Now")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: false,
-                        sendSystemProfile: false))
+                        sendSystemProfile: false
+                    ))
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -106,7 +221,8 @@ fileprivate struct PermissionRequestView: View {
                 Button(String(localized: "common.allow", defaultValue: "Allow")) {
                     request.reply(SUUpdatePermissionResponse(
                         automaticUpdateChecks: true,
-                        sendSystemProfile: false))
+                        sendSystemProfile: false
+                    ))
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -119,7 +235,7 @@ fileprivate struct PermissionRequestView: View {
 
 fileprivate struct CheckingView: View {
     let checking: UpdateState.Checking
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -146,7 +262,7 @@ fileprivate struct CheckingView: View {
 
 fileprivate struct UpdateAvailableView: View {
     let update: UpdateState.UpdateAvailable
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     private let labelWidth: CGFloat = 60
 
@@ -157,36 +273,7 @@ fileprivate struct UpdateAvailableView: View {
                     Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
                         .font(.system(size: 13, weight: .semibold))
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(String(localized: "update.popover.version", defaultValue: "Version:"))
-                                .foregroundColor(.secondary)
-                                .frame(width: labelWidth, alignment: .trailing)
-                            Text(update.appcastItem.displayVersionString)
-                        }
-                        .font(.system(size: 11))
-
-                        if update.appcastItem.contentLength > 0 {
-                            HStack(spacing: 6) {
-                                Text(String(localized: "update.popover.size", defaultValue: "Size:"))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: labelWidth, alignment: .trailing)
-                                Text(ByteCountFormatter.string(fromByteCount: Int64(update.appcastItem.contentLength), countStyle: .file))
-                            }
-                            .font(.system(size: 11))
-                        }
-
-                        if let date = update.appcastItem.date {
-                            HStack(spacing: 6) {
-                                Text(String(localized: "update.popover.released", defaultValue: "Released:"))
-                                    .foregroundColor(.secondary)
-                                    .frame(width: labelWidth, alignment: .trailing)
-                                Text(date.formatted(date: .abbreviated, time: .omitted))
-                            }
-                            .font(.system(size: 11))
-                        }
-                    }
-                    .textSelection(.enabled)
+                    UpdateMetadataView(item: update.appcastItem, labelWidth: labelWidth)
                 }
 
                 HStack(spacing: 8) {
@@ -218,24 +305,7 @@ fileprivate struct UpdateAvailableView: View {
 
             if let notes = update.releaseNotes {
                 Divider()
-
-                Link(destination: notes.url) {
-                    HStack {
-                        Image(systemName: "doc.text")
-                            .font(.system(size: 11))
-                        Text(notes.label)
-                            .font(.system(size: 11, weight: .medium))
-                        Spacer()
-                        Image(systemName: "arrow.up.right")
-                            .font(.system(size: 10))
-                    }
-                    .foregroundColor(.primary)
-                    .padding(12)
-                    .frame(maxWidth: .infinity)
-                    .background(Color(nsColor: .controlBackgroundColor))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                UpdateReleaseNotesLink(notes: notes)
             }
         }
     }
@@ -243,7 +313,7 @@ fileprivate struct UpdateAvailableView: View {
 
 fileprivate struct DownloadingView: View {
     let download: UpdateState.Downloading
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -300,7 +370,7 @@ fileprivate struct ExtractingView: View {
 
 fileprivate struct InstallingView: View {
     let installing: UpdateState.Installing
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -339,7 +409,7 @@ fileprivate struct InstallingView: View {
 
 fileprivate struct NotFoundView: View {
     let notFound: UpdateState.NotFound
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -369,7 +439,7 @@ fileprivate struct NotFoundView: View {
 
 fileprivate struct UpdateErrorView: View {
     let error: UpdateState.Error
-    let dismiss: DismissAction
+    let dismiss: () -> Void
 
     var body: some View {
         let title = UpdateViewModel.userFacingErrorTitle(for: error.error)

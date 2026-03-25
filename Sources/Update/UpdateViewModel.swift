@@ -7,6 +7,7 @@ class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
     @Published var detectedUpdateVersion: String?
+    @Published private(set) var detectedUpdateItem: SUAppcastItem?
     #if DEBUG
     @Published var debugOverrideText: String?
     #endif
@@ -19,15 +20,22 @@ class UpdateViewModel: ObservableObject {
         effectiveState.isIdle && detectedUpdateVersion != nil
     }
 
+    var hasCachedDetectedUpdateDetails: Bool {
+        detectedUpdateItem != nil
+    }
+
     var showsPill: Bool {
         !effectiveState.isIdle || showsDetectedBackgroundUpdate
     }
 
     func recordDetectedUpdate(_ item: SUAppcastItem) {
-        detectedUpdateVersion = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        detectedUpdateItem = version == nil ? nil : item
+        detectedUpdateVersion = version
     }
 
     func clearDetectedUpdate() {
+        detectedUpdateItem = nil
         detectedUpdateVersion = nil
     }
 
