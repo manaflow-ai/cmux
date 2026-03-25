@@ -24,6 +24,27 @@ echo ""
 
 cd "$REPO_ROOT"
 
+# --- Build t3code server (Node.js sidecar) ---
+T3CODE_DIR="${SUPERPROJECT_ROOT}/t3code"
+T3CODE_DIST="${T3CODE_DIR}/apps/server/dist/index.mjs"
+if [ -d "$T3CODE_DIR" ]; then
+  echo "▸ Building t3code server..."
+  if command -v bun >/dev/null 2>&1; then
+    (cd "$T3CODE_DIR" && bun install && bun run build)
+  elif command -v npm >/dev/null 2>&1; then
+    (cd "$T3CODE_DIR" && npm install && npm run build)
+  else
+    echo "warning: neither bun nor npm found — skipping t3code build" >&2
+  fi
+  if [ -f "$T3CODE_DIST" ]; then
+    echo "▸ t3code server built successfully"
+  else
+    echo "warning: t3code dist not found after build — sidecar will not be bundled" >&2
+  fi
+else
+  echo "warning: t3code submodule not found at ${T3CODE_DIR}" >&2
+fi
+
 echo "▸ Building Release configuration..."
 XCODE_LOG="/tmp/cmux-t3code-xcodebuild.log"
 xcodebuild \
@@ -76,7 +97,8 @@ for kv in \
   "CMUX_SOCKET_ENABLE:1" \
   "CMUX_SOCKET_MODE:automation" \
   "CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD:1" \
-  "CMUXTERM_REPO_ROOT:${SUPERPROJECT_ROOT}"; do
+  "CMUXTERM_REPO_ROOT:${SUPERPROJECT_ROOT}" \
+  "T3CODE_SERVER_PATH:${T3CODE_DIST}"; do
   KEY="${kv%%:*}"; VAL="${kv#*:}"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:${KEY} \"${VAL}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:${KEY} string \"${VAL}\"" "$INFO_PLIST"

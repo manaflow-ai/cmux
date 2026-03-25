@@ -15,8 +15,11 @@ final class T3CodeSidecarManager {
     /// The workspace's project directory (used as cwd and state-dir base).
     let projectDirectory: URL
 
-    /// The .cmux state directory for this workspace.
-    private var stateDir: String { projectDirectory.appendingPathComponent(".cmux").path }
+    /// The .cmux home directory for this workspace (passed as --home-dir to t3code).
+    private var homeDir: String { projectDirectory.appendingPathComponent(".cmux").path }
+
+    /// The t3code "userdata" state directory (derived by the server as {homeDir}/userdata).
+    private var stateDir: String { (homeDir as NSString).appendingPathComponent("userdata") }
 
     /// The port file path inside the state directory.
     private var portFilePath: String { (stateDir as NSString).appendingPathComponent("server.port") }
@@ -89,7 +92,7 @@ final class T3CodeSidecarManager {
             "node",
             serverBinary,
             "--port", String(selectedPort),
-            "--state-dir", stateDir,
+            "--home-dir", homeDir,
             "--auto-bootstrap-project-from-cwd",
             "--no-browser",
             "--mode", "web"
@@ -281,13 +284,21 @@ final class T3CodeSidecarManager {
 
     /// Find the t3code server binary.
     private func resolveServerBinary() -> String? {
-        // 1. Check T3CODE_SERVER_PATH environment variable
+        // 1. Check T3CODE_SERVER_PATH environment variable (set by install script)
         if let t3codePath = ProcessInfo.processInfo.environment["T3CODE_SERVER_PATH"],
            FileManager.default.fileExists(atPath: t3codePath) {
             return t3codePath
         }
 
-        // 2. Check via Xcode source root (Info.plist CMUXSourceRoot key)
+        // 2. Check CMUXTERM_REPO_ROOT (set in LSEnvironment by install script)
+        if let repoRoot = ProcessInfo.processInfo.environment["CMUXTERM_REPO_ROOT"] {
+            let candidate = (repoRoot as NSString).appendingPathComponent("t3code/apps/server/dist/index.mjs")
+            if FileManager.default.fileExists(atPath: candidate) {
+                return candidate
+            }
+        }
+
+        // 3. Check via Xcode source root (Info.plist CMUXSourceRoot key)
         #if DEBUG
         if let sourceRoot = Bundle.main.infoDictionary?["CMUXSourceRoot"] as? String {
             let monorepoRoot = (sourceRoot as NSString).deletingLastPathComponent
@@ -298,19 +309,31 @@ final class T3CodeSidecarManager {
         }
         #endif
 
-        // 3. Walk up from project directory looking for t3code sibling
+        // 4. Walk up from project directory looking for t3code sibling.
+        // Stop at the project's git root to avoid escaping the repository
+        // and matching an unrelated standalone t3code installation (e.g.,
+        // ~/Projekte/t3code found when the workspace is ~/Projekte/AgentMux).
+        // Note: submodules use a .git *file* (not directory) as a pointer to
+        // the parent's .git/modules — only treat actual .git directories as
+        // repository boundaries.
         var searchDir = projectDirectory.path
         for _ in 0..<6 {
             let candidate = (searchDir as NSString).appendingPathComponent("t3code/apps/server/dist/index.mjs")
             if FileManager.default.fileExists(atPath: candidate) {
                 return candidate
             }
+            // Only stop at real git root directories, not submodule .git files.
+            let gitMarker = (searchDir as NSString).appendingPathComponent(".git")
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: gitMarker, isDirectory: &isDir), isDir.boolValue {
+                break
+            }
             let parent = (searchDir as NSString).deletingLastPathComponent
             if parent == searchDir { break }
             searchDir = parent
         }
 
-        // 4. Check well-known development paths
+        // 5. Check well-known development paths
         #if DEBUG
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
         let devPaths = [
@@ -324,7 +347,7 @@ final class T3CodeSidecarManager {
         }
         #endif
 
-        // 5. Check common global install paths
+        // 6. Check common global install paths
         let globalPaths = [
             "/usr/local/lib/node_modules/t3/dist/index.mjs",
             "/opt/homebrew/lib/node_modules/t3/dist/index.mjs",
@@ -335,9 +358,13 @@ final class T3CodeSidecarManager {
             }
         }
 
-        // 6. Check app bundle resources
-        if let bundledPath = Bundle.main.path(forResource: "t3code-server", ofType: "mjs") {
-            return bundledPath
+        // 7. Check app bundle resources (last resort — requires a fully
+        // self-contained bundle with node_modules to actually work)
+        if let resourceURL = Bundle.main.resourceURL {
+            let bundledPath = resourceURL.appendingPathComponent("t3code-server/index.mjs").path
+            if FileManager.default.fileExists(atPath: bundledPath) {
+                return bundledPath
+            }
         }
 
         logger.warning("t3code server binary not found. Set T3CODE_SERVER_PATH env var.")
