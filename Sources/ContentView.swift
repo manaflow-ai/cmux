@@ -10855,42 +10855,19 @@ private struct SidebarEmptyArea: View {
 enum SidebarPathFormatter {
     static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
 
-    /// Maximum number of path segments shown before adding a leading ellipsis.
-    /// e.g. `~/a/b/c/d` → `…/c/d` when maxSegments == 2.
-    static let maxDisplaySegments: Int = 3
-
     static func shortenedPath(
         _ path: String,
         homeDirectoryPath: String = Self.homeDirectoryPath
     ) -> String {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return path }
-
-        // Replace home directory prefix with ~
-        let tildeReplaced: String
         if trimmed == homeDirectoryPath {
             return "~"
-        } else if trimmed.hasPrefix(homeDirectoryPath + "/") {
-            tildeReplaced = "~" + trimmed.dropFirst(homeDirectoryPath.count)
-        } else {
-            tildeReplaced = trimmed
         }
-
-        // Apply smart truncation: keep only the last maxDisplaySegments segments
-        // so paths with a long common prefix remain distinguishable in the sidebar.
-        // e.g. `~/Desktop/YOKE/Claude Code/Projects/Athlete Merch/nilclub`
-        //   → `…/Projects/Athlete Merch/nilclub`
-        let segments = tildeReplaced.split(separator: "/", omittingEmptySubsequences: false)
-        // For a tilde-replaced path like `~/a/b/c`, split on "/" yields
-        // ["~", "a", "b", "c"]. The tilde token is always a single leading segment.
-        // For an absolute path like `/tmp/a/b`, split yields ["", "tmp", "a", "b"].
-        // We only truncate when there are strictly more segments than allowed.
-        let effectiveMax = maxDisplaySegments + 1 // +1 for the leading "~" or "" token
-        guard segments.count > effectiveMax else {
-            return tildeReplaced
+        if trimmed.hasPrefix(homeDirectoryPath + "/") {
+            return "~" + trimmed.dropFirst(homeDirectoryPath.count)
         }
-        let tail = segments.suffix(maxDisplaySegments).joined(separator: "/")
-        return "…/" + tail
+        return trimmed
     }
 }
 
