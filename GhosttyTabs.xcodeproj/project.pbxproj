@@ -14,6 +14,7 @@
 			A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 			A5001004 /* GhosttyConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001014 /* GhosttyConfig.swift */; };
 			A5001005 /* GhosttyTerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001015 /* GhosttyTerminalView.swift */; };
+			A5001630 /* GhosttyViewportSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001631 /* GhosttyViewportSync.swift */; };
 			A5001532 /* TerminalWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001531 /* TerminalWindowPortal.swift */; };
 			A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
@@ -186,6 +187,7 @@
 			A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 			A5001014 /* GhosttyConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfig.swift; sourceTree = "<group>"; };
 			A5001015 /* GhosttyTerminalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalView.swift; sourceTree = "<group>"; };
+			A5001631 /* GhosttyViewportSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyViewportSync.swift; sourceTree = "<group>"; };
 			A5001531 /* TerminalWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWindowPortal.swift; sourceTree = "<group>"; };
 			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
@@ -416,6 +418,7 @@
 				A5001417 /* WorkspaceContentView.swift */,
 				A5001014 /* GhosttyConfig.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
+				A5001631 /* GhosttyViewportSync.swift */,
 				A5001531 /* TerminalWindowPortal.swift */,
 				A5001533 /* BrowserWindowPortal.swift */,
 				A5001019 /* TerminalController.swift */,
@@ -711,6 +714,7 @@
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				A5001004 /* GhosttyConfig.swift in Sources */,
 				A5001005 /* GhosttyTerminalView.swift in Sources */,
+				A5001630 /* GhosttyViewportSync.swift in Sources */,
 				A5001532 /* TerminalWindowPortal.swift in Sources */,
 				A5001534 /* BrowserWindowPortal.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,

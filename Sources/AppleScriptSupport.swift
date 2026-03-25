@@ -555,7 +555,7 @@ final class ScriptTerminal: NSObject {
 
     func perform(action: String) -> Bool {
         guard NSApp.isAppleScriptEnabled else { return false }
-        return terminal?.performBindingAction(action) ?? false
+        return terminal?.performBindingAction(action, viewportChangeSource: .userInteraction) ?? false
     }
 
     @objc(handleSplitCommand:)

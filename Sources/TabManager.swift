@@ -1038,7 +1038,7 @@ class TabManager: ObservableObject {
             }
             NSLog("Find: startSearch workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
             NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-            _ = panel.performBindingAction("start_search")
+            _ = panel.performBindingAction("start_search", viewportChangeSource: .userInteraction)
             return
         }
         if let panel = selectedTerminalPanel {
@@ -1066,12 +1066,12 @@ class TabManager: ObservableObject {
         }
         NSLog("Find: searchSelection workspace=%@ panel=%@", panel.workspaceId.uuidString, panel.id.uuidString)
         NotificationCenter.default.post(name: .ghosttySearchFocus, object: panel.surface)
-        _ = panel.performBindingAction("search_selection")
+        _ = panel.performBindingAction("search_selection", viewportChangeSource: .userInteraction)
     }
 
     func findNext() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:next")
+            _ = panel.performBindingAction("search:next", viewportChangeSource: .userInteraction)
             return
         }
 
@@ -1080,7 +1080,7 @@ class TabManager: ObservableObject {
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
-            _ = panel.performBindingAction("search:previous")
+            _ = panel.performBindingAction("search:previous", viewportChangeSource: .userInteraction)
             return
         }
 

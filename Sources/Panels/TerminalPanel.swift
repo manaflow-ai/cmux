@@ -139,7 +139,11 @@ final class TerminalPanel: Panel, ObservableObject {
         // `unfocus()` force-disables active state to stop stale retries from stealing focus.
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.setActive(true)
-        hostedView.ensureFocus(for: workspaceId, surfaceId: id)
+        hostedView.ensureFocus(
+            for: workspaceId,
+            surfaceId: id,
+            focusRequestSource: .explicitUserAction
+        )
     }
 
     func unfocus() {
@@ -191,8 +195,11 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.sendText(text)
     }
 
-    func performBindingAction(_ action: String) -> Bool {
-        surface.performBindingAction(action)
+    func performBindingAction(
+        _ action: String,
+        viewportChangeSource: GhosttyViewportChangeSource
+    ) -> Bool {
+        surface.performBindingAction(action, viewportChangeSource: viewportChangeSource)
     }
 
     func hasSelection() -> Bool {

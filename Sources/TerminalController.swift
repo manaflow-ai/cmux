@@ -5374,7 +5374,7 @@ class TerminalController {
                 return
             }
 
-            guard terminalPanel.performBindingAction("clear_screen") else {
+            guard terminalPanel.performBindingAction("clear_screen", viewportChangeSource: .userInteraction) else {
                 result = .err(code: "not_supported", message: "clear_screen binding action is unavailable", data: nil)
                 return
             }
@@ -5605,7 +5605,7 @@ class TerminalController {
         }
 
         let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction("write_screen_file:copy,vt") else {
+        guard terminalPanel.performBindingAction("write_screen_file:copy,vt", viewportChangeSource: .userInteraction) else {
             return nil
         }
         guard pasteboard.changeCount != initialChangeCount else {

@@ -2733,6 +2733,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var scrollViewportAnchorTopVisibleRow: Int?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface` syncs
     /// it on creation. Also used as a dedup guard to avoid redundant
@@ -2780,14 +2781,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #if DEBUG
                         dlog("find.needle updated tab=\(self?.tabId.uuidString.prefix(5) ?? "?") surface=\(self?.id.uuidString.prefix(5) ?? "?") chars=\(needle.count)")
 #endif
-                        _ = self?.performBindingAction("search:\(needle)")
+                        _ = self?.performBindingAction(
+                            "search:\(needle)",
+                            viewportChangeSource: .userInteraction
+                        )
                     }
             } else if oldValue != nil {
                 searchNeedleCancellable = nil
 #if DEBUG
                 dlog("find.searchState cleared tab=\(tabId.uuidString.prefix(5)) surface=\(id.uuidString.prefix(5))")
 #endif
-                _ = performBindingAction("end_search")
+                _ = performBindingAction(
+                    "end_search",
+                    viewportChangeSource: .userInteraction
+                )
             }
         }
     }
@@ -2868,6 +2875,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func isAttached(to view: GhosttyNSView) -> Bool {
         attachedView === view && surface != nil
+    }
+
+    func storedScrollViewportAnchorTopVisibleRow() -> Int? {
+        scrollViewportAnchorTopVisibleRow
+    }
+
+    func updateScrollViewportAnchorTopVisibleRow(_ row: Int?) {
+        scrollViewportAnchorTopVisibleRow = row
     }
 
     func portalBindingGeneration() -> UInt64 {
@@ -3550,7 +3565,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }()
             if shouldReapply {
                 let action = String(format: "set_font_size:%.3f", inheritedFontPoints)
-                _ = performBindingAction(action)
+                _ = performBindingAction(
+                    action,
+                    viewportChangeSource: .internalCorrection
+                )
             }
         }
 
@@ -3808,8 +3826,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
     }
 
-    func performBindingAction(_ action: String) -> Bool {
+    func performBindingAction(
+        _ action: String,
+        viewportChangeSource: GhosttyViewportChangeSource
+    ) -> Bool {
         guard let surface = surface else { return false }
+        if ghosttyShouldBeginExplicitViewportChange(
+            for: .bindingAction(action: action, source: viewportChangeSource)
+        ) {
+            hostedView.markExplicitViewportChange()
+        }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -4561,8 +4587,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return surface
     }
 
-    func performBindingAction(_ action: String) -> Bool {
+    func performBindingAction(
+        _ action: String,
+        viewportChangeSource: GhosttyViewportChangeSource
+    ) -> Bool {
         guard let surface = surface else { return false }
+        if ghosttyShouldBeginExplicitViewportChange(
+            for: .bindingAction(action: action, source: viewportChangeSource)
+        ) {
+            terminalSurface?.hostedView.markExplicitViewportChange()
+        }
         return action.withCString { cString in
             ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
         }
@@ -4600,7 +4634,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func performBindingAction(_ action: String, repeatCount: Int) {
         let count = terminalKeyboardCopyModeClampCount(repeatCount)
         for _ in 0 ..< count {
-            _ = performBindingAction(action)
+            _ = performBindingAction(action, viewportChangeSource: .userInteraction)
         }
     }
 
@@ -4692,7 +4726,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_mouse_pos(surface, endX, endY, mods)
         guard ghostty_surface_has_selection(surface) else { return false }
 
-        return performBindingAction("copy_to_clipboard")
+        return performBindingAction("copy_to_clipboard", viewportChangeSource: .userInteraction)
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -4729,7 +4763,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // Re-create 1-cell cursor at terminal cursor position.
             _ = ghostty_surface_select_cursor_cell(surface)
         case .copyAndExit:
-            _ = performBindingAction("copy_to_clipboard")
+            _ = performBindingAction("copy_to_clipboard", viewportChangeSource: .userInteraction)
             _ = ghostty_surface_clear_selection(surface)
             setKeyboardCopyModeActive(false)
         case .copyLineAndExit:
@@ -4742,7 +4776,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_clear_selection(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
-            _ = performBindingAction("scroll_page_lines:\(delta * count)")
+            _ = performBindingAction("scroll_page_lines:\(delta * count)", viewportChangeSource: .userInteraction)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case let .scrollPage(delta):
             performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: count)
@@ -4753,15 +4787,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .scrollToTop:
             keyboardCopyModeViewportRow = 0
-            _ = performBindingAction("scroll_to_top")
+            _ = performBindingAction("scroll_to_top", viewportChangeSource: .userInteraction)
         case .scrollToBottom:
             keyboardCopyModeViewportRow = max(Int(ghostty_surface_size(surface).rows) - 1, 0)
-            _ = performBindingAction("scroll_to_bottom")
+            _ = performBindingAction("scroll_to_bottom", viewportChangeSource: .userInteraction)
         case let .jumpToPrompt(delta):
-            _ = performBindingAction("jump_to_prompt:\(delta * count)")
+            _ = performBindingAction("jump_to_prompt:\(delta * count)", viewportChangeSource: .userInteraction)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
         case .startSearch:
-            _ = performBindingAction("start_search")
+            _ = performBindingAction("start_search", viewportChangeSource: .userInteraction)
         case .searchNext:
             performBindingAction("navigate_search:next", repeatCount: count)
             refreshKeyboardCopyModeViewportRowFromVisibleAnchor(surface: surface)
@@ -4777,18 +4811,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
-        _ = performBindingAction("copy_to_clipboard")
+        _ = performBindingAction("copy_to_clipboard", viewportChangeSource: .userInteraction)
     }
 
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
-        _ = performBindingAction("paste_from_clipboard")
+        _ = performBindingAction("paste_from_clipboard", viewportChangeSource: .userInteraction)
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
-        _ = performBindingAction("paste_from_clipboard")
+        _ = performBindingAction("paste_from_clipboard", viewportChangeSource: .userInteraction)
     }
 
     /// Validates whether edit menu items (copy, paste, split) should be enabled.
@@ -4914,6 +4948,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override var acceptsFirstResponder: Bool { true }
 
+    private func firstResponderAcquisitionSource() -> GhosttyFirstResponderAcquisitionSource {
+        guard let window, let event = NSApp.currentEvent else {
+            return .automaticWindowActivation
+        }
+
+        if event.windowNumber != 0, event.windowNumber != window.windowNumber {
+            return .automaticWindowActivation
+        }
+        if let eventWindow = event.window, eventWindow !== window {
+            return .automaticWindowActivation
+        }
+
+        switch event.type {
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+             .otherMouseDown, .otherMouseUp, .scrollWheel, .gesture,
+             .magnify, .rotate, .swipe:
+            let point = convert(event.locationInWindow, from: nil)
+            return bounds.contains(point) ? .directSurfaceInteraction : .automaticWindowActivation
+        case .keyDown, .keyUp:
+            return .directSurfaceInteraction
+        default:
+            return .automaticWindowActivation
+        }
+    }
+
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
         var shouldApplySurfaceFocus = false
@@ -4937,9 +4996,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // allowed a mismatch where AppKit focus moved but the UI focus indicator (bonsplit)
             // stayed behind.
             let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
+            let storedTopVisibleRow = terminalSurface?.storedScrollViewportAnchorTopVisibleRow()
+            let acquisitionSource = firstResponderAcquisitionSource()
             if isVisibleInUI && hasUsableFocusGeometry && !hiddenInHierarchy {
-                shouldApplySurfaceFocus = true
-                onFocus?()
+                if ghosttyShouldApplyTerminalSurfaceFocusOnFirstResponderAcquisition(
+                    storedTopVisibleRow: storedTopVisibleRow,
+                    acquisitionSource: acquisitionSource
+                ) {
+                    shouldApplySurfaceFocus = true
+                    onFocus?()
+                } else {
+#if DEBUG
+                    dlog(
+                        "focus.firstResponder SUPPRESSED (reviewing_scrollback) " +
+                        "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                        "source=\(acquisitionSource == .automaticWindowActivation ? "automatic" : "direct")"
+                    )
+#endif
+                }
             } else if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
 #if DEBUG
                 dlog(
@@ -5886,6 +5960,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
         // repairs workspace/pane active state before key routing runs.
         requestPointerFocusRecovery()
+        terminalSurface?.hostedView.noteNotificationRingInteractionIfVisible()
         window?.makeFirstResponder(self)
         if let terminalSurface {
             AppDelegate.shared?.tabManager?.dismissNotificationOnDirectInteraction(
@@ -6092,6 +6167,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()
+        if ghosttyShouldBeginExplicitViewportChange(for: .scrollWheel) {
+            terminalSurface?.hostedView.markExplicitViewportChange()
+        }
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
         var y = event.scrollingDeltaY
@@ -6464,11 +6542,7 @@ private extension NSScreen {
     }
 }
 
-struct GhosttyScrollbar {
-    let total: UInt64
-    let offset: UInt64
-    let len: UInt64
-
+extension GhosttyScrollbar {
     init(c: ghostty_action_scrollbar_s) {
         total = c.total
         offset = c.offset
@@ -6502,6 +6576,7 @@ extension Notification.Name {
 
 private final class GhosttyScrollView: NSScrollView {
     weak var surfaceView: GhosttyNSView?
+    weak var surfaceContainer: GhosttySurfaceScrollView?
 
     // Keep keyboard routing on the terminal surface; this wrapper is viewport plumbing.
     override var acceptsFirstResponder: Bool { false }
@@ -6516,6 +6591,9 @@ private final class GhosttyScrollView: NSScrollView {
         // Letting NSScrollView consume these events moves the wrapper viewport itself,
         // which causes pane-content drift instead of terminal scrollback movement.
         GhosttyNSView.focusLog("GhosttyScrollView.scrollWheel: surface scroll")
+        if ghosttyShouldBeginExplicitViewportChange(for: .scrollWheel) {
+            surfaceContainer?.markExplicitViewportChange()
+        }
         if window?.firstResponder !== surfaceView {
             window?.makeFirstResponder(surfaceView)
         }
@@ -6619,16 +6697,14 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
+    private var lastAcceptedScrollbar: GhosttyScrollbar?
+    private var pendingExplicitFocusRestoreAfterKeyLoss = false
+    private var hasLostKeySinceExplicitFocusRestoreRequest = false
     private var isLiveScrolling = false
     private var lastSentRow: Int?
-    /// Tracks whether the user has scrolled away from the bottom to review scrollback.
-    /// When true, auto-scroll should be suspended to prevent the "doomscroll" bug
-    /// where the terminal fights the user's scroll position.
-    private var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    private var allowExplicitScrollbarSync = false
-    /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
-    private static let scrollToBottomThreshold: CGFloat = 5.0
+    private var pendingExplicitViewportChange = false
+    private var pendingExplicitViewportChangeBaseline: GhosttyScrollbar?
+    private var pendingAnchorCorrectionRow: Int?
     private var isActive = true
     private var lastFocusRefreshAt: CFTimeInterval = 0
     private var lastRequestedPortalOcclusionVisible: Bool?
@@ -6832,6 +6908,7 @@ final class GhosttySurfaceScrollView: NSView {
         documentView.addSubview(surfaceView)
 
         super.init(frame: .zero)
+        scrollView.surfaceContainer = self
         wantsLayer = true
         layer?.masksToBounds = true
 
@@ -7024,6 +7101,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
+            self?.markExplicitViewportChange()
             self?.isLiveScrolling = true
         })
 
@@ -7033,7 +7111,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            // Final scroll position check to update userScrolledAwayFromBottom state
+            self?.markExplicitViewportChange()
             self?.handleLiveScroll()
         })
 
@@ -7042,6 +7120,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: scrollView,
             queue: .main
         ) { [weak self] _ in
+            self?.markExplicitViewportChange()
             self?.handleLiveScroll()
         })
 
@@ -7051,14 +7130,6 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] notification in
             self?.handleScrollbarUpdate(notification)
-        })
-
-        observers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidReceiveWheelScroll,
-            object: surfaceView,
-            queue: .main
-        ) { [weak self] _ in
-            self?.pendingExplicitWheelScroll = true
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -7358,6 +7429,9 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             guard let self, let window = self.window else { return }
             let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+            if self.pendingExplicitFocusRestoreAfterKeyLoss {
+                self.hasLostKeySinceExplicitFocusRestoreRequest = true
+            }
             // Losing key window does not always trigger first-responder resignation, so force
             // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
             if let fr = window.firstResponder as? NSView,
@@ -7567,7 +7641,10 @@ final class GhosttySurfaceScrollView: NSView {
                 self?.moveFocus()
             },
             onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performBindingAction(action)
+                _ = terminalSurface?.performBindingAction(
+                    action,
+                    viewportChangeSource: .userInteraction
+                )
             },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
@@ -8252,7 +8329,23 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-    func ensureFocus(for tabId: UUID, surfaceId: UUID) {
+    func ensureFocus(
+        for tabId: UUID,
+        surfaceId: UUID,
+        attemptsRemaining: Int = 3,
+        focusRequestSource: GhosttyTerminalFocusRequestSource = .automaticEnsureFocus
+    ) {
+        func retry() {
+            guard attemptsRemaining > 0 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+                self?.ensureFocus(
+                    for: tabId,
+                    surfaceId: surfaceId,
+                    attemptsRemaining: attemptsRemaining - 1,
+                    focusRequestSource: focusRequestSource
+                )
+            }
+        }
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
             return size.width > 1 && size.height > 1
@@ -8318,8 +8411,31 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        let storedTopVisibleRow = surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow()
+        let explicitFocusRestore = ghosttyConsumeExplicitFocusRestoreAfterKeyLoss(
+            pendingExplicitFocusRestoreAfterKeyLoss: pendingExplicitFocusRestoreAfterKeyLoss,
+            hasLostKeySinceExplicitFocusRestoreRequest: hasLostKeySinceExplicitFocusRestoreRequest,
+            baseFocusRequestSource: focusRequestSource
+        )
+        pendingExplicitFocusRestoreAfterKeyLoss =
+            explicitFocusRestore.remainingPendingExplicitFocusRestoreAfterKeyLoss
+        hasLostKeySinceExplicitFocusRestoreRequest =
+            explicitFocusRestore.remainingHasLostKeySinceExplicitFocusRestoreRequest
+        let focusRestorePlan = ghosttyAutomaticTerminalFocusRestorePlan(
+            storedTopVisibleRow: storedTopVisibleRow,
+            focusRequestSource: explicitFocusRestore.focusRequestSource
+        )
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            guard focusRestorePlan.shouldReassertTerminalSurfaceFocus else {
+#if DEBUG
+                dlog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=reviewing_scrollback stage=alreadyFirstResponder"
+                )
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "ensureFocus.alreadyFirstResponder")
             return
         }
@@ -8348,6 +8464,15 @@ final class GhosttySurfaceScrollView: NSView {
         if !isSurfaceViewFirstResponder() {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.afterMakeFirstResponder")
         } else {
+            guard focusRestorePlan.shouldReassertTerminalSurfaceFocus else {
+#if DEBUG
+                dlog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=reviewing_scrollback stage=afterMakeFirstResponder"
+                )
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
         }
     }
@@ -8427,6 +8552,13 @@ final class GhosttySurfaceScrollView: NSView {
         terminalSurface.forceRefresh(reason: "focus.surface.\(reason)")
     }
 
+    fileprivate func noteNotificationRingInteractionIfVisible() {
+        guard !notificationRingOverlayView.isHidden,
+              notificationRingLayer.opacity > 0 else { return }
+        pendingExplicitFocusRestoreAfterKeyLoss = true
+        hasLostKeySinceExplicitFocusRestoreRequest = false
+    }
+
     private func applyFirstResponderIfNeeded() {
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size
@@ -8434,6 +8566,7 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let storedTopVisibleRow = surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow()
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
@@ -8460,9 +8593,31 @@ final class GhosttySurfaceScrollView: NSView {
             restoreSearchFocus(window: window)
             return
         }
+        let explicitFocusRestore = ghosttyConsumeExplicitFocusRestoreAfterKeyLoss(
+            pendingExplicitFocusRestoreAfterKeyLoss: pendingExplicitFocusRestoreAfterKeyLoss,
+            hasLostKeySinceExplicitFocusRestoreRequest: hasLostKeySinceExplicitFocusRestoreRequest,
+            baseFocusRequestSource: .automaticFirstResponderRestore
+        )
+        pendingExplicitFocusRestoreAfterKeyLoss =
+            explicitFocusRestore.remainingPendingExplicitFocusRestoreAfterKeyLoss
+        hasLostKeySinceExplicitFocusRestoreRequest =
+            explicitFocusRestore.remainingHasLostKeySinceExplicitFocusRestoreRequest
+        let focusRestorePlan = ghosttyAutomaticTerminalFocusRestorePlan(
+            storedTopVisibleRow: storedTopVisibleRow,
+            focusRequestSource: explicitFocusRestore.focusRequestSource
+        )
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            guard focusRestorePlan.shouldReassertTerminalSurfaceFocus else {
+#if DEBUG
+                dlog("focus.apply.skip surface=\(surfaceShort) reason=reviewing_scrollback stage=alreadyFirstResponder")
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "applyFirstResponder.alreadyFirstResponder")
+            return
+        }
+        guard focusRestorePlan.shouldRestoreFirstResponder else {
             return
         }
         // Don't steal focus from a search overlay on another surface in this window.
@@ -8477,6 +8632,12 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         window.makeFirstResponder(surfaceView)
         if isSurfaceViewFirstResponder() {
+            guard focusRestorePlan.shouldReassertTerminalSurfaceFocus else {
+#if DEBUG
+                dlog("focus.apply.skip surface=\(surfaceShort) reason=reviewing_scrollback stage=afterMakeFirstResponder")
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "applyFirstResponder.afterMakeFirstResponder")
         }
     }
@@ -9065,41 +9226,66 @@ final class GhosttySurfaceScrollView: NSView {
 
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
-            if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
-                let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
-                let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
-
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+            if cellHeight > 0, let syncPlan = makeViewportSyncPlan(isExplicitViewportChange: false) {
+                surfaceView.terminalSurface?.updateScrollViewportAnchorTopVisibleRow(
+                    syncPlan.storedTopVisibleRow
+                )
+                let maxOriginY = max(0, documentView.frame.height - scrollView.contentView.documentVisibleRect.height)
+                let targetY = min(max(CGFloat(syncPlan.targetTopVisibleRow) * cellHeight, 0), maxOriginY)
+                let targetOrigin = CGPoint(x: scrollView.contentView.bounds.origin.x, y: targetY)
+                if !pointApproximatelyEqual(scrollView.contentView.bounds.origin, targetOrigin) {
+                    logDragGeometryChange(
+                        event: "scrollOrigin",
+                        old: scrollView.contentView.bounds.origin,
+                        new: targetOrigin
+                    )
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
-                lastSentRow = Int(scrollbar.offset)
+                lastSentRow = syncPlan.targetRowFromBottom
             }
         }
-
-        allowExplicitScrollbarSync = false
 
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
+    }
+
+    fileprivate func markExplicitViewportChange() {
+        pendingExplicitViewportChange = true
+        pendingExplicitViewportChangeBaseline = surfaceView.scrollbar
+        pendingAnchorCorrectionRow = nil
+    }
+
+    private func makeViewportSyncPlan(isExplicitViewportChange: Bool) -> GhosttyScrollViewportSyncPlan? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        guard !isExplicitViewportChange else {
+            return ghosttyScrollViewportSyncPlan(
+                scrollbar: scrollbar,
+                storedTopVisibleRow: surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow(),
+                isExplicitViewportChange: true
+            )
+        }
+        let viewportRows = currentViewportRows()
+        return ghosttyPassiveScrollViewportSyncPlan(
+            scrollbar: scrollbar,
+            storedTopVisibleRow: surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow(),
+            currentViewportTopVisibleRow: viewportRows?.topVisibleRow,
+            currentViewportRowFromBottom: viewportRows?.rowFromBottom,
+            hasPendingAnchorCorrection: pendingAnchorCorrectionRow != nil
+        )
+    }
+
+    private func currentViewportRows() -> (topVisibleRow: Int, rowFromBottom: Int)? {
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0 else { return nil }
+
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let documentHeight = documentView.frame.height
+        let scrollOffset = max(0, documentHeight - visibleRect.origin.y - visibleRect.height)
+        let rowFromBottom = Int(scrollOffset / cellHeight)
+        let topVisibleRow = max(0, Int(visibleRect.origin.y / cellHeight))
+        return (topVisibleRow, rowFromBottom)
     }
 
     private func handleScrollChange() {
@@ -9107,38 +9293,84 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
-        let cellHeight = surfaceView.cellSize.height
-        guard cellHeight > 0 else { return }
-
-        let visibleRect = scrollView.contentView.documentVisibleRect
-        let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
-
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
+        guard let viewportRows = currentViewportRows() else { return }
+        let row = viewportRows.rowFromBottom
+        let topVisibleRow = viewportRows.topVisibleRow
 
         guard row != lastSentRow else { return }
         lastSentRow = row
-        _ = surfaceView.performBindingAction("scroll_to_row:\(row)")
+        surfaceView.terminalSurface?.updateScrollViewportAnchorTopVisibleRow(row > 0 ? topVisibleRow : nil)
+        _ = surfaceView.performBindingAction(
+            "scroll_to_row:\(row)",
+            viewportChangeSource: .internalCorrection
+        )
     }
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
             return
         }
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
+        let previousScrollbar = ghosttyBaselineScrollbarForIncomingUpdate(
+            lastAcceptedScrollbar: lastAcceptedScrollbar,
+            currentSurfaceScrollbar: surfaceView.scrollbar
+        )
+        let storedTopVisibleRowBefore = surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow()
+        let explicitViewportChange = ghosttyConsumeExplicitViewportChange(
+            pendingExplicitViewportChange: pendingExplicitViewportChange,
+            baselineScrollbar: pendingExplicitViewportChangeBaseline,
+            incomingScrollbar: scrollbar
+        )
+        pendingExplicitViewportChange = explicitViewportChange.remainingPendingExplicitViewportChange
+        if !pendingExplicitViewportChange {
+            pendingExplicitViewportChangeBaseline = nil
+        }
+        let isExplicitViewportChange = isLiveScrolling || explicitViewportChange.isExplicitViewportChange
+        let currentViewportRows = currentViewportRows()
+        let resolvedStoredTopVisibleRow = ghosttyResolvedStoredTopVisibleRow(
+            storedTopVisibleRow: storedTopVisibleRowBefore,
+            currentViewportTopVisibleRow: currentViewportRows?.topVisibleRow,
+            currentViewportRowFromBottom: currentViewportRows?.rowFromBottom,
+            isExplicitViewportChange: isExplicitViewportChange,
+            hasPendingAnchorCorrection: pendingAnchorCorrectionRow != nil
+        )
+        let syncPlan = ghosttyScrollViewportSyncPlan(
+            scrollbar: scrollbar,
+            storedTopVisibleRow: resolvedStoredTopVisibleRow,
+            isExplicitViewportChange: isExplicitViewportChange
+        )
+        if ghosttyShouldIgnoreStalePassiveScrollbarUpdate(
+            previousScrollbar: previousScrollbar,
+            incomingScrollbar: scrollbar,
+            resolvedStoredTopVisibleRow: resolvedStoredTopVisibleRow,
+            resultingStoredTopVisibleRow: syncPlan.storedTopVisibleRow,
+            isExplicitViewportChange: isExplicitViewportChange
+        ) {
+            return
+        }
+        if pendingAnchorCorrectionRow == scrollbar.offsetRows {
+            pendingAnchorCorrectionRow = nil
         }
         surfaceView.scrollbar = scrollbar
+        lastAcceptedScrollbar = scrollbar
+        surfaceView.terminalSurface?.updateScrollViewportAnchorTopVisibleRow(syncPlan.storedTopVisibleRow)
         synchronizeScrollView()
+        guard scrollbar.offsetRows != syncPlan.targetRowFromBottom else {
+            lastSentRow = syncPlan.targetRowFromBottom
+            return
+        }
+        guard pendingAnchorCorrectionRow != syncPlan.targetRowFromBottom else { return }
+        let didDispatch = surfaceView.performBindingAction(
+            "scroll_to_row:\(syncPlan.targetRowFromBottom)",
+            viewportChangeSource: .internalCorrection
+        )
+        let correctionState = ghosttyScrollCorrectionDispatchState(
+            previousLastSentRow: lastSentRow,
+            previousPendingAnchorCorrectionRow: pendingAnchorCorrectionRow,
+            targetRowFromBottom: syncPlan.targetRowFromBottom,
+            dispatchSucceeded: didDispatch
+        )
+        lastSentRow = correctionState.lastSentRow
+        pendingAnchorCorrectionRow = correctionState.pendingAnchorCorrectionRow
     }
 
     private func handlePreferredScrollerStyleChange() {
