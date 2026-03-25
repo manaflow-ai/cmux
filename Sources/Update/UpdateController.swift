@@ -208,6 +208,11 @@ class UpdateController {
         checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
+    /// Check for updates using the custom popover-based UI.
+    func checkForUpdatesInCustomUI() {
+        checkForUpdatesWhenReady(retries: readyRetryCount)
+    }
+
     private func performCheckForUpdates() {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()

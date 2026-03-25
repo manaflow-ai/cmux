@@ -5910,6 +5910,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updateController.checkForUpdates()
     }
 
+    func checkForUpdatesInCustomUI() {
+        updateViewModel.overrideState = nil
+        updateController.checkForUpdatesInCustomUI()
+    }
+
     func openWelcomeWorkspace() {
         guard let context = preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: "welcome") else {
             return

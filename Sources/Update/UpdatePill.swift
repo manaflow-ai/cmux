@@ -28,8 +28,12 @@ struct UpdatePill: View {
     private var pillButton: some View {
         Button(action: {
             if model.showsDetectedBackgroundUpdate {
-                showPopover = false
-                AppDelegate.shared?.checkForUpdates(nil)
+                if showPopover {
+                    showPopover = false
+                } else {
+                    showPopover = true
+                    AppDelegate.shared?.checkForUpdatesInCustomUI()
+                }
                 return
             }
             if case .notFound(let notFound) = model.state {
