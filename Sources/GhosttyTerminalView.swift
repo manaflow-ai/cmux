@@ -1032,6 +1032,13 @@ class GhosttyApp {
         initializeGhostty()
     }
 
+    deinit {
+        for observer in appObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        appObservers.removeAll()
+    }
+
     #if DEBUG
     private static let initLogPath = "/tmp/cmux-ghostty-init.log"
 
