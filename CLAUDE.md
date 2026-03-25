@@ -22,23 +22,23 @@ By default, `reload.sh` builds but does **not** launch the app. The script print
 ./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
 ```
 
-When reporting a tagged reload result in chat, read the "App path:" line from `reload.sh` output and build a `file://` URL from it (URL-encode spaces as `%20`). Use the format for your agent type:
+When reporting a tagged reload result in chat, read the "App path:" line from `reload.sh` output and build a `file://` URL from it (URL-encode spaces as `%20`). Never hardcode the home directory. Always use the actual path printed by `reload.sh`. Never use `/tmp/cmux-<tag>/...` app links.
+
+Use the format for your agent type. Example assumes `reload.sh` printed `App path: /Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux DEV my-tag.app`:
 
 **Claude Code** (markdown link, cmd+clickable):
 ```markdown
 =======================================================
-[cmux DEV <tag-name>.app](file://<app-path-from-reload-output-with-spaces-encoded>)
+[cmux DEV my-tag.app](file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
 
 **Codex** (plain text format):
 ```
 =======================================================
-[<tag-name>: file://<app-path-from-reload-output-with-spaces-encoded>](file://<app-path-from-reload-output-with-spaces-encoded>)
+[my-tag: file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app](file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
-
-Never hardcode the home directory in the app path. Always use the actual path printed by `reload.sh`. Never use `/tmp/cmux-<tag>/...` app links in chat output.
 
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
