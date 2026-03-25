@@ -1916,9 +1916,29 @@ class GhosttyApp {
         let path = ghosttyStringValue(ghostty_config_open_path())
         guard !path.isEmpty else { return }
         let fileURL = URL(fileURLWithPath: path)
-        let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
+        // Resolve the OS-configured default editor for the file. We first try the
+        // UTType for the file's extension (e.g. "public.plain-text" for .ghostty),
+        // then fall back to the generic plain-text default. This mirrors Ghostty's
+        // own implementation and respects the user's OS default editor setting
+        // instead of hard-coding TextEdit.
+        let editorURL: URL? = {
+            // Try extension-specific UTI first (e.g. user sets Zed as handler for .ghostty)
+            if !fileURL.pathExtension.isEmpty,
+               let uti = UTType(filenameExtension: fileURL.pathExtension),
+               let url = LSCopyDefaultApplicationURLForContentType(
+                   uti.identifier as CFString, .all, nil)?.takeRetainedValue() as? URL {
+                return url
+            }
+            // Fall back to the default plain-text editor (e.g. VS Code, Zed, etc.)
+            return LSCopyDefaultApplicationURLForContentType(
+                UTType.plainText.identifier as CFString, .all, nil)?.takeRetainedValue() as? URL
+        }()
+        if let editorURL {
+            NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: NSWorkspace.OpenConfiguration())
+        } else {
+            // Last resort: let the OS pick any associated application
+            NSWorkspace.shared.open(fileURL)
+        }
         #endif
     }
 
