@@ -2151,6 +2151,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
+
+    /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
+    /// Reset to `.zero` so the first window seeds the point from its own position.
+    private var lastCascadePoint = NSPoint.zero
     private var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
     private var didAttemptStartupSessionRestore = false
@@ -5843,9 +5847,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(cmuxConfigStore)
 
+        // Use the current key window's size for new windows so Cmd+Shift+N
+        // creates a window matching the previous one's dimensions.
+        let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        let existingFrame = preferredMainWindowContextForWorkspaceCreation(
+            debugSource: "createMainWindow.initialGeometry"
+        ).flatMap { resolvedWindow(for: $0)?.frame }
+        let initialRect: NSRect
+        if sessionWindowSnapshot == nil, let existingFrame {
+            // Convert frame rect to content rect so the new window matches the
+            // source window's actual size (frame includes titlebar insets).
+            initialRect = NSWindow.contentRect(forFrameRect: existingFrame, styleMask: styleMask)
+        } else {
+            initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+        }
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            contentRect: initialRect,
+            styleMask: styleMask,
             backing: .buffered,
             defer: false
         )
@@ -5859,6 +5878,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.setFrame(restoredFrame, display: false)
         } else {
             window.center()
+            // Cascade using the same algorithm as upstream Ghostty: seed from
+            // the window's own top-left on the first call, then advance the
+            // cascade point for each subsequent window.
+            if mainWindowContexts.count >= 1 {
+                lastCascadePoint = window.cascadeTopLeft(from: lastCascadePoint)
+            } else {
+                lastCascadePoint = window.cascadeTopLeft(from: NSPoint(x: window.frame.minX, y: window.frame.maxY))
+            }
         }
         window.contentView = MainWindowHostingView(rootView: root)
 
@@ -11074,6 +11101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
+        // Reset cascade point so the next new window appears near the closing
+        // window's position, matching upstream Ghostty behavior.
+        let frame = window.frame
+        lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
+
         // Keep geometry available as a fallback even if the full session snapshot
         // is removed when the last window closes.
         persistWindowGeometry(from: window)
