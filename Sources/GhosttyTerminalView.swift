@@ -4208,10 +4208,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
-        defer { _scrollbarLock.unlock() }
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
         _pendingScrollbar = nil
+        _scrollbarLock.unlock()
 
         guard let pending else { return }
         scrollbar = pending
