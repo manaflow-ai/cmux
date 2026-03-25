@@ -6727,10 +6727,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static func sshControlMasterCleanupArguments(configuration: WorkspaceRemoteConfiguration) -> [String]? {
         let sshOptions = normalizedSSHControlCleanupOptions(configuration.sshOptions)
-        guard sshOptions.contains(where: { sshOptionKeyForControlCleanup($0) == "controlpath" }) else {
-            return nil
-        }
-
         var arguments: [String] = [
             "-o", "BatchMode=yes",
             "-o", "ControlMaster=no",
