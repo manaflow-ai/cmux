@@ -1020,14 +1020,12 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            MainActor.assumeIsolated {
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                let validSurfaceIds = Set(workspace.panels.keys)
-                guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-                workspace.recomputeListeningPorts()
-            }
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let validSurfaceIds = Set(workspace.panels.keys)
+            guard validSurfaceIds.contains(panelId) else { return }
+            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+            workspace.recomputeListeningPorts()
         }
 
         // Accept connections in background thread

@@ -5232,8 +5232,19 @@ extension TabManager {
         )
     }
 
+    private func releaseRestoredAwayWorkspace(_ workspace: Workspace) {
+        // Session restore replaces the bootstrap workspace objects with freshly
+        // restored ones. Tear the old graph down after the atomic swap so late
+        // panel/socket callbacks cannot keep mutating hidden pre-restore state.
+        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
+        workspace.teardownAllPanels()
+        workspace.teardownRemoteConnection()
+        workspace.owningTabManager = nil
+    }
+
     func restoreSessionSnapshot(_ snapshot: SessionTabManagerSnapshot) {
-        for tab in tabs {
+        let previousTabs = tabs
+        for tab in previousTabs {
             unwireClosedBrowserTracking(for: tab)
         }
         let existingProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
@@ -5297,6 +5308,12 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+        let existingIds = Set(newTabs.map(\.id))
+        pruneBackgroundWorkspaceLoads(existingIds: existingIds)
+        sidebarSelectedWorkspaceIds.formIntersection(existingIds)
+        for workspace in previousTabs {
+            releaseRestoredAwayWorkspace(workspace)
+        }
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
