@@ -3066,6 +3066,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         minHeight: CGFloat
     ) -> CGRect {
         if targetDisplay.visibleFrame.intersects(frame) {
+            // Preserve the user's exact frame when enough of the top of the window
+            // remains reachable on-screen; only clamp when the saved frame would
+            // reopen with an inaccessible titlebar/top strip.
+            if shouldPreserveAccessibleFrame(
+                frame: frame,
+                targetDisplay: targetDisplay
+            ) {
+                return frame
+            }
             return clampFrame(
                 frame,
                 within: targetDisplay.visibleFrame,
@@ -3090,6 +3099,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             minWidth: minWidth,
             minHeight: minHeight
         )
+    }
+
+    private nonisolated static func shouldPreserveAccessibleFrame(
+        frame: CGRect,
+        targetDisplay: SessionDisplayGeometry,
+        minimumVisibleTopStripWidth: CGFloat = 120,
+        topStripHeight: CGFloat = 64,
+        minimumVisibleTopStripHeight: CGFloat = 24
+    ) -> Bool {
+        let standardizedFrame = frame.standardized
+        guard standardizedFrame.width.isFinite,
+              standardizedFrame.height.isFinite,
+              standardizedFrame.width > 0,
+              standardizedFrame.height > 0,
+              standardizedFrame.intersects(targetDisplay.frame) else {
+            return false
+        }
+
+        let stripHeight = min(topStripHeight, standardizedFrame.height)
+        let topStrip = CGRect(
+            x: standardizedFrame.minX,
+            y: standardizedFrame.maxY - stripHeight,
+            width: standardizedFrame.width,
+            height: stripHeight
+        )
+        let visibleTopStrip = topStrip.intersection(targetDisplay.visibleFrame)
+        guard !visibleTopStrip.isNull else { return false }
+
+        let requiredWidth = min(minimumVisibleTopStripWidth, standardizedFrame.width)
+        let requiredHeight = min(minimumVisibleTopStripHeight, stripHeight)
+        return visibleTopStrip.width >= requiredWidth
+            && visibleTopStrip.height >= requiredHeight
     }
 
     private nonisolated static func display(
