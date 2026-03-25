@@ -1142,6 +1142,48 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.hideFind()
     }
 
+    func makeWorkspaceForCreation(
+        title: String,
+        workingDirectory: String?,
+        portOrdinal: Int,
+        configTemplate: ghostty_surface_config_s?,
+        initialTerminalCommand: String?,
+        initialTerminalEnvironment: [String: String]
+    ) -> Workspace {
+        Workspace(
+            title: title,
+            workingDirectory: workingDirectory,
+            portOrdinal: portOrdinal,
+            configTemplate: configTemplate,
+            initialTerminalCommand: initialTerminalCommand,
+            initialTerminalEnvironment: initialTerminalEnvironment
+        )
+    }
+
+#if DEBUG
+    private func maybeMutateSelectionDuringWorkspaceCreationForDev(
+        snapshot: WorkspaceCreationSnapshot
+    ) {
+        let env = ProcessInfo.processInfo.environment
+        let isEnabled: Bool = {
+            if let raw = env["CMUX_DEV_MUTATE_WORKSPACE_SELECTION_DURING_CREATION"] {
+                return raw == "1" || raw.caseInsensitiveCompare("true") == .orderedSame
+            }
+            return UserDefaults.standard.bool(forKey: "cmuxDevMutateWorkspaceSelectionDuringCreation")
+        }()
+        guard isEnabled,
+              let selectedTabId = snapshot.selectedTabId,
+              let target = snapshot.tabs.first(where: { $0.id != selectedTabId }) else {
+            return
+        }
+        dlog(
+            "workspace.create.devSelectionMutation from=\(selectedTabId.uuidString.prefix(5)) " +
+            "to=\(target.id.uuidString.prefix(5))"
+        )
+        self.selectedTabId = target.id
+    }
+#endif
+
     @discardableResult
     func addWorkspace(
         workingDirectory overrideWorkingDirectory: String? = nil,
@@ -1155,6 +1197,9 @@ class TabManager: ObservableObject {
         // Snapshot current published state once so workspace creation doesn't repeatedly
         // bounce through Combine-backed accessors while we're preparing the new workspace.
         let snapshot = workspaceCreationSnapshot()
+#if DEBUG
+        maybeMutateSelectionDuringWorkspaceCreationForDev(snapshot: snapshot)
+#endif
         let nextTabCount = snapshot.tabs.count + 1
         sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
@@ -1166,7 +1211,7 @@ class TabManager: ObservableObject {
         let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
-        let newWorkspace = Workspace(
+        let newWorkspace = makeWorkspaceForCreation(
             title: "Terminal \(nextTabCount)",
             workingDirectory: workingDirectory,
             portOrdinal: ordinal,
