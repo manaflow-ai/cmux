@@ -698,6 +698,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private static let workspaceGitMetadataPollInterval: TimeInterval = 30
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     @Published var selectedTabId: UUID? {
         willSet {
@@ -809,6 +810,7 @@ class TabManager: ObservableObject {
         }
     }
     private var agentPIDSweepTimer: DispatchSourceTimer?
+    private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -855,7 +857,7 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-
+        startWorkspaceGitMetadataPollTimer()
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -867,6 +869,7 @@ class TabManager: ObservableObject {
     deinit {
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
+        workspaceGitMetadataPollTimer?.cancel()
     }
 
     // MARK: - Agent PID Sweep
@@ -886,6 +889,53 @@ class TabManager: ObservableObject {
         }
         timer.resume()
         agentPIDSweepTimer = timer
+    }
+
+    /// Periodically refreshes git/PR metadata for tracked workspace branches so
+    /// remote GitHub state changes (e.g. PR open -> merged) reach sidebar state
+    /// even when the local branch/directory does not change.
+    private func startWorkspaceGitMetadataPollTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        let interval = Self.workspaceGitMetadataPollInterval
+        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.refreshTrackedWorkspaceGitMetadata()
+            }
+        }
+        timer.resume()
+        workspaceGitMetadataPollTimer = timer
+    }
+
+    private func refreshTrackedWorkspaceGitMetadata() {
+        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+
+        for workspace in tabs {
+            var candidatePanelIds = Set(workspace.panelGitBranches.keys)
+            candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
+
+            if candidatePanelIds.isEmpty,
+               let focusedPanelId = workspace.focusedPanelId,
+               workspace.gitBranch != nil || workspace.pullRequest != nil {
+                candidatePanelIds.insert(focusedPanelId)
+            }
+
+            for panelId in candidatePanelIds {
+                let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                guard !activeProbeKeys.contains(probeKey) else { continue }
+                scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "periodicPoll"
+                )
+            }
+        }
+    }
+
+    func refreshTrackedWorkspaceGitMetadataForTesting() {
+        refreshTrackedWorkspaceGitMetadata()
     }
 
     private func sweepStaleAgentPIDs() {
@@ -1699,6 +1749,69 @@ class TabManager: ObservableObject {
         }
     }
 
+    private nonisolated static let fallbackCommandSearchDirectories: [String] = [
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/opt/local/bin",
+    ]
+
+    nonisolated static func resolvedCommandPathForTesting(
+        executable: String,
+        environment: [String: String],
+        fallbackDirectories: [String]
+    ) -> String? {
+        resolvedCommandPath(
+            executable: executable,
+            environment: environment,
+            fallbackDirectories: fallbackDirectories
+        )
+    }
+
+    private nonisolated static func resolvedCommandPath(
+        executable: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fallbackDirectories: [String] = fallbackCommandSearchDirectories
+    ) -> String? {
+        guard !executable.isEmpty else { return nil }
+        let fileManager = FileManager.default
+        if executable.contains("/") {
+            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
+        }
+
+        var searchDirectories: [String] = []
+        var seenDirectories: Set<String> = []
+
+        func appendSearchPath(_ path: String?) {
+            guard let path else { return }
+            for rawComponent in path.split(separator: ":") {
+                let component = String(rawComponent).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !component.isEmpty,
+                      seenDirectories.insert(component).inserted else {
+                    continue
+                }
+                searchDirectories.append(component)
+            }
+        }
+
+        appendSearchPath(environment["PATH"])
+        appendSearchPath(getenv("PATH").map { String(cString: $0) })
+        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            appendSearchPath(bundledBinPath)
+        }
+        fallbackDirectories.forEach { appendSearchPath($0) }
+        appendSearchPath("/usr/bin:/bin:/usr/sbin:/sbin")
+
+        for directory in searchDirectories {
+            let candidate = URL(fileURLWithPath: directory, isDirectory: true)
+                .appendingPathComponent(executable)
+                .path
+            if fileManager.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
     private nonisolated static func runCommand(
         directory: String,
         executable: String,
@@ -1728,8 +1841,13 @@ class TabManager: ObservableObject {
         let process = Process()
         let stdout = Pipe()
         let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [executable] + arguments
+        if let resolvedExecutable = resolvedCommandPath(executable: executable) {
+            process.executableURL = URL(fileURLWithPath: resolvedExecutable)
+            process.arguments = arguments
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [executable] + arguments
+        }
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.standardOutput = stdout
         process.standardError = stderr
