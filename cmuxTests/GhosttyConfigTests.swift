@@ -38,6 +38,85 @@ final class SidebarPathFormatterTests: XCTestCase {
             "/tmp/cmux"
         )
     }
+
+    // MARK: - Smart truncation (issue #2061)
+
+    func testShortenedPathKeepsThreeSegmentsUnchanged() {
+        // ~/a/b/c — exactly maxDisplaySegments; no ellipsis added
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example/a/b/c",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~/a/b/c"
+        )
+    }
+
+    func testShortenedPathTruncatesLongHomePath() {
+        // ~/Desktop/YOKE/Claude Code/Projects/Athlete Merch/nilclub → …/Projects/Athlete Merch/nilclub
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example/Desktop/YOKE/Claude Code/Projects/Athlete Merch/nilclub",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "…/Projects/Athlete Merch/nilclub"
+        )
+    }
+
+    func testShortenedPathTruncatesFourSegmentHomePath() {
+        // ~/a/b/c/d — one segment over limit → …/b/c/d
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example/a/b/c/d",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "…/b/c/d"
+        )
+    }
+
+    func testShortenedPathLeavesShortHomePathUnchanged() {
+        // ~/projects/cmux — only 2 segments; no ellipsis
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/Users/example/projects/cmux",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~/projects/cmux"
+        )
+    }
+
+    func testShortenedPathTruncatesLongAbsolutePath() {
+        // /a/b/c/d/e — 5 segments (no home match) → …/c/d/e
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/a/b/c/d/e",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "…/c/d/e"
+        )
+    }
+
+    func testShortenedPathLeavesShortAbsolutePathUnchanged() {
+        // /tmp/a/b — exactly 3 segments; no truncation
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/tmp/a/b",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "/tmp/a/b"
+        )
+    }
+
+    func testShortenedPathTruncatesLongAbsolutePathBeyondThree() {
+        // /tmp/a/b/c — 4 segments; triggers truncation → …/a/b/c
+        XCTAssertEqual(
+            SidebarPathFormatter.shortenedPath(
+                "/tmp/a/b/c",
+                homeDirectoryPath: "/Users/example"
+            ),
+            "…/a/b/c"
+        )
+    }
 }
 
 final class GhosttyConfigTests: XCTestCase {
