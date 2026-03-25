@@ -3882,6 +3882,7 @@ struct SettingsView: View {
     @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+    @State private var trustedDirectories: [String] = CmuxDirectoryTrust.shared.allTrustedPaths
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5047,6 +5048,48 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardNote(String(localized: "settings.automation.port.note", defaultValue: "Each workspace gets CMUX_PORT and CMUX_PORT_END env vars with a dedicated port range. New terminals inherit these values."))
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
+                            subtitle: trustedDirectories.isEmpty
+                                ? String(localized: "settings.customCommands.trustedDirectories.empty", defaultValue: "No directories trusted yet. Trust a directory from the command confirmation dialog.")
+                                : String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation.")
+                        ) {
+                            if !trustedDirectories.isEmpty {
+                                Button(String(localized: "settings.customCommands.trustedDirectories.clearAll", defaultValue: "Clear All")) {
+                                    CmuxDirectoryTrust.shared.clearAll()
+                                    trustedDirectories = []
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
+                        }
+                        if !trustedDirectories.isEmpty {
+                            ForEach(trustedDirectories, id: \.self) { path in
+                                SettingsCardDivider()
+                                HStack {
+                                    Text(path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Spacer()
+                                    Button(String(localized: "settings.customCommands.trustedDirectories.revoke", defaultValue: "Revoke")) {
+                                        CmuxDirectoryTrust.shared.revokeTrustByPath(path)
+                                        trustedDirectories = CmuxDirectoryTrust.shared.allTrustedPaths
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.mini)
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 4)
+                            }
+                        }
+                        SettingsCardDivider()
+                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trusted directories skip the confirmation dialog for commands with \"confirm\": true."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))

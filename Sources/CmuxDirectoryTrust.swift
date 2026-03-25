@@ -53,6 +53,12 @@ final class CmuxDirectoryTrust {
         save()
     }
 
+    /// Remove trust by the trust key directly (as stored/displayed in settings).
+    func revokeTrustByPath(_ path: String) {
+        trustedPaths.remove(path)
+        save()
+    }
+
     /// All currently trusted paths.
     var allTrustedPaths: [String] {
         Array(trustedPaths).sorted()
