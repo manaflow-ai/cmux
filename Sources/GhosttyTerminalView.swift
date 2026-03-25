@@ -3335,7 +3335,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Backward-compatible shell integration keys used by existing scripts/tests.
         setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
-        setManagedEnvironmentValue("CMUX_SOCKET_PATH", SocketControlSettings.socketPath())
+        let socketPath = SocketControlSettings.socketPath()
+        setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
+        // Backward-compatible alias expected by older scripts and third-party integrations.
+        setManagedEnvironmentValue("CMUX_SOCKET", socketPath)
         if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
