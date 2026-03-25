@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
 import { Callout } from "../../../components/callout";
+import { Link } from "../../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -19,7 +20,11 @@ export default function ClaudeCodeTeamsPage() {
     <>
       <h1>{t("title")}</h1>
 
-      <Callout type="warn">{t("nightlyWarning")}</Callout>
+      <Callout type="warn">
+        {t.rich("nightlyWarning", {
+          nightly: (chunks) => <Link href="/nightly" className="underline">{chunks}</Link>,
+        })}
+      </Callout>
 
       <p>{t("intro")}</p>
 

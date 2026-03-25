@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
 import { Callout } from "../../../components/callout";
+import { Link } from "../../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -19,7 +20,11 @@ export default function OhMyOpenCodePage() {
     <>
       <h1>{t("title")}</h1>
 
-      <Callout type="warn">{t("nightlyWarning")}</Callout>
+      <Callout type="warn">
+        {t.rich("nightlyWarning", {
+          nightly: (chunks) => <Link href="/nightly" className="underline">{chunks}</Link>,
+        })}
+      </Callout>
 
       <p>{t("intro")}</p>
 
@@ -29,12 +34,23 @@ cmux omo --continue
 cmux omo --model claude-sonnet-4-6`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
+      <h2>{t("whatYouGet")}</h2>
+      <p>{t("whatYouGetDesc")}</p>
+      <ul>
+        <li>{t("whatYouGet1")}</li>
+        <li>{t("whatYouGet2")}</li>
+        <li>{t("whatYouGet3")}</li>
+        <li>{t("whatYouGet4")}</li>
+        <li>{t("whatYouGet5")}</li>
+      </ul>
+
       <h2>{t("firstRun")}</h2>
       <p>{t("firstRunDesc")}</p>
       <ol>
         <li>{t("firstRunStep1")}</li>
         <li>{t("firstRunStep2")}</li>
         <li>{t("firstRunStep3")}</li>
+        <li>{t("firstRunStep4")}</li>
       </ol>
       <p>{t("firstRunSafe")}</p>
 
@@ -45,6 +61,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         <li>{t("shimStep2")}</li>
         <li>{t("shimStep3")}</li>
         <li>{t("shimStep4")}</li>
+        <li>{t("shimStep5")}</li>
       </ul>
 
       <h2>{t("directories")}</h2>
@@ -68,6 +85,7 @@ cmux omo --model claude-sonnet-4-6`}</CodeBlock>
         <li>{t("shadowStep1")}</li>
         <li>{t("shadowStep2")}</li>
         <li>{t("shadowStep3")}</li>
+        <li>{t("shadowStep4")}</li>
       </ul>
 
       <h2>{t("envVars")}</h2>
