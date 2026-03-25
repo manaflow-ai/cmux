@@ -64,6 +64,12 @@ final class CmuxDirectoryTrust {
         Array(trustedPaths).sorted()
     }
 
+    /// Replace all trusted paths (used by Settings textarea save).
+    func replaceAll(with paths: [String]) {
+        trustedPaths = Set(paths)
+        save()
+    }
+
     /// Clear all trusted directories.
     func clearAll() {
         trustedPaths.removeAll()

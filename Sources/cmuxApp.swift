@@ -3882,7 +3882,7 @@ struct SettingsView: View {
     @State private var isResettingSettings = false
     @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
     @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
-    @State private var trustedDirectories: [String] = CmuxDirectoryTrust.shared.allTrustedPaths
+    @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -4081,6 +4081,20 @@ struct SettingsView: View {
 
     private var browserInsecureHTTPAllowlistHasUnsavedChanges: Bool {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
+    }
+
+    private var trustedDirectoriesHasUnsavedChanges: Bool {
+        let current = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
+        return trustedDirectoriesDraft != current
+    }
+
+    private func saveTrustedDirectories() {
+        let paths = trustedDirectoriesDraft
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        CmuxDirectoryTrust.shared.replaceAll(with: paths)
+        trustedDirectoriesDraft = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
     }
 
     private var hasCustomNotificationSoundFilePath: Bool {
@@ -5052,44 +5066,36 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.customCommands", defaultValue: "Custom Commands"))
                     SettingsCard {
-                        SettingsCardRow(
-                            String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
-                            subtitle: trustedDirectories.isEmpty
-                                ? String(localized: "settings.customCommands.trustedDirectories.empty", defaultValue: "No directories trusted yet. Trust a directory from the command confirmation dialog.")
-                                : String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation.")
-                        ) {
-                            if !trustedDirectories.isEmpty {
-                                Button(String(localized: "settings.customCommands.trustedDirectories.clearAll", defaultValue: "Clear All")) {
-                                    CmuxDirectoryTrust.shared.clearAll()
-                                    trustedDirectories = []
+                        VStack(alignment: .leading, spacing: 6) {
+                            SettingsCardRow(
+                                String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
+                                subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
+                            ) {
+                                Button(String(localized: "settings.customCommands.trustedDirectories.save", defaultValue: "Save")) {
+                                    saveTrustedDirectories()
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(!trustedDirectoriesHasUnsavedChanges)
                             }
+
+                            TextEditor(text: $trustedDirectoriesDraft)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 60, maxHeight: 120)
+                                .scrollContentBackground(.hidden)
+                                .padding(6)
+                                .background(Color(nsColor: .controlBackgroundColor))
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                )
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
                         }
-                        if !trustedDirectories.isEmpty {
-                            ForEach(trustedDirectories, id: \.self) { path in
-                                SettingsCardDivider()
-                                HStack {
-                                    Text(path)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer()
-                                    Button(String(localized: "settings.customCommands.trustedDirectories.revoke", defaultValue: "Revoke")) {
-                                        CmuxDirectoryTrust.shared.revokeTrustByPath(path)
-                                        trustedDirectories = CmuxDirectoryTrust.shared.allTrustedPaths
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.mini)
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 4)
-                            }
-                        }
+
                         SettingsCardDivider()
-                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trusted directories skip the confirmation dialog for commands with \"confirm\": true."))
+                        SettingsCardNote(String(localized: "settings.customCommands.trustedDirectories.note", defaultValue: "Place a cmux.json in your project root to define custom commands. Trust a directory from the confirmation dialog, or add paths here. For git repos, trusting the root covers all subdirectories."))
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.browser", defaultValue: "Browser"))
