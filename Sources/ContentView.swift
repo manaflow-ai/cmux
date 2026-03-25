@@ -10996,7 +10996,8 @@ private struct TabItemView: View, Equatable {
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.tab.isMuted == rhs.tab.isMuted
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
