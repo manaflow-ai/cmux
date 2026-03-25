@@ -4083,18 +4083,12 @@ struct SettingsView: View {
         browserInsecureHTTPAllowlistDraft != browserInsecureHTTPAllowlist
     }
 
-    private var trustedDirectoriesHasUnsavedChanges: Bool {
-        let current = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
-        return trustedDirectoriesDraft != current
-    }
-
     private func saveTrustedDirectories() {
         let paths = trustedDirectoriesDraft
             .split(separator: "\n", omittingEmptySubsequences: true)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
         CmuxDirectoryTrust.shared.replaceAll(with: paths)
-        trustedDirectoriesDraft = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
     }
 
     private var hasCustomNotificationSoundFilePath: Bool {
@@ -5071,12 +5065,7 @@ struct SettingsView: View {
                                 String(localized: "settings.customCommands.trustedDirectories", defaultValue: "Trusted Directories"),
                                 subtitle: String(localized: "settings.customCommands.trustedDirectories.subtitle", defaultValue: "Commands from cmux.json in these directories run without confirmation. One path per line.")
                             ) {
-                                Button(String(localized: "settings.customCommands.trustedDirectories.save", defaultValue: "Save")) {
-                                    saveTrustedDirectories()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .disabled(!trustedDirectoriesHasUnsavedChanges)
+                                EmptyView()
                             }
 
                             TextEditor(text: $trustedDirectoriesDraft)
@@ -5092,6 +5081,9 @@ struct SettingsView: View {
                                 )
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 12)
+                                .onChange(of: trustedDirectoriesDraft) { _ in
+                                    saveTrustedDirectories()
+                                }
                         }
 
                         SettingsCardDivider()
