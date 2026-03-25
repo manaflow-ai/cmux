@@ -1413,6 +1413,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         if command != "__tmux-compat",
            command != "claude-teams",
+           command != "codex",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -1461,6 +1462,27 @@ struct CMUXCLI {
                 explicitPassword: socketPasswordArg
             )
             return
+        }
+
+        // Codex hooks management (no socket needed)
+        if command == "codex" {
+            let sub = commandArgs.first?.lowercased() ?? "help"
+            if sub == "install-hooks" {
+                try runCodexInstallHooks()
+                return
+            } else if sub == "uninstall-hooks" {
+                try runCodexUninstallHooks()
+                return
+            }
+        }
+
+        // Codex hook handler: gracefully no-op when not inside cmux
+        // (before socket connection, so it doesn't fail when no socket exists)
+        if command == "codex-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+                print("{}")
+                return
+            }
         }
 
         let client = SocketClient(path: resolvedSocketPath)
@@ -2242,6 +2264,17 @@ struct CMUXCLI {
             } catch {
                 cliTelemetry.breadcrumb("claude-hook.failure")
                 cliTelemetry.captureError(stage: "claude_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "codex-hook":
+            cliTelemetry.breadcrumb("codex-hook.dispatch")
+            do {
+                try runCodexHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("codex-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("codex-hook.failure")
+                cliTelemetry.captureError(stage: "codex_hook_dispatch", error: error)
                 throw error
             }
 
@@ -7047,6 +7080,32 @@ struct CMUXCLI {
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
             """
+        case "codex":
+            return """
+            Usage: cmux codex <install-hooks|uninstall-hooks>
+
+            Manage Codex CLI hooks integration.
+
+            Subcommands:
+              install-hooks     Install cmux hooks into ~/.codex/hooks.json
+              uninstall-hooks   Remove cmux hooks from ~/.codex/hooks.json
+            """
+        case "codex-hook":
+            return """
+            Usage: cmux codex-hook <session-start|prompt-submit|stop> [flags]
+
+            Hook for Codex CLI integration. Reads JSON from stdin.
+            Gracefully no-ops when not running inside cmux.
+
+            Subcommands:
+              session-start   Register a Codex session
+              prompt-submit   Set Running status on user prompt
+              stop            Send completion notification, set Idle
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+            """
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -10982,6 +11041,339 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
+    // MARK: - Codex hooks
+
+    /// The hooks.json content that cmux installs into ~/.codex/.
+    /// Each hook calls `cmux codex-hook <event>` which gracefully no-ops
+    /// when not running inside cmux.
+    private static let codexHooksJSON: [String: Any] = [
+        "hooks": [
+            "SessionStart": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": "cmux codex-hook session-start",
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "UserPromptSubmit": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": "cmux codex-hook prompt-submit",
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "Stop": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": "cmux codex-hook stop",
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]]
+        ] as [String: Any]
+    ]
+
+    /// Identifier prefix used to detect cmux-owned hooks during uninstall.
+    private static let codexHookCommandPrefix = "cmux codex-hook "
+
+    private func runCodexInstallHooks() throws {
+        let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
+            ?? NSString(string: "~/.codex").expandingTildeInPath
+        let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
+        let configPath = (codexHome as NSString).appendingPathComponent("config.toml")
+        let fm = FileManager.default
+
+        // Ensure ~/.codex/ exists
+        try fm.createDirectory(atPath: codexHome, withIntermediateDirectories: true, attributes: nil)
+
+        // 1. Merge hooks into existing hooks.json (or create new)
+        var existing: [String: Any] = [:]
+        if fm.fileExists(atPath: hooksPath),
+           let data = try? Data(contentsOf: URL(fileURLWithPath: hooksPath)),
+           let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            existing = parsed
+        }
+
+        var hooks = existing["hooks"] as? [String: Any] ?? [:]
+
+        let cmuxHooks = Self.codexHooksJSON["hooks"] as! [String: Any]
+        for (eventName, cmuxGroups) in cmuxHooks {
+            guard let cmuxGroupArray = cmuxGroups as? [[String: Any]] else { continue }
+            var eventGroups = hooks[eventName] as? [[String: Any]] ?? []
+
+            // Remove any existing cmux hooks for this event (identified by command prefix)
+            eventGroups.removeAll { group in
+                guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
+                return groupHooks.allSatisfy { hook in
+                    (hook["command"] as? String)?.hasPrefix(Self.codexHookCommandPrefix) == true
+                }
+            }
+
+            // Append cmux hooks
+            eventGroups.append(contentsOf: cmuxGroupArray)
+            hooks[eventName] = eventGroups
+        }
+
+        existing["hooks"] = hooks
+        let jsonData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+        try jsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+
+        // 2. Enable codex_hooks feature in config.toml
+        enableCodexHooksFeature(configPath: configPath)
+
+        print("Installed cmux hooks into \(hooksPath)")
+        print("Enabled codex_hooks feature in \(configPath)")
+        print("")
+        print("Hooks will activate inside cmux and silently no-op elsewhere.")
+        print("To remove: cmux codex uninstall-hooks")
+    }
+
+    private func runCodexUninstallHooks() throws {
+        let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
+            ?? NSString(string: "~/.codex").expandingTildeInPath
+        let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: hooksPath),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: hooksPath)),
+              var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("No hooks.json found at \(hooksPath)")
+            return
+        }
+
+        guard var hooks = parsed["hooks"] as? [String: Any] else {
+            print("No hooks section found in \(hooksPath)")
+            return
+        }
+
+        var removedCount = 0
+        for eventName in hooks.keys {
+            guard var eventGroups = hooks[eventName] as? [[String: Any]] else { continue }
+            let before = eventGroups.count
+            eventGroups.removeAll { group in
+                guard let groupHooks = group["hooks"] as? [[String: Any]] else { return false }
+                return groupHooks.allSatisfy { hook in
+                    (hook["command"] as? String)?.hasPrefix(Self.codexHookCommandPrefix) == true
+                }
+            }
+            removedCount += before - eventGroups.count
+            if eventGroups.isEmpty {
+                hooks.removeValue(forKey: eventName)
+            } else {
+                hooks[eventName] = eventGroups
+            }
+        }
+
+        parsed["hooks"] = hooks
+        let jsonData = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
+        try jsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+
+        if removedCount > 0 {
+            print("Removed \(removedCount) cmux hook(s) from \(hooksPath)")
+        } else {
+            print("No cmux hooks found in \(hooksPath)")
+        }
+    }
+
+    /// Best-effort: ensure [features] codex_hooks = true in config.toml.
+    private func enableCodexHooksFeature(configPath: String) {
+        let fm = FileManager.default
+        var content = ""
+        if fm.fileExists(atPath: configPath) {
+            content = (try? String(contentsOfFile: configPath, encoding: .utf8)) ?? ""
+        }
+
+        // Check if codex_hooks is already enabled
+        if content.contains("codex_hooks") {
+            // Replace any existing codex_hooks line
+            let lines = content.components(separatedBy: "\n")
+            var result: [String] = []
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("codex_hooks") && trimmed.contains("=") {
+                    result.append("codex_hooks = true")
+                } else {
+                    result.append(line)
+                }
+            }
+            content = result.joined(separator: "\n")
+        } else if content.contains("[features]") {
+            // Append under existing [features] section
+            content = content.replacingOccurrences(
+                of: "[features]",
+                with: "[features]\ncodex_hooks = true"
+            )
+        } else {
+            // Add new [features] section
+            if !content.isEmpty && !content.hasSuffix("\n") {
+                content += "\n"
+            }
+            content += "\n[features]\ncodex_hooks = true\n"
+        }
+
+        try? content.write(toFile: configPath, atomically: true, encoding: .utf8)
+    }
+
+    /// Codex hook handler. Gracefully no-ops when not running inside cmux.
+    private func runCodexHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
+        let env = ProcessInfo.processInfo.environment
+
+        // Graceful no-op: if not inside cmux, exit silently with valid JSON
+        guard env["CMUX_SURFACE_ID"] != nil else {
+            print("{}")
+            return
+        }
+
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let hookArgs = Array(commandArgs.dropFirst())
+        let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
+        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        let sessionStore = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": "~/.cmuxterm/codex-hook-sessions.json"],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+        telemetry.breadcrumb(
+            "codex-hook.input",
+            data: [
+                "subcommand": subcommand,
+                "has_session_id": parsedInput.sessionId != nil
+            ]
+        )
+
+        switch subcommand {
+        case "session-start":
+            telemetry.breadcrumb("codex-hook.session-start")
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: nil,
+                fallback: workspaceArg,
+                client: client
+            )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: nil,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd
+                )
+            }
+            print("{}")
+
+        case "prompt-submit":
+            telemetry.breadcrumb("codex-hook.prompt-submit")
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
+            )
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try setCodexStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("{}")
+
+        case "stop":
+            telemetry.breadcrumb("codex-hook.stop")
+            do {
+                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                    preferred: mappedSession?.workspaceId,
+                    fallback: workspaceArg,
+                    client: client
+                )
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+
+                // Build completion notification from Codex stop payload
+                let lastMessage = parsedInput.object?["last_assistant_message"] as? String
+                    ?? parsedInput.object?["lastAssistantMessage"] as? String
+                let cwd = parsedInput.cwd ?? mappedSession?.cwd
+                let projectName: String? = {
+                    guard let cwd, !cwd.isEmpty else { return nil }
+                    return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
+                }()
+
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: cwd,
+                        lastSubtitle: "Completed",
+                        lastBody: lastMessage.map { truncate($0, maxLength: 200) }
+                    )
+                }
+
+                // Send completion notification
+                var subtitle = "Completed"
+                if let projectName, !projectName.isEmpty {
+                    subtitle = "Completed in \(projectName)"
+                }
+                let body = sanitizeNotificationField(
+                    lastMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                        ?? "Codex session completed"
+                )
+                let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(body)"
+                _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+
+                try? setCodexStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93"
+                )
+                print("{}")
+            } catch {
+                if shouldIgnoreClaudeHookTeardownError(error) {
+                    telemetry.breadcrumb("codex-hook.stop.ignored", data: ["error": String(describing: error)])
+                    print("{}")
+                    return
+                }
+                throw error
+            }
+
+        case "help", "--help", "-h":
+            print("cmux codex-hook <session-start|prompt-submit|stop> [--workspace <id>] [--surface <id>]")
+
+        default:
+            throw CLIError(message: "Unknown codex-hook subcommand: \(subcommand)")
+        }
+    }
+
+    private func setCodexStatus(
+        client: SocketClient,
+        workspaceId: String,
+        value: String,
+        icon: String,
+        color: String
+    ) throws {
+        let cmd = "set_status codex \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        _ = try client.send(command: cmd)
+    }
+
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
         let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
@@ -11364,6 +11756,7 @@ struct CMUXCLI {
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
+          codex <install-hooks|uninstall-hooks>
           ping
           version
           capabilities
