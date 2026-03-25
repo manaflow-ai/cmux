@@ -2489,6 +2489,7 @@ struct ContentView: View {
         .frame(height: titlebarPadding)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
+        .background(TitlebarDoubleClickMonitorView())
         .background({
             // The terminal area has two stacked semi-transparent layers: the Bonsplit
             // container chrome background plus Ghostty's own Metal-rendered background.
@@ -8610,6 +8611,7 @@ struct VerticalTabsSidebar: View {
                     // drag-to-move and double-click action (zoom/minimize).
                     WindowDragHandleView()
                         .frame(height: trafficLightPadding)
+                        .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
                     if isMinimalMode {

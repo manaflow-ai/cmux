@@ -1258,6 +1258,51 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
     }
 }
 
+final class TitlebarDoubleClickPreferenceTests: XCTestCase {
+    func testResolvesZoomForFillPreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "Fill",
+            ]),
+            .zoom
+        )
+    }
+
+    func testResolvesMiniaturizeForExplicitMinimizePreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "Minimize",
+            ]),
+            .miniaturize
+        )
+    }
+
+    func testResolvesNoneForNoActionPreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "No Action",
+            ]),
+            .none
+        )
+    }
+
+    func testFallsBackToLegacyMiniaturizePreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleMiniaturizeOnDoubleClick": true,
+            ]),
+            .miniaturize
+        )
+    }
+
+    func testDefaultsToZoomWhenPreferenceIsMissing() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [:]),
+            .zoom
+        )
+    }
+}
+
 final class WorkspaceRemoteDaemonPendingCallRegistryTests: XCTestCase {
     func testSupportsMultiplePendingCallsResolvedOutOfOrder() {
         let registry = WorkspaceRemoteDaemonPendingCallRegistry()
