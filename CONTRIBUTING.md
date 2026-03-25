@@ -24,17 +24,18 @@
    - Build the GhosttyKit.xcframework from source
    - Create the necessary symlinks
 
-3. Build and run the debug app:
+3. Build the debug app:
    ```bash
-   ./scripts/reload.sh
+   ./scripts/reload.sh --tag my-feature
    ```
+   The script prints the `.app` path. Cmd-click to open, or pass `--launch` to open automatically.
 
 ## Development Scripts
 
 | Script | Description |
 |--------|-------------|
 | `./scripts/setup.sh` | One-time setup (submodules + xcframework) |
-| `./scripts/reload.sh` | Build and launch Debug app |
+| `./scripts/reload.sh` | Build Debug app (pass `--launch` to also open it) |
 | `./scripts/reloadp.sh` | Build and launch Release app |
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
