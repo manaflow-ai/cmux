@@ -295,7 +295,12 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationPlacementTests: XCTestCase {
     private final class SnapshotMutatingTabManager: TabManager {
+        var afterCaptureWorkspaceCreationSnapshot: (() -> Void)?
         var beforeCreateWorkspace: (() -> Void)?
+
+        override func didCaptureWorkspaceCreationSnapshot() {
+            afterCaptureWorkspaceCreationSnapshot?()
+        }
 
         override func makeWorkspaceForCreation(
             title: String,
@@ -396,6 +401,50 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentDoesNotReinsertClosedWorkspaceCapturedInSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.closeWorkspace(second)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == second.id }))
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceSurvivesSelectedWorkspaceClosingAfterSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.closeWorkspace(third)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, inserted.id])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == third.id }))
         XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
