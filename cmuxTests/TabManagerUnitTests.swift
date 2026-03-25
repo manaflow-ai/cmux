@@ -301,6 +301,72 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testShouldSkipWorkspacePullRequestLookupOnlyForExactMainAndMaster() {
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "main"))
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "master"))
+        XCTAssertTrue(TabManager.shouldSkipWorkspacePullRequestLookup(branch: " master \n"))
+
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "Main"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "mainline"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "feature/main"))
+        XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
+    }
+
+    func testTrackedWorkspaceGitMetadataPollCandidatesSkipMainAndMasterPanelsOnly() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let mainPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        guard let masterPanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal),
+              let featurePanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .vertical),
+              let mainlinePanel = workspace.newTerminalSplit(from: mainPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split panels to be created")
+            return
+        }
+
+        let staleURL = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/371"))
+        workspace.updatePanelGitBranch(panelId: mainPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: mainPanelId,
+            number: 371,
+            label: "PR",
+            url: staleURL,
+            status: .open,
+            branch: "main"
+        )
+        workspace.updatePanelGitBranch(panelId: masterPanel.id, branch: "master", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: featurePanel.id, branch: "feature/sidebar-pr", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: mainlinePanel.id, branch: "mainline", isDirty: false)
+
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([featurePanel.id, mainlinePanel.id])
+        )
+    }
+
+    func testTrackedWorkspaceGitMetadataPollCandidatesSkipFocusedFallbackOnMainOnly() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: false)
+        XCTAssertTrue(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+        )
+
+        workspace.gitBranch = SidebarGitBranchState(branch: "feature/sidebar-pr", isDirty: false)
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([panelId])
+        )
+    }
+
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
         let fileManager = FileManager.default
         let tempDir = fileManager.temporaryDirectory.appendingPathComponent(

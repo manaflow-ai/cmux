@@ -913,18 +913,10 @@ class TabManager: ObservableObject {
         let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
 
         for workspace in tabs {
-            var candidatePanelIds = Set(workspace.panelGitBranches.keys)
-            candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
-
-            if candidatePanelIds.isEmpty,
-               let focusedPanelId = workspace.focusedPanelId,
-               workspace.gitBranch != nil || workspace.pullRequest != nil {
-                candidatePanelIds.insert(focusedPanelId)
-            }
-
-            for panelId in candidatePanelIds {
-                let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
-                guard !activeProbeKeys.contains(probeKey) else { continue }
+            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
+                in: workspace,
+                activeProbeKeys: activeProbeKeys
+            ) {
                 scheduleWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
                     panelId: panelId,
@@ -936,6 +928,54 @@ class TabManager: ObservableObject {
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
         refreshTrackedWorkspaceGitMetadata()
+    }
+
+    func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let activeProbeKeys = Set(workspaceGitProbeGenerationByKey.keys)
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return []
+        }
+        return trackedWorkspaceGitMetadataPollCandidatePanelIds(
+            in: workspace,
+            activeProbeKeys: activeProbeKeys
+        )
+    }
+
+    private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
+        in workspace: Workspace,
+        activeProbeKeys: Set<WorkspaceGitProbeKey>
+    ) -> Set<UUID> {
+        var candidatePanelIds = Set(workspace.panelGitBranches.keys)
+        candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
+
+        if candidatePanelIds.isEmpty,
+           let focusedPanelId = workspace.focusedPanelId,
+           workspace.gitBranch != nil || workspace.pullRequest != nil {
+            candidatePanelIds.insert(focusedPanelId)
+        }
+
+        return Set(candidatePanelIds.filter { panelId in
+            let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+            guard !activeProbeKeys.contains(probeKey) else { return false }
+            return shouldPollTrackedWorkspaceGitMetadata(in: workspace, panelId: panelId)
+        })
+    }
+
+    private func shouldPollTrackedWorkspaceGitMetadata(in workspace: Workspace, panelId: UUID) -> Bool {
+        guard let branch = trackedWorkspaceGitBranch(in: workspace, panelId: panelId) else {
+            return true
+        }
+        return !Self.shouldSkipWorkspacePullRequestLookup(branch: branch)
+    }
+
+    private func trackedWorkspaceGitBranch(in workspace: Workspace, panelId: UUID) -> String? {
+        if let branch = workspace.panelGitBranches[panelId]?.branch {
+            return branch
+        }
+        if workspace.focusedPanelId == panelId {
+            return workspace.gitBranch?.branch
+        }
+        return nil
     }
 
     private func sweepStaleAgentPIDs() {
@@ -1462,6 +1502,10 @@ class TabManager: ObservableObject {
         directory: String,
         branch: String
     ) -> WorkspacePullRequestSnapshot {
+        guard !shouldSkipWorkspacePullRequestLookup(branch: branch) else {
+            return .notFound
+        }
+
         let repoSlugs = githubRepositorySlugs(directory: directory)
         guard !repoSlugs.isEmpty else {
             return .unsupportedRepository
@@ -2008,6 +2052,15 @@ class TabManager: ObservableObject {
     private nonisolated static func normalizedBranchName(_ branch: String?) -> String? {
         let trimmed = branch?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated static func shouldSkipWorkspacePullRequestLookup(branch: String) -> Bool {
+        switch normalizedBranchName(branch) {
+        case "main", "master":
+            return true
+        default:
+            return false
+        }
     }
 
     func requestBackgroundWorkspaceLoad(for workspaceId: UUID) {
