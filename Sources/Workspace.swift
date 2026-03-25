@@ -26,18 +26,6 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    // Best-effort check: reject pointers that are not the start of a live
-    // malloc allocation. ghostty_surface_quicklook_font returns an unretained
-    // pointer whose lifetime is managed by Ghostty; on Intel Macs the pointer
-    // can become stale after the internal font is freed (#1496, #1870).
-    // malloc_size is safe to call with any address (returns 0 for non-malloc
-    // pointers without dereferencing them). This does not guarantee the memory
-    // still contains a valid CTFont, but it catches the common case of
-    // fully-freed or unmapped allocations that would otherwise SIGSEGV.
-    guard malloc_size(quicklookFont) > 0 else {
-        return nil
-    }
-
     let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
@@ -127,22 +115,13 @@ private enum RemoteDropUploadError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            String(
-                localized: "error.remoteDrop.unavailable",
-                defaultValue: "Remote drop is unavailable."
-            )
+            String(localized: "error.remoteDrop.unavailable", defaultValue: "Remote drop is unavailable.")
         case .invalidFileURL:
+            String(localized: "error.remoteDrop.invalidFileURL", defaultValue: "Dropped item is not a file URL.")
+        case let .uploadFailed(detail):
             String(
-                localized: "error.remoteDrop.invalidFileURL",
-                defaultValue: "Dropped item is not a file URL."
-            )
-        case .uploadFailed(let detail):
-            String.localizedStringWithFormat(
-                String(
-                    localized: "error.remoteDrop.uploadFailed",
-                    defaultValue: "Failed to upload dropped file: %@"
-                ),
-                detail
+                localized: "error.remoteDrop.uploadFailed",
+                defaultValue: "Failed to upload dropped file: \(detail)"
             )
         }
     }
@@ -2967,25 +2946,6 @@ final class WorkspaceRemoteSessionController {
         queue.setSpecific(key: queueKey, value: ())
     }
 
-    func start() {
-        debugLog("remote.session.start \(debugConfigSummary())")
-        queue.async { [weak self] in
-            guard let self else { return }
-            guard !self.isStopping else { return }
-            self.beginConnectionAttemptLocked()
-        }
-    }
-
-    func stop() {
-        if DispatchQueue.getSpecific(key: queueKey) != nil {
-            stopAllLocked()
-            return
-        }
-        queue.async { [self] in
-            stopAllLocked()
-        }
-    }
-
     func uploadDroppedFiles(
         _ fileURLs: [URL],
         operation: TerminalImageTransferOperation,
@@ -3036,6 +2996,25 @@ final class WorkspaceRemoteSessionController {
             operation: TerminalImageTransferOperation(),
             completion: completion
         )
+    }
+
+    func start() {
+        debugLog("remote.session.start \(debugConfigSummary())")
+        queue.async { [weak self] in
+            guard let self else { return }
+            guard !self.isStopping else { return }
+            self.beginConnectionAttemptLocked()
+        }
+    }
+
+    func stop() {
+        if DispatchQueue.getSpecific(key: queueKey) != nil {
+            stopAllLocked()
+            return
+        }
+        queue.async { [self] in
+            stopAllLocked()
+        }
     }
 
     private func stopAllLocked() {
@@ -3866,6 +3845,70 @@ final class WorkspaceRemoteSessionController {
         return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
     }
 
+    static func remoteDropPath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        let extensionSuffix = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowercasedSuffix = extensionSuffix.isEmpty ? "" : ".\(extensionSuffix.lowercased())"
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
+    }
+
+    private func uploadDroppedFilesLocked(
+        _ fileURLs: [URL],
+        operation: TerminalImageTransferOperation
+    ) throws -> [String] {
+        guard !fileURLs.isEmpty else { return [] }
+
+        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        var uploadedRemotePaths: [String] = []
+        do {
+            for localURL in fileURLs {
+                try operation.throwIfCancelled()
+                let normalizedLocalURL = localURL.standardizedFileURL
+                guard normalizedLocalURL.isFileURL else {
+                    throw RemoteDropUploadError.invalidFileURL
+                }
+
+                let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
+                uploadedRemotePaths.append(remotePath)
+                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
+                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                    scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
+                }
+                if let port = configuration.port {
+                    scpArgs += ["-P", String(port)]
+                }
+                if let identityFile = configuration.identityFile,
+                   !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    scpArgs += ["-i", identityFile]
+                }
+                for option in scpSSHOptions {
+                    scpArgs += ["-o", option]
+                }
+                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
+
+                let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
+                guard scpResult.status == 0 else {
+                    let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout)
+                        ?? "scp exited \(scpResult.status)"
+                    throw RemoteDropUploadError.uploadFailed(detail)
+                }
+            }
+            return uploadedRemotePaths
+        } catch {
+            cleanupUploadedRemotePaths(uploadedRemotePaths)
+            throw error
+        }
+    }
+
+    private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
+        guard !remotePaths.isEmpty else { return }
+        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        _ = try? sshExec(
+            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
+            timeout: 8
+        )
+    }
+
     private static func remoteDaemonManifest() -> WorkspaceRemoteDaemonManifest? {
         remoteDaemonManifest(from: Bundle.main.infoDictionary)
     }
@@ -4120,70 +4163,6 @@ final class WorkspaceRemoteSessionController {
                 NSLocalizedDescriptionKey: "failed to install remote daemon binary: \(detail)",
             ])
         }
-    }
-
-    private func uploadDroppedFilesLocked(
-        _ fileURLs: [URL],
-        operation: TerminalImageTransferOperation
-    ) throws -> [String] {
-        guard !fileURLs.isEmpty else { return [] }
-
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
-        var uploadedRemotePaths: [String] = []
-        do {
-            for localURL in fileURLs {
-                try operation.throwIfCancelled()
-                let normalizedLocalURL = localURL.standardizedFileURL
-                guard normalizedLocalURL.isFileURL else {
-                    throw RemoteDropUploadError.invalidFileURL
-                }
-
-                let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
-                uploadedRemotePaths.append(remotePath)
-                var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
-                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
-                    scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
-                }
-                if let port = configuration.port {
-                    scpArgs += ["-P", String(port)]
-                }
-                if let identityFile = configuration.identityFile,
-                   !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    scpArgs += ["-i", identityFile]
-                }
-                for option in scpSSHOptions {
-                    scpArgs += ["-o", option]
-                }
-                scpArgs += [normalizedLocalURL.path, "\(configuration.destination):\(remotePath)"]
-
-                let scpResult = try scpExec(arguments: scpArgs, timeout: 45, operation: operation)
-                guard scpResult.status == 0 else {
-                    let detail = Self.bestErrorLine(stderr: scpResult.stderr, stdout: scpResult.stdout) ??
-                        "scp exited \(scpResult.status)"
-                    throw RemoteDropUploadError.uploadFailed(detail)
-                }
-            }
-            return uploadedRemotePaths
-        } catch {
-            cleanupUploadedRemotePaths(uploadedRemotePaths)
-            throw error
-        }
-    }
-
-    static func remoteDropPath(for fileURL: URL, uuid: UUID = UUID()) -> String {
-        let extensionSuffix = fileURL.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercasedSuffix = extensionSuffix.isEmpty ? "" : ".\(extensionSuffix.lowercased())"
-        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(lowercasedSuffix)"
-    }
-
-    private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
-        guard !remotePaths.isEmpty else { return }
-        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
-        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
-        _ = try? sshExec(
-            arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
-            timeout: 8
-        )
     }
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
@@ -4859,31 +4838,6 @@ enum SidebarBranchOrdering {
         return cleaned.isEmpty ? nil : cleaned
     }
 
-    private static func preferredDisplayedDirectory(
-        existing: String?,
-        replacement: String?,
-        homeDirectoryForTildeExpansion: String?
-    ) -> String? {
-        guard let replacement = normalizedDirectory(replacement) else { return existing }
-        guard let existing = normalizedDirectory(existing) else { return replacement }
-
-        let existingUsesTilde = relativePathFromTilde(existing) != nil
-        let replacementUsesTilde = relativePathFromTilde(replacement) != nil
-        if existingUsesTilde != replacementUsesTilde {
-            return replacementUsesTilde ? existing : replacement
-        }
-
-        if canonicalDirectoryKey(existing, homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion)
-            == canonicalDirectoryKey(
-                replacement,
-                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
-            return existing
-        }
-
-        return replacement
-    }
-
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
         switch tree {
         case .pane(let pane):
@@ -5042,7 +4996,23 @@ enum SidebarBranchOrdering {
             var directory: String?
         }
 
-        let normalized = normalizedDirectory
+        func normalized(_ text: String?) -> String? {
+            guard let text else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        func canonicalDirectoryKey(_ directory: String?) -> String? {
+            guard let directory = normalized(directory) else { return nil }
+            let expanded = SidebarBranchOrdering.expandedTildePath(
+                directory,
+                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
+            )
+            let standardized = NSString(string: expanded).standardizingPath
+            let cleaned = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
+        }
+
         let normalizedFallbackBranch = normalized(fallbackBranch?.branch)
         let shouldUseFallbackBranchPerPanel = !orderedPanelIds.contains {
             normalized(panelBranches[$0]?.branch) != nil
@@ -5056,7 +5026,7 @@ enum SidebarBranchOrdering {
         for panelId in orderedPanelIds {
             let panelBranch = normalized(panelBranches[panelId]?.branch)
             let branch = panelBranch ?? defaultBranchForPanels
-            let directory = normalized(panelDirectories[panelId])
+            let directory = normalized(panelDirectories[panelId] ?? defaultDirectory)
             guard branch != nil || directory != nil else { continue }
 
             let panelDirty = panelBranch != nil
@@ -5064,10 +5034,7 @@ enum SidebarBranchOrdering {
                 : defaultBranchDirty
 
             let key: EntryKey
-            if let directoryKey = canonicalDirectoryKey(
-                directory,
-                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
+            if let directoryKey = canonicalDirectoryKey(directory) {
                 // Keep one line per directory and allow the latest branch state to overwrite.
                 key = EntryKey(directory: directoryKey, branch: nil)
             } else {
@@ -5084,11 +5051,9 @@ enum SidebarBranchOrdering {
                     } else if existing.branch == nil {
                         existing.isDirty = panelDirty
                     }
-                    existing.directory = preferredDisplayedDirectory(
-                        existing: existing.directory,
-                        replacement: directory,
-                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-                    )
+                    if let directory {
+                        existing.directory = directory
+                    }
                     entries[key] = existing
                 } else if panelDirty {
                     existing.isDirty = true
@@ -5562,6 +5527,9 @@ final class Workspace: Identifiable, ObservableObject {
     private(set) var debugFocusReconcileScheduledDuringDetachCount: Int = 0
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
+    private var debugLayoutFollowUpEventCount: UInt64 = 0
+    private var debugTerminalGeometryPassCount: UInt64 = 0
+    private var debugPendingVisibleDetachedPanelIds: Set<UUID> = []
 #endif
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
     private var layoutFollowUpPanelsCancellable: AnyCancellable?
@@ -5573,6 +5541,9 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpNeedsGeometryPass = false
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpStalledAttemptCount = 0
+    private var layoutFollowUpDeferredBonsplitGeometryReason: String?
+    private var layoutFollowUpDeferredBonsplitGeometryGeneration: UInt64 = 0
+    private var layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem: DispatchWorkItem?
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
     private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert?
@@ -5626,19 +5597,6 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
     }
 
-    private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
-        terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
-            guard let self, let terminalPanel else { return }
-            self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
-        }
-    }
-
-    private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
-        tmuxWorkspaceFlashPanelId = panelId
-        tmuxWorkspaceFlashReason = reason
-        tmuxWorkspaceFlashToken &+= 1
-    }
-
 
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let subscription = Publishers.CombineLatest3(
@@ -5673,6 +5631,19 @@ final class Workspace: Identifiable, ObservableObject {
         }
         panelSubscriptions[browserPanel.id] = subscription
         setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+        terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
+            guard let self, let terminalPanel else { return }
+            self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
+        }
+    }
+
+    private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
+        tmuxWorkspaceFlashPanelId = panelId
+        tmuxWorkspaceFlashReason = reason
+        tmuxWorkspaceFlashToken &+= 1
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -5800,31 +5771,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func hasUnreadNotification(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
-    }
-
-    private func attentionPersistentState() -> WorkspaceAttentionPersistentState {
-        let notificationStore = AppDelegate.shared?.notificationStore
-        let unreadPanelIDs = Set(
-            panels.keys.filter {
-                notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: $0) ?? false
-            }
-        )
-        return WorkspaceAttentionPersistentState(
-            unreadPanelIDs: unreadPanelIDs,
-            focusedReadPanelID: notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id),
-            manualUnreadPanelIDs: manualUnreadPanelIds
-        )
-    }
-
-    private func requestAttentionFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
-        let decision = WorkspaceAttentionCoordinator.decideFlash(
-            targetPanelID: panelId,
-            reason: reason,
-            persistentState: attentionPersistentState()
-        )
-        guard decision.isAllowed else { return }
-        panels[panelId]?.triggerFlash(reason: reason)
+        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
     }
 
     private func syncUnreadBadgeStateForPanel(_ panelId: UUID) {
@@ -5932,14 +5879,14 @@ final class Workspace: Identifiable, ObservableObject {
 
         if isVisibleSelection {
             terminalPanel.requestViewReattach()
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(reason: "workspace.debugStress.preload")
         }
         terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
         return terminalPanel
     }
 
     func scheduleDebugStressTerminalGeometryReconcile() {
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(reason: "workspace.debugStress.manual")
     }
 
     func hasLoadedTerminalSurface() -> Bool {
@@ -6301,77 +6248,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
-        guard let directory else { return nil }
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func sidebarHomeDirectoryForCanonicalization(
-        resolvedPanelDirectories: [UUID: String]
-    ) -> String? {
-        if isRemoteWorkspace {
-            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
-                from: Array(resolvedPanelDirectories.values),
-                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
-            )
-        }
-        return FileManager.default.homeDirectoryForCurrentUser.path
-    }
-
-    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
-        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
-            return directory
-        }
-        if let requestedDirectory = normalizedSidebarDirectory(
-            terminalPanel(for: panelId)?.requestedWorkingDirectory
-        ) {
-            return requestedDirectory
-        }
-        guard panelId == focusedPanelId else { return nil }
-        return normalizedSidebarDirectory(currentDirectory)
-    }
-
-    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
-        var resolved: [UUID: String] = [:]
-        for panelId in orderedPanelIds {
-            if let directory = sidebarResolvedDirectory(for: panelId) {
-                resolved[panelId] = directory
-            }
-        }
-        return resolved
-    }
-
-    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
-        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
-        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
-            resolvedPanelDirectories: resolvedDirectories
-        )
-        var ordered: [String] = []
-        var seen: Set<String> = []
-
-        for panelId in orderedPanelIds {
-            guard let directory = resolvedDirectories[panelId],
-                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
-                      directory,
-                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
-                  ) else { continue }
-            if seen.insert(key).inserted {
-                ordered.append(directory)
-            }
-        }
-
-        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
-            return [fallbackDirectory]
-        }
-
-        return ordered
-    }
-
-    func sidebarDirectoriesInDisplayOrder() -> [String] {
-        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
-    }
-
     func sidebarGitBranchesInDisplayOrder(orderedPanelIds: [UUID]) -> [SidebarGitBranchState] {
         SidebarBranchOrdering
             .orderedUniqueBranches(
@@ -6442,11 +6318,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     var isRemoteWorkspace: Bool {
         remoteConfiguration != nil
-    }
-
-    @MainActor
-    func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
-        activeRemoteTerminalSurfaceIds.contains(panelId)
     }
 
     var remoteDisplayTarget: String? {
@@ -6649,9 +6520,83 @@ final class Workspace: Identifiable, ObservableObject {
         trackRemoteTerminalSurface(initialPanelId)
     }
 
+    private func normalizedSidebarDirectory(_ directory: String?) -> String? {
+        SidebarBranchOrdering.normalizedDirectory(directory)
+    }
+
+    private func sidebarHomeDirectoryForCanonicalization(
+        resolvedPanelDirectories: [UUID: String]
+    ) -> String? {
+        if isRemoteWorkspace {
+            return SidebarBranchOrdering.inferredRemoteHomeDirectory(
+                from: Array(resolvedPanelDirectories.values),
+                fallbackDirectory: normalizedSidebarDirectory(currentDirectory)
+            )
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func sidebarResolvedDirectory(for panelId: UUID) -> String? {
+        if let directory = normalizedSidebarDirectory(panelDirectories[panelId]) {
+            return directory
+        }
+        if let requestedDirectory = normalizedSidebarDirectory(
+            terminalPanel(for: panelId)?.requestedWorkingDirectory
+        ) {
+            return requestedDirectory
+        }
+        guard panelId == focusedPanelId else { return nil }
+        return normalizedSidebarDirectory(currentDirectory)
+    }
+
+    private func sidebarResolvedPanelDirectories(orderedPanelIds: [UUID]) -> [UUID: String] {
+        var resolved: [UUID: String] = [:]
+        for panelId in orderedPanelIds {
+            if let directory = sidebarResolvedDirectory(for: panelId) {
+                resolved[panelId] = directory
+            }
+        }
+        return resolved
+    }
+
+    func sidebarDirectoriesInDisplayOrder(orderedPanelIds: [UUID]) -> [String] {
+        let resolvedDirectories = sidebarResolvedPanelDirectories(orderedPanelIds: orderedPanelIds)
+        let homeDirectoryForCanonicalization = sidebarHomeDirectoryForCanonicalization(
+            resolvedPanelDirectories: resolvedDirectories
+        )
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        for panelId in orderedPanelIds {
+            guard let directory = resolvedDirectories[panelId],
+                  let key = SidebarBranchOrdering.canonicalDirectoryKey(
+                      directory,
+                      homeDirectoryForTildeExpansion: homeDirectoryForCanonicalization
+                  ) else { continue }
+            if seen.insert(key).inserted {
+                ordered.append(directory)
+            }
+        }
+
+        if ordered.isEmpty, let fallbackDirectory = normalizedSidebarDirectory(currentDirectory) {
+            return [fallbackDirectory]
+        }
+
+        return ordered
+    }
+
+    func sidebarDirectoriesInDisplayOrder() -> [String] {
+        sidebarDirectoriesInDisplayOrder(orderedPanelIds: sidebarOrderedPanelIds())
+    }
+
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+    }
+
+    @MainActor
+    func isRemoteTerminalSurface(_ panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId)
     }
 
     private func untrackRemoteTerminalSurface(_ panelId: UUID) {
@@ -6852,8 +6797,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if terminalPanel.surface.hasLiveSurface,
-           let sourceSurface = terminalPanel.surface.surface,
+        if let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -6951,8 +6895,7 @@ final class Workspace: Identifiable, ObservableObject {
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            guard terminalPanel.surface.hasLiveSurface,
-                  let sourceSurface = terminalPanel.surface.surface else { continue }
+            guard let sourceSurface = terminalPanel.surface.surface else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -7830,7 +7773,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             scheduleFocusReconcile()
         }
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(reason: "workspace.moveSurface")
         return true
     }
 
@@ -7844,7 +7787,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             scheduleFocusReconcile()
         }
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(reason: "workspace.reorderSurface")
         return true
     }
 
@@ -7853,6 +7796,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard panels[panelId] != nil else { return nil }
 #if DEBUG
         let detachStart = ProcessInfo.processInfo.systemUptime
+        debugPendingVisibleDetachedPanelIds.remove(panelId)
         dlog(
             "split.detach.begin ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
             "tab=\(tabId.uuid.uuidString.prefix(5)) activeDetachTxn=\(activeDetachCloseTransactions) " +
@@ -8250,10 +8194,8 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
-        let previousFocusedPanelId = focusedPanelId
-
         // Unfocus the currently-focused panel before navigating.
-        if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
+        if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
             prev.unfocus()
         }
 
@@ -8265,7 +8207,6 @@ final class Workspace: Identifiable, ObservableObject {
            let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
             applyTabSelection(tabId: tabId, inPane: paneId)
         }
-
     }
 
     // MARK: - Surface Navigation
@@ -8370,7 +8311,7 @@ final class Workspace: Identifiable, ObservableObject {
     // MARK: - Flash/Notification Support
 
     func triggerFocusFlash(panelId: UUID) {
-        requestAttentionFlash(panelId: panelId, reason: .navigation)
+        panels[panelId]?.triggerFlash()
     }
 
     func triggerNotificationFocusFlash(
@@ -8378,7 +8319,7 @@ final class Workspace: Identifiable, ObservableObject {
         requiresSplit: Bool = false,
         shouldFocus: Bool = true
     ) {
-        guard terminalPanel(for: panelId) != nil else { return }
+        guard let terminalPanel = terminalPanel(for: panelId) else { return }
         if shouldFocus {
             focusPanel(panelId)
         }
@@ -8386,18 +8327,16 @@ final class Workspace: Identifiable, ObservableObject {
         if requiresSplit && !isSplit {
             return
         }
-        requestAttentionFlash(panelId: panelId, reason: .notificationArrival)
+        terminalPanel.triggerFlash()
     }
 
     func triggerNotificationDismissFlash(panelId: UUID) {
-        guard terminalPanel(for: panelId) != nil else { return }
-        requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
+        guard let terminalPanel = terminalPanel(for: panelId) else { return }
+        terminalPanel.triggerFlash()
     }
 
     func triggerDebugFlash(panelId: UUID) {
-        guard panels[panelId] != nil else { return }
-        focusPanel(panelId)
-        requestAttentionFlash(panelId: panelId, reason: .debug)
+        triggerNotificationFocusFlash(panelId: panelId, requiresSplit: false, shouldFocus: true)
     }
 
     // MARK: - Portal Lifecycle
@@ -8543,6 +8482,7 @@ final class Workspace: Identifiable, ObservableObject {
         terminalFocusPanelId: UUID? = nil,
         includeGeometry: Bool = false
     ) {
+        let alreadyActive = layoutFollowUpTimeoutWorkItem != nil
         layoutFollowUpReason = reason
         if let browserPanelId {
             layoutFollowUpBrowserPanelId = browserPanelId
@@ -8556,10 +8496,35 @@ final class Workspace: Identifiable, ObservableObject {
         layoutFollowUpNeedsGeometryPass = layoutFollowUpNeedsGeometryPass || includeGeometry
         layoutFollowUpStalledAttemptCount = 0
 
+#if DEBUG
+        debugLayoutFollowUpEventCount &+= 1
+        let eventId = debugLayoutFollowUpEventCount
+        dlog(
+            "layout.followUp.begin id=\(eventId) ws=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) geometry=\(includeGeometry ? 1 : 0) " +
+            "terminalFocus=\(terminalFocusPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "browser=\(browserPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "browserExit=\(browserExitFocusPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "focusedPane=\(bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil") " +
+            "focusedPanel=\(focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "layout=\(debugPaneSelectionSummary())"
+        )
+#endif
+
         if layoutFollowUpTimeoutWorkItem == nil {
             installLayoutFollowUpObservers()
         }
         refreshLayoutFollowUpTimeout()
+
+        // When a follow-up cycle is already active, merge this request into the existing
+        // cycle and let the scheduled retry handle it. This avoids back-to-back immediate
+        // geometry passes when Bonsplit emits multiple didChangeGeometry callbacks during
+        // the same split add/close transition.
+        if alreadyActive {
+            scheduleLayoutFollowUpAttempt()
+            return
+        }
+
         attemptEventDrivenLayoutFollowUp()
     }
 
@@ -8657,6 +8622,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         layoutFollowUpAttemptScheduled = true
         let delay = layoutFollowUpBackoffDelay()
+#if DEBUG
+        dlog(
+            "layout.followUp.retry.schedule ws=\(id.uuidString.prefix(5)) " +
+            "delayMs=\(String(format: "%.1f", delay * 1000)) stalled=\(layoutFollowUpStalledAttemptCount) " +
+            "reason=\(layoutFollowUpReason ?? "nil")"
+        )
+#endif
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             self.layoutFollowUpAttemptScheduled = false
@@ -8736,6 +8708,17 @@ final class Workspace: Identifiable, ObservableObject {
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
 
+#if DEBUG
+        let debugReason = layoutFollowUpReason ?? "workspace.layout"
+        dlog(
+            "layout.followUp.attempt.begin ws=\(id.uuidString.prefix(5)) reason=\(debugReason) " +
+            "geometry=\(geometryPendingBefore ? 1 : 0) terminalPortal=\(terminalPortalPendingBefore ? 1 : 0) " +
+            "browserVisibility=\(browserVisibilityPendingBefore ? 1 : 0) terminalFocus=\(terminalFocusPendingBefore ? 1 : 0) " +
+            "browserPanel=\(browserPanelPendingBefore ? 1 : 0) browserExit=\(browserExitPendingBefore ? 1 : 0) " +
+            "layout=\(debugPaneSelectionSummary())"
+        )
+#endif
+
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
         }
@@ -8807,6 +8790,12 @@ final class Workspace: Identifiable, ObservableObject {
             browserExitPending
 
         if !needsMoreWork {
+#if DEBUG
+            dlog(
+                "layout.followUp.attempt.end ws=\(id.uuidString.prefix(5)) reason=\(reason) " +
+                "needsMore=0 layout=\(debugPaneSelectionSummary())"
+            )
+#endif
             clearLayoutFollowUp()
             return
         }
@@ -8825,12 +8814,34 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             layoutFollowUpStalledAttemptCount += 1
         }
+
+#if DEBUG
+        dlog(
+            "layout.followUp.attempt.end ws=\(id.uuidString.prefix(5)) reason=\(reason) " +
+            "needsMore=1 geometry=\(layoutFollowUpNeedsGeometryPass ? 1 : 0) " +
+            "terminalPortal=\(terminalPortalPending ? 1 : 0) browserVisibility=\(browserVisibilityPending ? 1 : 0) " +
+            "terminalFocus=\(terminalFocusPending ? 1 : 0) browserPanel=\(browserPanelPending ? 1 : 0) " +
+            "browserExit=\(browserExitPending ? 1 : 0) progress=\(didMakeProgress ? 1 : 0) " +
+            "stalled=\(layoutFollowUpStalledAttemptCount) layout=\(debugPaneSelectionSummary())"
+        )
+#endif
     }
 
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
     private func reconcileTerminalGeometryPass() -> Bool {
         var needsFollowUpPass = false
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+#if DEBUG
+        debugTerminalGeometryPassCount &+= 1
+        let passId = debugTerminalGeometryPassCount
+        dlog(
+            "geometry.pass.begin id=\(passId) ws=\(id.uuidString.prefix(5)) " +
+            "reason=\(layoutFollowUpReason ?? "nil") visible=\(debugShortPanelIds(visiblePanelIds)) " +
+            "layout=\(debugPaneSelectionSummary())"
+        )
+#endif
 
         // Flush pending AppKit layout first so terminal-host bounds reflect latest split topology.
         for window in NSApp.windows {
@@ -8840,35 +8851,214 @@ final class Workspace: Identifiable, ObservableObject {
         for panel in panels.values {
             guard let terminalPanel = panel as? TerminalPanel else { continue }
             let hostedView = terminalPanel.hostedView
+            let wasVisible = visiblePanelIds.contains(terminalPanel.id)
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let hasWindow = hostedView.window != nil
+            let hasSuperview = hostedView.superview != nil
+            let isAttached = hasWindow && hasSuperview
+            let portalVisible = hostedView.debugPortalVisibleInUI
+            let visibleDetached = wasVisible && (!hasWindow || !hasSuperview)
+            let transientPortalRemount = wasVisible && portalVisible && !hasWindow && !hasSuperview
+            let requestedReattach = geometryNeedsReattach(
+                isAttached: isAttached,
+                hasUsableBounds: hasUsableBounds,
+                hasSurface: hasSurface
+            )
+#if DEBUG
+            let reattachReasons = debugGeometryReattachReasons(
+                isAttached: isAttached,
+                hasUsableBounds: hasUsableBounds,
+                hasSurface: hasSurface
+            )
+            let beforeState = debugTerminalGeometryState(for: terminalPanel, visibleInLayout: wasVisible)
+#endif
+
+            if transientPortalRemount {
+#if DEBUG
+                debugPendingVisibleDetachedPanelIds.insert(terminalPanel.id)
+                AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                    kind: "transientPortalRemount",
+                    fields: [
+                        "panelId": terminalPanel.id.uuidString,
+                        "workspaceId": id.uuidString,
+                        "passId": String(passId),
+                        "portalVisible": portalVisible ? "1" : "0",
+                        "requestedReattach": "1",
+                        "needsFollowUp": "1",
+                    ]
+                )
+#endif
+                terminalPanel.requestViewReattach()
+                needsFollowUpPass = true
+#if DEBUG
+                dlog(
+                    "geometry.pass.defer id=\(passId) ws=\(id.uuidString.prefix(5)) " +
+                    "panel=\(terminalPanel.id.uuidString.prefix(5)) reason=awaitingPortalHostWindow " +
+                    "requestedReattach=1 needsFollowUp=1 " +
+                    "state={\(beforeState)}"
+                )
+#endif
+                continue
+            }
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
-            if !isAttached || !hasUsableBounds || !hasSurface {
+            if requestedReattach {
+#if DEBUG
+                if visibleDetached {
+                    debugPendingVisibleDetachedPanelIds.insert(terminalPanel.id)
+                    AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                        kind: "visibleDetached",
+                        fields: [
+                            "panelId": terminalPanel.id.uuidString,
+                            "workspaceId": id.uuidString,
+                            "passId": String(passId),
+                            "portalVisible": portalVisible ? "1" : "0",
+                            "hasWindow": hasWindow ? "1" : "0",
+                            "hasSuperview": hasSuperview ? "1" : "0",
+                        ]
+                    )
+                    AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                        kind: "reattachRequested",
+                        fields: [
+                            "panelId": terminalPanel.id.uuidString,
+                            "workspaceId": id.uuidString,
+                            "passId": String(passId),
+                            "portalVisible": portalVisible ? "1" : "0",
+                            "needsFollowUp": "1",
+                        ]
+                    )
+                }
+#endif
                 terminalPanel.requestViewReattach()
                 needsFollowUpPass = true
             }
 
-            hostedView.reconcileGeometryNow()
-            // Re-check surface after reconcileGeometryNow() which can trigger AppKit
-            // layout and view lifecycle changes that free surfaces (#432).
-            if terminalPanel.surface.surface != nil {
+            let geometryChanged = hostedView.reconcileGeometryNow()
+            let hasSurfaceAfterReconcile = terminalPanel.surface.surface != nil
+            let didRefresh = geometryNeedsRefresh(
+                visibleInLayout: wasVisible,
+                requestedReattach: requestedReattach,
+                geometryChanged: geometryChanged,
+                hadSurfaceBeforeReconcile: hasSurface,
+                hasSurfaceAfterReconcile: hasSurfaceAfterReconcile
+            )
+#if DEBUG
+            let refreshReasons = debugGeometryRefreshReasons(
+                visibleInLayout: wasVisible,
+                requestedReattach: requestedReattach,
+                geometryChanged: geometryChanged,
+                hadSurfaceBeforeReconcile: hasSurface,
+                hasSurfaceAfterReconcile: hasSurfaceAfterReconcile
+            )
+#endif
+            if didRefresh {
+                // Keep the immediate redraw only for surfaces whose visible geometry actually changed.
                 terminalPanel.surface.forceRefresh()
             }
-            if terminalPanel.surface.surface == nil, isAttached && hasUsableBounds {
+
+            let isAttachedAfterReconcile = hostedView.window != nil && hostedView.superview != nil
+            let hasUsableBoundsAfterReconcile = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
+            let didRequestSurfaceStart = !hasSurfaceAfterReconcile && isAttachedAfterReconcile && hasUsableBoundsAfterReconcile
+            if didRequestSurfaceStart {
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
                 needsFollowUpPass = true
             }
+
+#if DEBUG
+            if wasVisible,
+               isAttachedAfterReconcile,
+               hasUsableBoundsAfterReconcile,
+               debugPendingVisibleDetachedPanelIds.contains(terminalPanel.id) {
+                debugPendingVisibleDetachedPanelIds.remove(terminalPanel.id)
+                AppDelegate.shared?.recordUITestTerminalGeometryEvent(
+                    kind: "reattachRecovered",
+                    fields: [
+                        "panelId": terminalPanel.id.uuidString,
+                        "workspaceId": id.uuidString,
+                        "passId": String(passId),
+                        "portalVisible": hostedView.debugPortalVisibleInUI ? "1" : "0",
+                    ]
+                )
+            }
+#endif
+
+#if DEBUG
+            let afterState = debugTerminalGeometryState(for: terminalPanel, visibleInLayout: wasVisible)
+            if wasVisible || beforeState != afterState || requestedReattach || didRequestSurfaceStart {
+                dlog(
+                    "geometry.pass.panel id=\(passId) ws=\(id.uuidString.prefix(5)) " +
+                    "panel=\(terminalPanel.id.uuidString.prefix(5)) before={\(beforeState)} after={\(afterState)} " +
+                    "requestedReattach=\(requestedReattach ? 1 : 0) geometryChanged=\(geometryChanged ? 1 : 0) " +
+                    "refresh=\(didRefresh ? "force" : "skip") " +
+                    "refreshReasons=\(refreshReasons.isEmpty ? "-" : refreshReasons.joined(separator: ",")) " +
+                    "reattachReasons=\(reattachReasons.isEmpty ? "-" : reattachReasons.joined(separator: ",")) " +
+                    "surfaceStart=\(didRequestSurfaceStart ? 1 : 0) needsFollowUp=\(needsFollowUpPass ? 1 : 0)"
+                )
+            }
+#endif
         }
 
+#if DEBUG
+        dlog(
+            "geometry.pass.end id=\(passId) ws=\(id.uuidString.prefix(5)) " +
+            "needsFollowUp=\(needsFollowUpPass ? 1 : 0)"
+        )
+#endif
         return needsFollowUpPass
     }
 
-    private func scheduleTerminalGeometryReconcile() {
+    private func deferTerminalGeometryReconcileUntilBonsplitGeometryChange(reason: String) {
+        layoutFollowUpDeferredBonsplitGeometryGeneration &+= 1
+        let generation = layoutFollowUpDeferredBonsplitGeometryGeneration
+        layoutFollowUpDeferredBonsplitGeometryReason = reason
+        layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem?.cancel()
+#if DEBUG
+        dlog(
+            "geometry.defer.begin ws=\(id.uuidString.prefix(5)) reason=\(reason) generation=\(generation)"
+        )
+#endif
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.layoutFollowUpDeferredBonsplitGeometryReason == reason,
+                  self.layoutFollowUpDeferredBonsplitGeometryGeneration == generation else {
+                return
+            }
+            self.layoutFollowUpDeferredBonsplitGeometryReason = nil
+            self.layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem = nil
+#if DEBUG
+            dlog(
+                "geometry.defer.fallback ws=\(self.id.uuidString.prefix(5)) reason=\(reason) generation=\(generation)"
+            )
+#endif
+            self.scheduleTerminalGeometryReconcile(reason: "\(reason).fallback")
+        }
+        layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02, execute: workItem)
+    }
+
+    private func consumeDeferredBonsplitGeometryReason(defaultReason: String) -> String {
+        layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem?.cancel()
+        layoutFollowUpDeferredBonsplitGeometryFallbackWorkItem = nil
+        guard let deferredReason = layoutFollowUpDeferredBonsplitGeometryReason else {
+            return defaultReason
+        }
+        layoutFollowUpDeferredBonsplitGeometryReason = nil
+        return "\(defaultReason)[\(deferredReason)]"
+    }
+
+    private func scheduleTerminalGeometryReconcile(
+        reason: String = "workspace.geometry",
+        preferBonsplitGeometryCallback: Bool = false
+    ) {
+        if preferBonsplitGeometryCallback {
+            deferTerminalGeometryReconcileUntilBonsplitGeometryChange(reason: reason)
+            return
+        }
+
         beginEventDrivenLayoutFollowUp(
-            reason: "workspace.geometry",
+            reason: reason,
             includeGeometry: true
         )
     }
@@ -9027,16 +9217,29 @@ final class Workspace: Identifiable, ObservableObject {
         return false
     }
 
-    private func scheduleMovedTerminalRefresh(panelId: UUID) {
+    private func scheduleMovedTerminalRefresh(panelId: UUID, reason: String = "workspace.move") {
         guard terminalPanel(for: panelId) != nil else { return }
 
         // Force an NSViewRepresentable update after drag/move reparenting. This keeps
         // portal host binding current when a pane auto-closes during tab moves.
         terminalPanel(for: panelId)?.requestViewReattach()
 
+#if DEBUG
+        dlog(
+            "geometry.moveRefresh.schedule ws=\(id.uuidString.prefix(5)) " +
+            "panel=\(panelId.uuidString.prefix(5)) reason=\(reason)"
+        )
+#endif
+
         let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 guard let self, let panel = self.terminalPanel(for: panelId) else { return }
+#if DEBUG
+                let beforeState = self.debugTerminalGeometryState(
+                    for: panel,
+                    visibleInLayout: self.renderedVisiblePanelIdsForCurrentLayout().contains(panel.id)
+                )
+#endif
                 panel.hostedView.reconcileGeometryNow()
                 if panel.surface.surface != nil {
                     panel.surface.forceRefresh()
@@ -9044,6 +9247,17 @@ final class Workspace: Identifiable, ObservableObject {
                 if panel.surface.surface == nil {
                     panel.surface.requestBackgroundSurfaceStartIfNeeded()
                 }
+#if DEBUG
+                let afterState = self.debugTerminalGeometryState(
+                    for: panel,
+                    visibleInLayout: self.renderedVisiblePanelIdsForCurrentLayout().contains(panel.id)
+                )
+                dlog(
+                    "geometry.moveRefresh.pass ws=\(self.id.uuidString.prefix(5)) " +
+                    "panel=\(panelId.uuidString.prefix(5)) reason=\(reason) delayMs=\(String(format: "%.0f", delay * 1000)) " +
+                    "before={\(beforeState)} after={\(afterState)}"
+                )
+#endif
             }
         }
 
@@ -9052,6 +9266,163 @@ final class Workspace: Identifiable, ObservableObject {
         runRefreshPass(0)
         runRefreshPass(0.03)
     }
+
+    private func geometryNeedsReattach(
+        isAttached: Bool,
+        hasUsableBounds: Bool,
+        hasSurface: Bool
+    ) -> Bool {
+        !isAttached || !hasUsableBounds || !hasSurface
+    }
+
+    private func geometryNeedsRefresh(
+        visibleInLayout: Bool,
+        requestedReattach: Bool,
+        geometryChanged: Bool,
+        hadSurfaceBeforeReconcile: Bool,
+        hasSurfaceAfterReconcile: Bool
+    ) -> Bool {
+        guard visibleInLayout else { return false }
+        return requestedReattach || geometryChanged || (!hadSurfaceBeforeReconcile && hasSurfaceAfterReconcile)
+    }
+
+#if DEBUG
+    private func debugShortPanelIds(_ panelIds: Set<UUID>) -> String {
+        let ordered = panelIds
+            .map { String($0.uuidString.prefix(5)) }
+            .sorted()
+        return ordered.isEmpty ? "-" : ordered.joined(separator: ",")
+    }
+
+    private func debugPaneSelectionSummary() -> String {
+        let paneSummaries = bonsplitController.allPaneIds.map { paneId in
+            let tabSummaries = bonsplitController.tabs(inPane: paneId).map { tab -> String in
+                let panelShort = panelIdFromSurfaceId(tab.id).map { String($0.uuidString.prefix(5)) } ?? "none"
+                let selected = bonsplitController.selectedTab(inPane: paneId)?.id == tab.id ? "*" : ""
+                return "\(selected)\(panelShort)"
+            }
+            let paneMarker = bonsplitController.focusedPaneId == paneId ? "*" : ""
+            return "\(paneMarker)\(paneId.id.uuidString.prefix(5))[\(tabSummaries.joined(separator: ","))]"
+        }
+        return paneSummaries.isEmpty ? "-" : paneSummaries.joined(separator: " ")
+    }
+
+    private func debugTerminalGeometryState(
+        for panel: TerminalPanel,
+        visibleInLayout: Bool
+    ) -> String {
+        let hostedView = panel.hostedView
+        let pixels = panel.surface.debugCurrentPixelSize()
+        return [
+            "visible=\(visibleInLayout ? 1 : 0)",
+            "active=\(hostedView.debugPortalActive ? 1 : 0)",
+            "portalVisible=\(hostedView.debugPortalVisibleInUI ? 1 : 0)",
+            "attached=\((hostedView.window != nil && hostedView.superview != nil) ? 1 : 0)",
+            "surface=\(panel.surface.surface != nil ? 1 : 0)",
+            "hidden=\(hostedView.isHidden ? 1 : 0)",
+            "bounds=\(String(format: "%.1fx%.1f", hostedView.bounds.width, hostedView.bounds.height))",
+            "frame=\(String(format: "%.1fx%.1f", hostedView.frame.width, hostedView.frame.height))",
+            "pixels=\(pixels.width)x\(pixels.height)"
+        ].joined(separator: " ")
+    }
+
+    private func debugGeometryReattachReasons(
+        isAttached: Bool,
+        hasUsableBounds: Bool,
+        hasSurface: Bool
+    ) -> [String] {
+        guard geometryNeedsReattach(
+            isAttached: isAttached,
+            hasUsableBounds: hasUsableBounds,
+            hasSurface: hasSurface
+        ) else {
+            return []
+        }
+
+        var reasons: [String] = []
+        if !isAttached {
+            reasons.append("detached")
+        }
+        if !hasUsableBounds {
+            reasons.append("bounds")
+        }
+        if !hasSurface {
+            reasons.append("surface")
+        }
+        return reasons
+    }
+
+    private func debugGeometryRefreshReasons(
+        visibleInLayout: Bool,
+        requestedReattach: Bool,
+        geometryChanged: Bool,
+        hadSurfaceBeforeReconcile: Bool,
+        hasSurfaceAfterReconcile: Bool
+    ) -> [String] {
+        guard geometryNeedsRefresh(
+            visibleInLayout: visibleInLayout,
+            requestedReattach: requestedReattach,
+            geometryChanged: geometryChanged,
+            hadSurfaceBeforeReconcile: hadSurfaceBeforeReconcile,
+            hasSurfaceAfterReconcile: hasSurfaceAfterReconcile
+        ) else {
+            return []
+        }
+
+        var reasons: [String] = []
+        if requestedReattach {
+            reasons.append("reattach")
+        }
+        if geometryChanged {
+            reasons.append("geometry")
+        }
+        if !hadSurfaceBeforeReconcile && hasSurfaceAfterReconcile {
+            reasons.append("surfaceReady")
+        }
+        return reasons
+    }
+
+    private func debugFocusSnapshot(reason: String) -> String {
+        let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
+        let focusedPanelShort = focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
+
+        let paneSelections = bonsplitController.allPaneIds.map { paneId in
+            let selectedTab = bonsplitController.selectedTab(inPane: paneId)
+            let selectedPanel = selectedTab.flatMap { panelIdFromSurfaceId($0.id) }
+            let selectedPanelShort = selectedPanel.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            let marker = bonsplitController.focusedPaneId == paneId ? "*" : ""
+            return "\(marker)\(paneId.id.uuidString.prefix(5))=\(selectedPanelShort)"
+        }
+
+        let visibleTerminals = visiblePanelIds
+            .compactMap { terminalPanel(for: $0) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+            .map { panel in
+                let hostedView = panel.hostedView
+                let firstResponder = hostedView.isSurfaceViewFirstResponder() ? 1 : 0
+                return
+                    "\(panel.id.uuidString.prefix(5))" +
+                    "{active=\(hostedView.debugPortalActive ? 1 : 0)" +
+                    ",visible=\(hostedView.debugPortalVisibleInUI ? 1 : 0)" +
+                    ",fr=\(firstResponder)" +
+                    ",hidden=\(hostedView.isHidden ? 1 : 0)" +
+                    ",attached=\((hostedView.window != nil && hostedView.superview != nil) ? 1 : 0)}"
+            }
+
+        let firstResponderSurface = panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .first(where: { $0.hostedView.isSurfaceViewFirstResponder() })?
+            .id.uuidString.prefix(5) ?? "nil"
+
+        return
+            "focus.snapshot workspace=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) focusedPane=\(focusedPaneShort) focusedPanel=\(focusedPanelShort) " +
+            "firstResponderSurface=\(firstResponderSurface) " +
+            "paneSelections=[\(paneSelections.joined(separator: " "))] " +
+            "visibleTerminals=[\(visibleTerminals.joined(separator: " "))]"
+    }
+#endif
 
     private func closeTabs(_ tabIds: [TabID], skipPinned: Bool = true) {
         for tabId in tabIds {
@@ -9299,29 +9670,14 @@ extension Workspace: BonsplitDelegate {
 
     @MainActor
     private func confirmClosePanel(for tabId: TabID) async -> Bool {
-        let alert = NSAlert()
-
-        alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
-
-        let panelName: String? = {
-            guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
-            if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return custom
-            }
-            if let title = panelTitles[panelId], !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return title
-            }
-            if let dir = panelDirectories[panelId], !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return (dir as NSString).lastPathComponent
-            }
-            return nil
-        }()
-
-        if let panelName {
-            alert.informativeText = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
-        } else {
-            alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
+#if DEBUG
+        if let handler = AppDelegate.shared?.debugClosePanelConfirmationHandler {
+            return handler(tabId)
         }
+#endif
+        let alert = NSAlert()
+        alert.messageText = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
+        alert.informativeText = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
@@ -9444,7 +9800,7 @@ extension Workspace: BonsplitDelegate {
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
                 terminalPanel.requestViewReattach()
-                scheduleTerminalGeometryReconcile()
+                scheduleTerminalGeometryReconcile(reason: "workspace.applyTabSelection.debugStress")
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             }
             return
@@ -9561,6 +9917,7 @@ extension Workspace: BonsplitDelegate {
             "focusedPane=\(focusedPane.id.uuidString.prefix(5)) selectedTab=\(selectedTabId.uuid.uuidString.prefix(5)) " +
             "prevPanel=\(prevPanelShort)"
         )
+        dlog(debugFocusSnapshot(reason: "applyTabSelection"))
 #endif
     }
 
@@ -9804,7 +10161,7 @@ extension Workspace: BonsplitDelegate {
             #if DEBUG
             NSLog("[Workspace] didCloseTab: no panelId for tabId")
             #endif
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(reason: "workspace.didCloseTab.missingPanel")
             if !isDetaching {
                 scheduleFocusReconcile()
             }
@@ -9875,7 +10232,7 @@ extension Workspace: BonsplitDelegate {
         // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
             if isDetaching {
-                scheduleTerminalGeometryReconcile()
+                scheduleTerminalGeometryReconcile(reason: "workspace.didCloseTab.detachingEmpty")
                 return
             }
 
@@ -9886,7 +10243,7 @@ extension Workspace: BonsplitDelegate {
                 bonsplitController.selectTab(replacementTabId)
                 applyTabSelection(tabId: replacementTabId, inPane: replacementPane)
             }
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(reason: "workspace.didCloseTab.replacement")
             scheduleFocusReconcile()
             return
         }
@@ -9909,7 +10266,10 @@ extension Workspace: BonsplitDelegate {
         if bonsplitController.allPaneIds.contains(pane) {
             normalizePinnedTabs(in: pane)
         }
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(
+            reason: "workspace.didCloseTab",
+            preferBonsplitGeometryCallback: true
+        )
         if !isDetaching {
             scheduleFocusReconcile()
         }
@@ -9951,7 +10311,7 @@ extension Workspace: BonsplitDelegate {
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
         if let movedPanelId = panelIdFromSurfaceId(tab.id) {
-            scheduleMovedTerminalRefresh(panelId: movedPanelId)
+            scheduleMovedTerminalRefresh(panelId: movedPanelId, reason: "workspace.didMoveTab")
         }
 #if DEBUG
         let selectedAfter = controller.selectedTab(inPane: destination)
@@ -9967,7 +10327,7 @@ extension Workspace: BonsplitDelegate {
 #endif
         normalizePinnedTabs(in: source)
         normalizePinnedTabs(in: destination)
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(reason: "workspace.didMoveTab")
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
@@ -10027,7 +10387,10 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        scheduleTerminalGeometryReconcile()
+        scheduleTerminalGeometryReconcile(
+            reason: "workspace.didClosePane",
+            preferBonsplitGeometryCallback: true
+        )
         if shouldScheduleFocusReconcile {
             scheduleFocusReconcile()
         }
@@ -10095,7 +10458,10 @@ extension Workspace: BonsplitDelegate {
         guard !isProgrammaticSplit else {
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(
+                reason: "workspace.didSplit.programmatic",
+                preferBonsplitGeometryCallback: true
+            )
             return
         }
 
@@ -10177,7 +10543,10 @@ extension Workspace: BonsplitDelegate {
             }
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
-            scheduleTerminalGeometryReconcile()
+            scheduleTerminalGeometryReconcile(
+                reason: "workspace.didSplit.drag",
+                preferBonsplitGeometryCallback: true
+            )
             return
         }
 
@@ -10240,7 +10609,10 @@ extension Workspace: BonsplitDelegate {
             if self.bonsplitController.focusedPaneId == newPane {
                 self.bonsplitController.selectTab(newTabId)
             }
-            self.scheduleTerminalGeometryReconcile()
+            self.scheduleTerminalGeometryReconcile(
+                reason: "workspace.didSplit.autoCreate",
+                preferBonsplitGeometryCallback: true
+            )
             self.scheduleFocusReconcile()
         }
     }
@@ -10301,7 +10673,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
-        scheduleTerminalGeometryReconcile()
+        let reason = consumeDeferredBonsplitGeometryReason(defaultReason: "workspace.didChangeGeometry")
+        scheduleTerminalGeometryReconcile(reason: reason)
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
