@@ -1089,6 +1089,113 @@ final class TerminalNotificationStore: ObservableObject {
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
     }
 
+    // Strip markdown syntax from notification text so that desktop notifications
+    // display clean plain text instead of raw markdown characters like **bold**,
+    // ## headings, `code`, etc.
+    private func stripMarkdown(_ text: String) -> String {
+        var result = text
+
+        // Headings: ## Heading → Heading
+        result = result.replacingOccurrences(
+            of: #"^#{1,6}\s+"#,
+            with: "",
+            options: [.regularExpression, .anchored]
+        )
+        // Also handle headings mid-line (after a newline)
+        result = result.replacingOccurrences(
+            of: #"(?m)^#{1,6}\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Bold+italic: ***text*** or ___text___
+        result = result.replacingOccurrences(
+            of: #"\*{3}(.+?)\*{3}"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"_{3}(.+?)_{3}"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Bold: **text** or __text__
+        result = result.replacingOccurrences(
+            of: #"\*{2}(.+?)\*{2}"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"_{2}(.+?)_{2}"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Italic: *text* or _text_
+        result = result.replacingOccurrences(
+            of: #"\*(.+?)\*"#,
+            with: "$1",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"_(.+?)_"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Inline code: `code`
+        result = result.replacingOccurrences(
+            of: #"`(.+?)`"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Links: [text](url) → text
+        result = result.replacingOccurrences(
+            of: #"\[(.+?)\]\(.+?\)"#,
+            with: "$1",
+            options: .regularExpression
+        )
+
+        // Blockquotes: > text → text
+        result = result.replacingOccurrences(
+            of: #"(?m)^>\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Unordered list markers: - item or * item or + item
+        result = result.replacingOccurrences(
+            of: #"(?m)^[-*+]\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Ordered list markers: 1. item
+        result = result.replacingOccurrences(
+            of: #"(?m)^\d+\.\s+"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Horizontal rules: --- or *** or ___
+        result = result.replacingOccurrences(
+            of: #"(?m)^[-*_]{3,}\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+
+        // Collapse multiple blank lines into one
+        result = result.replacingOccurrences(
+            of: #"\n{3,}"#,
+            with: "\n\n",
+            options: .regularExpression
+        )
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func resolvedNotificationTitle(for notification: TerminalNotification) -> String {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
@@ -1102,8 +1209,8 @@ final class TerminalNotificationStore: ObservableObject {
 
             let content = UNMutableNotificationContent()
             content.title = self.resolvedNotificationTitle(for: notification)
-            content.subtitle = notification.subtitle
-            content.body = notification.body
+            content.subtitle = stripMarkdown(notification.subtitle)
+            content.body = stripMarkdown(notification.body)
             content.sound = NotificationSoundSettings.sound()
             content.categoryIdentifier = Self.categoryIdentifier
             content.userInfo = [
@@ -1138,8 +1245,8 @@ final class TerminalNotificationStore: ObservableObject {
         NotificationSoundSettings.playSelectedSound()
         NotificationSoundSettings.runCustomCommand(
             title: resolvedNotificationTitle(for: notification),
-            subtitle: notification.subtitle,
-            body: notification.body
+            subtitle: stripMarkdown(notification.subtitle),
+            body: stripMarkdown(notification.body)
         )
     }
 
