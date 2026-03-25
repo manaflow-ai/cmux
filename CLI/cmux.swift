@@ -11198,6 +11198,7 @@ struct CMUXCLI {
         let codexHome = ProcessInfo.processInfo.environment["CODEX_HOME"]
             ?? NSString(string: "~/.codex").expandingTildeInPath
         let hooksPath = (codexHome as NSString).appendingPathComponent("hooks.json")
+        let configPath = (codexHome as NSString).appendingPathComponent("config.toml")
         let fm = FileManager.default
 
         guard fm.fileExists(atPath: hooksPath),
@@ -11231,23 +11232,38 @@ struct CMUXCLI {
             }
         }
 
-        if removedCount == 0 {
-            print("No cmux hooks found in \(hooksPath)")
+        // Build config.toml without codex_hooks
+        let existingConfigContent: String = fm.fileExists(atPath: configPath)
+            ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
+            : ""
+        let newConfigContent = buildConfigWithoutCodexHooks(existingConfigContent)
+        let configChanged = existingConfigContent != newConfigContent
+
+        if removedCount == 0 && !configChanged {
+            print("No cmux hooks found.")
             return
         }
 
         parsed["hooks"] = hooks
         let newJsonData = try JSONSerialization.data(withJSONObject: parsed, options: [.prettyPrinted, .sortedKeys])
-        let newContent = String(data: newJsonData, encoding: .utf8) ?? ""
-        let oldContent = String(data: data, encoding: .utf8) ?? ""
+        let newHooksContent = String(data: newJsonData, encoding: .utf8) ?? ""
+        let oldHooksContent = String(data: data, encoding: .utf8) ?? ""
 
         // Show diff and ask for confirmation
-        print("  \(hooksPath):")
-        printSimpleDiff(old: oldContent, new: newContent)
-        print("")
+        if removedCount > 0 {
+            print("  \(hooksPath):")
+            printSimpleDiff(old: oldHooksContent, new: newHooksContent)
+            print("")
+        }
+
+        if configChanged {
+            print("  \(configPath):")
+            printSimpleDiff(old: existingConfigContent, new: newConfigContent)
+            print("")
+        }
 
         if !skipConfirm {
-            print("Remove \(removedCount) cmux hook(s)? [Y/n] ", terminator: "")
+            print("Apply these changes? [Y/n] ", terminator: "")
             if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                !response.isEmpty && response != "y" && response != "yes" {
                 print("Aborted.")
@@ -11255,8 +11271,13 @@ struct CMUXCLI {
             }
         }
 
-        try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
-        print("Removed \(removedCount) cmux hook(s).")
+        if removedCount > 0 {
+            try newJsonData.write(to: URL(fileURLWithPath: hooksPath), options: .atomic)
+        }
+        if configChanged {
+            try newConfigContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+        }
+        print("Removed cmux Codex hooks.")
     }
 
     /// Print a unified-diff-style view with context lines and line numbers.
@@ -11351,33 +11372,58 @@ struct CMUXCLI {
 
     /// Returns config.toml content with codex_hooks = true under [features].
     private func buildConfigWithCodexHooks(_ content: String) -> String {
-        var result = content
+        var lines = content.components(separatedBy: "\n")
 
-        if result.contains("codex_hooks") {
-            let lines = result.components(separatedBy: "\n")
-            var output: [String] = []
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("codex_hooks") && trimmed.contains("=") {
-                    output.append("codex_hooks = true")
-                } else {
-                    output.append(line)
-                }
-            }
-            result = output.joined(separator: "\n")
-        } else if result.contains("[features]") {
-            result = result.replacingOccurrences(
-                of: "[features]",
-                with: "[features]\ncodex_hooks = true"
-            )
-        } else {
-            if !result.isEmpty && !result.hasSuffix("\n") {
-                result += "\n"
-            }
-            result += "\n[features]\ncodex_hooks = true\n"
+        // Check if codex_hooks key already exists (exact key match at line start)
+        if let idx = lines.firstIndex(where: { isTomlKey($0, key: "codex_hooks") }) {
+            lines[idx] = "codex_hooks = true"
+            return lines.joined(separator: "\n")
         }
 
+        // Find [features] section and insert after it (first occurrence only)
+        if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[features]" }) {
+            lines.insert("codex_hooks = true", at: idx + 1)
+            return lines.joined(separator: "\n")
+        }
+
+        // No [features] section, append one
+        var result = content
+        if !result.isEmpty && !result.hasSuffix("\n") {
+            result += "\n"
+        }
+        result += "\n[features]\ncodex_hooks = true\n"
         return result
+    }
+
+    /// Returns config.toml content with codex_hooks removed from [features].
+    private func buildConfigWithoutCodexHooks(_ content: String) -> String {
+        var lines = content.components(separatedBy: "\n")
+
+        // Remove the codex_hooks line
+        lines.removeAll { isTomlKey($0, key: "codex_hooks") }
+
+        // If [features] section is now empty (only has the header, nothing before next section or EOF),
+        // remove the header too
+        if let idx = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[features]" }) {
+            let nextNonEmpty = lines[(idx + 1)...].firstIndex(where: {
+                !$0.trimmingCharacters(in: .whitespaces).isEmpty
+            })
+            let sectionEmpty = nextNonEmpty == nil || lines[nextNonEmpty!].trimmingCharacters(in: .whitespaces).hasPrefix("[")
+            if sectionEmpty {
+                lines.remove(at: idx)
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// Check if a TOML line sets a specific key (ignoring comments and whitespace).
+    private func isTomlKey(_ line: String, key: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.hasPrefix("#") else { return false }
+        guard trimmed.hasPrefix(key) else { return false }
+        let rest = trimmed.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
+        return rest.hasPrefix("=")
     }
 
     /// Codex hook handler. Gracefully no-ops when not running inside cmux.
