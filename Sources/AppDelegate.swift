@@ -4897,10 +4897,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func resolvedWindow(for context: MainWindowContext) -> NSWindow? {
-        guard let window = context.window ?? windowForMainWindowId(context.windowId) else {
+        if let window = context.window {
+            return window
+        }
+        guard let window = windowForMainWindowId(context.windowId) else {
             return nil
         }
-        context.window = window
+        reindexMainWindowContextIfNeeded(context, for: window)
         return window
     }
 
