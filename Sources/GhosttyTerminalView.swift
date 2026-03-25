@@ -1470,7 +1470,7 @@ class GhosttyApp {
                 font = "PingFang TC"
             } else if lower.hasPrefix("zh") {
                 font = "PingFang SC"
-            } else if lower.hasPrefix("ko") {
+            } else if lower == "ko" || lower.hasPrefix("ko-") {
                 font = "Apple SD Gothic Neo"
                 langRanges = koreanRanges
             } else {
