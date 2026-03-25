@@ -30,9 +30,12 @@ WS_OWNER_FILE="/tmp/cmux-ws-owner-${CMUX_WORKSPACE_ID}"
 if [ -f "$WS_OWNER_FILE" ]; then
   STALE_OWNER=$(cat "$WS_OWNER_FILE" 2>/dev/null || true)
   if [ -n "$STALE_OWNER" ] && [ "$STALE_OWNER" != "$CMUX_SURFACE_ID" ]; then
-    # Check if the owner surface is still active in this workspace
-    if ! cmux list-surfaces --workspace "$CMUX_WORKSPACE_ID" --id-format uuids 2>/dev/null \
-        | grep -qF "$STALE_OWNER"; then
+    # Check if the owner surface is still active in this workspace.
+    # Capture output first so a transient cmux error (empty output) is
+    # not mistaken for "owner not present" — only delete if the command
+    # succeeded AND the owner ID is absent from the listing.
+    LIVE_SURFACES=$(cmux list-surfaces --workspace "$CMUX_WORKSPACE_ID" --id-format uuids 2>/dev/null || true)
+    if [ -n "$LIVE_SURFACES" ] && ! printf '%s' "$LIVE_SURFACES" | grep -qF "$STALE_OWNER"; then
       rm -f "$WS_OWNER_FILE" 2>/dev/null
     fi
   fi
@@ -58,8 +61,9 @@ except: pass
 " 2>/dev/null)
 
   if [ -n "$TITLE" ]; then
-    # Resumed session with custom-title: sync immediately and suppress AI summary
-    echo "$TITLE" > "$CUSTOM_MARKER"
+    # Resumed session with custom-title: sync immediately and suppress AI summary.
+    # Write with umask 077 (0600) — marker contains conversation-derived text.
+    (umask 077; printf '%s\n' "$TITLE" > "$CUSTOM_MARKER")
     cmux rename-tab --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID" "$TITLE" 2>/dev/null || true
     WS_OWNER=$(cat "$WS_OWNER_FILE" 2>/dev/null || true)
     if [ "$WS_OWNER" = "$CMUX_SURFACE_ID" ]; then

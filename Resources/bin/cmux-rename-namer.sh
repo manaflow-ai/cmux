@@ -71,8 +71,9 @@ except: pass
 [ -z "$TITLE" ] && exit 0
 
 # Write marker file — ensures custom-title suppresses AI summary even in very long
-# transcripts where the /rename entry falls outside the tail-500 window
-echo "$TITLE" > "/tmp/cmux-custom-title-${CMUX_SURFACE_ID}" 2>/dev/null
+# transcripts where the /rename entry falls outside the tail-500 window.
+# umask 077 → 0600: marker contains conversation-derived text.
+(umask 077; printf '%s\n' "$TITLE" > "/tmp/cmux-custom-title-${CMUX_SURFACE_ID}") 2>/dev/null
 
 # Always rename this tab
 cmux rename-tab --workspace "$CMUX_WORKSPACE_ID" --surface "$CMUX_SURFACE_ID" "$TITLE" 2>/dev/null || true

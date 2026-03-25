@@ -256,16 +256,6 @@ fi
 # Resolve the directory containing this wrapper (for sibling scripts).
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Guard: $SELF_DIR is interpolated directly into JSON command strings.
-# Characters that break JSON (" \) or shell command tokenization (space and
-# other metacharacters: $`!;|&<>()) would silently disable hooks or enable
-# injection. Validate and fail safe rather than proceed with a broken config.
-if printf '%s' "$SELF_DIR" | grep -qE '["\\ $`!;|&<>()]'; then
-    echo "cmux: warning: wrapper directory path contains JSON/shell-unsafe characters: $SELF_DIR" >&2
-    echo "cmux: hooks disabled — move cmux to a path without special characters" >&2
-    exec "$REAL_CLAUDE" "$@"
-fi
-
 # Build hooks settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
