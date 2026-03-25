@@ -2735,7 +2735,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// Tracks the last focus state to avoid sending redundant focus events.
     /// This prevents prompt redraw issues with zsh themes like Powerlevel10k.
-    private var lastFocusState: Bool = false
+    /// Initialized to `true` to match Ghostty's default (Terminal.zig focused=true).
+    private var lastFocusState: Bool = true
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
 #endif
@@ -3548,6 +3549,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
+        // Ghostty surfaces default to focused=true. If this surface was logically
+        // unfocused before the C surface existed (e.g. during layout restoration),
+        // sync the desired state now so non-focused panes don't show a focused cursor.
+        if !lastFocusState {
+            ghostty_surface_set_focus(createdSurface, false)
+        }
+
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
             object: self,
@@ -3673,11 +3681,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func setFocus(_ focused: Bool) {
-        guard let surface = surface else { return }
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
         guard focused != lastFocusState else { return }
         lastFocusState = focused
+        // Track desired state even before the C surface exists (e.g. during
+        // layout restoration). createSurface syncs the state once created.
+        guard let surface = surface else { return }
         ghostty_surface_set_focus(surface, focused)
 
         // If we focus a surface while it is being rapidly reparented (closing splits, etc),
