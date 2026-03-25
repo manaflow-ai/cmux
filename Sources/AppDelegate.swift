@@ -9769,6 +9769,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openGitDiff)) {
+            _ = tabManager?.createGitDiffSplit(direction: .right)
+            return true
+        }
+
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console

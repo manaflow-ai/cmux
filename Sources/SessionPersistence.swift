@@ -240,6 +240,10 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+struct SessionGitDiffPanelSnapshot: Codable, Sendable {
+    var workingDirectory: String
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -254,6 +258,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var gitDiff: SessionGitDiffPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

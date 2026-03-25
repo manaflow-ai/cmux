@@ -166,6 +166,7 @@ struct cmuxApp: App {
     private var showBrowserJavaScriptConsoleShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.openGitDiff.defaultsKey) private var openGitDiffShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
@@ -785,6 +786,10 @@ struct cmuxApp: App {
                     performBrowserSplitFromMenu(direction: .down)
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.openGitDiff", defaultValue: "Open Git Changes"), shortcut: openGitDiffMenuShortcut) {
+                    _ = activeTabManager.createGitDiffSplit(direction: .right)
+                }
+
                 Divider()
 
                 // Numbered workspace selection (9 = last workspace)
@@ -948,6 +953,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: splitBrowserDownShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
+    private var openGitDiffMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: openGitDiffShortcutData,
+            fallback: KeyboardShortcutSettings.Action.openGitDiff.defaultShortcut
         )
     }
 

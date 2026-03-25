@@ -34,6 +34,9 @@
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		A5009003 /* GitDiffPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5009001 /* GitDiffPanel.swift */; };
+		A5009004 /* GitDiffPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5009002 /* GitDiffPanelView.swift */; };
+		A5009021 /* Diff2HtmlResources.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5009020 /* Diff2HtmlResources.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -79,7 +82,10 @@
 		C1ADE00002A1B2C3D4E5F719 /* claude in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE00001A1B2C3D4E5F719 /* claude */; };
 		D1BEF00002A1B2C3D4E5F719 /* open in Copy CLI */ = {isa = PBXBuildFile; fileRef = D1BEF00001A1B2C3D4E5F719 /* open */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
-		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */; };
+		A5002000 /* THIRD_PARTY_LICENSES.md in Resources */ = {isa = PBXBuildFile; fileRef = A5002001 /* THIRD_PARTY_LICENSES.md */;
+		A5009010 /* diff2html.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "Resources/diff2html.min.js"; sourceTree = SOURCE_ROOT; };
+		A5009011 /* diff2html.min.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = "Resources/diff2html.min.css"; sourceTree = SOURCE_ROOT; };
+		A5002001_DUMMY /* dummy */; };
 			B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000011A1B2C3D4E5F60719 /* AutomationSocketUITests.swift */; };
 			B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 			B8F266246A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */; };
@@ -214,6 +220,9 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		A5009001 /* GitDiffPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/GitDiffPanel.swift; sourceTree = "<group>"; };
+		A5009002 /* GitDiffPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/GitDiffPanelView.swift; sourceTree = "<group>"; };
+		A5009020 /* Diff2HtmlResources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Diff2HtmlResources.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -347,6 +356,8 @@
 				A5001100 /* Assets.xcassets in Resources */,
 				84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */,
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
+				A5009012 /* diff2html.min.js in Resources */,
+				A5009013 /* diff2html.min.css in Resources */,
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
@@ -447,6 +458,9 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				A5009001 /* GitDiffPanel.swift */,
+				A5009002 /* GitDiffPanelView.swift */,
+				A5009020 /* Diff2HtmlResources.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -746,6 +760,9 @@
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				A5009003 /* GitDiffPanel.swift in Sources */,
+				A5009004 /* GitDiffPanelView.swift in Sources */,
+				A5009021 /* Diff2HtmlResources.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,

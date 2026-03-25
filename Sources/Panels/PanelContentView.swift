@@ -55,6 +55,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .gitDiff:
+            if let gitDiffPanel = panel as? GitDiffPanel {
+                GitDiffPanelView(
+                    panel: gitDiffPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    portalPriority: portalPriority,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 }

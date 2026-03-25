@@ -3548,6 +3548,24 @@ class TabManager: ObservableObject {
         )
     }
 
+    @discardableResult
+    func createGitDiffSplit(direction: SplitDirection) -> UUID? {
+        guard let selectedTabId,
+              let tab = tabs.first(where: { $0.id == selectedTabId }),
+              let focusedPanelId = tab.focusedPanelId else { return nil }
+        tab.clearSplitZoom()
+        let createdPanelId = tab.newGitDiffSplit(
+            from: focusedPanelId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            focus: true
+        )?.id
+        if let createdPanelId {
+            rememberFocusedSurface(tabId: selectedTabId, surfaceId: createdPanelId)
+        }
+        return createdPanelId
+    }
+
     /// Refresh Bonsplit right-side action button tooltips for all workspaces.
     func refreshSplitButtonTooltips() {
         for workspace in tabs {
@@ -3961,6 +3979,24 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             insertAtEnd: insertAtEnd
         )
+    }
+
+    @discardableResult
+    func openGitDiff(insertAtEnd: Bool = false) -> UUID? {
+        guard let tabId = selectedTabId,
+              let workspace = tabs.first(where: { $0.id == tabId }),
+              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let gitDiffPanel = workspace.newGitDiffSurface(
+                  inPane: paneId,
+                  focus: true
+              ) else {
+            return nil
+        }
+        if insertAtEnd {
+            _ = workspace.reorderSurface(panelId: gitDiffPanel.id, toIndex: Int.max)
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: gitDiffPanel.id)
+        return gitDiffPanel.id
     }
 
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
