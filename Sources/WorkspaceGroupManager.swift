@@ -171,7 +171,7 @@ final class WorkspaceGroupManager: ObservableObject {
     }
 
     /// Maximum depth of the subtree rooted at the given workspace (1 = leaf).
-    private func maxDescendantDepth(of workspaceId: UUID) -> Int {
+    func maxDescendantDepth(of workspaceId: UUID) -> Int {
         guard let ws = tabManager?.workspace(for: workspaceId) else { return 1 }
         if ws.childWorkspaceIds.isEmpty { return 1 }
         var maxChild = 0

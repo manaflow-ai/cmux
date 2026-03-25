@@ -2105,6 +2105,86 @@ class TabManager: ObservableObject {
         return false
     }
 
+    // MARK: - Hierarchy-Aware Drag-and-Drop
+
+    /// Move a workspace based on drop indicator position.
+    /// The target's parent determines the dragged item's new level.
+    /// edge == .top → insert before target; edge == .bottom → insert after target.
+    /// If targetTabId is nil, append as top-level.
+    @discardableResult
+    func moveWorkspaceByIndicator(tabId draggedId: UUID, targetTabId: UUID?, edge: SidebarDropEdge) -> Bool {
+        // Drop on empty area → append as top-level
+        guard let targetId = targetTabId else {
+            return moveToTopLevel(draggedId: draggedId, insertIndex: groupManager.items.count)
+        }
+        guard draggedId != targetId else { return true }
+        // Prevent dropping onto own descendant (cycle)
+        if groupManager.allDescendantIds(of: draggedId).contains(targetId) { return false }
+
+        let targetParent = groupManager.parentWorkspace(of: targetId)
+
+        if let parent = targetParent {
+            // Target is a child → dragged becomes child of the same parent
+            guard let targetChildIdx = parent.childWorkspaceIds.firstIndex(of: targetId) else { return false }
+            let insertIdx = (edge == .bottom) ? targetChildIdx + 1 : targetChildIdx
+            return moveToChild(draggedId: draggedId, newParent: parent, insertIndex: insertIdx)
+        } else {
+            // Target is top-level → dragged becomes top-level
+            guard let targetTopIdx = groupManager.items.firstIndex(of: targetId) else { return false }
+            let insertIdx = (edge == .bottom) ? targetTopIdx + 1 : targetTopIdx
+            return moveToTopLevel(draggedId: draggedId, insertIndex: insertIdx)
+        }
+    }
+
+    private func removeDraggedFromCurrentLocation(_ draggedId: UUID) {
+        if let currentParent = groupManager.parentWorkspace(of: draggedId) {
+            currentParent.childWorkspaceIds.removeAll { $0 == draggedId }
+        } else {
+            groupManager.items.removeAll { $0 == draggedId }
+        }
+    }
+
+    private func moveToTopLevel(draggedId: UUID, insertIndex: Int) -> Bool {
+        let subtreeDepth = groupManager.maxDescendantDepth(of: draggedId)
+        guard subtreeDepth <= 3 else { return false }
+
+        // No-op check
+        if let existingIdx = groupManager.items.firstIndex(of: draggedId) {
+            let clamped = min(insertIndex, groupManager.items.count)
+            let effective = clamped > existingIdx ? clamped - 1 : clamped
+            if effective == existingIdx { return true }
+        }
+
+        removeDraggedFromCurrentLocation(draggedId)
+        let finalIdx = min(insertIndex, groupManager.items.count)
+        groupManager.items.insert(draggedId, at: finalIdx)
+        items = groupManager.items
+        return true
+    }
+
+    private func moveToChild(draggedId: UUID, newParent: Workspace, insertIndex: Int) -> Bool {
+        guard newParent.id != draggedId else { return false }
+
+        let parentDepth = groupManager.depthOf(workspaceId: newParent.id)
+        let subtreeDepth = groupManager.maxDescendantDepth(of: draggedId)
+        guard parentDepth + subtreeDepth <= 3 else { return false }
+
+        // Same-parent no-op check
+        if let currentParent = groupManager.parentWorkspace(of: draggedId), currentParent.id == newParent.id {
+            if let existingIdx = newParent.childWorkspaceIds.firstIndex(of: draggedId) {
+                let clamped = min(insertIndex, newParent.childWorkspaceIds.count)
+                let effective = clamped > existingIdx ? clamped - 1 : clamped
+                if effective == existingIdx { return true }
+            }
+        }
+
+        removeDraggedFromCurrentLocation(draggedId)
+        let finalIdx = min(insertIndex, newParent.childWorkspaceIds.count)
+        newParent.childWorkspaceIds.insert(draggedId, at: finalIdx)
+        items = groupManager.items
+        return true
+    }
+
     func setCustomTitle(tabId: UUID, title: String?) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         tabs[index].setCustomTitle(title)

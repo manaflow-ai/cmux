@@ -8209,8 +8209,15 @@ struct VerticalTabsSidebar: View {
                         LazyVStack(spacing: tabRowSpacing) {
                             let visibleWorkspaces = tabManager.groupManager.visibleWorkspaces()
                             let visibleCount = visibleWorkspaces.count
-                            ForEach(tabManager.items, id: \.self) { wsId in
+                            ForEach(Array(tabManager.items.enumerated()), id: \.element) { itemIndex, wsId in
                                 if let tab = tabManager.workspace(for: wsId) {
+                                    // 10px spacer between tier 1 groups, with drop delegate
+                                    groupSpacerView(
+                                        itemIndex: itemIndex,
+                                        currentTier1Id: wsId,
+                                        visibleWorkspaces: visibleWorkspaces
+                                    )
+
                                     let visibleIndex = visibleWorkspaces.firstIndex(where: { $0.id == wsId }) ?? 0
                                     sidebarTabItemView(
                                         tab: tab,
@@ -8395,6 +8402,43 @@ struct VerticalTabsSidebar: View {
             hasStartupCommand: tab.startupCommand != nil
         )
         .equatable()
+    }
+
+    /// 10px spacer between tier 1 groups with two-zone drop target.
+    @ViewBuilder
+    private func groupSpacerView(
+        itemIndex: Int,
+        currentTier1Id: UUID,
+        visibleWorkspaces: [Workspace]
+    ) -> some View {
+        let prevLastChildId: UUID? = {
+            guard itemIndex > 0 else { return nil }
+            let prevWsId = tabManager.items[itemIndex - 1]
+            guard let prevTab = tabManager.workspace(for: prevWsId) else { return prevWsId }
+            return lastVisibleDescendantId(of: prevTab)
+        }()
+        Color.clear
+            .frame(height: 10)
+            .contentShape(Rectangle())
+            .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: SidebarGroupSpacerDropDelegate(
+                previousGroupLastChildId: prevLastChildId,
+                nextTopLevelTabId: currentTier1Id,
+                tabManager: tabManager,
+                draggedTabId: $draggedTabId,
+                selectedTabIds: $selectedTabIds,
+                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                dragAutoScrollController: dragAutoScrollController,
+                dropIndicator: $dropIndicator
+            ))
+    }
+
+    private func lastVisibleDescendantId(of workspace: Workspace) -> UUID {
+        guard workspace.hasChildren && !workspace.isCollapsed else { return workspace.id }
+        guard let lastChildId = workspace.childWorkspaceIds.last,
+              let lastChild = tabManager.workspace(for: lastChildId) else {
+            return workspace.id
+        }
+        return lastVisibleDescendantId(of: lastChild)
     }
 
     /// Renders child workspaces (max 3 levels deep, no recursion needed).
@@ -10631,7 +10675,8 @@ private struct SidebarEmptyArea: View {
         if indicator.tabId == nil {
             return true
         }
-        guard indicator.edge == .bottom, let lastTabId = tabManager.tabs.last?.id else { return false }
+        let visible = tabManager.groupManager.visibleWorkspaces()
+        guard indicator.edge == .bottom, let lastTabId = visible.last?.id else { return false }
         return indicator.tabId == lastTabId
     }
 }
@@ -11345,6 +11390,15 @@ private struct TabItemView: View, Equatable {
                     .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
             }
         }
+        .overlay(alignment: .bottom) {
+            if showsBottomDropIndicator {
+                Rectangle()
+                    .fill(cmuxAccentColor())
+                    .frame(height: 2)
+                    .padding(.horizontal, 8)
+                    .offset(y: rowSpacing / 2)
+            }
+        }
         .onDrag {
             #if DEBUG
             dlog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
@@ -11708,13 +11762,32 @@ private struct TabItemView: View, Equatable {
             return true
         }
 
+        let visible = tabManager.groupManager.visibleWorkspaces()
         guard indicator.edge == .bottom,
-              let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == tab.id }),
+              let currentIndex = visible.firstIndex(where: { $0.id == tab.id }),
               currentIndex > 0
         else {
             return false
         }
-        return tabManager.tabs[currentIndex - 1].id == indicator.tabId
+        let prevId = visible[currentIndex - 1].id
+        guard prevId == indicator.tabId else { return false }
+        // Don't show top indicator here if the previous item is across a group boundary
+        let myParent = tabManager.groupManager.parentWorkspace(of: tab.id)
+        let prevParent = tabManager.groupManager.parentWorkspace(of: prevId)
+        return myParent?.id == prevParent?.id
+    }
+
+    private var showsBottomDropIndicator: Bool {
+        guard draggedTabId != nil, let indicator = dropIndicator else { return false }
+        guard indicator.tabId == tab.id, indicator.edge == .bottom else { return false }
+        let visible = tabManager.groupManager.visibleWorkspaces()
+        guard let myIndex = visible.firstIndex(where: { $0.id == tab.id }) else { return false }
+        let nextIndex = myIndex + 1
+        if nextIndex >= visible.count { return true }
+        let nextId = visible[nextIndex].id
+        let myParent = tabManager.groupManager.parentWorkspace(of: tab.id)
+        let nextParent = tabManager.groupManager.parentWorkspace(of: nextId)
+        return myParent?.id != nextParent?.id
     }
 
     /// Whether this workspace can be nested under the sibling above it.
@@ -13063,67 +13136,75 @@ private struct SidebarTabDropDelegate: DropDelegate {
             dropIndicator = nil
             dragAutoScrollController.stop()
         }
-        #if DEBUG
-        dlog("sidebar.drop target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
-        #endif
-        guard let draggedTabId else {
-#if DEBUG
-            dlog("sidebar.drop.abort reason=missingDraggedTab")
-#endif
-            return false
-        }
-        guard let fromIndex = tabManager.tabs.firstIndex(where: { $0.id == draggedTabId }) else {
-#if DEBUG
-            dlog("sidebar.drop.abort reason=draggedTabMissing tab=\(draggedTabId.uuidString.prefix(5))")
-#endif
-            return false
-        }
-        let tabIds = tabManager.tabs.map(\.id)
-        guard let targetIndex = SidebarDropPlanner.targetIndex(
-            draggedTabId: draggedTabId,
-            targetTabId: targetTabId,
-            indicator: dropIndicator,
-            tabIds: tabIds,
-            pinnedTabIds: Set(tabManager.tabs.filter(\.isPinned).map(\.id))
-        ) else {
-#if DEBUG
-            dlog(
-                "sidebar.drop.abort reason=noTargetIndex tab=\(draggedTabId.uuidString.prefix(5)) " +
-                "target=\(targetTabId?.uuidString.prefix(5) ?? "end") indicator=\(debugIndicator(dropIndicator))"
-            )
-#endif
-            return false
-        }
+        guard let draggedTabId else { return false }
 
-        guard fromIndex != targetIndex else {
-#if DEBUG
-            dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
-#endif
-            syncSidebarSelection()
-            return true
-        }
-
-#if DEBUG
-        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
-#endif
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
-        if let selectedId = tabManager.selectedTabId {
-            selectedTabIds = [selectedId]
-            syncSidebarSelection(preferredSelectedTabId: selectedId)
+        // Use indicator directly — it knows the target tab and edge
+        let indicatorTabId: UUID?
+        let indicatorEdge: SidebarDropEdge
+        if let indicator = dropIndicator {
+            indicatorTabId = indicator.tabId
+            indicatorEdge = indicator.edge
+        } else if let targetTabId {
+            indicatorTabId = targetTabId
+            indicatorEdge = .top
         } else {
-            selectedTabIds = []
-            syncSidebarSelection()
+            indicatorTabId = nil
+            indicatorEdge = .bottom
         }
-        return true
+
+#if DEBUG
+        let indicatorDesc = indicatorTabId.map { String($0.uuidString.prefix(5)) } ?? "end"
+        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) indicatorTab=\(indicatorDesc) edge=\(indicatorEdge == .top ? "top" : "bottom")")
+#endif
+        let moved = tabManager.moveWorkspaceByIndicator(
+            tabId: draggedTabId,
+            targetTabId: indicatorTabId,
+            edge: indicatorEdge
+        )
+        if moved {
+            if let selectedId = tabManager.selectedTabId {
+                selectedTabIds = [selectedId]
+                syncSidebarSelection(preferredSelectedTabId: selectedId)
+            } else {
+                selectedTabIds = []
+                syncSidebarSelection()
+            }
+        }
+        return moved
     }
 
     private func updateDropIndicator(for info: DropInfo) {
-        let tabIds = tabManager.tabs.map(\.id)
-        let pinnedTabIds = Set(tabManager.tabs.filter(\.isPinned).map(\.id))
+        let visible = tabManager.groupManager.visibleWorkspaces()
+        let visibleIds = visible.map(\.id)
+        let pinnedTabIds = Set(visible.filter(\.isPinned).map(\.id))
+
+        // Special case: pointer is on the bottom half of a tab at a group boundary.
+        // The planner treats "insert after self" as a no-op and returns nil, but at
+        // group boundaries this position is meaningful (last-child vs promote-to-tier-1).
+        if let targetTabId,
+           let targetHeight = targetRowHeight, targetHeight > 0,
+           info.location.y >= targetHeight / 2 {
+            let myParent = tabManager.groupManager.parentWorkspace(of: targetTabId)
+            if let myIdx = visibleIds.firstIndex(of: targetTabId) {
+                let nextIdx = myIdx + 1
+                let isGroupBoundary: Bool
+                if nextIdx >= visibleIds.count {
+                    isGroupBoundary = true
+                } else {
+                    let nextParent = tabManager.groupManager.parentWorkspace(of: visibleIds[nextIdx])
+                    isGroupBoundary = myParent?.id != nextParent?.id
+                }
+                if isGroupBoundary {
+                    dropIndicator = SidebarDropIndicator(tabId: targetTabId, edge: .bottom)
+                    return
+                }
+            }
+        }
+
         dropIndicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
-            tabIds: tabIds,
+            tabIds: visibleIds,
             pinnedTabIds: pinnedTabIds,
             pointerY: targetTabId == nil ? nil : info.location.y,
             targetHeight: targetRowHeight
@@ -13133,7 +13214,8 @@ private struct SidebarTabDropDelegate: DropDelegate {
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
         let selectedId = preferredSelectedTabId ?? tabManager.selectedTabId
         if let selectedId {
-            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+            let visible = tabManager.groupManager.visibleWorkspaces()
+            lastSidebarSelectionIndex = visible.firstIndex { $0.id == selectedId }
         } else {
             lastSidebarSelectionIndex = nil
         }
@@ -13143,6 +13225,67 @@ private struct SidebarTabDropDelegate: DropDelegate {
         guard let indicator else { return "nil" }
         let tabText = indicator.tabId.map { String($0.uuidString.prefix(5)) } ?? "end"
         return "\(tabText):\(indicator.edge == .top ? "top" : "bottom")"
+    }
+}
+
+/// Drop delegate for the 10px spacer between tier 1 workspace groups.
+/// Upper half → append as last child of the group above.
+/// Lower half → insert as tier 1 before the group below.
+private struct SidebarGroupSpacerDropDelegate: DropDelegate {
+    let previousGroupLastChildId: UUID?
+    let nextTopLevelTabId: UUID
+    let tabManager: TabManager
+    @Binding var draggedTabId: UUID?
+    @Binding var selectedTabIds: Set<UUID>
+    @Binding var lastSidebarSelectionIndex: Int?
+    let dragAutoScrollController: SidebarDragAutoScrollController
+    @Binding var dropIndicator: SidebarDropIndicator?
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]) && draggedTabId != nil
+    }
+
+    func dropEntered(info: DropInfo) {
+        dragAutoScrollController.updateFromDragLocation()
+        updateIndicator(for: info)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dragAutoScrollController.updateFromDragLocation()
+        updateIndicator(for: info)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {}
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            draggedTabId = nil
+            dropIndicator = nil
+            dragAutoScrollController.stop()
+        }
+        guard let draggedTabId, let indicator = dropIndicator else { return false }
+        let moved = tabManager.moveWorkspaceByIndicator(
+            tabId: draggedTabId,
+            targetTabId: indicator.tabId,
+            edge: indicator.edge
+        )
+        if moved, let selectedId = tabManager.selectedTabId {
+            selectedTabIds = [selectedId]
+            let visible = tabManager.groupManager.visibleWorkspaces()
+            lastSidebarSelectionIndex = visible.firstIndex { $0.id == selectedId }
+        }
+        return moved
+    }
+
+    private func updateIndicator(for info: DropInfo) {
+        let spacerHeight: CGFloat = 10
+        let y = info.location.y
+        if y < spacerHeight / 2, let prevId = previousGroupLastChildId {
+            dropIndicator = SidebarDropIndicator(tabId: prevId, edge: .bottom)
+        } else {
+            dropIndicator = SidebarDropIndicator(tabId: nextTopLevelTabId, edge: .top)
+        }
     }
 }
 
