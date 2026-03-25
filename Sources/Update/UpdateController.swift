@@ -222,6 +222,11 @@ class UpdateController {
         requestCheckForUpdates(presentation: .dialog)
     }
 
+    /// Check for updates using the custom popover-based UI.
+    func checkForUpdatesInCustomUI() {
+        requestCheckForUpdates(presentation: .custom)
+    }
+
     private func requestCheckForUpdates(presentation: UpdateUserInitiatedCheckPresentation) {
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"), presentation=\(presentation == .dialog ? "dialog" : "custom"))")
         checkForUpdatesWhenReady(retries: readyRetryCount, presentation: presentation)

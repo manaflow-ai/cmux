@@ -11,7 +11,12 @@ struct UpdatePopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             switch model.effectiveState {
             case .idle:
-                EmptyView()
+                if let detectedVersion = model.detectedUpdateVersion,
+                   model.showsDetectedBackgroundUpdate {
+                    DetectedBackgroundUpdateView(version: detectedVersion)
+                } else {
+                    EmptyView()
+                }
 
             case .permissionRequest(let request):
                 PermissionRequestView(request: request, dismiss: dismiss)
@@ -39,6 +44,35 @@ struct UpdatePopoverView: View {
             }
         }
         .frame(width: 300)
+    }
+}
+
+fileprivate struct DetectedBackgroundUpdateView: View {
+    let version: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack(spacing: 6) {
+                    Text(String(localized: "update.popover.version", defaultValue: "Version:"))
+                        .foregroundColor(.secondary)
+                        .frame(width: 60, alignment: .trailing)
+                    Text(version)
+                }
+                .font(.system(size: 11))
+            }
+
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(String(localized: "update.popover.checking", defaultValue: "Checking for updates…"))
+                    .font(.system(size: 13))
+            }
+        }
+        .padding(16)
     }
 }
 
