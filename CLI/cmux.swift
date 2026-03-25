@@ -9478,10 +9478,16 @@ struct CMUXCLI {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
 
         // tmux shim: redirects tmux commands to cmux __tmux-compat
+        // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
         let tmuxScript = """
         #!/usr/bin/env bash
         set -euo pipefail
+        for arg in "$@"; do
+          case "$arg" in
+            -V|-v) echo "tmux 3.4"; exit 0 ;;
+          esac
+        done
         exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
         try writeShimIfChanged(tmuxScript, to: tmuxURL)
