@@ -9448,6 +9448,117 @@ struct CMUXCLI {
         return root
     }
 
+    private static let omoPluginName = "oh-my-opencode"
+
+    private func omoOpenCodeConfigURL() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+    }
+
+    /// Returns true if `oh-my-opencode` is listed in the opencode.json plugin array.
+    private func omoPluginIsRegistered(configDir: URL) -> Bool {
+        let jsonURL = configDir.appendingPathComponent("opencode.json")
+        guard let data = try? Data(contentsOf: jsonURL),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let plugins = obj["plugin"] as? [String] else {
+            return false
+        }
+        return plugins.contains { $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@") }
+    }
+
+    /// Adds `oh-my-opencode` to the opencode.json plugin array, creating the file if needed.
+    private func omoRegisterPlugin(configDir: URL) throws {
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true, attributes: nil)
+        let jsonURL = configDir.appendingPathComponent("opencode.json")
+
+        var config: [String: Any]
+        if let data = try? Data(contentsOf: jsonURL),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            config = existing
+        } else {
+            config = [:]
+        }
+
+        var plugins = (config["plugin"] as? [String]) ?? []
+        let alreadyPresent = plugins.contains {
+            $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@")
+        }
+        if !alreadyPresent {
+            plugins.append(Self.omoPluginName)
+        }
+        config["plugin"] = plugins
+
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try output.write(to: jsonURL, options: .atomic)
+    }
+
+    /// Returns true if the oh-my-opencode package exists in node_modules.
+    private func omoPackageIsInstalled(configDir: URL) -> Bool {
+        let packageDir = configDir
+            .appendingPathComponent("node_modules", isDirectory: true)
+            .appendingPathComponent(Self.omoPluginName, isDirectory: true)
+        return FileManager.default.fileExists(atPath: packageDir.path)
+    }
+
+    /// Installs the oh-my-opencode npm package in the config directory using bun or npm.
+    private func omoInstallPackage(configDir: URL) throws {
+        let process = Process()
+        process.currentDirectoryURL = configDir
+
+        // Prefer bun, fall back to npm
+        if let bunPath = resolveExecutableInPath("bun") {
+            process.executableURL = URL(fileURLWithPath: bunPath)
+            process.arguments = ["add", Self.omoPluginName]
+        } else if let npmPath = resolveExecutableInPath("npm") {
+            process.executableURL = URL(fileURLWithPath: npmPath)
+            process.arguments = ["install", Self.omoPluginName]
+        } else {
+            throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+        }
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
+        try process.run()
+        process.waitUntilExit()
+
+        if process.terminationStatus != 0 {
+            let errText = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
+        }
+    }
+
+    private func resolveExecutableInPath(_ name: String) -> String? {
+        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent(name, isDirectory: false)
+                .path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    /// Ensures oh-my-opencode plugin is registered and installed before launching opencode.
+    private func omoEnsurePlugin() throws {
+        let configDir = omoOpenCodeConfigURL()
+        if !omoPluginIsRegistered(configDir: configDir) {
+            try omoRegisterPlugin(configDir: configDir)
+            FileHandle.standardError.write("Registered oh-my-opencode plugin in opencode.json\n".data(using: .utf8)!)
+        }
+        if !omoPackageIsInstalled(configDir: configDir) {
+            try omoInstallPackage(configDir: configDir)
+            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+        }
+    }
+
     private func configureOMOEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -9497,6 +9608,9 @@ struct CMUXCLI {
         socketPath: String,
         explicitPassword: String?
     ) throws {
+        // Ensure oh-my-opencode plugin is registered and installed
+        try omoEnsurePlugin()
+
         let processEnvironment = ProcessInfo.processInfo.environment
         var launcherEnvironment = processEnvironment
         launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
