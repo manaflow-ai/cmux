@@ -5363,7 +5363,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc func openNewMainWindow(_ sender: Any?) {
-        _ = createMainWindow()
+        let sourceConfig = NSApp.keyWindow.flatMap {
+            contextForMainTerminalWindow($0)?.tabManager.inheritedConfigForSpawnedWindow()
+        }
+        _ = createMainWindow(initialConfigTemplate: sourceConfig)
     }
 
     @objc func openWindow(
@@ -5769,10 +5772,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func createMainWindow(
         initialWorkingDirectory: String? = nil,
-        sessionWindowSnapshot: SessionWindowSnapshot? = nil
+        sessionWindowSnapshot: SessionWindowSnapshot? = nil,
+        initialConfigTemplate: ghostty_surface_config_s? = nil
     ) -> UUID {
         let windowId = UUID()
-        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory)
+        let tabManager = TabManager(initialWorkingDirectory: initialWorkingDirectory, initialConfigTemplate: initialConfigTemplate)
         if let tabManagerSnapshot = sessionWindowSnapshot?.tabManager {
             tabManager.restoreSessionSnapshot(tabManagerSnapshot)
         }
