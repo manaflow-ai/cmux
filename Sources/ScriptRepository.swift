@@ -32,26 +32,30 @@ final class ScriptRepository: ScriptRepositoryProtocol {
 
     /// Returns the contents of a script, or nil if not found.
     func getScript(named name: String) -> String? {
-        let path = directory.appendingPathComponent("\(name).sh")
+        guard let safeName = try? NameSanitizer.sanitize(name) else { return nil }
+        let path = directory.appendingPathComponent("\(safeName).sh")
         return try? String(contentsOf: path, encoding: .utf8)
     }
 
     /// Saves or updates a script file. Creates the directory if needed.
     func saveScript(named name: String, content: String) throws {
+        let safeName = try NameSanitizer.sanitize(name)
         try ensureDirectoryExists()
-        let path = directory.appendingPathComponent("\(name).sh")
+        let path = directory.appendingPathComponent("\(safeName).sh")
         try content.write(to: path, atomically: true, encoding: .utf8)
     }
 
     /// Deletes a script file.
     func deleteScript(named name: String) throws {
-        let path = directory.appendingPathComponent("\(name).sh")
+        let safeName = try NameSanitizer.sanitize(name)
+        let path = directory.appendingPathComponent("\(safeName).sh")
         try FileManager.default.removeItem(at: path)
     }
 
     /// Returns true if a script with the given name exists.
     func hasScript(named name: String) -> Bool {
-        let path = directory.appendingPathComponent("\(name).sh")
+        guard let safeName = try? NameSanitizer.sanitize(name) else { return false }
+        let path = directory.appendingPathComponent("\(safeName).sh")
         return FileManager.default.fileExists(atPath: path.path)
     }
 

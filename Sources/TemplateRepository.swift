@@ -51,41 +51,47 @@ final class TemplateRepository {
 
     /// Parses and returns a template by name.
     func getTemplate(named name: String) throws -> WorkspaceTemplate {
-        let path = directory.appendingPathComponent("\(name).yaml")
+        let safeName = try NameSanitizer.sanitize(name)
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         let content = try String(contentsOf: path, encoding: .utf8)
         return try TemplateYamlParser.parse(content)
     }
 
     /// Returns the raw YAML string for a template, or nil if not found.
     func rawYaml(named name: String) -> String? {
-        let path = directory.appendingPathComponent("\(name).yaml")
+        guard let safeName = try? NameSanitizer.sanitize(name) else { return nil }
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         return try? String(contentsOf: path, encoding: .utf8)
     }
 
     /// Saves a template definition to a file. Creates the directory if needed.
     func saveTemplate(named name: String, template: WorkspaceTemplate) throws {
+        let safeName = try NameSanitizer.sanitize(name)
         try ensureDirectoryExists()
         let yaml = TemplateYamlParser.serialize(template)
-        let path = directory.appendingPathComponent("\(name).yaml")
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         try yaml.write(to: path, atomically: true, encoding: .utf8)
     }
 
     /// Saves raw YAML content as a template file. Creates the directory if needed.
     func saveTemplate(named name: String, rawYaml: String) throws {
+        let safeName = try NameSanitizer.sanitize(name)
         try ensureDirectoryExists()
-        let path = directory.appendingPathComponent("\(name).yaml")
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         try rawYaml.write(to: path, atomically: true, encoding: .utf8)
     }
 
     /// Deletes a template file.
     func deleteTemplate(named name: String) throws {
-        let path = directory.appendingPathComponent("\(name).yaml")
+        let safeName = try NameSanitizer.sanitize(name)
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         try FileManager.default.removeItem(at: path)
     }
 
     /// Returns true if a template with the given name exists.
     func hasTemplate(named name: String) -> Bool {
-        let path = directory.appendingPathComponent("\(name).yaml")
+        guard let safeName = try? NameSanitizer.sanitize(name) else { return false }
+        let path = directory.appendingPathComponent("\(safeName).yaml")
         return FileManager.default.fileExists(atPath: path.path)
     }
 

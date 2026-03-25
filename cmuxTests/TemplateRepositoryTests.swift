@@ -24,7 +24,7 @@ final class TemplateRepositoryTests: XCTestCase {
     }
 
     func testListTemplates() throws {
-        let yaml = "tabs:\n  - title: terminal\n"
+        let yaml = "root:\n  title: Terminal\n"
         try yaml.write(
             to: tempDir.appendingPathComponent("Basic.yaml"),
             atomically: true,
@@ -50,12 +50,15 @@ final class TemplateRepositoryTests: XCTestCase {
         XCTAssertEqual(missingRepo.listTemplates(), [])
     }
 
-    func testGetTemplateReturnsTabDefinitions() throws {
+    func testGetTemplateReturnsRootNode() throws {
         let yaml = """
-        tabs:
-          - title: claude
-            startupScript: Standard Claude
-          - title: terminal
+        root:
+          title: Terminal
+          children:
+            - title: claude
+              color: "#00CC00"
+              command: claude
+            - title: terminal
         """
         try yaml.write(
             to: tempDir.appendingPathComponent("AI Dev.yaml"),
@@ -63,31 +66,38 @@ final class TemplateRepositoryTests: XCTestCase {
             encoding: .utf8
         )
         let template = try repo.getTemplate(named: "AI Dev")
-        XCTAssertEqual(template.tabs.count, 2)
-        XCTAssertEqual(template.tabs[0].title, "claude")
-        XCTAssertEqual(template.tabs[0].startupScript, "Standard Claude")
-        XCTAssertEqual(template.tabs[1].title, "terminal")
-        XCTAssertNil(template.tabs[1].startupScript)
+        XCTAssertEqual(template.root.title, "Terminal")
+        XCTAssertEqual(template.root.children.count, 2)
+        XCTAssertEqual(template.root.children[0].title, "claude")
+        XCTAssertEqual(template.root.children[0].color, "#00CC00")
+        XCTAssertEqual(template.root.children[0].command, "claude")
+        XCTAssertEqual(template.root.children[1].title, "terminal")
+        XCTAssertNil(template.root.children[1].command)
     }
 
     func testSaveTemplateWritesYaml() throws {
-        let template = WorkspaceTemplate(tabs: [
-            TemplateTabDefinition(title: "builder", startupScript: "Builder Script"),
-            TemplateTabDefinition(title: "terminal", startupScript: nil)
-        ])
+        let template = WorkspaceTemplate(root: TemplateNode(
+            title: "Terminal",
+            color: nil,
+            command: nil,
+            children: [
+                TemplateNode(title: "builder", color: nil, command: "claude", children: []),
+                TemplateNode(title: "terminal", color: nil, command: nil, children: [])
+            ]
+        ))
         try repo.saveTemplate(named: "Custom", template: template)
         let path = tempDir.appendingPathComponent("Custom.yaml")
         XCTAssertTrue(FileManager.default.fileExists(atPath: path.path))
 
         // Verify it can be read back
         let loaded = try repo.getTemplate(named: "Custom")
-        XCTAssertEqual(loaded.tabs.count, 2)
-        XCTAssertEqual(loaded.tabs[0].title, "builder")
-        XCTAssertEqual(loaded.tabs[0].startupScript, "Builder Script")
+        XCTAssertEqual(loaded.root.children.count, 2)
+        XCTAssertEqual(loaded.root.children[0].title, "builder")
+        XCTAssertEqual(loaded.root.children[0].command, "claude")
     }
 
     func testDeleteTemplateRemovesFile() throws {
-        let yaml = "tabs:\n  - title: terminal\n"
+        let yaml = "root:\n  title: Terminal\n"
         try yaml.write(
             to: tempDir.appendingPathComponent("Temp.yaml"),
             atomically: true,

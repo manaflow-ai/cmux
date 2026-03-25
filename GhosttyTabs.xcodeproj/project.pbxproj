@@ -134,6 +134,8 @@
 		WG00000CA1B2C3D4E5F60001 /* CmuxConfigParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001CA1B2C3D4E5F60001 /* CmuxConfigParserTests.swift */; };
 		WG00000DA1B2C3D4E5F60001 /* ScriptRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001DA1B2C3D4E5F60001 /* ScriptRepositoryTests.swift */; };
 		WG00000EA1B2C3D4E5F60001 /* TemplateRepositoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001EA1B2C3D4E5F60001 /* TemplateRepositoryTests.swift */; };
+		WG00000GA1B2C3D4E5F60001 /* NameSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001GA1B2C3D4E5F60001 /* NameSanitizer.swift */; };
+		WG00000HA1B2C3D4E5F60001 /* NameSanitizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001HA1B2C3D4E5F60001 /* NameSanitizerTests.swift */; };
 		WG00000FA1B2C3D4E5F60001 /* GroupHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001FA1B2C3D4E5F60001 /* GroupHeaderView.swift */; };
 		WG000010A1B2C3D4E5F60001 /* StartupScriptRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG000020A1B2C3D4E5F60001 /* StartupScriptRunner.swift */; };
 		WG000021A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG000022A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift */; };
@@ -275,6 +277,8 @@
 		WG00001CA1B2C3D4E5F60001 /* CmuxConfigParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigParserTests.swift; sourceTree = "<group>"; };
 		WG00001DA1B2C3D4E5F60001 /* ScriptRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptRepositoryTests.swift; sourceTree = "<group>"; };
 		WG00001EA1B2C3D4E5F60001 /* TemplateRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateRepositoryTests.swift; sourceTree = "<group>"; };
+		WG00001GA1B2C3D4E5F60001 /* NameSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameSanitizer.swift; sourceTree = "<group>"; };
+		WG00001HA1B2C3D4E5F60001 /* NameSanitizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameSanitizerTests.swift; sourceTree = "<group>"; };
 		WG00001FA1B2C3D4E5F60001 /* GroupHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupHeaderView.swift; sourceTree = "<group>"; };
 		WG000020A1B2C3D4E5F60001 /* StartupScriptRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupScriptRunner.swift; sourceTree = "<group>"; };
 		WG000022A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerGroupCommands.swift; sourceTree = "<group>"; };
@@ -515,6 +519,7 @@
 				WG00001AA1B2C3D4E5F60001 /* ScriptRepository.swift */,
 				WG00001BA1B2C3D4E5F60001 /* TemplateRepository.swift */,
 				WG00001BA1B2C3D4E5F60002 /* TemplateYamlParser.swift */,
+				WG00001GA1B2C3D4E5F60001 /* NameSanitizer.swift */,
 				WG00001FA1B2C3D4E5F60001 /* GroupHeaderView.swift */,
 				WG000020A1B2C3D4E5F60001 /* StartupScriptRunner.swift */,
 				WG000022A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift */,
@@ -624,6 +629,7 @@
 					WG00001CA1B2C3D4E5F60001 /* CmuxConfigParserTests.swift */,
 					WG00001DA1B2C3D4E5F60001 /* ScriptRepositoryTests.swift */,
 					WG00001EA1B2C3D4E5F60001 /* TemplateRepositoryTests.swift */,
+					WG00001HA1B2C3D4E5F60001 /* NameSanitizerTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -836,6 +842,7 @@
 				WG00000AA1B2C3D4E5F60001 /* ScriptRepository.swift in Sources */,
 				WG00000BA1B2C3D4E5F60001 /* TemplateRepository.swift in Sources */,
 				WG00000BA1B2C3D4E5F60002 /* TemplateYamlParser.swift in Sources */,
+				WG00000GA1B2C3D4E5F60001 /* NameSanitizer.swift in Sources */,
 				WG00000FA1B2C3D4E5F60001 /* GroupHeaderView.swift in Sources */,
 				WG000010A1B2C3D4E5F60001 /* StartupScriptRunner.swift in Sources */,
 				WG000021A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift in Sources */,
@@ -913,6 +920,7 @@
 					WG00000CA1B2C3D4E5F60001 /* CmuxConfigParserTests.swift in Sources */,
 					WG00000DA1B2C3D4E5F60001 /* ScriptRepositoryTests.swift in Sources */,
 					WG00000EA1B2C3D4E5F60001 /* TemplateRepositoryTests.swift in Sources */,
+					WG00000HA1B2C3D4E5F60001 /* NameSanitizerTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
