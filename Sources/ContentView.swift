@@ -2366,6 +2366,10 @@ struct ContentView: View {
             sidebarTab = .search
             if !sidebarState.isVisible { sidebarState.isVisible = true }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarSwitchToExplorer)) { _ in
+            sidebarTab = .explorer
+            if !sidebarState.isVisible { sidebarState.isVisible = true }
+        }
         .onAppear {
             setupExplorerPanel()
             setupNativeExplorer()

@@ -9637,9 +9637,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Open editor: Cmd+Shift+E
+        // Open explorer: Cmd+Shift+E — switch to file explorer sidebar tab
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openEditor)) {
-            openEditorForCurrentProject()
+            NotificationCenter.default.post(name: .cmuxSidebarSwitchToExplorer, object: nil)
             return true
         }
 

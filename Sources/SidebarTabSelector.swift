@@ -2,6 +2,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let cmuxSidebarSwitchToSearch = Notification.Name("cmuxSidebarSwitchToSearch")
+    static let cmuxSidebarSwitchToExplorer = Notification.Name("cmuxSidebarSwitchToExplorer")
 }
 
 /// Tab selector below the traffic lights — switches between Workspaces, Explorer, and Search.
