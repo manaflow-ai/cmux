@@ -256,12 +256,13 @@ fi
 # Resolve the directory containing this wrapper (for sibling scripts).
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Guard: $SELF_DIR is interpolated directly into a JSON string literal.
-# A path containing '"' or '\' would produce malformed JSON and silently
-# disable all hooks. This is extremely unlikely in practice but worth catching.
-if [[ "$SELF_DIR" =~ [\"\\] ]]; then
-    echo "cmux: warning: wrapper directory path contains JSON-unsafe characters: $SELF_DIR" >&2
-    echo "cmux: hooks disabled — move cmux to a path without '\"' or '\\'" >&2
+# Guard: $SELF_DIR is interpolated directly into JSON command strings.
+# Characters that break JSON (" \) or shell command tokenization (space and
+# other metacharacters: $`!;|&<>()) would silently disable hooks or enable
+# injection. Validate and fail safe rather than proceed with a broken config.
+if printf '%s' "$SELF_DIR" | grep -qE '["\\ $`!;|&<>()]'; then
+    echo "cmux: warning: wrapper directory path contains JSON/shell-unsafe characters: $SELF_DIR" >&2
+    echo "cmux: hooks disabled — move cmux to a path without special characters" >&2
     exec "$REAL_CLAUDE" "$@"
 fi
 

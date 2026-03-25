@@ -23,9 +23,12 @@ command -v cmux &>/dev/null || exit 0
 # Register as workspace owner if no owner exists yet (first session wins).
 # The workspace owner's AI summary / custom-title controls the workspace name.
 WS_OWNER_FILE="/tmp/cmux-ws-owner-${CMUX_WORKSPACE_ID}"
-if [ ! -f "$WS_OWNER_FILE" ]; then
-  echo "$CMUX_SURFACE_ID" > "$WS_OWNER_FILE"
-fi
+# Use noclobber for atomic owner claim — shell's O_EXCL equivalent.
+# Two concurrent SessionStart hooks both seeing a missing file: only one
+# write succeeds; the other gets EEXIST and silently skips.
+( set -o noclobber
+  printf '%s\n' "$CMUX_SURFACE_ID" > "$WS_OWNER_FILE"
+) 2>/dev/null || true
 
 # Check entire transcript for an existing custom-title (handles resumed sessions
 # where /rename was issued earlier in a long transcript, beyond tail-500 reach)
