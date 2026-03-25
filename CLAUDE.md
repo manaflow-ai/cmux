@@ -22,23 +22,23 @@ By default, `reload.sh` builds but does **not** launch the app. The script print
 ./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
 ```
 
-When reporting a tagged reload result in chat, use the format for your agent type:
+When reporting a tagged reload result in chat, read the "App path:" line from `reload.sh` output and build a `file://` URL from it (URL-encode spaces as `%20`). Use the format for your agent type:
 
-**Claude Code** (markdown link with correct derived-data path, cmd+clickable):
+**Claude Code** (markdown link, cmd+clickable):
 ```markdown
 =======================================================
-[cmux DEV <tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[cmux DEV <tag-name>.app](file://<app-path-from-reload-output-with-spaces-encoded>)
 =======================================================
 ```
 
 **Codex** (plain text format):
 ```
 =======================================================
-[<tag-name>: file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app](file:///Users/lawrencechen/Library/Developer/Xcode/DerivedData/cmux-<tag-name>/Build/Products/Debug/cmux%20DEV%20<tag-name>.app)
+[<tag-name>: file://<app-path-from-reload-output-with-spaces-encoded>](file://<app-path-from-reload-output-with-spaces-encoded>)
 =======================================================
 ```
 
-Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
+Never hardcode the home directory in the app path. Always use the actual path printed by `reload.sh`. Never use `/tmp/cmux-<tag>/...` app links in chat output.
 
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
