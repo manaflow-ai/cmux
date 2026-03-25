@@ -6329,6 +6329,8 @@ struct ContentView: View {
 
         for command in cmuxConfigStore.loadedCommands {
             let captured = command
+            let sourcePath = cmuxConfigStore.commandSourcePaths[command.id]
+            let globalPath = cmuxConfigStore.globalConfigPath
             registry.register(commandId: command.id) {
                 let rawCwd = tabManager.selectedWorkspace?.currentDirectory
                 let baseCwd = (rawCwd?.isEmpty == false) ? rawCwd!
@@ -6336,7 +6338,9 @@ struct ContentView: View {
                 CmuxConfigExecutor.execute(
                     command: captured,
                     tabManager: tabManager,
-                    baseCwd: baseCwd
+                    baseCwd: baseCwd,
+                    configSourcePath: sourcePath,
+                    globalConfigPath: globalPath
                 )
             }
         }

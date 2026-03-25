@@ -7,35 +7,66 @@ struct CmuxConfigExecutor {
     static func execute(
         command: CmuxCommandDefinition,
         tabManager: TabManager,
-        baseCwd: String
+        baseCwd: String,
+        configSourcePath: String?,
+        globalConfigPath: String
     ) {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
         } else if let shellCommand = command.command {
-            executeSimpleCommand(shellCommand, confirm: command.confirm ?? false, tabManager: tabManager)
+            let needsConfirm = command.confirm ?? false
+            if needsConfirm, let sourcePath = configSourcePath {
+                let trusted = CmuxDirectoryTrust.shared.isTrusted(
+                    configPath: sourcePath,
+                    globalConfigPath: globalConfigPath
+                )
+                if !trusted {
+                    guard showConfirmDialog(command: shellCommand, configPath: sourcePath) else { return }
+                }
+            }
+            guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
+            terminal.sendInput(shellCommand + "\n")
         }
     }
 
-    private static func executeSimpleCommand(
-        _ command: String,
-        confirm: Bool,
-        tabManager: TabManager
-    ) {
-        if confirm {
-            let alert = NSAlert()
-            alert.messageText = String(localized: "dialog.cmuxConfig.confirmCommand.title", defaultValue: "Run Command")
-            alert.informativeText = String(
-                localized: "dialog.cmuxConfig.confirmCommand.message",
-                defaultValue: "Are you sure you want to run this command?"
-            )
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmCommand.run", defaultValue: "Run"))
-            alert.addButton(withTitle: String(localized: "dialog.cmuxConfig.confirmCommand.cancel", defaultValue: "Cancel"))
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+    /// Show a confirmation dialog with the command text and a "trust this directory" checkbox.
+    /// Returns true if the user chose to run, false if cancelled.
+    private static func showConfirmDialog(command: String, configPath: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "dialog.cmuxConfig.confirmCommand.title",
+            defaultValue: "Run Command"
+        )
+        let messageFormat = String(
+            localized: "dialog.cmuxConfig.confirmCommand.messageWithCommand",
+            defaultValue: "This will run the following command:\n\n%@"
+        )
+        alert.informativeText = String(format: messageFormat, command)
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.run",
+            defaultValue: "Run"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.cancel",
+            defaultValue: "Cancel"
+        ))
+
+        let checkbox = NSButton(checkboxWithTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.trustDirectory",
+            defaultValue: "Always trust commands from this folder"
+        ), target: nil, action: nil)
+        checkbox.state = .off
+        alert.accessoryView = checkbox
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn else { return false }
+
+        if checkbox.state == .on {
+            CmuxDirectoryTrust.shared.trust(configPath: configPath)
         }
 
-        guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
-        terminal.sendInput(command + "\n")
+        return true
     }
 
     private static func executeWorkspaceCommand(

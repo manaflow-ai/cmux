@@ -234,8 +234,11 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
     @Published private(set) var configRevision: UInt64 = 0
 
-    private var localConfigPath: String?
-    private let globalConfigPath: String = {
+    /// Which config file each command came from, keyed by command id.
+    private(set) var commandSourcePaths: [String: String] = [:]
+
+    private(set) var localConfigPath: String?
+    let globalConfigPath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }()
@@ -322,6 +325,7 @@ final class CmuxConfigStore: ObservableObject {
     func loadAll() {
         var commands: [CmuxCommandDefinition] = []
         var seenNames = Set<String>()
+        var sourcePaths: [String: String] = [:]
 
         // Local config takes precedence
         if let localPath = localConfigPath {
@@ -330,6 +334,7 @@ final class CmuxConfigStore: ObservableObject {
                     if !seenNames.contains(command.name) {
                         commands.append(command)
                         seenNames.insert(command.name)
+                        sourcePaths[command.id] = localPath
                     }
                 }
             }
@@ -341,11 +346,13 @@ final class CmuxConfigStore: ObservableObject {
                 if !seenNames.contains(command.name) {
                     commands.append(command)
                     seenNames.insert(command.name)
+                    sourcePaths[command.id] = globalConfigPath
                 }
             }
         }
 
         loadedCommands = commands
+        commandSourcePaths = sourcePaths
         configRevision &+= 1
     }
 
