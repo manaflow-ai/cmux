@@ -1511,10 +1511,36 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
 ) -> Bool {
     guard firstResponderIsBrowser else { return false }
     guard keyCode == 36 || keyCode == 76 else { return false }
-    // Keep browser Return forwarding narrow: only plain/Shift Return should be
-    // treated as submit-intent. Command-modified Return is reserved for app shortcuts
-    // like Toggle Pane Zoom (Cmd+Shift+Enter).
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
+}
+
+func shouldDirectRouteBrowserFirstResponderKeyDown(
+    firstResponder: NSResponder?,
+    firstResponderIsBrowser: Bool,
+    focusedBrowserAddressBarPanelId: UUID?
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    guard focusedBrowserAddressBarPanelId == nil else { return false }
+    return firstResponder != nil
+}
+
+enum BrowserDirectKeyRoutingStrategy: Equatable {
+    case keyDown
+    case menuOrAppShortcutThenKeyDown
+    case deferToOriginalPerformKeyEquivalent
+}
+
+func browserDirectKeyRoutingStrategy(for event: NSEvent) -> BrowserDirectKeyRoutingStrategy {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    guard flags.contains(.command) else {
+        return .keyDown
+    }
+
+    guard shouldRouteCommandEquivalentDirectlyToMainMenu(event) else {
+        return .deferToOriginalPerformKeyEquivalent
+    }
+
+    return .menuOrAppShortcutThenKeyDown
 }
 
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
@@ -2021,6 +2047,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var browserWebViewClickObserver: NSObjectProtocol?
+    private var browserWebViewFocusObserver: NSObjectProtocol?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -2074,10 +2102,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupGotoSplitUITest = false
     private var didSetupBonsplitTabDragUITest = false
     private var bonsplitTabDragUITestRecorder: DispatchSourceTimer?
+    private var gotoSplitUITestArrowRecorder: DispatchSourceTimer?
+    private var gotoSplitUITestInputSetupGeneration = 0
+    private var gotoSplitUITestContentEditableSetupGeneration = 0
     private var gotoSplitUITestObservers: [NSObjectProtocol] = []
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
+    private var uiTestStartupActivationWorkItems: [DispatchWorkItem] = []
+    private var uiTestStartupActivationGeneration = 0
     private struct UITestRenderDiagnosticsSnapshot {
         let panelId: UUID
         let drawCount: Int
@@ -2365,6 +2398,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // In UI tests, `WindowGroup` occasionally fails to materialize a window quickly on the VM.
         // If there are no windows shortly after launch, force-create one so XCUITest can proceed.
         if isRunningUnderXCTest {
+            ensureUITestStartupForegroundIfNeeded()
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
                     BrowserImportHintSettings.variant(for: rawVariant).rawValue,
@@ -2389,6 +2423,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
+                self.ensureUITestStartupForegroundIfNeeded()
                 NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
                 // On headless CI runners, activate() silently fails (no GUI session).
                 // Force windows visible so the terminal surface starts rendering.
@@ -2438,9 +2473,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
         payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
         payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
+        payload["appIsActive"] = NSApp.isActive ? "1" : "0"
         payload["windowsCount"] = String(windows.count)
         payload["windowIdentifiers"] = ids
         payload["windowVisibleFlags"] = vis
+        payload["keyWindowIdentifier"] = NSApp.keyWindow?.identifier?.rawValue ?? ""
+        payload["mainWindowIdentifier"] = NSApp.mainWindow?.identifier?.rawValue ?? ""
         payload["windowScreenDisplayIDs"] = screenIDs
         payload["uiTestTargetDisplayID"] = targetDisplayID
         if let rawDisplayID = UInt32(targetDisplayID) {
@@ -2567,6 +2605,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             desiredFocus: stats.desiredFocus,
             isFirstResponder: stats.isFirstResponder
         )
+    }
+
+    private func ensureUITestStartupForegroundIfNeeded() {
+        let env = ProcessInfo.processInfo.environment
+        guard isRunningUnderXCTest(env) else { return }
+
+        cancelUITestStartupActivation()
+        uiTestStartupActivationGeneration += 1
+        let generation = uiTestStartupActivationGeneration
+        let delays: [TimeInterval] = [0, 0.05, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 12.0]
+
+        for (index, delay) in delays.enumerated() {
+            let isFinalAttempt = index == delays.count - 1
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.applyUITestStartupForegroundAttempt(
+                    generation: generation,
+                    attempt: index,
+                    isFinalAttempt: isFinalAttempt
+                )
+            }
+            uiTestStartupActivationWorkItems.append(workItem)
+            if delay == 0 {
+                DispatchQueue.main.async(execute: workItem)
+            } else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+            }
+        }
+    }
+
+    private func applyUITestStartupForegroundAttempt(
+        generation: Int,
+        attempt: Int,
+        isFinalAttempt: Bool
+    ) {
+        guard uiTestStartupActivationGeneration == generation else { return }
+
+        if let window = preferredUITestStartupWindow() {
+            NSApp.unhide(nil)
+            if !window.isMainWindow {
+                window.makeMain()
+            }
+            if !window.isKeyWindow {
+                window.makeKey()
+            }
+            window.orderFrontRegardless()
+            window.makeKeyAndOrderFront(nil)
+        } else if NSApp.windows.isEmpty {
+            openNewMainWindow(nil)
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        _ = NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        writeUITestDiagnosticsIfNeeded(stage: "startupActivate.\(attempt)")
+
+        if (NSApp.isActive && NSApp.keyWindow != nil) || isFinalAttempt {
+            cancelUITestStartupActivation()
+        }
+    }
+
+    private func preferredUITestStartupWindow() -> NSWindow? {
+        if let mainWindow = NSApp.windows.first(where: { window in
+            guard let raw = window.identifier?.rawValue else { return false }
+            return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+        }) {
+            return mainWindow
+        }
+        if let visibleWindow = NSApp.windows.first(where: \.isVisible) {
+            return visibleWindow
+        }
+        return NSApp.windows.first
+    }
+
+    private func cancelUITestStartupActivation() {
+        uiTestStartupActivationWorkItems.forEach { $0.cancel() }
+        uiTestStartupActivationWorkItems.removeAll()
     }
 
     private func moveUITestWindowToTargetDisplayIfNeeded(attempt: Int = 0) {
@@ -7352,7 +7465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard gotoSplitUITestObservers.isEmpty else { return }
 
         gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
-            forName: .browserFocusAddressBar,
+            forName: .browserDidFocusAddressBar,
             object: nil,
             queue: .main
         ) { [weak self] notification in
@@ -7474,14 +7587,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func setupFocusedInputForGotoSplitUITest(panel: BrowserPanel) {
         let script = """
         (() => {
+          const readArrowState = () => {
+            const report = window.__cmuxArrowKeyReport || {
+              down: 0,
+              up: 0,
+              commandShiftDown: 0,
+              commandShiftUp: 0
+            };
+            const active = document.activeElement;
+            return {
+              arrowDown: Number(report.down || 0),
+              arrowUp: Number(report.up || 0),
+              commandShiftDown: Number(report.commandShiftDown || 0),
+              commandShiftUp: Number(report.commandShiftUp || 0),
+              selectionStart: active && typeof active.selectionStart === "number" ? active.selectionStart : null,
+              selectionEnd: active && typeof active.selectionEnd === "number" ? active.selectionEnd : null
+            };
+          };
           const snapshot = () => {
             const active = document.activeElement;
+            const arrowState = readArrowState();
             return {
               focused: false,
               id: "",
               secondaryId: "",
+              textareaId: "",
               secondaryCenterX: -1,
               secondaryCenterY: -1,
+              textareaCenterX: -1,
+              textareaCenterY: -1,
               activeId: active && typeof active.id === "string" ? active.id : "",
               activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
               trackerInstalled: window.__cmuxAddressBarFocusTrackerInstalled === true,
@@ -7490,10 +7624,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 typeof window.__cmuxAddressBarFocusState.id === "string"
                   ? window.__cmuxAddressBarFocusState.id
                   : "",
-              readyState: String(document.readyState || "")
+              readyState: String(document.readyState || ""),
+              arrowDown: arrowState.arrowDown,
+              arrowUp: arrowState.arrowUp,
+              commandShiftDown: arrowState.commandShiftDown,
+              commandShiftUp: arrowState.commandShiftUp,
+              selectionStart: arrowState.selectionStart,
+              selectionEnd: arrowState.selectionEnd
             };
           };
           const seed = () => {
+            if (!document.body) {
+              return snapshot();
+            }
             const ensureInput = (id, value) => {
               const existing = document.getElementById(id);
               const input = (existing && existing.tagName && existing.tagName.toLowerCase() === "input")
@@ -7521,6 +7664,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               input.style.color = "black";
               return input;
             };
+            const ensureTextarea = (id, value) => {
+              const existing = document.getElementById(id);
+              const textarea = (existing && existing.tagName && existing.tagName.toLowerCase() === "textarea")
+                ? existing
+                : (() => {
+                    const created = document.createElement("textarea");
+                    created.id = id;
+                    created.value = value;
+                    return created;
+                  })();
+              textarea.autocapitalize = "off";
+              textarea.autocomplete = "off";
+              textarea.spellcheck = false;
+              textarea.rows = 4;
+              textarea.wrap = "soft";
+              textarea.style.display = "block";
+              textarea.style.width = "100%";
+              textarea.style.minHeight = "96px";
+              textarea.style.margin = "0";
+              textarea.style.padding = "8px 10px";
+              textarea.style.border = "1px solid #5f6368";
+              textarea.style.borderRadius = "6px";
+              textarea.style.boxSizing = "border-box";
+              textarea.style.fontSize = "14px";
+              textarea.style.fontFamily = "system-ui, -apple-system, sans-serif";
+              textarea.style.background = "white";
+              textarea.style.color = "black";
+              textarea.style.lineHeight = "1.4";
+              textarea.style.resize = "none";
+              return textarea;
+            };
 
             let container = document.getElementById("cmux-ui-test-focus-container");
             if (!container || !container.tagName || container.tagName.toLowerCase() !== "div") {
@@ -7543,12 +7717,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             const input = ensureInput("cmux-ui-test-focus-input", "cmux-ui-focus-primary");
             const secondaryInput = ensureInput("cmux-ui-test-focus-input-secondary", "cmux-ui-focus-secondary");
+            const textarea = ensureTextarea(
+              "cmux-ui-test-focus-textarea",
+              "cmux-ui-focus-textarea line 1\\ncmux-ui-focus-textarea line 2\\ncmux-ui-focus-textarea line 3"
+            );
             if (input.parentElement !== container) {
               container.appendChild(input);
             }
             if (secondaryInput.parentElement !== container) {
               container.appendChild(secondaryInput);
             }
+            if (textarea.parentElement !== container) {
+              container.appendChild(textarea);
+            }
+
+            if (!window.__cmuxArrowKeyReport || typeof window.__cmuxArrowKeyReport !== "object") {
+              window.__cmuxArrowKeyReport = {
+                down: 0,
+                up: 0,
+                commandShiftDown: 0,
+                commandShiftUp: 0
+              };
+            }
+            if (typeof window.__cmuxArrowKeyReport.commandShiftDown !== "number") {
+              window.__cmuxArrowKeyReport.commandShiftDown = 0;
+            }
+            if (typeof window.__cmuxArrowKeyReport.commandShiftUp !== "number") {
+              window.__cmuxArrowKeyReport.commandShiftUp = 0;
+            }
+            const installArrowTracker = (element) => {
+              if (!element || element.__cmuxArrowKeyReportInstalled) return;
+              element.__cmuxArrowKeyReportInstalled = true;
+              element.addEventListener("keydown", (event) => {
+                if (event.key === "ArrowDown") window.__cmuxArrowKeyReport.down += 1;
+                if (event.key === "ArrowUp") window.__cmuxArrowKeyReport.up += 1;
+                if (event.key === "ArrowDown" && event.metaKey && event.shiftKey) {
+                  window.__cmuxArrowKeyReport.commandShiftDown += 1;
+                }
+                if (event.key === "ArrowUp" && event.metaKey && event.shiftKey) {
+                  window.__cmuxArrowKeyReport.commandShiftUp += 1;
+                }
+              }, true);
+            };
+            installArrowTracker(input);
+            installArrowTracker(secondaryInput);
+            installArrowTracker(textarea);
 
             input.focus({ preventScroll: true });
             if (typeof input.setSelectionRange === "function") {
@@ -7572,8 +7785,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             const secondaryRect = secondaryInput.getBoundingClientRect();
+            const textareaRect = textarea.getBoundingClientRect();
+            const primaryRect = input.getBoundingClientRect();
             const viewportWidth = Math.max(Number(window.innerWidth) || 0, 1);
             const viewportHeight = Math.max(Number(window.innerHeight) || 0, 1);
+            const primaryCenterX = Math.min(
+              0.98,
+              Math.max(0.02, (primaryRect.left + (primaryRect.width / 2)) / viewportWidth)
+            );
+            const primaryCenterY = Math.min(
+              0.98,
+              Math.max(0.02, (primaryRect.top + (primaryRect.height / 2)) / viewportHeight)
+            );
             const secondaryCenterX = Math.min(
               0.98,
               Math.max(0.02, (secondaryRect.left + (secondaryRect.width / 2)) / viewportWidth)
@@ -7582,13 +7805,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               0.98,
               Math.max(0.02, (secondaryRect.top + (secondaryRect.height / 2)) / viewportHeight)
             );
+            const textareaCenterX = Math.min(
+              0.98,
+              Math.max(0.02, (textareaRect.left + (textareaRect.width / 2)) / viewportWidth)
+            );
+            const textareaCenterY = Math.min(
+              0.98,
+              Math.max(0.02, (textareaRect.top + (textareaRect.height / 2)) / viewportHeight)
+            );
             const active = document.activeElement;
+            const arrowState = readArrowState();
             return {
               focused: active === input,
               id: input.id || "",
               secondaryId: secondaryInput.id || "",
+              textareaId: textarea.id || "",
+              primaryCenterX,
+              primaryCenterY,
               secondaryCenterX,
               secondaryCenterY,
+              textareaCenterX,
+              textareaCenterY,
               activeId: active && typeof active.id === "string" ? active.id : "",
               activeTag: active && active.tagName ? active.tagName.toLowerCase() : "",
               trackerInstalled: window.__cmuxAddressBarFocusTrackerInstalled === true,
@@ -7597,129 +7834,542 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 typeof window.__cmuxAddressBarFocusState.id === "string"
                   ? window.__cmuxAddressBarFocusState.id
                   : "",
-              readyState: String(document.readyState || "")
+              readyState: String(document.readyState || ""),
+              arrowDown: arrowState.arrowDown,
+              arrowUp: arrowState.arrowUp,
+              commandShiftDown: arrowState.commandShiftDown,
+              commandShiftUp: arrowState.commandShiftUp,
+              selectionStart: arrowState.selectionStart,
+              selectionEnd: arrowState.selectionEnd
             };
           };
-          const ready = () =>
+          const ready =
             window.__cmuxAddressBarFocusTrackerInstalled === true &&
-            String(document.readyState || "") === "complete";
+            String(document.readyState || "") === "complete" &&
+            !!document.body;
 
-          if (ready()) {
-            try {
-              return seed();
-            } catch (_) {
-              return snapshot();
-            }
+          if (!ready) {
+            return snapshot();
           }
 
-          return new Promise((resolve) => {
-            let finished = false;
-            let observer = null;
-            const cleanups = [];
-            const finish = (value) => {
-              if (finished) return;
-              finished = true;
-              if (observer) observer.disconnect();
-              for (const cleanup of cleanups) {
-                try { cleanup(); } catch (_) {}
-              }
-              resolve(value);
+          try {
+            return seed();
+          } catch (_) {
+            return snapshot();
+          }
+        })();
+        """
+
+        gotoSplitUITestInputSetupGeneration += 1
+        let generation = gotoSplitUITestInputSetupGeneration
+        let deadline = Date().addingTimeInterval(8.0)
+
+        func attempt() {
+            guard gotoSplitUITestInputSetupGeneration == generation else { return }
+
+            panel.webView.evaluateJavaScript(script) { [weak self, weak panel] result, _ in
+                guard let self,
+                      self.gotoSplitUITestInputSetupGeneration == generation,
+                      let panel else { return }
+
+                let payload = result as? [String: Any]
+                let focused = (payload?["focused"] as? Bool) ?? false
+                let inputId = (payload?["id"] as? String) ?? ""
+                let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
+                let textareaId = (payload?["textareaId"] as? String) ?? ""
+                let primaryCenterX = (payload?["primaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let primaryCenterY = (payload?["primaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+                let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+                let textareaCenterX = (payload?["textareaCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let textareaCenterY = (payload?["textareaCenterY"] as? NSNumber)?.doubleValue ?? -1
+                let activeId = (payload?["activeId"] as? String) ?? ""
+                let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
+                let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
+                let readyState = (payload?["readyState"] as? String) ?? ""
+                let arrowDown = (payload?["arrowDown"] as? NSNumber)?.intValue ?? 0
+                let arrowUp = (payload?["arrowUp"] as? NSNumber)?.intValue ?? 0
+                let commandShiftDown = (payload?["commandShiftDown"] as? NSNumber)?.intValue ?? 0
+                let commandShiftUp = (payload?["commandShiftUp"] as? NSNumber)?.intValue ?? 0
+                let selectionStart = (payload?["selectionStart"] as? NSNumber)?.intValue
+                let selectionEnd = (payload?["selectionEnd"] as? NSNumber)?.intValue
+                var primaryClickOffsetX = -1.0
+                var primaryClickOffsetY = -1.0
+                var secondaryClickOffsetX = -1.0
+                var secondaryClickOffsetY = -1.0
+                var textareaClickOffsetX = -1.0
+                var textareaClickOffsetY = -1.0
+                let windowAvailable = panel.webView.window != nil
+
+                if let window = panel.webView.window {
+                    let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+                    let contentHeight = Double(window.contentView?.bounds.height ?? 0)
+                    if webFrame.width > 1,
+                       webFrame.height > 1,
+                       contentHeight > 1,
+                       primaryCenterX > 0,
+                       primaryCenterX < 1,
+                       primaryCenterY > 0,
+                       primaryCenterY < 1,
+                       secondaryCenterX > 0,
+                       secondaryCenterX < 1,
+                       secondaryCenterY > 0,
+                       secondaryCenterY < 1,
+                       textareaCenterX > 0,
+                       textareaCenterX < 1,
+                       textareaCenterY > 0,
+                       textareaCenterY < 1 {
+                        let primaryXInContent = Double(webFrame.minX) + (primaryCenterX * Double(webFrame.width))
+                        let primaryYFromTopInWeb = primaryCenterY * Double(webFrame.height)
+                        let primaryYInContent = Double(webFrame.maxY) - primaryYFromTopInWeb
+                        let yFromTopInContent = contentHeight - primaryYInContent
+                        let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
+                        primaryClickOffsetX = primaryXInContent
+                        primaryClickOffsetY = titlebarHeight + yFromTopInContent
+
+                        let secondaryXInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
+                        let secondaryYFromTopInWeb = secondaryCenterY * Double(webFrame.height)
+                        let secondaryYInContent = Double(webFrame.maxY) - secondaryYFromTopInWeb
+                        secondaryClickOffsetX = secondaryXInContent
+                        secondaryClickOffsetY = titlebarHeight + (contentHeight - secondaryYInContent)
+
+                        let textareaXInContent = Double(webFrame.minX) + (textareaCenterX * Double(webFrame.width))
+                        let textareaYFromTopInWeb = textareaCenterY * Double(webFrame.height)
+                        let textareaYInContent = Double(webFrame.maxY) - textareaYFromTopInWeb
+                        textareaClickOffsetX = textareaXInContent
+                        textareaClickOffsetY = titlebarHeight + (contentHeight - textareaYInContent)
+                    }
+                }
+
+                if focused,
+                   !inputId.isEmpty,
+                   !secondaryInputId.isEmpty,
+                   !textareaId.isEmpty,
+                   inputId == activeId,
+                   trackerInstalled,
+                   !trackedStateId.isEmpty,
+                   primaryCenterX > 0,
+                   primaryCenterX < 1,
+                   primaryCenterY > 0,
+                   primaryCenterY < 1,
+                   secondaryCenterX > 0,
+                   secondaryCenterX < 1,
+                   secondaryCenterY > 0,
+                   secondaryCenterY < 1,
+                   textareaCenterX > 0,
+                   textareaCenterX < 1,
+                   textareaCenterY > 0,
+                   textareaCenterY < 1,
+                   primaryClickOffsetX > 0,
+                   primaryClickOffsetY > 0,
+                   secondaryClickOffsetX > 0,
+                   secondaryClickOffsetY > 0,
+                   textareaClickOffsetX > 0,
+                   textareaClickOffsetY > 0 {
+                    self.writeGotoSplitTestData([
+                        "webInputFocusSeeded": "true",
+                        "webInputFocusElementId": inputId,
+                        "webInputFocusSecondaryElementId": secondaryInputId,
+                        "webInputFocusTextareaElementId": textareaId,
+                        "webInputFocusPrimaryCenterX": "\(primaryCenterX)",
+                        "webInputFocusPrimaryCenterY": "\(primaryCenterY)",
+                        "webInputFocusPrimaryClickOffsetX": "\(primaryClickOffsetX)",
+                        "webInputFocusPrimaryClickOffsetY": "\(primaryClickOffsetY)",
+                        "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                        "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                        "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                        "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
+                        "webInputFocusTextareaCenterX": "\(textareaCenterX)",
+                        "webInputFocusTextareaCenterY": "\(textareaCenterY)",
+                        "webInputFocusTextareaClickOffsetX": "\(textareaClickOffsetX)",
+                        "webInputFocusTextareaClickOffsetY": "\(textareaClickOffsetY)",
+                        "webInputFocusActiveElementId": activeId,
+                        "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                        "webInputFocusTrackedStateId": trackedStateId,
+                        "webInputFocusReadyState": readyState,
+                        "webInputFocusArrowDownCount": "\(arrowDown)",
+                        "webInputFocusArrowUpCount": "\(arrowUp)",
+                        "webInputFocusCommandShiftDownCount": "\(commandShiftDown)",
+                        "webInputFocusCommandShiftUpCount": "\(commandShiftUp)",
+                        "webInputFocusSelectionStart": selectionStart.map(String.init) ?? "",
+                        "webInputFocusSelectionEnd": selectionEnd.map(String.init) ?? ""
+                    ])
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_ARROW_SETUP"] == "1" {
+                        self.startGotoSplitUITestArrowRecorder(panelId: panel.id)
+                    }
+                    if ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_CONTENTEDITABLE_SETUP"] == "1" {
+                        self.setupContentEditableForGotoSplitUITest(panel: panel)
+                    }
+                    return
+                }
+
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                        guard let self,
+                              self.gotoSplitUITestInputSetupGeneration == generation else { return }
+                        attempt()
+                    }
+                    return
+                }
+
+                    self.writeGotoSplitTestData([
+                        "webInputFocusSeeded": "false",
+                        "webInputFocusElementId": inputId,
+                        "webInputFocusSecondaryElementId": secondaryInputId,
+                        "webInputFocusTextareaElementId": textareaId,
+                        "webInputFocusPrimaryCenterX": "\(primaryCenterX)",
+                        "webInputFocusPrimaryCenterY": "\(primaryCenterY)",
+                        "webInputFocusPrimaryClickOffsetX": "\(primaryClickOffsetX)",
+                        "webInputFocusPrimaryClickOffsetY": "\(primaryClickOffsetY)",
+                        "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
+                        "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
+                        "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
+                        "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
+                        "webInputFocusTextareaCenterX": "\(textareaCenterX)",
+                        "webInputFocusTextareaCenterY": "\(textareaCenterY)",
+                        "webInputFocusTextareaClickOffsetX": "\(textareaClickOffsetX)",
+                        "webInputFocusTextareaClickOffsetY": "\(textareaClickOffsetY)",
+                        "webInputFocusActiveElementId": activeId,
+                        "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
+                        "webInputFocusTrackedStateId": trackedStateId,
+                        "webInputFocusReadyState": readyState,
+                        "webInputFocusArrowDownCount": "\(arrowDown)",
+                        "webInputFocusArrowUpCount": "\(arrowUp)",
+                        "webInputFocusCommandShiftDownCount": "\(commandShiftDown)",
+                        "webInputFocusCommandShiftUpCount": "\(commandShiftUp)",
+                        "webInputFocusSelectionStart": selectionStart.map(String.init) ?? "",
+                        "webInputFocusSelectionEnd": selectionEnd.map(String.init) ?? "",
+                        "setupError":
+                        "Timed out focusing page input for omnibar restore test " +
+                        "focused=\(focused) inputId=\(inputId) secondaryInputId=\(secondaryInputId) textareaId=\(textareaId) " +
+                        "activeId=\(activeId) trackerInstalled=\(trackerInstalled) trackedStateId=\(trackedStateId) " +
+                        "readyState=\(readyState) windowAvailable=\(windowAvailable) " +
+                        "primaryCenterX=\(primaryCenterX) primaryCenterY=\(primaryCenterY) " +
+                        "primaryClickOffsetX=\(primaryClickOffsetX) primaryClickOffsetY=\(primaryClickOffsetY) " +
+                        "secondaryCenterX=\(secondaryCenterX) secondaryCenterY=\(secondaryCenterY) " +
+                        "secondaryClickOffsetX=\(secondaryClickOffsetX) secondaryClickOffsetY=\(secondaryClickOffsetY) " +
+                        "textareaCenterX=\(textareaCenterX) textareaCenterY=\(textareaCenterY) " +
+                        "textareaClickOffsetX=\(textareaClickOffsetX) textareaClickOffsetY=\(textareaClickOffsetY)"
+                ])
+            }
+        }
+
+        attempt()
+    }
+
+    private func setupContentEditableForGotoSplitUITest(panel: BrowserPanel) {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_CONTENTEDITABLE_SETUP"] == "1" else {
+            return
+        }
+
+        gotoSplitUITestContentEditableSetupGeneration += 1
+        let generation = gotoSplitUITestContentEditableSetupGeneration
+        let deadline = Date().addingTimeInterval(8.0)
+        let script = """
+        (() => {
+          const snapshot = () => {
+            const active = document.activeElement;
+            return {
+              seeded: false,
+              editorId: "",
+              activeId: active && typeof active.id === "string" ? active.id : "",
+              readyState: String(document.readyState || ""),
+              secondaryCenterX: -1,
+              secondaryCenterY: -1,
+              editorCenterX: -1,
+              editorCenterY: -1
             };
-            const maybeFinish = () => {
-              if (!ready()) return;
-              try {
-                finish(seed());
-              } catch (_) {
-                finish(snapshot());
-              }
+          };
+          const seed = () => {
+            const parent = document.getElementById("cmux-ui-test-focus-container");
+            const secondary = document.getElementById("cmux-ui-test-focus-input-secondary");
+            if (!document.body || !parent || !secondary) {
+              return snapshot();
+            }
+
+            let editor = document.getElementById("cmux-ui-test-contenteditable");
+            if (!editor || !editor.tagName || editor.tagName.toLowerCase() !== "div") {
+              editor = document.createElement("div");
+              editor.id = "cmux-ui-test-contenteditable";
+            }
+
+            editor.setAttribute("contenteditable", "true");
+            editor.setAttribute("role", "textbox");
+            editor.setAttribute("aria-label", "cmux-ui-test-contenteditable");
+            editor.spellcheck = false;
+            editor.tabIndex = 0;
+            editor.innerHTML = "alpha<br>beta<br>gamma";
+            editor.style.display = "block";
+            editor.style.minHeight = "84px";
+            editor.style.padding = "8px 10px";
+            editor.style.border = "1px solid #5f6368";
+            editor.style.borderRadius = "6px";
+            editor.style.boxSizing = "border-box";
+            editor.style.fontSize = "14px";
+            editor.style.fontFamily = "system-ui, -apple-system, sans-serif";
+            editor.style.background = "white";
+            editor.style.color = "black";
+            editor.style.whiteSpace = "pre-wrap";
+            editor.style.outline = "none";
+
+            if (editor.parentElement !== parent) {
+              parent.appendChild(editor);
+            }
+
+            if (!window.__cmuxContentEditableArrowReport || typeof window.__cmuxContentEditableArrowReport !== "object") {
+              window.__cmuxContentEditableArrowReport = {
+                down: 0,
+                up: 0,
+                commandShiftDown: 0,
+                commandShiftUp: 0
+              };
+            }
+
+            if (!editor.__cmuxContentEditableArrowReportInstalled) {
+              editor.__cmuxContentEditableArrowReportInstalled = true;
+              editor.addEventListener("keydown", (event) => {
+                if (event.key === "ArrowDown") window.__cmuxContentEditableArrowReport.down += 1;
+                if (event.key === "ArrowUp") window.__cmuxContentEditableArrowReport.up += 1;
+                if (event.key === "ArrowDown" && event.metaKey && event.shiftKey) {
+                  window.__cmuxContentEditableArrowReport.commandShiftDown += 1;
+                }
+                if (event.key === "ArrowUp" && event.metaKey && event.shiftKey) {
+                  window.__cmuxContentEditableArrowReport.commandShiftUp += 1;
+                }
+              }, true);
+            }
+
+            editor.focus({ preventScroll: true });
+            const selection = window.getSelection();
+            if (selection) {
+              const range = document.createRange();
+              range.selectNodeContents(editor);
+              range.collapse(false);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+
+            const secondaryRect = secondary.getBoundingClientRect();
+            const editorRect = editor.getBoundingClientRect();
+            const active = document.activeElement;
+            return {
+              seeded: active === editor,
+              editorId: editor.id || "",
+              activeId: active && typeof active.id === "string" ? active.id : "",
+              readyState: String(document.readyState || ""),
+              secondaryCenterX: secondaryRect.left + (secondaryRect.width / 2),
+              secondaryCenterY: secondaryRect.top + (secondaryRect.height / 2),
+              editorCenterX: editorRect.left + (editorRect.width / 2),
+              editorCenterY: editorRect.top + (editorRect.height / 2)
             };
-            const addListener = (target, eventName, options) => {
-              if (!target || typeof target.addEventListener !== "function") return;
-              const handler = () => maybeFinish();
-              target.addEventListener(eventName, handler, options);
-              cleanups.push(() => target.removeEventListener(eventName, handler, options));
-            };
-            try {
-              observer = new MutationObserver(() => maybeFinish());
-              observer.observe(document.documentElement || document, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                characterData: true
-              });
-            } catch (_) {}
-            addListener(document, "readystatechange", true);
-            addListener(window, "load", true);
-            const timeoutId = window.setTimeout(() => finish(snapshot()), 4000);
-            cleanups.push(() => window.clearTimeout(timeoutId));
-            maybeFinish();
-          });
+          };
+          const ready =
+            String(document.readyState || "") === "complete" &&
+            !!document.body &&
+            !!document.getElementById("cmux-ui-test-focus-container") &&
+            !!document.getElementById("cmux-ui-test-focus-input-secondary");
+
+          if (!ready) {
+            return snapshot();
+          }
+
+          try {
+            return seed();
+          } catch (_) {
+            return snapshot();
+          }
+        })();
+        """
+
+        func attempt() {
+            guard gotoSplitUITestContentEditableSetupGeneration == generation else { return }
+
+            panel.webView.evaluateJavaScript(script) { [weak self, weak panel] result, _ in
+                guard let self,
+                      self.gotoSplitUITestContentEditableSetupGeneration == generation,
+                      let panel else { return }
+
+                let payload = result as? [String: Any]
+                let seeded = (payload?["seeded"] as? Bool) ?? false
+                let editorId = (payload?["editorId"] as? String) ?? ""
+                let activeId = (payload?["activeId"] as? String) ?? ""
+                let readyState = (payload?["readyState"] as? String) ?? ""
+                let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
+                let editorCenterX = (payload?["editorCenterX"] as? NSNumber)?.doubleValue ?? -1
+                let editorCenterY = (payload?["editorCenterY"] as? NSNumber)?.doubleValue ?? -1
+                var editorClickOffsetX = -1.0
+                var editorClickOffsetY = -1.0
+
+                if let window = panel.webView.window {
+                    let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
+                    let contentHeight = Double(window.contentView?.bounds.height ?? 0)
+                    if webFrame.width > 1,
+                       webFrame.height > 1,
+                       contentHeight > 1,
+                       secondaryCenterX >= 0,
+                       secondaryCenterY >= 0,
+                       editorCenterX >= 0,
+                       editorCenterY >= 0 {
+                        let editorXInContent = Double(webFrame.minX) + editorCenterX
+                        let editorYInContent = Double(webFrame.maxY) - editorCenterY
+                        let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
+                        editorClickOffsetX = editorXInContent
+                        editorClickOffsetY = titlebarHeight + (contentHeight - editorYInContent)
+                    }
+                }
+
+                if seeded,
+                   !editorId.isEmpty,
+                   activeId == editorId,
+                   editorClickOffsetX > 0,
+                   editorClickOffsetY > 0 {
+                    self.writeGotoSplitTestData([
+                        "webContentEditableSeeded": "true",
+                        "webContentEditableElementId": editorId,
+                        "webContentEditableActiveElementId": activeId,
+                        "webContentEditableReadyState": readyState,
+                        "webContentEditableClickOffsetX": "\(editorClickOffsetX)",
+                        "webContentEditableClickOffsetY": "\(editorClickOffsetY)"
+                    ])
+                    return
+                }
+
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                        guard let self,
+                              self.gotoSplitUITestContentEditableSetupGeneration == generation else { return }
+                        attempt()
+                    }
+                    return
+                }
+
+                self.writeGotoSplitTestData([
+                    "webContentEditableSeeded": "false",
+                    "webContentEditableElementId": editorId,
+                    "webContentEditableActiveElementId": activeId,
+                    "webContentEditableReadyState": readyState,
+                    "webContentEditableClickOffsetX": "\(editorClickOffsetX)",
+                    "webContentEditableClickOffsetY": "\(editorClickOffsetY)",
+                    "setupError":
+                        "Timed out focusing contenteditable for omnibar restore test " +
+                        "seeded=\(seeded) editorId=\(editorId) activeId=\(activeId) " +
+                        "readyState=\(readyState) secondaryCenterX=\(secondaryCenterX) " +
+                        "secondaryCenterY=\(secondaryCenterY) editorCenterX=\(editorCenterX) " +
+                        "editorCenterY=\(editorCenterY) editorClickOffsetX=\(editorClickOffsetX) " +
+                        "editorClickOffsetY=\(editorClickOffsetY)"
+                ])
+            }
+        }
+
+        attempt()
+    }
+
+    private func startGotoSplitUITestArrowRecorder(panelId: UUID) {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_ARROW_SETUP"] == "1" else { return }
+
+        gotoSplitUITestArrowRecorder?.cancel()
+        gotoSplitUITestArrowRecorder = nil
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+        timer.setEventHandler { [weak self] in
+            self?.recordGotoSplitUITestArrowState(panelId: panelId)
+        }
+        gotoSplitUITestArrowRecorder = timer
+        timer.resume()
+    }
+
+    private func recordGotoSplitUITestArrowState(panelId: UUID) {
+        guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_GOTO_SPLIT_ARROW_SETUP"] == "1" else { return }
+        guard let tabManager,
+              let workspace = tabManager.tabs.first(where: { $0.browserPanel(for: panelId) != nil }),
+              let panel = workspace.browserPanel(for: panelId) else {
+            return
+        }
+
+        let script = """
+        (() => {
+          const report = window.__cmuxArrowKeyReport || {
+            down: 0,
+            up: 0,
+            commandShiftDown: 0,
+            commandShiftUp: 0
+          };
+          const contentEditableReport = window.__cmuxContentEditableArrowReport || {
+            down: 0,
+            up: 0,
+            commandShiftDown: 0,
+            commandShiftUp: 0
+          };
+          const active = document.activeElement;
+          return {
+            installed: !!window.__cmuxArrowKeyReport,
+            down: Number(report.down || 0),
+            up: Number(report.up || 0),
+            commandShiftDown: Number(report.commandShiftDown || 0),
+            commandShiftUp: Number(report.commandShiftUp || 0),
+            contentEditableInstalled: !!window.__cmuxContentEditableArrowReport,
+            contentEditableDown: Number(contentEditableReport.down || 0),
+            contentEditableUp: Number(contentEditableReport.up || 0),
+            contentEditableCommandShiftDown: Number(contentEditableReport.commandShiftDown || 0),
+            contentEditableCommandShiftUp: Number(contentEditableReport.commandShiftUp || 0),
+            activeId: active && typeof active.id === "string" ? active.id : "",
+            selectionStart: active && typeof active.selectionStart === "number" ? active.selectionStart : null,
+            selectionEnd: active && typeof active.selectionEnd === "number" ? active.selectionEnd : null,
+            readyState: String(document.readyState || "")
+          };
         })();
         """
 
         panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
-            guard let self else { return }
-            let payload = result as? [String: Any]
-            let focused = (payload?["focused"] as? Bool) ?? false
-            let inputId = (payload?["id"] as? String) ?? ""
-            let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
-            let secondaryCenterX = (payload?["secondaryCenterX"] as? NSNumber)?.doubleValue ?? -1
-            let secondaryCenterY = (payload?["secondaryCenterY"] as? NSNumber)?.doubleValue ?? -1
-            let activeId = (payload?["activeId"] as? String) ?? ""
-            let trackerInstalled = (payload?["trackerInstalled"] as? Bool) ?? false
-            let trackedStateId = (payload?["trackedStateId"] as? String) ?? ""
-            let readyState = (payload?["readyState"] as? String) ?? ""
-            var secondaryClickOffsetX = -1.0
-            var secondaryClickOffsetY = -1.0
-            if let window = panel.webView.window {
-                let webFrame = panel.webView.convert(panel.webView.bounds, to: nil)
-                let contentHeight = Double(window.contentView?.bounds.height ?? 0)
-                if webFrame.width > 1,
-                   webFrame.height > 1,
-                   contentHeight > 1,
-                   secondaryCenterX > 0,
-                   secondaryCenterX < 1,
-                   secondaryCenterY > 0,
-                   secondaryCenterY < 1 {
-                    let xInContent = Double(webFrame.minX) + (secondaryCenterX * Double(webFrame.width))
-                    let yFromTopInWeb = secondaryCenterY * Double(webFrame.height)
-                    let yInContent = Double(webFrame.maxY) - yFromTopInWeb
-                    let yFromTopInContent = contentHeight - yInContent
-                    let titlebarHeight = max(0, Double(window.frame.height) - contentHeight)
-                    secondaryClickOffsetX = xInContent
-                    secondaryClickOffsetY = titlebarHeight + yFromTopInContent
-                }
-            }
-            if focused,
-               !inputId.isEmpty,
-               !secondaryInputId.isEmpty,
-               inputId == activeId,
-               trackerInstalled,
-               !trackedStateId.isEmpty,
-               secondaryCenterX > 0,
-               secondaryCenterX < 1,
-               secondaryCenterY > 0,
-               secondaryCenterY < 1,
-               secondaryClickOffsetX > 0,
-               secondaryClickOffsetY > 0 {
-                self.writeGotoSplitTestData([
-                    "webInputFocusSeeded": "true",
-                    "webInputFocusElementId": inputId,
-                    "webInputFocusSecondaryElementId": secondaryInputId,
-                    "webInputFocusSecondaryCenterX": "\(secondaryCenterX)",
-                    "webInputFocusSecondaryCenterY": "\(secondaryCenterY)",
-                    "webInputFocusSecondaryClickOffsetX": "\(secondaryClickOffsetX)",
-                    "webInputFocusSecondaryClickOffsetY": "\(secondaryClickOffsetY)",
-                    "webInputFocusActiveElementId": activeId,
-                    "webInputFocusTrackerInstalled": trackerInstalled ? "true" : "false",
-                    "webInputFocusTrackedStateId": trackedStateId,
-                    "webInputFocusReadyState": readyState
-                ])
+            guard let self,
+                  let payload = result as? [String: Any] else {
                 return
             }
+
+            let firstResponder = panel.webView.window?.firstResponder
+            let firstResponderType = firstResponder.map { String(describing: type(of: $0)) } ?? ""
+            let firstResponderIsFieldEditor = ((firstResponder as? NSTextView)?.isFieldEditor == true)
+            let firstResponderIsCmuxWebView = (firstResponder as? CmuxWebView) === panel.webView
+            let focusedAddressBarPanelId = self.focusedBrowserAddressBarPanelId()?.uuidString ?? ""
+            let down = (payload["down"] as? NSNumber)?.intValue ?? 0
+            let up = (payload["up"] as? NSNumber)?.intValue ?? 0
+            let commandShiftDown = (payload["commandShiftDown"] as? NSNumber)?.intValue ?? 0
+            let commandShiftUp = (payload["commandShiftUp"] as? NSNumber)?.intValue ?? 0
+            let contentEditableInstalled = (payload["contentEditableInstalled"] as? Bool) ?? false
+            let contentEditableDown = (payload["contentEditableDown"] as? NSNumber)?.intValue ?? 0
+            let contentEditableUp = (payload["contentEditableUp"] as? NSNumber)?.intValue ?? 0
+            let contentEditableCommandShiftDown = (payload["contentEditableCommandShiftDown"] as? NSNumber)?.intValue ?? 0
+            let contentEditableCommandShiftUp = (payload["contentEditableCommandShiftUp"] as? NSNumber)?.intValue ?? 0
+            let activeId = (payload["activeId"] as? String) ?? ""
+            let selectionStart = (payload["selectionStart"] as? NSNumber)?.intValue
+            let selectionEnd = (payload["selectionEnd"] as? NSNumber)?.intValue
+            let readyState = (payload["readyState"] as? String) ?? ""
+            let installed = (payload["installed"] as? Bool) ?? false
+
             self.writeGotoSplitTestData([
-                "webInputFocusSeeded": "false",
-                "setupError": "Timed out focusing page input for omnibar restore test"
+                "browserArrowPanelId": panelId.uuidString,
+                "browserArrowInstalled": installed ? "true" : "false",
+                "browserArrowDownCount": "\(down)",
+                "browserArrowUpCount": "\(up)",
+                "browserArrowCommandShiftDownCount": "\(commandShiftDown)",
+                "browserArrowCommandShiftUpCount": "\(commandShiftUp)",
+                "browserArrowActiveElementId": activeId,
+                "browserArrowSelectionStart": selectionStart.map(String.init) ?? "",
+                "browserArrowSelectionEnd": selectionEnd.map(String.init) ?? "",
+                "browserArrowReadyState": readyState,
+                "browserContentEditableInstalled": contentEditableInstalled ? "true" : "false",
+                "browserContentEditableDownCount": "\(contentEditableDown)",
+                "browserContentEditableUpCount": "\(contentEditableUp)",
+                "browserContentEditableCommandShiftDownCount": "\(contentEditableCommandShiftDown)",
+                "browserContentEditableCommandShiftUpCount": "\(contentEditableCommandShiftUp)",
+                "browserContentEditableActiveElementId": activeId,
+                "browserContentEditableReadyState": readyState,
+                "browserArrowFirstResponderType": firstResponderType,
+                "browserArrowFirstResponderIsFieldEditor": firstResponderIsFieldEditor ? "true" : "false",
+                "browserArrowFirstResponderIsCmuxWebView": firstResponderIsCmuxWebView ? "true" : "false",
+                "browserArrowFocusedAddressBarPanelId": focusedAddressBarPanelId
             ])
         }
     }
@@ -10954,36 +11604,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installBrowserAddressBarFocusObservers() {
-        guard browserAddressBarFocusObserver == nil, browserAddressBarBlurObserver == nil else { return }
+        guard browserAddressBarFocusObserver == nil,
+              browserAddressBarBlurObserver == nil,
+              browserWebViewClickObserver == nil,
+              browserWebViewFocusObserver == nil else { return }
 
         browserAddressBarFocusObserver = NotificationCenter.default.addObserver(
             forName: .browserDidFocusAddressBar,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
-            self.browserAddressBarFocusedPanelId = panelId
-            self.stopBrowserOmnibarSelectionRepeat()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                if let panel = self.browserPanel(for: panelId) {
+                    panel.beginSuppressWebViewFocusForAddressBar()
+                    let isPanelFocused = self.tabManager?.selectedWorkspace?.focusedPanelId == panelId
+                    panel.syncWebViewFirstResponderPolicy(
+                        isPanelFocused: isPanelFocused,
+                        reason: "addressBarFocusObserver"
+                    )
+                }
+                self.browserAddressBarFocusedPanelId = panelId
+                self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+                dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
 #endif
+            }
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
             forName: .browserDidBlurAddressBar,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panelId {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                if let panel = self.browserPanel(for: panelId) {
+                    panel.endSuppressWebViewFocusForAddressBar()
+                    let isPanelFocused = self.tabManager?.selectedWorkspace?.focusedPanelId == panelId
+                    panel.syncWebViewFirstResponderPolicy(
+                        isPanelFocused: isPanelFocused,
+                        reason: "addressBarBlurObserver"
+                    )
+                }
+                if self.browserAddressBarFocusedPanelId == panelId {
+                    self.browserAddressBarFocusedPanelId = nil
+                    self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+                    dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+#endif
+                }
+            }
+        }
+
+        browserWebViewClickObserver = NotificationCenter.default.addObserver(
+            forName: .webViewDidReceiveClick,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = self.browserAddressBarFocusedPanelId else { return }
+
+                NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+#if DEBUG
+                dlog(
+                    "addressBar STALE_CLEAR panelId=\(panelId.uuidString.prefix(8)) " +
+                    "reason=webViewClick"
+                )
+#endif
+            }
+        }
+
+        browserWebViewFocusObserver = NotificationCenter.default.addObserver(
+            forName: .browserDidBecomeFirstResponderWebView,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = self.browserAddressBarFocusedPanelId else { return }
+                guard let webView = notification.object as? WKWebView else { return }
+
+                NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+#if DEBUG
+                dlog(
+                    "addressBar STALE_CLEAR panelId=\(panelId.uuidString.prefix(8)) " +
+                    "reason=webViewFirstResponder web=\(ObjectIdentifier(webView))"
+                )
 #endif
             }
         }
@@ -12078,7 +12788,7 @@ private var cmuxFirstResponderGuardHitViewOverride: NSView?
 private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
-private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxBrowserKeyDownForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -12101,6 +12811,11 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
     init(webView: CmuxWebView?) {
         self.webView = webView
     }
+}
+
+private struct CmuxBrowserFirstResponderKeyRoute {
+    let webView: CmuxWebView
+    let keyDownTarget: NSResponder
 }
 
 private extension NSApplication {
@@ -12142,6 +12857,103 @@ private extension AppDelegate {
 }
 
 private extension NSWindow {
+    static func cmuxBrowserFirstResponderKeyRoute(
+        for firstResponder: NSResponder?,
+        in window: NSWindow,
+        event: NSEvent?
+    ) -> CmuxBrowserFirstResponderKeyRoute? {
+        guard let firstResponder else { return nil }
+        guard let webView = cmuxOwningWebView(for: firstResponder, in: window, event: event) else {
+            return nil
+        }
+
+        let keyDownTarget: NSResponder
+        if let textView = firstResponder as? NSTextView, textView.isFieldEditor {
+            keyDownTarget = textView
+        } else {
+            keyDownTarget = webView
+        }
+
+        return CmuxBrowserFirstResponderKeyRoute(
+            webView: webView,
+            keyDownTarget: keyDownTarget
+        )
+    }
+
+    func cmuxDirectlyHandleBrowserFirstResponderKeyDown(
+        _ event: NSEvent,
+        invokedFromPerformKeyEquivalent: Bool = false
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+        guard let browserRoute = Self.cmuxBrowserFirstResponderKeyRoute(
+            for: self.firstResponder,
+            in: self,
+            event: event
+        ) else {
+            return false
+        }
+        guard shouldDirectRouteBrowserFirstResponderKeyDown(
+            firstResponder: self.firstResponder,
+            firstResponderIsBrowser: true,
+            focusedBrowserAddressBarPanelId: AppDelegate.shared?.focusedBrowserAddressBarPanelId()
+        ) else {
+            return false
+        }
+
+        switch browserDirectKeyRoutingStrategy(for: event) {
+        case .deferToOriginalPerformKeyEquivalent:
+            return false
+
+        case .menuOrAppShortcutThenKeyDown:
+            if let mainMenu = NSApp.mainMenu,
+               mainMenu.performKeyEquivalent(with: event) {
+#if DEBUG
+                dlog("window.browserKeyDirect route=mainMenu")
+#endif
+                return true
+            }
+
+            if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+#if DEBUG
+                dlog("window.browserKeyDirect route=appShortcut")
+#endif
+                return true
+            }
+
+        case .keyDown:
+            break
+        }
+
+        if invokedFromPerformKeyEquivalent {
+            if cmuxBrowserKeyDownForwardingDepth > 0 {
+#if DEBUG
+                dlog("window.browserKeyDirect route=keyDownReentry")
+#endif
+                return false
+            }
+            do {
+                cmuxBrowserKeyDownForwardingDepth += 1
+                defer {
+                    cmuxBrowserKeyDownForwardingDepth = max(0, cmuxBrowserKeyDownForwardingDepth - 1)
+                }
+
+#if DEBUG
+                let targetType = String(describing: type(of: browserRoute.keyDownTarget))
+                dlog("window.browserKeyDirect route=keyDown target=\(targetType)")
+#endif
+                browserRoute.keyDownTarget.keyDown(with: event)
+                return true
+            }
+        }
+
+#if DEBUG
+        let targetType = String(describing: type(of: browserRoute.keyDownTarget))
+        dlog("window.browserKeyDirect route=keyDown target=\(targetType)")
+#endif
+        browserRoute.keyDownTarget.keyDown(with: event)
+        return true
+    }
+
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
 #if DEBUG
@@ -12234,6 +13046,13 @@ private extension NSWindow {
             } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
             }
+            if let responderWebView,
+               !(responder is CmuxWebView) {
+                NotificationCenter.default.post(
+                    name: .browserDidBecomeFirstResponderWebView,
+                    object: responderWebView
+                )
+            }
         }
         return result
     }
@@ -12307,6 +13126,10 @@ private extension NSWindow {
             cmuxFirstResponderGuardCurrentEventContext = previousContextEvent
             cmuxFirstResponderGuardHitViewContext = previousContextHitView
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
+        }
+
+        if cmuxDirectlyHandleBrowserFirstResponderKeyDown(event) {
+            return
         }
 
         guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
@@ -12388,9 +13211,6 @@ private extension NSWindow {
         // (handleCustomShortcut) already handles app-level shortcuts, and anything
         // remaining should be menu items.
         let firstResponderGhosttyView = cmuxOwningGhosttyView(for: self.firstResponder)
-        let firstResponderWebView = self.firstResponder.flatMap {
-            Self.cmuxOwningWebView(for: $0, in: self, event: event)
-        }
         if let ghosttyView = firstResponderGhosttyView {
             // If the IME is composing and the key has no Cmd modifier, don't intercept —
             // let it flow through normal AppKit event dispatch so the input method can
@@ -12427,36 +13247,10 @@ private extension NSWindow {
             }
         }
 
-        // Web forms rely on Return/Enter flowing through keyDown. If the original
-        // NSWindow.performKeyEquivalent consumes Enter first, submission never reaches
-        // WebKit. Route Return/Enter directly to the current first responder and
-        // mark handled to avoid the AppKit alert sound path.
-        if shouldDispatchBrowserReturnViaFirstResponderKeyDown(
-            keyCode: event.keyCode,
-            firstResponderIsBrowser: firstResponderWebView != nil,
-            flags: event.modifierFlags
+        if cmuxDirectlyHandleBrowserFirstResponderKeyDown(
+            event,
+            invokedFromPerformKeyEquivalent: true
         ) {
-            // Forwarding keyDown can re-enter performKeyEquivalent in WebKit/AppKit internals.
-            // On re-entry, fall back to normal dispatch to avoid an infinite loop.
-            if cmuxBrowserReturnForwardingDepth > 0 {
-#if DEBUG
-                dlog("  → browser Return/Enter reentry; using normal dispatch")
-#endif
-                return false
-            }
-            cmuxBrowserReturnForwardingDepth += 1
-            defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
-#if DEBUG
-            dlog("  → browser Return/Enter routed to firstResponder.keyDown")
-#endif
-            self.firstResponder?.keyDown(with: event)
-            return true
-        }
-
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-#if DEBUG
-            dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
-#endif
             return true
         }
 

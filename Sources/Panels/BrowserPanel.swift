@@ -4908,6 +4908,28 @@ extension BrowserPanel {
 #endif
     }
 
+    func syncWebViewFirstResponderPolicy(isPanelFocused: Bool, reason: String) {
+        guard let cmuxWebView = webView as? CmuxWebView else { return }
+        let next = isPanelFocused && !shouldSuppressWebViewFocus()
+        if cmuxWebView.allowsFirstResponderAcquisition != next {
+#if DEBUG
+            dlog(
+                "browser.focus.policy.resync panel=\(id.uuidString.prefix(5)) " +
+                "web=\(ObjectIdentifier(cmuxWebView)) old=\(cmuxWebView.allowsFirstResponderAcquisition ? 1 : 0) " +
+                "new=\(next ? 1 : 0) reason=\(reason) " +
+                "panelFocusedUsed=\(isPanelFocused ? 1 : 0)"
+            )
+#endif
+        }
+        cmuxWebView.allowsFirstResponderAcquisition = next
+    }
+
+    func prepareForExplicitWebViewFocus(isPanelFocused: Bool, reason: String) {
+        endSuppressWebViewFocusForAddressBar()
+        clearWebViewFocusSuppression()
+        syncWebViewFirstResponderPolicy(isPanelFocused: isPanelFocused, reason: reason)
+    }
+
     func shouldSuppressOmnibarAutofocus() -> Bool {
         if let until = suppressOmnibarAutofocusUntil {
             return Date() < until

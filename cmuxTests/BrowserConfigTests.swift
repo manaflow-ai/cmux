@@ -2547,6 +2547,116 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     }
 }
 
+final class BrowserDirectKeyDownRoutingTests: XCTestCase {
+    func testRoutesWhenBrowserWebViewIsFirstResponder() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        XCTAssertTrue(
+            shouldDirectRouteBrowserFirstResponderKeyDown(
+                firstResponder: webView,
+                firstResponderIsBrowser: true,
+                focusedBrowserAddressBarPanelId: nil
+            )
+        )
+    }
+
+    func testRoutesWhenBrowserFieldEditorIsFirstResponder() {
+        let fieldEditor = NSTextView(frame: .zero)
+        fieldEditor.isFieldEditor = true
+
+        XCTAssertTrue(
+            shouldDirectRouteBrowserFirstResponderKeyDown(
+                firstResponder: fieldEditor,
+                firstResponderIsBrowser: true,
+                focusedBrowserAddressBarPanelId: nil
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenBrowserAddressBarRemainsFocused() {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        XCTAssertFalse(
+            shouldDirectRouteBrowserFirstResponderKeyDown(
+                firstResponder: webView,
+                firstResponderIsBrowser: true,
+                focusedBrowserAddressBarPanelId: UUID()
+            )
+        )
+    }
+
+    func testDoesNotRouteWhenFirstResponderIsNotBrowser() {
+        let view = NSView(frame: .zero)
+
+        XCTAssertFalse(
+            shouldDirectRouteBrowserFirstResponderKeyDown(
+                firstResponder: view,
+                firstResponderIsBrowser: false,
+                focusedBrowserAddressBarPanelId: nil
+            )
+        )
+    }
+
+    func testNonCommandBrowserKeysGoStraightToKeyDown() {
+        let event = makeKeyDownEvent(
+            characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125
+        )
+
+        XCTAssertEqual(browserDirectKeyRoutingStrategy(for: event), .keyDown)
+    }
+
+    func testCommandShiftArrowFallsBackToBrowserKeyDownWhenNoShortcutConsumesIt() {
+        let event = makeKeyDownEvent(
+            characters: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [.command, .shift],
+            keyCode: 125
+        )
+
+        XCTAssertEqual(
+            browserDirectKeyRoutingStrategy(for: event),
+            .menuOrAppShortcutThenKeyDown
+        )
+    }
+
+    func testCommandBacktickDefersToOriginalPerformKeyEquivalent() {
+        let event = makeKeyDownEvent(
+            characters: "`",
+            modifiers: [.command],
+            keyCode: 50
+        )
+
+        XCTAssertEqual(
+            browserDirectKeyRoutingStrategy(for: event),
+            .deferToOriginalPerformKeyEquivalent
+        )
+    }
+
+    private func makeKeyDownEvent(
+        characters: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Failed to create keyDown event for routing strategy test")
+            fatalError("Failed to create keyDown event")
+        }
+
+        return event
+    }
+}
 
 final class BrowserZoomShortcutActionTests: XCTestCase {
     func testZoomInSupportsEqualsAndPlusVariants() {
@@ -3149,6 +3259,97 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
             browserOmnibarShouldReacquireFocusAfterEndEditing(
                 desiredOmnibarFocus: false,
                 nextResponderIsOtherTextField: false
+            )
+        )
+    }
+
+    func testDoesNotReacquireFocusWhenExplicitPointerBlurIntentExists() {
+        XCTAssertFalse(
+            browserOmnibarShouldReacquireFocusAfterEndEditing(
+                desiredOmnibarFocus: true,
+                nextResponderIsOtherTextField: false,
+                explicitPointerBlurIntent: true
+            )
+        )
+    }
+}
+
+final class BrowserWebViewClickFocusPolicyTests: XCTestCase {
+    func testDismissesOmnibarWhenLocalAddressBarStateIsFocused() {
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            browserWebViewClickShouldDismissOmnibar(
+                localAddressBarFocused: true,
+                focusedAddressBarPanelId: nil,
+                pendingAddressBarFocusRequestId: nil,
+                panelId: panelId
+            )
+        )
+    }
+
+    func testDismissesOmnibarWhenAppFocusStateStillPointsAtThisPanel() {
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            browserWebViewClickShouldDismissOmnibar(
+                localAddressBarFocused: false,
+                focusedAddressBarPanelId: panelId,
+                pendingAddressBarFocusRequestId: nil,
+                panelId: panelId
+            )
+        )
+    }
+
+    func testDismissesOmnibarWhenAddressBarFocusRequestIsStillPending() {
+        let panelId = UUID()
+
+        XCTAssertTrue(
+            browserWebViewClickShouldDismissOmnibar(
+                localAddressBarFocused: false,
+                focusedAddressBarPanelId: nil,
+                pendingAddressBarFocusRequestId: UUID(),
+                panelId: panelId
+            )
+        )
+    }
+
+    func testDoesNotDismissOmnibarForAnotherPanelsFocusedAddressBar() {
+        let panelId = UUID()
+
+        XCTAssertFalse(
+            browserWebViewClickShouldDismissOmnibar(
+                localAddressBarFocused: false,
+                focusedAddressBarPanelId: UUID(),
+                pendingAddressBarFocusRequestId: nil,
+                panelId: panelId
+            )
+        )
+    }
+
+    func testPromotesWebViewFocusWhenPanelIsFocused() {
+        XCTAssertTrue(
+            browserWebViewClickShouldPromoteWebViewFocus(
+                isPanelFocused: true,
+                shouldDismissOmnibar: false
+            )
+        )
+    }
+
+    func testPromotesWebViewFocusWhenOmnibarStillOwnsFocus() {
+        XCTAssertTrue(
+            browserWebViewClickShouldPromoteWebViewFocus(
+                isPanelFocused: false,
+                shouldDismissOmnibar: true
+            )
+        )
+    }
+
+    func testDoesNotPromoteWebViewFocusWhenPanelIsNotFocusedAndOmnibarDoesNotOwnFocus() {
+        XCTAssertFalse(
+            browserWebViewClickShouldPromoteWebViewFocus(
+                isPanelFocused: false,
+                shouldDismissOmnibar: false
             )
         )
     }

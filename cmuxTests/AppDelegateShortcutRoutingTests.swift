@@ -1,4 +1,5 @@
 import XCTest
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2326,6 +2327,68 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         wait(for: [moveExpectation], timeout: 1.0)
         XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
         XCTAssertEqual(observedDelta, 1)
+    }
+
+    func testDownArrowIsNotConsumedAfterBrowserWebViewRetakesFocusFromStaleAddressBarState() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let webView = CmuxWebView(frame: contentView.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(webView)
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(window.makeFirstResponder(webView), "Expected test web view to become first responder")
+
+        let stalePanelId = UUID()
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: stalePanelId)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(
+            appDelegate.focusedBrowserAddressBarPanelId(),
+            stalePanelId,
+            "Expected stale address-bar focus state to be installed for the regression setup"
+        )
+
+        NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: webView)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: downArrowEvent),
+            "Plain Down Arrow should reach WebKit once the page retakes focus from the omnibar"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertNil(
+            appDelegate.focusedBrowserAddressBarPanelId(),
+            "Browser web view focus should clear stale omnibar focus state"
+        )
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilityStateStaysStalePastInitialPendingWindow() {
