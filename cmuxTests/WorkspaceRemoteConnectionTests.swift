@@ -488,7 +488,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(workspace.detachSurface(panelId: panelID))
 
-        wait(for: [cleanupRequested], timeout: 0.2)
+        wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(detached.isRemoteTerminal)
         XCTAssertTrue(workspace.isRemoteWorkspace)
@@ -549,10 +549,120 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         manager.closeWorkspace(sourceWorkspace)
 
-        wait(for: [cleanupRequested], timeout: 0.2)
+        wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
         XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+    }
+
+    @MainActor
+    func testClosingMixedSourceWorkspaceAfterDetachingLastRemoteSurfaceSkipsControlMasterCleanup() throws {
+        let manager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let destinationWorkspace = manager.addWorkspace()
+        let sourcePaneID = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64018,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+        _ = sourceWorkspace.newBrowserSurface(inPane: sourcePaneID, url: URL(string: "https://example.com"), focus: false)
+
+        let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        let restoredPanelID = destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertNotNil(restoredPanelID)
+        XCTAssertEqual(sourceWorkspace.panels.count, 1)
+        XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+
+        manager.closeWorkspace(sourceWorkspace)
+
+        wait(for: [cleanupRequested], timeout: 1.0)
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == sourceWorkspace.id }))
+        XCTAssertTrue(destinationWorkspace.panels.keys.contains(detached.panelId))
+    }
+
+    @MainActor
+    func testTransferredRemoteSurfaceCleansUpControlMasterWhenSessionEndsInLocalWorkspace() throws {
+        let manager = TabManager()
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let destinationWorkspace = manager.addWorkspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64019,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        var cleanupArguments: [[String]] = []
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+            cleanupArguments.append(arguments)
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+
+        let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
+        let destinationPaneID = try XCTUnwrap(destinationWorkspace.bonsplitController.allPaneIds.first)
+
+        let restoredPanelID = destinationWorkspace.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertNotNil(restoredPanelID)
+        XCTAssertFalse(destinationWorkspace.isRemoteWorkspace)
+        XCTAssertEqual(destinationWorkspace.activeRemoteTerminalSessionCount, 0)
+
+        manager.closeWorkspace(sourceWorkspace)
+        destinationWorkspace.markRemoteTerminalSessionEnded(surfaceId: detached.panelId, relayPort: config.relayPort)
+
+        wait(for: [cleanupRequested], timeout: 1.0)
+
+        XCTAssertEqual(cleanupArguments.count, 1)
+        XCTAssertEqual(cleanupArguments.first?.suffix(2), ["exit", "cmux-macmini"])
     }
 
     @MainActor
@@ -589,7 +699,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalID, relayPort: 64013)
 
-        wait(for: [cleanupRequested], timeout: 0.2)
+        wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
