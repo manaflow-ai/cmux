@@ -88,11 +88,15 @@ jobs:
           tar czf GhosttyKit.xcframework.tar.gz GhosttyKit.xcframework
 
       - name: Upload xcframework release
-        if: steps.check-release.outputs.exists == 'false' && secrets.GHOSTTY_RELEASE_TOKEN != ''
+        if: steps.check-release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GHOSTTY_RELEASE_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "GHOSTTY_RELEASE_TOKEN not available (fork PR), skipping upload"
+            exit 0
+          fi
           TAG="xcframework-${{ steps.ghostty-sha.outputs.sha }}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
