@@ -41,6 +41,79 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotPersistsFocusedTerminalWorkingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-restore-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
+        let focusedDirectory = root.appendingPathComponent("focused", isDirectory: true)
+        try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: focusedDirectory, withIntermediateDirectories: true)
+
+        let workspace = Workspace(title: "Terminal", workingDirectory: requestedDirectory.path, portOrdinal: 0)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(panelId: focusedPanelId, directory: focusedDirectory.path)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let terminalSnapshot = try XCTUnwrap(snapshot.panels.first?.terminal)
+        XCTAssertEqual(terminalSnapshot.workingDirectory, focusedDirectory.path)
+        XCTAssertEqual(snapshot.currentDirectory, focusedDirectory.path)
+    }
+
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresFocusedTerminalWorkingDirectoryWhenPanelDirectoryIsMissing() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-restore-fallback-cwd-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
+        let restoredDirectory = root.appendingPathComponent("restored", isDirectory: true)
+        try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: restoredDirectory, withIntermediateDirectories: true)
+
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows[0].tabManager.workspaces[0]
+        let panelId = UUID()
+        snapshot.focusedPanelId = panelId
+        snapshot.currentDirectory = restoredDirectory.path
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId))
+        snapshot.panels = [
+            SessionPanelSnapshot(
+                id: panelId,
+                type: .terminal,
+                title: "Terminal",
+                customTitle: nil,
+                directory: nil,
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: nil,
+                    scrollback: nil
+                ),
+                browser: nil,
+                markdown: nil
+            )
+        ]
+
+        let restored = Workspace(title: "Terminal", workingDirectory: requestedDirectory.path, portOrdinal: 0)
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredFocusedPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredTerminal = try XCTUnwrap(restored.terminalPanel(for: restoredFocusedPanelId))
+        XCTAssertEqual(restored.currentDirectory, restoredDirectory.path)
+        XCTAssertEqual(
+            restoredTerminal.requestedWorkingDirectory,
+            restoredDirectory.path,
+            "Expected restored terminals to use the workspace snapshot cwd when no panel-specific cwd was persisted"
+        )
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
