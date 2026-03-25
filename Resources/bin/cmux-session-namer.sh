@@ -23,9 +23,23 @@ command -v cmux &>/dev/null || exit 0
 # Register as workspace owner if no owner exists yet (first session wins).
 # The workspace owner's AI summary / custom-title controls the workspace name.
 WS_OWNER_FILE="/tmp/cmux-ws-owner-${CMUX_WORKSPACE_ID}"
-# Use noclobber for atomic owner claim — shell's O_EXCL equivalent.
-# Two concurrent SessionStart hooks both seeing a missing file: only one
-# write succeeds; the other gets EEXIST and silently skips.
+
+# Stale-owner recovery: if an owner file exists but that surface is no longer
+# active in this workspace, clear the file so a live session can claim ownership.
+# This prevents the workspace name from freezing after the original owner exits.
+if [ -f "$WS_OWNER_FILE" ]; then
+  STALE_OWNER=$(cat "$WS_OWNER_FILE" 2>/dev/null || true)
+  if [ -n "$STALE_OWNER" ] && [ "$STALE_OWNER" != "$CMUX_SURFACE_ID" ]; then
+    # Check if the owner surface is still active in this workspace
+    if ! cmux list-surfaces --workspace "$CMUX_WORKSPACE_ID" --id-format uuids 2>/dev/null \
+        | grep -qF "$STALE_OWNER"; then
+      rm -f "$WS_OWNER_FILE" 2>/dev/null
+    fi
+  fi
+fi
+
+# Atomic owner claim via noclobber (O_EXCL): only the first concurrent
+# SessionStart wins; others silently skip.
 ( set -o noclobber
   printf '%s\n' "$CMUX_SURFACE_ID" > "$WS_OWNER_FILE"
 ) 2>/dev/null || true
