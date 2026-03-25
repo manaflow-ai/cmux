@@ -124,7 +124,7 @@ struct TemplateManagerView: View {
                 .buttonStyle(.borderless)
 
                 Button(action: viewModel.duplicateSelected) {
-                    Image(systemName: "doc.on.doc")
+                    Image(systemName: "plus.square.on.square")
                 }
                 .buttonStyle(.borderless)
                 .disabled(viewModel.selectedName == nil)

@@ -213,6 +213,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -445,7 +446,11 @@ struct cmuxApp: App {
             }
 
             CommandMenu(String(localized: "menu.scripts.title", defaultValue: "Scripts")) {
-                ScriptsMenuContent(activeTabManager: activeTabManager)
+                ScriptsMenuContent(
+                    scriptNames: ScriptRepository.shared.listScripts(),
+                    templateNames: TemplateRepository.shared.listTemplates()
+                )
+                .equatable()
             }
 
 #if DEBUG
@@ -976,7 +981,7 @@ struct cmuxApp: App {
     }
 
     private var activeTabManager: TabManager {
-        AppDelegate.shared?.synchronizeActiveMainWindowContext(
+        appDelegate.preferredTabManager(
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
         ) ?? tabManager
     }

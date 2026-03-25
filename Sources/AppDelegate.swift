@@ -5194,6 +5194,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Resolve the best current `TabManager` for menu/UI reads without mutating
+    /// the app-wide active window pointers. Use this in SwiftUI computed properties
+    /// and CommandMenu closures to avoid triggering @Published re-evaluation loops.
+    func preferredTabManager(preferredWindow: NSWindow? = nil) -> TabManager? {
+        if let preferredWindow,
+           let context = contextForMainWindow(preferredWindow) {
+            return context.tabManager
+        }
+        if let context = contextForMainWindow(NSApp.keyWindow) {
+            return context.tabManager
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context.tabManager
+        }
+        if let activeManager = tabManager {
+            return activeManager
+        }
+        return mainWindowContexts.values.first?.tabManager
+    }
+
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
     /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
     @discardableResult

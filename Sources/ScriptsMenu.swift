@@ -1,9 +1,16 @@
 import SwiftUI
 
 /// Scripts menu added to the app's main menu bar via CommandMenu.
-/// Provides access to run scripts, open templates, and manage both.
-struct ScriptsMenuContent: View {
-    let activeTabManager: TabManager
+/// Uses Equatable to minimize body re-evaluation. Resolves live state
+/// (active tab manager, prompt state) only inside action closures,
+/// not during menu rendering.
+struct ScriptsMenuContent: View, Equatable {
+    let scriptNames: [String]
+    let templateNames: [String]
+
+    static func == (lhs: ScriptsMenuContent, rhs: ScriptsMenuContent) -> Bool {
+        lhs.scriptNames == rhs.scriptNames && lhs.templateNames == rhs.templateNames
+    }
 
     var body: some View {
         runScriptSubmenu
@@ -21,16 +28,15 @@ struct ScriptsMenuContent: View {
 
     @ViewBuilder
     private var runScriptSubmenu: some View {
-        let scripts = ScriptRepository.shared.listScripts()
-        let isAtPrompt = activeTabManager.selectedTab?.isFocusedPanelAtPrompt ?? false
+        let isAtPrompt = Self.resolveActiveTabManager()?.selectedTab?.isFocusedPanelAtPrompt ?? false
         Menu(String(localized: "menu.scripts.runScript", defaultValue: "Run Script")) {
-            ForEach(scripts, id: \.self) { scriptName in
+            ForEach(scriptNames, id: \.self) { scriptName in
                 Button(scriptName) {
                     runScript(named: scriptName)
                 }
                 .disabled(!isAtPrompt)
             }
-            if scripts.isEmpty {
+            if scriptNames.isEmpty {
                 Text(String(localized: "menu.scripts.noScripts", defaultValue: "No Scripts"))
             }
         }
@@ -38,7 +44,8 @@ struct ScriptsMenuContent: View {
 
     private func runScript(named scriptName: String) {
         guard let scriptContent = ScriptRepository.shared.getScript(named: scriptName),
-              let terminalPanel = activeTabManager.selectedTab?.focusedTerminalPanel else { return }
+              let tabManager = Self.resolveActiveTabManager(),
+              let terminalPanel = tabManager.selectedTab?.focusedTerminalPanel else { return }
         let lines = StartupScriptRunner.prepareScriptLines(scriptContent)
         guard !lines.isEmpty else { return }
         let text = lines.joined(separator: "\n") + "\n"
@@ -49,21 +56,21 @@ struct ScriptsMenuContent: View {
 
     @ViewBuilder
     private var openTemplateSubmenu: some View {
-        let templates = TemplateRepository.shared.listTemplates()
         Menu(String(localized: "menu.scripts.openTemplate", defaultValue: "Open Template")) {
-            ForEach(templates, id: \.self) { templateName in
+            ForEach(templateNames, id: \.self) { templateName in
                 Button(templateName) {
                     openTemplate(named: templateName)
                 }
             }
-            if templates.isEmpty {
+            if templateNames.isEmpty {
                 Text(String(localized: "menu.scripts.noTemplates", defaultValue: "No Templates"))
             }
         }
     }
 
     private func openTemplate(named templateName: String) {
-        guard let template = try? TemplateRepository.shared.getTemplate(named: templateName) else { return }
+        guard let template = try? TemplateRepository.shared.getTemplate(named: templateName),
+              let tabManager = Self.resolveActiveTabManager() else { return }
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -75,12 +82,19 @@ struct ScriptsMenuContent: View {
         )
         panel.prompt = String(localized: "menu.scripts.openTemplate.panelPrompt", defaultValue: "Open")
 
-        // Default to the focused tab's current directory if available
-        if let currentDir = activeTabManager.selectedTab?.currentDirectory {
+        if let currentDir = tabManager.selectedTab?.currentDirectory {
             panel.directoryURL = URL(fileURLWithPath: currentDir)
         }
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        activeTabManager.openTemplate(template, directory: url.path)
+        tabManager.openTemplate(template, directory: url.path)
+    }
+
+    // MARK: - Private
+
+    private static func resolveActiveTabManager() -> TabManager? {
+        AppDelegate.shared?.preferredTabManager(
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 }
