@@ -2798,7 +2798,8 @@ class TabManager: ObservableObject {
     func closePanelAfterChildExited(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
-        let keepsRemoteWorkspaceOpen = tab.isRemoteWorkspace && tab.panels.count <= 1
+        let keepsRemoteWorkspaceOpen =
+            tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         dlog(
@@ -2811,7 +2812,8 @@ class TabManager: ObservableObject {
         // Exiting the last SSH surface should demote the workspace back to a local one.
         // Route through Workspace close handling so remote teardown and replacement-panel
         // logic run before TabManager considers removing the workspace itself, including
-        // early-exit paths where the remote terminal has not been fully tracked yet.
+        // session-end paths where remote configuration was cleared before Ghostty delivered
+        // the child-exit callback.
         if keepsRemoteWorkspaceOpen {
             closeRuntimeSurface(tabId: tabId, surfaceId: surfaceId)
             return
