@@ -1413,6 +1413,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         if command != "__tmux-compat",
            command != "claude-teams",
+           command != "omo",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -1456,6 +1457,15 @@ struct CMUXCLI {
 
         if command == "claude-teams" {
             try runClaudeTeams(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        if command == "omo" {
+            try runOMO(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg
@@ -6073,6 +6083,29 @@ struct CMUXCLI {
               cmux claude-teams --continue
               cmux claude-teams --model sonnet
             """)
+        case "omo":
+            return String(localized: "cli.omo.usage", defaultValue: """
+            Usage: cmux omo [opencode-args...]
+
+            Launch OpenCode with oh-my-openagent in a cmux-aware environment.
+
+            oh-my-openagent orchestrates multiple AI models as specialized agents in
+            parallel. This command sets up a tmux shim so agent panes become native
+            cmux splits with sidebar metadata and notifications.
+
+            This command:
+              - sets a tmux-like environment so oh-my-openagent uses cmux splits
+              - prepends a private tmux shim to PATH
+              - forwards all remaining arguments to opencode
+
+            The tmux shim translates tmux window/pane commands into cmux workspace
+            and split operations in the current cmux session.
+
+            Examples:
+              cmux omo
+              cmux omo --continue
+              cmux omo --model claude-sonnet-4-6
+            """)
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -9380,6 +9413,132 @@ struct CMUXCLI {
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
+    // MARK: - cmux omo (OpenCode + oh-my-openagent)
+
+    private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
+        let entries = searchPath?.split(separator: ":").map(String.init) ?? []
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: false)
+                .path
+            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            return candidate
+        }
+        return nil
+    }
+
+    private func createOMOShimDirectory() throws -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let root = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+        let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
+        let script = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        """
+        let normalizedScript = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existingScript = try? String(contentsOf: tmuxURL, encoding: .utf8)
+        if existingScript?.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedScript {
+            try script.write(to: tmuxURL, atomically: false, encoding: .utf8)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
+        return root
+    }
+
+    private func configureOMOEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        focusedContext: ClaudeTeamsFocusedContext?
+    ) {
+        let updatedPath = prependPathEntries(
+            [shimDirectory.path],
+            to: processEnvironment["PATH"]
+        )
+        let fakeTmuxValue: String = {
+            if let focusedContext {
+                let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
+                return "/tmp/cmux-omo/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
+            }
+            return processEnvironment["TMUX"] ?? "/tmp/cmux-omo/default,0,0"
+        }()
+        let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
+            ?? processEnvironment["TMUX_PANE"]
+            ?? "%1"
+        let fakeTerm = processEnvironment["CMUX_OMO_TERM"] ?? "screen-256color"
+
+        setenv("CMUX_OMO_CMUX_BIN", executablePath, 1)
+        setenv("PATH", updatedPath, 1)
+        setenv("TMUX", fakeTmuxValue, 1)
+        setenv("TMUX_PANE", fakeTmuxPane, 1)
+        setenv("TERM", fakeTerm, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET", socketPath, 1)
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
+        unsetenv("TERM_PROGRAM")
+        if let focusedContext {
+            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
+            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+                setenv("CMUX_SURFACE_ID", surfaceId, 1)
+            }
+        }
+    }
+
+    private func runOMO(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET"] = socketPath
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+        let shimDirectory = try createOMOShimDirectory()
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = claudeTeamsFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
+        let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
+        configureOMOEnvironment(
+            processEnvironment: launcherEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext
+        )
+
+        let launchPath = openCodeExecutablePath ?? "opencode"
+        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        if openCodeExecutablePath != nil {
+            execv(launchPath, &argv)
+        } else {
+            execvp("opencode", &argv)
+        }
+        let code = errno
+        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
+    }
+
     private func runClaudeTeamsTmuxCompat(
         commandArgs: [String],
         client: SocketClient,
@@ -11361,6 +11520,7 @@ struct CMUXCLI {
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
+          omo [opencode-args...]
           ping
           version
           capabilities
