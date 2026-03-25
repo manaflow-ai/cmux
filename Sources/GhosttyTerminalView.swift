@@ -3549,12 +3549,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        // Ghostty surfaces default to focused=true. If this surface was logically
-        // unfocused before the C surface existed (e.g. during layout restoration),
-        // sync the desired state now so non-focused panes don't show a focused cursor.
-        if !lastFocusState {
-            ghostty_surface_set_focus(createdSurface, false)
-        }
+        // Sync the desired focus state to the newly created C surface. Ghostty
+        // surfaces default to focused=true, but this surface may have been
+        // logically unfocused before the C surface existed (e.g. during layout
+        // restoration). Always sync unconditionally so we don't couple to
+        // Ghostty's default.
+        ghostty_surface_set_focus(createdSurface, lastFocusState)
 
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
