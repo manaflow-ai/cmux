@@ -9484,18 +9484,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for specific workspaces (9 = last workspace)
-        if let manager = tabManager,
-           let digit = numberedShortcutDigit(
-               event: event,
-               shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-           ),
-           let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+        // Always consume the event when the digit matches to prevent Ghostty's
+        // goto_tab fallback from creating a new window when the index is out of bounds.
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        ) {
+            if let manager = tabManager,
+               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
-            dlog(
-                "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-            )
+                dlog(
+                    "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                )
 #endif
-            manager.selectTab(at: targetIndex)
+                manager.selectTab(at: targetIndex)
+            }
             return true
         }
 
