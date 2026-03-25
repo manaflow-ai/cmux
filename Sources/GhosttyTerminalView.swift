@@ -8447,6 +8447,16 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             return
         }
+        // Don't steal focus from sidebar text fields (file search, etc.)
+        if let fr = window.firstResponder as? NSText, fr.delegate is NSTextField {
+            // An NSTextField is being edited — check if it's outside the terminal content area
+            if let textField = fr.delegate as? NSView, !textField.isDescendant(of: self) {
+#if DEBUG
+                dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=sidebarTextFieldFocused")
+#endif
+                return
+            }
+        }
 #if DEBUG
         dlog("find.applyFirstResponder APPLY surface=\(surfaceShort) prevFirstResponder=\(String(describing: window.firstResponder))")
 #endif

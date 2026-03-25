@@ -34,6 +34,12 @@
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		A5001422 /* EditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500141A /* EditorPanel.swift */; };
+		A5001423 /* EditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500141B /* EditorPanelView.swift */; };
+		EXP00001 /* ExplorerSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXP00011 /* ExplorerSidebarPanel.swift */; };
+		EXP00002 /* ExplorerSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EXP00012 /* ExplorerSidebarView.swift */; };
+		A5001424 /* editor in Resources */ = {isa = PBXBuildFile; fileRef = A500141C /* editor */; };
+		EXP00003 /* explorer in Resources */ = {isa = PBXBuildFile; fileRef = EXP00013 /* explorer */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -123,7 +129,11 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
-		/* End PBXBuildFile section */
+			MWP00001 /* MonacoWebViewPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = MWP00011 /* MonacoWebViewPool.swift */; };
+			NFE00001 /* NativeFileExplorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = NFE00011 /* NativeFileExplorer.swift */; };
+			FSV00001 /* FileSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FSV00011 /* FileSearchView.swift */; };
+			STS00001 /* SidebarTabSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = STS00011 /* SidebarTabSelector.swift */; };
+	/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		A5001020 /* Embed Frameworks */ = {
@@ -210,6 +220,12 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		A500141A /* EditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanel.swift; sourceTree = "<group>"; };
+		A500141B /* EditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanelView.swift; sourceTree = "<group>"; };
+		EXP00011 /* ExplorerSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExplorerSidebarPanel.swift; sourceTree = "<group>"; };
+		EXP00012 /* ExplorerSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ExplorerSidebarView.swift; sourceTree = "<group>"; };
+		A500141C /* editor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = editor; sourceTree = "<group>"; };
+		EXP00013 /* explorer */ = {isa = PBXFileReference; lastKnownFileType = folder; path = explorer; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -292,6 +308,10 @@
 				EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		MWP00011 /* MonacoWebViewPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonacoWebViewPool.swift; sourceTree = "<group>"; };
+		NFE00011 /* NativeFileExplorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeFileExplorer.swift; sourceTree = "<group>"; };
+		FSV00011 /* FileSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchView.swift; sourceTree = "<group>"; };
+		STS00011 /* SidebarTabSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarTabSelector.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -342,6 +362,8 @@
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
+				A5001424 /* editor in Resources */,
+				EXP00003 /* explorer in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -439,6 +461,10 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				A500141A /* EditorPanel.swift */,
+				A500141B /* EditorPanelView.swift */,
+				EXP00011 /* ExplorerSidebarPanel.swift */,
+				EXP00012 /* ExplorerSidebarView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -458,6 +484,10 @@
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
+				MWP00011 /* MonacoWebViewPool.swift */,
+				NFE00011 /* NativeFileExplorer.swift */,
+				FSV00011 /* FileSearchView.swift */,
+				STS00011 /* SidebarTabSelector.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -479,6 +509,8 @@
 				DA7A10CA710E000000000001 /* Localizable.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
 				A5001622 /* cmux.sdef */,
+				A500141C /* editor */,
+				EXP00013 /* explorer */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -734,6 +766,10 @@
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				A5001422 /* EditorPanel.swift in Sources */,
+				A5001423 /* EditorPanelView.swift in Sources */,
+				EXP00001 /* ExplorerSidebarPanel.swift in Sources */,
+				EXP00002 /* ExplorerSidebarView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -753,6 +789,10 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
+				MWP00001 /* MonacoWebViewPool.swift in Sources */,
+				NFE00001 /* NativeFileExplorer.swift in Sources */,
+				FSV00001 /* FileSearchView.swift in Sources */,
+				STS00001 /* SidebarTabSelector.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

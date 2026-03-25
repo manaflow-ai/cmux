@@ -2242,6 +2242,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
 
+        // Pre-warm editor WebViews with Monaco loaded so file opens are instant
+        MonacoWebViewPool.shared.warmUp()
+
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
@@ -9628,6 +9631,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // File search: Cmd+Shift+F
+        if matchShortcut(event: event, shortcut: StoredShortcut(key: "f", command: true, shift: true, option: false, control: false)) {
+            NotificationCenter.default.post(name: .cmuxSidebarSwitchToSearch, object: nil)
+            return true
+        }
+
+        // Open editor: Cmd+Shift+E
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openEditor)) {
+            openEditorForCurrentProject()
+            return true
+        }
+
         // Open browser: Cmd+Shift+L
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
@@ -9866,6 +9881,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         focusBrowserAddressBar(in: panel)
         return true
+    }
+
+    func openEditorForCurrentProject() {
+        guard let tabManager = tabManager,
+              let tabId = tabManager.selectedTabId,
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+        let rootPath = workspace.currentDirectory
+        _ = tabManager.openEditor(rootPath: rootPath)
     }
 
     @discardableResult

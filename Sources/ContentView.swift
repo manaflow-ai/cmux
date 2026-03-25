@@ -1616,6 +1616,18 @@ struct ContentView: View {
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
+    @State private var explorerPanel: ExplorerSidebarPanel?
+    @State private var explorerHeight: CGFloat = 250
+    @State private var isExplorerVisible: Bool = true
+    @StateObject private var nativeExplorerViewModel = NativeFileExplorerViewModel()
+    @StateObject private var fileSearchViewModel = FileSearchViewModel()
+    @State private var sidebarTab: SidebarTab = .workspaces
+
+    enum SidebarTab: String, CaseIterable {
+        case workspaces
+        case explorer
+        case search
+    }
 
     private enum CommandPaletteMode {
         case commands
@@ -2317,16 +2329,183 @@ struct ContentView: View {
         }
     }
 
+    /// Space at top of sidebar for traffic light buttons (matches VerticalTabsSidebar.trafficLightPadding)
+    private let sidebarTrafficLightPadding: CGFloat = 28
+
     private var sidebarView: some View {
-        VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            onSendFeedback: presentFeedbackComposer,
-            selection: $sidebarSelectionState.selection,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex
-        )
+        VStack(spacing: 0) {
+            // Space for traffic lights / fullscreen controls
+            Spacer().frame(height: sidebarTrafficLightPadding)
+
+            // Tab selector
+            SidebarTabSelector(selected: $sidebarTab)
+
+            // Content
+            switch sidebarTab {
+            case .workspaces:
+                VerticalTabsSidebar(
+                    updateViewModel: updateViewModel,
+                    onSendFeedback: presentFeedbackComposer,
+                    selection: $sidebarSelectionState.selection,
+                    selectedTabIds: $selectedTabIds,
+                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex
+                )
+            case .explorer:
+                NativeFileExplorerView(viewModel: nativeExplorerViewModel)
+            case .search:
+                FileSearchView(viewModel: fileSearchViewModel)
+            }
+        }
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .top) {
+            SidebarTopScrim(height: sidebarTrafficLightPadding + 20)
+                .allowsHitTesting(false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxSidebarSwitchToSearch)) { _ in
+            sidebarTab = .search
+            if !sidebarState.isVisible { sidebarState.isVisible = true }
+        }
+        .onAppear {
+            setupExplorerPanel()
+            setupNativeExplorer()
+        }
+        .onChange(of: tabManager.selectedTabId) { _, _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
+        .onChange(of: tabManager.tabs.count) { _, _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
+        .onReceive(selectedWorkspacePanelDirectoriesPublisher) { _ in
+            updateExplorerRootPaths()
+            updateNativeExplorerRoots()
+        }
+    }
+
+    private func setupExplorerPanel() {
+        guard explorerPanel == nil else { return }
+        let rootPaths = collectCurrentWorkspaceRootPaths()
+        let panel = ExplorerSidebarPanel(rootPaths: rootPaths)
+        panel.onOpenFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+
+            // VS Code preview tab behavior:
+            // - If there's a preview (unpinned) editor, reuse it
+            // - If all editors are pinned (edited or double-clicked), create a new one
+            let previewEditor = workspace.panels.values
+                .compactMap { $0 as? EditorPanel }
+                .first(where: { $0.isPreview })
+
+            if let preview = previewEditor {
+                preview.openFileByPath(filePath)
+                workspace.focusPanel(preview.id)
+            } else {
+                let rootPath = workspace.currentDirectory
+                _ = tabManager.openEditor(rootPath: rootPath, filePath: filePath, focus: true)
+            }
+        }
+        panel.onPinFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+
+            // Find the preview editor showing this file and pin it
+            if let previewEditor = workspace.panels.values
+                .compactMap({ $0 as? EditorPanel })
+                .first(where: { $0.isPreview }) {
+                previewEditor.isPreview = false
+                workspace.focusPanel(previewEditor.id)
+            }
+        }
+
+        explorerPanel = panel
+    }
+
+    /// Publisher that fires when the selected workspace's panelDirectories change.
+    /// Debounced to avoid constant re-renders from shell integration cwd updates.
+    private var selectedWorkspacePanelDirectoriesPublisher: AnyPublisher<[UUID: String], Never> {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else {
+            return Empty().eraseToAnyPublisher()
+        }
+        return workspace.$panelDirectories
+            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
+    private func updateExplorerRootPaths() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        explorerPanel?.updateRootPaths(paths)
+    }
+
+    /// Collect unique directories from the current workspace's panels.
+    private func collectCurrentWorkspaceRootPaths() -> [String] {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabManager.selectedTabId }) else {
+            return [FileManager.default.homeDirectoryForCurrentUser.path]
+        }
+
+        var seen = Set<String>()
+        var paths: [String] = []
+
+        // Always include the workspace's own current directory first
+        let wsDir = workspace.currentDirectory
+        if seen.insert(wsDir).inserted {
+            paths.append(wsDir)
+        }
+
+        // Add unique directories from all panels in this workspace
+        for dir in workspace.panelDirectories.values {
+            let trimmed = dir.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(trimmed).inserted {
+                paths.append(trimmed)
+            }
+        }
+
+        return paths
+    }
+
+    private func setupNativeExplorer() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        nativeExplorerViewModel.updateRootPaths(paths)
+        fileSearchViewModel.rootPaths = paths
+
+        nativeExplorerViewModel.onOpenFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let previewEditor = workspace.panels.values
+                .compactMap { $0 as? EditorPanel }
+                .first(where: { $0.isPreview })
+            if let preview = previewEditor {
+                preview.openFileByPath(filePath)
+                workspace.focusPanel(preview.id)
+            } else {
+                _ = tabManager.openEditor(rootPath: workspace.currentDirectory, filePath: filePath, focus: true)
+            }
+        }
+        nativeExplorerViewModel.onPinFile = { [weak tabManager] filePath in
+            guard let tabManager else { return }
+            guard let workspaceId = tabManager.selectedTabId,
+                  let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if let previewEditor = workspace.panels.values
+                .compactMap({ $0 as? EditorPanel })
+                .first(where: { $0.isPreview }) {
+                previewEditor.isPreview = false
+                workspace.focusPanel(previewEditor.id)
+            }
+        }
+        fileSearchViewModel.onOpenFile = nativeExplorerViewModel.onOpenFile
+    }
+
+    private func updateNativeExplorerRoots() {
+        let paths = collectCurrentWorkspaceRootPaths()
+        nativeExplorerViewModel.updateRootPaths(paths)
+        fileSearchViewModel.rootPaths = paths
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -4994,6 +5173,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .editor:
+            return String(localized: "commandPalette.kind.editor", defaultValue: "Editor")
         }
     }
 
@@ -5005,6 +5186,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .editor:
+            return ["editor", "code", "file", "monaco"]
         }
     }
 
@@ -8476,10 +8659,6 @@ struct VerticalTabsSidebar: View {
             GeometryReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
-
                         LazyVStack(spacing: tabRowSpacing) {
                             ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
                                 let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
@@ -8548,10 +8727,6 @@ struct VerticalTabsSidebar: View {
                     }
                     .frame(width: 0, height: 0)
                 )
-                .overlay(alignment: .top) {
-                    SidebarTopScrim(height: trafficLightPadding + 20)
-                        .allowsHitTesting(false)
-                }
                 .overlay(alignment: .top) {
                     // Match native titlebar behavior in the sidebar top strip:
                     // drag-to-move and double-click action (zoom/minimize).

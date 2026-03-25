@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cmux Editor</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; background: var(--editor-bg, #1f1f1f); color: var(--editor-fg, #cccccc); }
+        :root { --editor-bg: #1f1f1f; --editor-fg: #cccccc; }
+        #editor-container { width: 100%; height: 100%; }
+        #large-file-notice {
+            display: none;
+            width: 100%; height: 100%;
+            align-items: center; justify-content: center;
+            flex-direction: column; gap: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+        }
+        #large-file-notice.visible { display: flex; }
+        #large-file-notice .filename { font-style: italic; font-size: 14px; opacity: 0.7; }
+        #large-file-notice .message { font-size: 13px; opacity: 0.4; }
+    </style>
+</head>
+<body>
+    <div id="editor-container"></div>
+    <div id="large-file-notice">
+        <div class="filename" id="large-file-name"></div>
+        <div class="message" id="large-file-message"></div>
+    </div>
+    <script src="editor.js"></script>
+</body>
+</html>
