@@ -9570,6 +9570,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .equalizeSplits)) {
+            if let workspace = tabManager?.selectedWorkspace {
+                _ = tabManager?.equalizeSplits(tabId: workspace.id)
+            }
+            return true
+        }
+
         // Split actions: Cmd+D / Cmd+Shift+D
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
 #if DEBUG

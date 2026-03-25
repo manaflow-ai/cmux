@@ -5139,6 +5139,8 @@ struct ContentView: View {
             return .splitDown
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
+        case "palette.equalizeSplits":
+            return .equalizeSplits
         case "palette.triggerFlash":
             return .triggerFlash
         default:
