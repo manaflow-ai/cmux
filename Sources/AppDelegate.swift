@@ -5843,8 +5843,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarSelectionState)
             .environmentObject(cmuxConfigStore)
 
+        // Use the current key window's size for new windows so Cmd+Shift+N
+        // creates a window matching the previous one's dimensions.
+        let existingFrame = NSApp.keyWindow.flatMap { contextForMainTerminalWindow($0) != nil ? $0 : nil }?.frame
+            ?? mainWindowContexts.values.first?.window?.frame
+        let initialRect: NSRect
+        if sessionWindowSnapshot == nil, let existingFrame {
+            initialRect = NSRect(x: 0, y: 0, width: existingFrame.width, height: existingFrame.height)
+        } else {
+            initialRect = NSRect(x: 0, y: 0, width: 460, height: 360)
+        }
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 360),
+            contentRect: initialRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -5857,6 +5868,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
+        } else if let existingFrame, sessionWindowSnapshot == nil {
+            // Cascade from the existing window so the new one doesn't stack exactly on top.
+            window.cascadeTopLeft(from: NSPoint(x: existingFrame.minX, y: existingFrame.maxY))
         } else {
             window.center()
         }
