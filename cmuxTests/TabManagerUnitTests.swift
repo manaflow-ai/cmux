@@ -1732,6 +1732,74 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
             "Expected new workspace creation to preserve the latest live zoom instead of stale remembered zoom"
         )
     }
+
+    func testNewWorkspaceUsesLatestZoomWhenInheritedFontSizeIsUnset() {
+        let manager = TabManager()
+        guard let sourceWorkspace = manager.selectedWorkspace,
+              let sourcePanelId = sourceWorkspace.focusedPanelId,
+              let sourcePanel = sourceWorkspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let window = makeWindow()
+        defer {
+            Workspace.inheritedSurfaceConfigOverrideForTesting = nil
+            window.orderOut(nil)
+        }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:20"),
+            "Expected source terminal to accept the initial font-size binding action"
+        )
+        drainMainQueue()
+        sourceWorkspace.focusPanel(sourcePanel.id)
+        drainMainQueue()
+
+        Workspace.inheritedSurfaceConfigOverrideForTesting = { _, context, inherited in
+            guard context == GHOSTTY_SURFACE_CONTEXT_TAB else { return inherited }
+            var config = inherited
+            config.font_size = 0
+            return config
+        }
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept the updated font-size binding action"
+        )
+        drainMainQueue()
+
+        let newWorkspace = manager.addWorkspace()
+        guard let newPanelId = newWorkspace.focusedPanelId,
+              let newPanel = newWorkspace.terminalPanel(for: newPanelId) else {
+            XCTFail("Expected new workspace with focused terminal")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            newPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        newWorkspace.focusPanel(newPanel.id)
+        drainMainQueue()
+
+        XCTAssertEqual(
+            Double(newWorkspace.lastRememberedTerminalFontPointsForConfigInheritance() ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected new workspace creation to preserve the latest zoom even when inherited font_size is omitted"
+        )
+    }
 }
 
 

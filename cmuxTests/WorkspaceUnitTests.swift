@@ -1559,6 +1559,72 @@ final class WorkspaceTerminalZoomInheritanceTests: XCTestCase {
             "Expected split creation to prefer the latest live zoom over stale remembered lineage"
         )
     }
+
+    func testNewTerminalSplitUsesLatestZoomWhenInheritedFontSizeIsUnset() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let window = makeWindow()
+        defer {
+            Workspace.inheritedSurfaceConfigOverrideForTesting = nil
+            window.orderOut(nil)
+        }
+
+        attachAndWaitForRuntimeSurface(
+            sourcePanel,
+            frame: NSRect(x: 0, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:20"),
+            "Expected source terminal to accept the initial font-size binding action"
+        )
+        drainMainQueue()
+        workspace.focusPanel(sourcePanel.id)
+        drainMainQueue()
+
+        Workspace.inheritedSurfaceConfigOverrideForTesting = { _, context, inherited in
+            guard context == GHOSTTY_SURFACE_CONTEXT_SPLIT else { return inherited }
+            var config = inherited
+            config.font_size = 0
+            return config
+        }
+
+        XCTAssertTrue(
+            sourcePanel.performBindingAction("set_font_size:23"),
+            "Expected source terminal to accept the updated font-size binding action"
+        )
+        drainMainQueue()
+
+        guard let splitPanel = workspace.newTerminalSplit(from: sourcePanel.id, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        attachAndWaitForRuntimeSurface(
+            splitPanel,
+            frame: NSRect(x: 360, y: 0, width: 360, height: 360),
+            in: window,
+            testCase: self
+        )
+
+        workspace.focusPanel(splitPanel.id)
+        drainMainQueue()
+
+        let rememberedSplitZoom = workspace.lastRememberedTerminalFontPointsForConfigInheritance()
+        XCTAssertEqual(
+            Double(rememberedSplitZoom ?? 0),
+            23,
+            accuracy: 0.6,
+            "Expected split creation to preserve the latest zoom even when inherited font_size is omitted"
+        )
+    }
 }
 
 

@@ -2223,6 +2223,10 @@ class TabManager: ObservableObject {
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
             )
             if config.font_size <= 0,
+               let liveFontPoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface),
+               liveFontPoints > 0 {
+                config.font_size = liveFontPoints
+            } else if config.font_size <= 0,
                let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance(),
                fallbackFontPoints > 0 {
                 config.font_size = fallbackFontPoints

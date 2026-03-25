@@ -49,14 +49,20 @@ func cmuxInheritedSurfaceConfig(
     context: ghostty_surface_context_e
 ) -> ghostty_surface_config_s {
     let inherited = ghostty_surface_inherited_config(sourceSurface, context)
-    let config = inherited
+    var config = inherited
+
+#if DEBUG
+    if let override = Workspace.inheritedSurfaceConfigOverrideForTesting {
+        config = override(sourceSurface, context, inherited)
+    }
+#endif
 
 #if DEBUG
     let inheritedText = String(format: "%.2f", inherited.font_size)
     let finalText = String(format: "%.2f", config.font_size)
     dlog(
         "zoom.inherit context=\(cmuxSurfaceContextName(context)) " +
-        "inherited=\(inheritedText) runtime=nil final=\(finalText)"
+        "inherited=\(inheritedText) final=\(finalText)"
     )
 #endif
 
@@ -5347,6 +5353,14 @@ struct ClosedBrowserPanelRestoreSnapshot {
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    #if DEBUG
+    nonisolated(unsafe) static var inheritedSurfaceConfigOverrideForTesting: ((
+        ghostty_surface_t,
+        ghostty_surface_context_e,
+        ghostty_surface_config_s
+    ) -> ghostty_surface_config_s)?
+    #endif
+
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?
@@ -7135,15 +7149,16 @@ final class Workspace: Identifiable, ObservableObject {
         for terminalPanel: TerminalPanel,
         inheritedConfig: ghostty_surface_config_s
     ) -> Float? {
-        if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if inheritedConfig.font_size > 0,
-               abs(inheritedConfig.font_size - rooted) > 0.05 {
-                return inheritedConfig.font_size
-            }
-            return rooted
+        if terminalPanel.surface.hasLiveSurface,
+           let sourceSurface = terminalPanel.surface.surface,
+           let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
+            return runtimePoints
         }
         if inheritedConfig.font_size > 0 {
             return inheritedConfig.font_size
+        }
+        if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
+            return rooted
         }
         return nil
     }
