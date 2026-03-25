@@ -22,23 +22,33 @@ By default, `reload.sh` builds but does **not** launch the app. The script print
 ./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
 ```
 
-When reporting a tagged reload result in chat, read the "App path:" line from `reload.sh` output and build a `file://` URL from it (URL-encode spaces as `%20`). Never hardcode the home directory. Always use the actual path printed by `reload.sh`. Never use `/tmp/cmux-<tag>/...` app links.
+`reload.sh` prints an `App path:` line with the absolute path to the built `.app`. Use that path to build a cmd-clickable `file://` URL. Steps:
 
-Use the format for your agent type. Example assumes `reload.sh` printed `App path: /Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux DEV my-tag.app`:
+1. Grab the path from the `App path:` line in `reload.sh` output.
+2. Prepend `file://` and URL-encode spaces as `%20`. Do not hardcode any part of the path.
+3. Format it as a markdown link using the template for your agent type.
 
-**Claude Code** (markdown link, cmd+clickable):
+Example. If `reload.sh` output contains:
+```
+App path:
+  /Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux DEV my-tag.app
+```
+
+**Claude Code** outputs:
 ```markdown
 =======================================================
-[cmux DEV my-tag.app](file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
+[cmux DEV my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
 
-**Codex** (plain text format):
+**Codex** outputs:
 ```
 =======================================================
-[my-tag: file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app](file:///Users/jane/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
+[my-tag: file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app](file:///Users/someone/Library/Developer/Xcode/DerivedData/cmux-my-tag/Build/Products/Debug/cmux%20DEV%20my-tag.app)
 =======================================================
 ```
+
+Never use `/tmp/cmux-<tag>/...` app links in chat output.
 
 After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
