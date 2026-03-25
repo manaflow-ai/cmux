@@ -11049,7 +11049,7 @@ struct CMUXCLI {
     /// first so it silently succeeds even when cmux is not installed
     /// (e.g. user opened codex in a non-cmux terminal).
     private static func codexHookCommand(_ event: String) -> String {
-        "command -v cmux >/dev/null 2>&1 && cmux codex-hook \(event) || echo '{}'"
+        "[ -n \"$CMUX_SURFACE_ID\" ] && command -v cmux >/dev/null 2>&1 && cmux codex-hook \(event) || echo '{}'"
     }
 
     private static let codexHooksJSON: [String: Any] = [
