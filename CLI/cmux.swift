@@ -9679,8 +9679,27 @@ struct CMUXCLI {
             }
         }
         var tmuxConfig = (omoConfig["tmux"] as? [String: Any]) ?? [:]
+        var needsWrite = false
         if tmuxConfig["enabled"] as? Bool != true {
             tmuxConfig["enabled"] = true
+            needsWrite = true
+        }
+        // Lower the default min widths so agent panes spawn in normal-sized windows.
+        // oh-my-openagent defaults: main_pane_min_width=120, agent_pane_min_width=40,
+        // requiring 161+ columns. Most terminal windows are narrower.
+        if tmuxConfig["main_pane_min_width"] == nil {
+            tmuxConfig["main_pane_min_width"] = 60
+            needsWrite = true
+        }
+        if tmuxConfig["agent_pane_min_width"] == nil {
+            tmuxConfig["agent_pane_min_width"] = 30
+            needsWrite = true
+        }
+        if tmuxConfig["main_pane_size"] == nil {
+            tmuxConfig["main_pane_size"] = 50
+            needsWrite = true
+        }
+        if needsWrite {
             omoConfig["tmux"] = tmuxConfig
             // Remove symlink if it exists (we need a real file)
             if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
