@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit

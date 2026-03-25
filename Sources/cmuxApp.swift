@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import Darwin
-import Bonsplit
 import UniformTypeIdentifiers
 
 enum WorkspaceTitlebarSettings {
@@ -183,7 +182,6 @@ struct cmuxApp: App {
 
         Self.configureGhosttyEnvironment()
 
-        // Apply saved language preference before any UI loads
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)
 
         let startupAppearance = AppearanceSettings.resolvedMode()
@@ -214,6 +212,7 @@ struct cmuxApp: App {
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
         appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        fputs("PAPER-WM: init() complete\n", stderr)
     }
 
     private static func terminateForMissingLaunchTag() -> Never {

@@ -13,6 +13,22 @@ import UserNotifications
 @testable import cmux
 #endif
 
+#if canImport(cmux_DEV)
+typealias CmuxPaneID = cmux_DEV.PaneID
+typealias CmuxSplitOrientation = cmux_DEV.SplitOrientation
+typealias CmuxExternalSplitNode = cmux_DEV.ExternalSplitNode
+typealias CmuxExternalTreeNode = cmux_DEV.ExternalTreeNode
+#elseif canImport(cmux)
+typealias CmuxPaneID = cmux.PaneID
+typealias CmuxSplitOrientation = cmux.SplitOrientation
+typealias CmuxExternalSplitNode = cmux.ExternalSplitNode
+typealias CmuxExternalTreeNode = cmux.ExternalTreeNode
+#endif
+
+extension Workspace {
+    var bonsplitController: PaperLayoutController { layoutController }
+}
+
 @MainActor
 func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -1219,14 +1235,14 @@ final class WorkspaceAttentionFlashTests: XCTestCase {
 
 @MainActor
 final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
-    private final class RejectingCreateTabDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+    private final class RejectingCreateTabDelegate: PaperLayoutDelegate {
+        func paperLayout(_ controller: PaperLayoutController, shouldCreateTab tab: PaperTab, inPane pane: CmuxPaneID) -> Bool {
             false
         }
     }
 
-    private final class RejectingSplitPaneDelegate: BonsplitDelegate {
-        func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+    private final class RejectingSplitPaneDelegate: PaperLayoutDelegate {
+        func paperLayout(_ controller: PaperLayoutController, shouldSplitPane pane: CmuxPaneID, orientation: CmuxSplitOrientation) -> Bool {
             false
         }
     }
@@ -1551,9 +1567,9 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
-        // Simulate one delayed stale split-selection callback from bonsplit.
+        // Simulate one delayed stale split-selection callback from the layout controller.
         DispatchQueue.main.async {
-            workspace.splitTabBar(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
+            workspace.paperLayout(workspace.bonsplitController, didSelectTab: splitTab, inPane: splitPaneId)
         }
 
         drainMainQueue()

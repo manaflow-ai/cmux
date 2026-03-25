@@ -1,4 +1,3 @@
-import Bonsplit
 import SwiftUI
 import WebKit
 import AppKit

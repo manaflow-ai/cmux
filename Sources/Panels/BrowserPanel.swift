@@ -2,7 +2,6 @@ import Foundation
 import Combine
 import WebKit
 import AppKit
-import Bonsplit
 import Network
 import CFNetwork
 import SQLite3

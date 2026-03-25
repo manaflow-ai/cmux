@@ -1,6 +1,5 @@
 import SwiftUI
 import Foundation
-import Bonsplit
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {

@@ -1,6 +1,5 @@
 import CoreGraphics
 import Foundation
-import Bonsplit
 
 enum SessionSnapshotSchema {
     static let currentVersion = 1

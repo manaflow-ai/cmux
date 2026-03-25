@@ -1,7 +1,6 @@
 import AppKit
 import ObjectiveC
 #if DEBUG
-import Bonsplit
 #endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
@@ -930,6 +929,15 @@ final class WindowTerminalPortal: NSObject {
     /// visible rect that should drive portal geometry.
     private func effectiveAnchorFrameInWindow(for anchorView: NSView) -> NSRect {
         var frameInWindow = anchorView.convert(anchorView.bounds, to: nil)
+
+        // Paper layout adjustment: SwiftUI's .offset() uses CALayer transforms
+        // that are invisible to NSView.convert(_:to:nil). Subtract the viewport
+        // offset so the portal positions terminals at their visible location.
+        let paperOffset = PaperLayoutController.currentViewportOffset
+        if paperOffset != 0 {
+            frameInWindow.origin.x -= paperOffset
+        }
+
         var current = anchorView.superview
         while let ancestor = current {
             let ancestorBoundsInWindow = ancestor.convert(ancestor.bounds, to: nil)
@@ -1398,6 +1406,19 @@ final class WindowTerminalPortal: NSObject {
 
         let oldFrame = hostedView.frame
 #if DEBUG
+        // Paper layout debug: log anchor frame with offset compensation
+        let rawAnchorInWin = anchorView.convert(anchorView.bounds, to: nil)
+        let paperOff = PaperLayoutController.currentViewportOffset
+        dlog(
+            "portal.paper.sync hosted=\(portalDebugToken(hostedView)) " +
+            "rawAnchor=\(Int(rawAnchorInWin.origin.x)),\(Int(rawAnchorInWin.origin.y)) \(Int(rawAnchorInWin.width))x\(Int(rawAnchorInWin.height)) " +
+            "paperOff=\(Int(paperOff)) " +
+            "adjusted=\(Int(rawAnchorInWin.origin.x - paperOff)),\(Int(rawAnchorInWin.origin.y)) " +
+            "fInHost=\(Int(frameInHost.origin.x)),\(Int(frameInHost.origin.y)) \(Int(frameInHost.width))x\(Int(frameInHost.height)) " +
+            "target=\(Int(targetFrame.origin.x)),\(Int(targetFrame.origin.y)) \(Int(targetFrame.width))x\(Int(targetFrame.height)) " +
+            "hostBounds=\(Int(hostBounds.width))x\(Int(hostBounds.height)) " +
+            "hide=\(shouldHide ? 1 : 0) out=\(outsideHostBounds ? 1 : 0) vis=\(entry.visibleInUI ? 1 : 0)"
+        )
         let frameWasClamped = hasFiniteFrame && !Self.rectApproximatelyEqual(frameInHost, targetFrame)
         if frameWasClamped {
             dlog(

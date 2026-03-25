@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import SwiftUI
 
 private func windowDragHandleFormatPoint(_ point: NSPoint) -> String {

@@ -1,5 +1,4 @@
 import AppKit
-import Bonsplit
 import Combine
 import ImageIO
 import SwiftUI
@@ -1794,7 +1793,7 @@ struct ContentView: View {
               let workspace = tabManager.selectedWorkspace else { return nil }
         let layoutSnapshot = WorkspaceContentView.effectiveTmuxLayoutSnapshot(
             cachedSnapshot: workspace.tmuxLayoutSnapshot,
-            liveSnapshot: workspace.bonsplitController.layoutSnapshot()
+            liveSnapshot: workspace.layoutController.layoutSnapshot()
         )
         let contentView = window.contentView
 
@@ -5204,7 +5203,7 @@ struct ContentView: View {
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
-                workspace.bonsplitController.allPaneIds.count > 1
+                workspace.layoutController.allPaneIds.count > 1
             )
             let workspaceIndex = tabManager.tabs.firstIndex { $0.id == workspace.id }
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasPeers, tabManager.tabs.count > 1)

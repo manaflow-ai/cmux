@@ -1,7 +1,6 @@
 import Foundation
 import Combine
 import AppKit
-import Bonsplit
 
 /// TerminalPanel wraps an existing TerminalSurface and conforms to the Panel protocol.
 /// This allows TerminalSurface to be used within the bonsplit-based layout system.

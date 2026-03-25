@@ -123,6 +123,14 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
+		PL000000 /* DebugEventLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000010 /* DebugEventLog.swift */; };
+		PL000001 /* PaperLayoutTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000011 /* PaperLayoutTypes.swift */; };
+		PL000002 /* PaperPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000012 /* PaperPane.swift */; };
+		PL000003 /* PaperLayoutDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000013 /* PaperLayoutDelegate.swift */; };
+		PL000004 /* PaperLayoutController.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000014 /* PaperLayoutController.swift */; };
+		PL000005 /* PaperLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000015 /* PaperLayoutView.swift */; };
+		PL000006 /* PaperTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PL000016 /* PaperTabBarView.swift */; };
+
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -292,6 +300,14 @@
 				EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		PL000010 /* DebugEventLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugEventLog.swift; sourceTree = "<group>"; };
+		PL000011 /* PaperLayoutTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperLayoutTypes.swift; sourceTree = "<group>"; };
+		PL000012 /* PaperPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperPane.swift; sourceTree = "<group>"; };
+		PL000013 /* PaperLayoutDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperLayoutDelegate.swift; sourceTree = "<group>"; };
+		PL000014 /* PaperLayoutController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperLayoutController.swift; sourceTree = "<group>"; };
+		PL000015 /* PaperLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperLayoutView.swift; sourceTree = "<group>"; };
+		PL000016 /* PaperTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaperLayout/PaperTabBarView.swift; sourceTree = "<group>"; };
+
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -458,6 +474,14 @@
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
+				PL000010 /* DebugEventLog.swift */,
+				PL000011 /* PaperLayoutTypes.swift */,
+				PL000012 /* PaperPane.swift */,
+				PL000013 /* PaperLayoutDelegate.swift */,
+				PL000014 /* PaperLayoutController.swift */,
+				PL000015 /* PaperLayoutView.swift */,
+				PL000016 /* PaperTabBarView.swift */,
+
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -574,7 +598,6 @@
 					A5001231 /* Sparkle */,
 					A5001251 /* Sentry */,
 					A5001271 /* PostHog */,
-					A5001261 /* Bonsplit */,
 					A5001291 /* MarkdownUI */,
 				);
 			name = GhosttyTabs;
@@ -678,7 +701,6 @@
 					A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
-					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -753,6 +775,14 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A5001640 /* RemoteRelayZshBootstrap.swift in Sources */,
+				PL000000 /* DebugEventLog.swift in Sources */,
+				PL000001 /* PaperLayoutTypes.swift in Sources */,
+				PL000002 /* PaperPane.swift in Sources */,
+				PL000003 /* PaperLayoutDelegate.swift in Sources */,
+				PL000004 /* PaperLayoutController.swift in Sources */,
+				PL000005 /* PaperLayoutView.swift in Sources */,
+				PL000006 /* PaperTabBarView.swift in Sources */,
+				PL000007 /* PaperScrollView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1128,10 +1158,6 @@
 					minimumVersion = 2.4.1;
 				};
 			};
-			A5001260 /* XCLocalSwiftPackageReference "bonsplit" */ = {
-				isa = XCLocalSwiftPackageReference;
-				relativePath = vendor/bonsplit;
-			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1149,11 +1175,6 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */;
 				productName = PostHog;
-			};
-			A5001261 /* Bonsplit */ = {
-				isa = XCSwiftPackageProductDependency;
-				package = A5001260 /* XCLocalSwiftPackageReference "bonsplit" */;
-				productName = Bonsplit;
 			};
 			A5001291 /* MarkdownUI */ = {
 				isa = XCSwiftPackageProductDependency;

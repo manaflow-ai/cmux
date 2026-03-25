@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import AppKit
-import Bonsplit
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {

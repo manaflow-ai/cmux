@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import Foundation
-import Bonsplit
 import CoreVideo
 import Combine
 
@@ -2078,7 +2077,7 @@ class TabManager: ObservableObject {
         if let rememberedTerminal = workspace.lastRememberedTerminalPanelForConfigInheritance() {
             return rememberedTerminal
         }
-        if let focusedPaneId = workspace.bonsplitController.focusedPaneId,
+        if let focusedPaneId = workspace.layoutController.focusedPaneId,
            let paneTerminal = workspace.terminalPanelForConfigInheritance(inPane: focusedPaneId) {
             return paneTerminal
         }
@@ -2573,13 +2572,13 @@ class TabManager: ObservableObject {
 
     private func closeOtherTabsInFocusedPanePlan() -> CloseOtherTabsInFocusedPanePlan? {
         guard let workspace = selectedWorkspace else { return nil }
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return nil
         }
 
-        let tabsInPane = workspace.bonsplitController.tabs(inPane: paneId)
+        let tabsInPane = workspace.layoutController.tabs(inPane: paneId)
         guard !tabsInPane.isEmpty else { return nil }
-        guard let selectedTabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
+        guard let selectedTabId = workspace.layoutController.selectedTab(inPane: paneId)?.id ?? tabsInPane.first?.id else {
             return nil
         }
 
@@ -2705,8 +2704,8 @@ class TabManager: ObservableObject {
             return
         }
 
-        let bonsplitTabCount = tab.bonsplitController.allPaneIds.reduce(0) { partial, paneId in
-            partial + tab.bonsplitController.tabs(inPane: paneId).count
+        let bonsplitTabCount = tab.layoutController.allPaneIds.reduce(0) { partial, paneId in
+            partial + tab.layoutController.tabs(inPane: paneId).count
         }
         let panelKind: String = {
             guard let panel = tab.panels[panelId] else { return "missing" }
@@ -3537,8 +3536,8 @@ class TabManager: ObservableObject {
         var foundSplit = false
         var allSucceeded = true
         equalizeSplits(
-            in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
+            in: tab.layoutController.treeSnapshot(),
+            controller: tab.layoutController,
             foundSplit: &foundSplit,
             allSucceeded: &allSucceeded
         )
@@ -3561,7 +3560,7 @@ class TabManager: ObservableObject {
 
     private func equalizeSplits(
         in node: ExternalTreeNode,
-        controller: BonsplitController,
+        controller: PaperLayoutController,
         foundSplit: inout Bool,
         allSucceeded: inout Bool
     ) {
@@ -3575,9 +3574,7 @@ class TabManager: ObservableObject {
                 return
             }
 
-            if !controller.setDividerPosition(0.5, forSplit: splitId) {
-                allSucceeded = false
-            }
+            controller.setDividerPosition(0.5, for: splitId)
 
             equalizeSplits(
                 in: splitNode.first,
@@ -3705,7 +3702,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+        guard let paneId = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first,
               let browserPanel = workspace.newBrowserSurface(
                   inPane: paneId,
                   url: url,
@@ -3826,14 +3823,14 @@ class TabManager: ObservableObject {
         _ snapshot: ClosedBrowserPanelRestoreSnapshot,
         in workspace: Workspace
     ) -> UUID? {
-        if let originalPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
+        if let originalPane = workspace.layoutController.allPaneIds.first(where: { $0.id == snapshot.originalPaneId }),
            let browserPanel = workspace.newBrowserSurface(
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
                preferredProfileID: snapshot.profileID
            ) {
-            let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
+            let tabCount = workspace.layoutController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
             let targetIndex = min(max(snapshot.originalTabIndex, 0), maxIndex)
             _ = workspace.reorderSurface(panelId: browserPanel.id, toIndex: targetIndex)
@@ -3842,8 +3839,8 @@ class TabManager: ObservableObject {
 
         if let orientation = snapshot.fallbackSplitOrientation,
            let fallbackAnchorPaneId = snapshot.fallbackAnchorPaneId,
-           let anchorPane = workspace.bonsplitController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
-           let anchorTab = workspace.bonsplitController.selectedTab(inPane: anchorPane) ?? workspace.bonsplitController.tabs(inPane: anchorPane).first,
+           let anchorPane = workspace.layoutController.allPaneIds.first(where: { $0.id == fallbackAnchorPaneId }),
+           let anchorTab = workspace.layoutController.selectedTab(inPane: anchorPane) ?? workspace.layoutController.tabs(inPane: anchorPane).first,
            let anchorPanelId = workspace.panelIdFromSurfaceId(anchorTab.id),
            let browserPanelId = workspace.newBrowserSplit(
                from: anchorPanelId,
@@ -3855,7 +3852,7 @@ class TabManager: ObservableObject {
             return browserPanelId
         }
 
-        guard let focusedPane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+        guard let focusedPane = workspace.layoutController.focusedPaneId ?? workspace.layoutController.allPaneIds.first else {
             return nil
         }
         return workspace.newBrowserSurface(
@@ -4176,7 +4173,7 @@ class TabManager: ObservableObject {
                     "bottomLeftPanelId": bottomLeft.id.uuidString,
                     "topRightPanelId": topRight.id.uuidString,
                     "bottomRightPanelId": bottomRight.id.uuidString,
-                    "createdPaneCount": String(tab.bonsplitController.allPaneIds.count),
+                    "createdPaneCount": String(tab.layoutController.allPaneIds.count),
                     "createdPanelCount": String(tab.panels.count)
                 ], at: path)
 
@@ -4192,8 +4189,8 @@ class TabManager: ObservableObject {
                 // Capture final state after Bonsplit/AppKit/Ghostty geometry reconciliation.
                 // We avoid sleep-based timing and converge over a few main-actor turns.
                  @MainActor func collectSplitCloseRightState() -> (data: [String: String], settled: Bool) {
-                    let paneIds = tab.bonsplitController.allPaneIds
-                    let bonsplitTabCount = tab.bonsplitController.allTabIds.count
+                    let paneIds = tab.layoutController.allPaneIds
+                    let bonsplitTabCount = tab.layoutController.allTabIds.count
                     let panelCount = tab.panels.count
 
                     var missingSelectedTabCount = 0
@@ -4204,7 +4201,7 @@ class TabManager: ObservableObject {
                     var selectedTerminalSurfaceNilCount = 0
 
                     for paneId in paneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId) else {
+                        guard let selected = tab.layoutController.selectedTab(inPane: paneId) else {
                             missingSelectedTabCount += 1
                             continue
                         }
@@ -4258,8 +4255,8 @@ class TabManager: ObservableObject {
                         window.contentView?.layoutSubtreeIfNeeded()
                         window.contentView?.displayIfNeeded()
                     }
-                    for paneId in tab.bonsplitController.allPaneIds {
-                        guard let selected = tab.bonsplitController.selectedTab(inPane: paneId),
+                    for paneId in tab.layoutController.allPaneIds {
+                        guard let selected = tab.layoutController.selectedTab(inPane: paneId),
                               let terminal = tab.panel(for: selected.id) as? TerminalPanel else {
                             continue
                         }
@@ -4483,9 +4480,9 @@ class TabManager: ObservableObject {
             )
 
             let paneStateTrace: String = {
-                tab.bonsplitController.allPaneIds.map { paneId in
-                    let tabs = tab.bonsplitController.tabs(inPane: paneId)
-                    let selected = tab.bonsplitController.selectedTab(inPane: paneId)
+                tab.layoutController.allPaneIds.map { paneId in
+                    let tabs = tab.layoutController.tabs(inPane: paneId)
+                    let selected = tab.layoutController.selectedTab(inPane: paneId)
                     let selectedId = selected.map { String(describing: $0.id) } ?? "nil"
                     let selectedPanelId = selected.flatMap { tab.panelIdFromSurfaceId($0.id) }
                     let selectedPanelLive: String = {

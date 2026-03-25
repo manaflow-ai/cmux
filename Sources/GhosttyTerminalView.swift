@@ -6,7 +6,6 @@ import QuartzCore
 import Combine
 import Darwin
 import Sentry
-import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
 
@@ -8440,15 +8439,15 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
               let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              let paneId = tab.layoutController.allPaneIds.first(where: { paneId in
+                  tab.layoutController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.missingPane")
             return
         }
 
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
+        guard tab.layoutController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
+              tab.layoutController.focusedPaneId == paneId else {
             scheduleAutomaticFirstResponderApply(reason: "ensureFocus.unfocusedPane")
             return
         }
@@ -8506,14 +8505,14 @@ final class GhosttySurfaceScrollView: NSView {
               tabManager.selectedTabId == tabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
               let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
+              let paneId = tab.layoutController.allPaneIds.first(where: { paneId in
+                  tab.layoutController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
               }) else {
             return false
         }
 
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.layoutController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
+            tab.layoutController.focusedPaneId == paneId
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
