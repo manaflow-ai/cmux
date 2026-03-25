@@ -10,10 +10,16 @@ Run the setup script to initialize submodules and build GhosttyKit:
 
 ## Local dev
 
-After making code changes, always run the reload script with a tag to launch the Debug app:
+After making code changes, always run the reload script with a tag to build the Debug app:
 
 ```bash
 ./scripts/reload.sh --tag fix-zsh-autosuggestions
+```
+
+By default, `reload.sh` builds but does **not** launch the app. The script prints the `.app` path so the user can cmd-click to open it. Pass `--launch` to kill any existing instance and open the app automatically:
+
+```bash
+./scripts/reload.sh --tag fix-zsh-autosuggestions --launch
 ```
 
 When reporting a tagged reload result in chat, use the format for your agent type:
@@ -34,7 +40,7 @@ When reporting a tagged reload result in chat, use the format for your agent typ
 
 Never use `/tmp/cmux-<tag>/...` app links in chat output. If the expected DerivedData path is missing, resolve the real `.app` path and report that `file://` URL.
 
-After making code changes, always use `reload.sh --tag` to build and launch. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+After making code changes, always use `reload.sh --tag` to build. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`.** Untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
 ./scripts/reload.sh --tag <your-branch-slug>
@@ -58,10 +64,11 @@ When rebuilding cmuxd for release/bundling, always use ReleaseFast:
 cd cmuxd && zig build -Doptimize=ReleaseFast
 ```
 
-`reload` = kill and launch the Debug app only (tag required):
+`reload` = build the Debug app (tag required). Pass `--launch` to also kill existing and open:
 
 ```bash
 ./scripts/reload.sh --tag <tag>
+./scripts/reload.sh --tag <tag> --launch
 ```
 
 `reloadp` = kill and launch the Release app:
