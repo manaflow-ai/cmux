@@ -891,6 +891,11 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
+        // Skip all notification activity when the workspace has been muted by the user.
+        if AppDelegate.shared?.tabManager?.tabs.first(where: { $0.id == tabId })?.isMuted == true {
+            return
+        }
+
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
