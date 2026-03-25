@@ -551,6 +551,9 @@
       "apiReference": "เอกสาร API",
       "browserAutomation": "Browser Automation",
       "notifications": "การแจ้งเตือน",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog"
     }
   },
