@@ -1466,7 +1466,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testSSHCommandCreatesAndConfiguresRemoteWorkspaceViaCLI() throws {
+    func testSSHCommandCreatesConfiguresAndSelectsRemoteWorkspaceViaCLI() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -1593,6 +1593,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(sshOptions.contains("ControlPath=/tmp/cmux-ssh-%C"))
         XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
 
+        // `cmux ssh` should land the user in the new SSH workspace immediately.
         let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)

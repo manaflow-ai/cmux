@@ -3746,6 +3746,9 @@ struct CMUXCLI {
             if let workspaceWindowId, !workspaceWindowId.isEmpty {
                 selectParams["window_id"] = workspaceWindowId
             }
+            // `cmux ssh` is an explicit "open this remote workspace now" action,
+            // so we intentionally select the newly created workspace after wiring
+            // up the remote connection.
             _ = try client.sendV2(method: "workspace.select", params: selectParams)
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
             cliDebugLog(
