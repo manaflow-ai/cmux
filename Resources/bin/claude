@@ -69,7 +69,7 @@ unset CLAUDECODE
 SKIP_SESSION_ID=false
 for arg in "$@"; do
     case "$arg" in
-        --resume|--resume=*|--session-id|--session-id=*|--continue|-c)
+        --resume|--resume=*|-r|--session-id|--session-id=*|--continue|-c)
             SKIP_SESSION_ID=true
             break
             ;;
