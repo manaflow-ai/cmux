@@ -4085,29 +4085,30 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
-                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                guard let colorRaw = v2String(params, "color"),
+                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
                     return
                 }
-                // Resolve named color to hex via palette lookup
-                let resolved: String
-                if colorRaw.hasPrefix("#") {
-                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
-                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
-                        return
-                    }
-                    resolved = normalized
-                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
-                    $0.name.lowercased() == colorRaw.lowercased()
+                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Resolve named colors from effective palette (includes user overrides, excludes custom entries)
+                let effectivePalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+                let hex: String
+                if let entry = effectivePalette.first(where: {
+                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
                 }) {
-                    resolved = entry.hex
+                    hex = entry.hex
+                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+                    hex = normalized
                 } else {
-                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
-                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    let colorNames = effectivePalette.map(\.name)
+                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
+                        "named_colors": colorNames
+                    ])
                     return
                 }
-                tabManager.setTabColor(tabId: workspace.id, color: resolved)
-                finish(["color": resolved])
+                tabManager.setTabColor(tabId: workspace.id, color: hex)
+                finish(["color": hex])
 
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)

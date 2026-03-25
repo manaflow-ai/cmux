@@ -3379,14 +3379,18 @@ struct CMUXCLI {
         let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
 
-        let inferredTitle = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredPositional = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (titleOpt ?? (action == "rename" && !inferredPositional.isEmpty ? inferredPositional : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
             throw CLIError(message: "workspace-action rename requires --title <text> (or a trailing title)")
         }
-        if action == "set_color", (colorOpt?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-color requires --color <#hex|name>")
+
+        let color = (
+            colorOpt ?? (action == "set_color" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_color", (color?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
         }
 
         var params: [String: Any] = ["action": action]
@@ -3396,7 +3400,7 @@ struct CMUXCLI {
         if let title, !title.isEmpty {
             params["title"] = title
         }
-        if let color = colorOpt, !color.isEmpty {
+        if let color, !color.isEmpty {
             params["color"] = color
         }
 
@@ -3413,6 +3417,9 @@ struct CMUXCLI {
         }
         if let index = payload["index"] {
             summaryParts.append("index=\(index)")
+        }
+        if let color = payload["color"] as? String {
+            summaryParts.append("color=\(color)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -6260,15 +6267,21 @@ struct CMUXCLI {
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
-              --title <text>               Title for rename (or pass trailing title text)
-              --color <#hex|name>          Color for set-color (e.g. '#C0392B' or 'Red')
+              --title <text>               Title for rename
+              --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+
+            Named colors:
+              Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
+              Blue, Navy, Indigo, Purple, Magenta, Rose, Brown, Charcoal
 
             Example:
               cmux workspace-action --workspace workspace:2 --action pin
               cmux workspace-action --action rename --title "infra"
               cmux workspace-action close-others
-              cmux workspace-action --action set-color --workspace workspace:1 --color '#C0392B'
-              cmux workspace-action --action clear-color --workspace workspace:1
+              cmux workspace-action --action set-color --color blue
+              cmux workspace-action --action set-color --color "#C0392B"
+              cmux workspace-action set-color Amber
+              cmux workspace-action clear-color
             """
         case "tab-action":
             return """
@@ -11981,7 +11994,7 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <#hex|name>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
           list-workspaces
           new-workspace [--cwd <path>] [--command <text>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
