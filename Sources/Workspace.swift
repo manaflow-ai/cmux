@@ -21,20 +21,35 @@ func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
     }
 }
 
+private func cmuxPointerAppearsLive(_ pointer: UnsafeMutableRawPointer?) -> Bool {
+    guard let pointer,
+          malloc_zone_from_ptr(pointer) != nil else {
+        return false
+    }
+    return malloc_size(pointer) > 0
+}
+
+func cmuxSurfacePointerAppearsLive(_ surface: ghostty_surface_t) -> Bool {
+    // Best-effort check: reject pointers that no longer belong to an active
+    // malloc zone allocation. A Swift wrapper around `ghostty_surface_t` can
+    // remain non-nil after the backing native surface has already been freed.
+    cmuxPointerAppearsLive(surface)
+}
+
 func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
+    guard cmuxSurfacePointerAppearsLive(surface) else {
+        return nil
+    }
+
     guard let quicklookFont = ghostty_surface_quicklook_font(surface) else {
         return nil
     }
 
-    // Best-effort check: reject pointers that are not the start of a live
-    // malloc allocation. ghostty_surface_quicklook_font returns an unretained
-    // pointer whose lifetime is managed by Ghostty; on Intel Macs the pointer
-    // can become stale after the internal font is freed (#1496, #1870).
-    // malloc_size is safe to call with any address (returns 0 for non-malloc
-    // pointers without dereferencing them). This does not guarantee the memory
-    // still contains a valid CTFont, but it catches the common case of
-    // fully-freed or unmapped allocations that would otherwise SIGSEGV.
-    guard malloc_size(quicklookFont) > 0 else {
+    // Best-effort check: reject unretained font pointers that no longer belong
+    // to a live malloc allocation. This does not prove the object is still a
+    // valid CTFont, but it filters out the common fully-freed/unmapped cases
+    // that previously crashed on Intel Macs (#1496, #1870).
+    guard cmuxPointerAppearsLive(quicklookFont) else {
         return nil
     }
 
@@ -7161,8 +7176,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if terminalPanel.surface.hasLiveSurface,
-           let sourceSurface = terminalPanel.surface.surface,
+        if let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+            reason: "workspace.rememberConfigInheritanceSource"
+        ),
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -7254,14 +7270,25 @@ final class Workspace: Identifiable, ObservableObject {
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> ghostty_surface_config_s? {
+        var staleRootedFontFallback: Float?
+
         // Walk candidates in priority order and use the first panel with a live surface.
         // This avoids returning nil when the top candidate exists but is not attached yet.
         for terminalPanel in terminalPanelConfigInheritanceCandidates(
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            guard terminalPanel.surface.hasLiveSurface,
-                  let sourceSurface = terminalPanel.surface.surface else { continue }
+            let rootedFontFallback = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
+            guard let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
+                reason: "workspace.inheritedTerminalConfig"
+            ) else {
+                if staleRootedFontFallback == nil,
+                   let rootedFontFallback,
+                   rootedFontFallback > 0 {
+                    staleRootedFontFallback = rootedFontFallback
+                }
+                continue
+            }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -7281,12 +7308,13 @@ final class Workspace: Identifiable, ObservableObject {
             return config
         }
 
-        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
+        if let fallbackFontPoints = staleRootedFontFallback ?? lastTerminalConfigInheritanceFontPoints {
             var config = ghostty_surface_config_new()
             config.font_size = fallbackFontPoints
 #if DEBUG
+            let fallbackSource = staleRootedFontFallback != nil ? "quarantinedRootedFont" : "lastKnownFont"
             dlog(
-                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"
+                "zoom.inherit fallback=\(fallbackSource) context=split font=\(String(format: "%.2f", fallbackFontPoints))"
             )
 #endif
             return config

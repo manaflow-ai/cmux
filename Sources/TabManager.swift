@@ -2216,8 +2216,9 @@ class TabManager: ObservableObject {
         workspace: Workspace?
     ) -> ghostty_surface_config_s? {
         if let panel = terminalPanelForWorkspaceConfigInheritanceSource(workspace: workspace),
-           panel.surface.hasLiveSurface,
-           let sourceSurface = panel.surface.surface {
+           let sourceSurface = panel.surface.liveSurfaceForGhosttyAccess(
+               reason: "tabManager.inheritedTerminalConfigForNewWorkspace"
+           ) {
             return cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
