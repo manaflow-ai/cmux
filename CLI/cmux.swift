@@ -328,6 +328,9 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastBody: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
+    /// Timestamp of the most recent pre-tool-use event. Used to suppress
+    /// premature stop-hook notifications when Claude auto-continues mid-task.
+    var lastToolUseAt: TimeInterval?
 }
 
 private struct ClaudeHookSessionStoreFile: Codable {
@@ -373,7 +376,8 @@ private final class ClaudeHookSessionStore {
         cwd: String?,
         pid: Int? = nil,
         lastSubtitle: String? = nil,
-        lastBody: String? = nil
+        lastBody: String? = nil,
+        lastToolUseAt: TimeInterval? = nil
     ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
@@ -405,6 +409,9 @@ private final class ClaudeHookSessionStore {
             }
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
+            }
+            if let lastToolUseAt {
+                record.lastToolUseAt = lastToolUseAt
             }
             record.updatedAt = now
             state.sessions[normalized] = record
@@ -10328,11 +10335,24 @@ struct CMUXCLI {
                 }
 
                 if let completion {
-                    let title = "Claude Code"
-                    let subtitle = sanitizeNotificationField(completion.subtitle)
-                    let body = sanitizeNotificationField(completion.body)
-                    let payload = "\(title)|\(subtitle)|\(body)"
-                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                    // Suppress notification if a tool was used very recently — this
+                    // indicates an auto-continue turn (Claude stopped briefly between
+                    // tool calls) rather than true task completion. The threshold of
+                    // 2 seconds is generous: auto-continue stop→pre-tool-use gaps are
+                    // typically < 500 ms, while genuine completions require user think-time.
+                    let shouldNotify: Bool
+                    if let lastToolUse = mappedSession?.lastToolUseAt {
+                        shouldNotify = Date().timeIntervalSince1970 - lastToolUse > 2.0
+                    } else {
+                        shouldNotify = true
+                    }
+                    if shouldNotify {
+                        let title = "Claude Code"
+                        let subtitle = sanitizeNotificationField(completion.subtitle)
+                        let body = sanitizeNotificationField(completion.body)
+                        let payload = "\(title)|\(subtitle)|\(body)"
+                        _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                    }
                 }
 
                 try? setClaudeStatus(
@@ -10464,6 +10484,19 @@ struct CMUXCLI {
                 client: client
             )
             let claudePid = mappedSession?.pid
+
+            // Record the timestamp of this tool use so the stop handler can detect
+            // auto-continue turns (stop fired immediately after a tool use) and
+            // suppress premature notifications.
+            if let sessionId = parsedInput.sessionId, let existingSession = mappedSession {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSession.surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastToolUseAt: Date().timeIntervalSince1970
+                )
+            }
 
             // AskUserQuestion means Claude is about to ask the user something.
             // Save question text in session so the Notification handler can use it
