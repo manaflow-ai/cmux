@@ -9264,9 +9264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // When the browser address bar is focused, let Cmd+Shift+Arrow through for
         // text selection (select-to-beginning/end-of-line) instead of consuming it
         // for surface switching.
-        if browserAddressBarFocusedPanelId != nil {
-            let arrowNormalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
-                .subtracting([.numericPad, .function, .capsLock])
+        if focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil {
+            let arrowNormalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
             let isHorizontalArrow = event.keyCode == 123 || event.keyCode == 124
             if isHorizontalArrow && arrowNormalizedFlags == [.command, .shift] {
                 return false
