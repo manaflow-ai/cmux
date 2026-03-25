@@ -437,6 +437,13 @@ typedef enum {
   GHOSTTY_SURFACE_CONTEXT_SPLIT = 2,
 } ghostty_surface_context_e;
 
+typedef enum {
+  GHOSTTY_IO_MODE_EXEC = 0,
+  GHOSTTY_IO_MODE_MANUAL = 1,
+} ghostty_io_mode_e;
+
+typedef void (*ghostty_io_write_cb)(void* userdata, const uint8_t* data, size_t len);
+
 typedef struct {
   ghostty_platform_e platform_tag;
   ghostty_platform_u platform;
@@ -450,6 +457,9 @@ typedef struct {
   const char* initial_input;
   bool wait_after_command;
   ghostty_surface_context_e context;
+  ghostty_io_mode_e io_mode;
+  ghostty_io_write_cb io_write_cb;
+  void* io_write_userdata;
 } ghostty_surface_config_s;
 
 typedef struct {
@@ -620,6 +630,18 @@ typedef enum {
   GHOSTTY_READONLY_OFF,
   GHOSTTY_READONLY_ON,
 } ghostty_action_readonly_e;
+
+// apprt.action.TmuxState
+typedef enum {
+  GHOSTTY_TMUX_STATE_ENTER,
+  GHOSTTY_TMUX_STATE_EXIT,
+} ghostty_action_tmux_state_e;
+
+// apprt.action.TmuxPaneUnregistered
+typedef struct {
+  uintptr_t pane_id;
+  uint32_t reg_id;
+} ghostty_action_tmux_pane_unregistered_s;
 
 // apprt.action.DesktopNotification.C
 typedef struct {
@@ -910,6 +932,10 @@ typedef enum {
   GHOSTTY_ACTION_SEARCH_TOTAL,
   GHOSTTY_ACTION_SEARCH_SELECTED,
   GHOSTTY_ACTION_READONLY,
+  GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
+  GHOSTTY_ACTION_TMUX_STATE,
+  GHOSTTY_ACTION_TMUX_WINDOWS_CHANGED,
+  GHOSTTY_ACTION_TMUX_PANE_UNREGISTERED,
 } ghostty_action_tag_e;
 
 typedef union {
@@ -950,6 +976,8 @@ typedef union {
   ghostty_action_search_total_s search_total;
   ghostty_action_search_selected_s search_selected;
   ghostty_action_readonly_e readonly;
+  ghostty_action_tmux_state_e tmux_state;
+  ghostty_action_tmux_pane_unregistered_s tmux_pane_unregistered;
 } ghostty_action_u;
 
 typedef struct {
@@ -1085,6 +1113,7 @@ bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                     ghostty_binding_flags_e*);
 void ghostty_surface_text(ghostty_surface_t, const char*, uintptr_t);
 void ghostty_surface_preedit(ghostty_surface_t, const char*, uintptr_t);
+void ghostty_surface_preedit_with_cursor(ghostty_surface_t, const char*, uintptr_t, uintptr_t);
 bool ghostty_surface_mouse_captured(ghostty_surface_t);
 bool ghostty_surface_mouse_button(ghostty_surface_t,
                                   ghostty_input_mouse_state_e,
@@ -1121,6 +1150,38 @@ bool ghostty_surface_read_text(ghostty_surface_t,
                                ghostty_selection_s,
                                ghostty_text_s*);
 void ghostty_surface_free_text(ghostty_surface_t, ghostty_text_s*);
+
+// Pass as pane_id to ghostty_surface_tmux_pane_text to read the first
+// available pane (convenience when the active pane ID is not yet known).
+#define GHOSTTY_TMUX_PANE_ID_ANY ((uintptr_t)-1)
+bool ghostty_surface_tmux_pane_text(ghostty_surface_t, uintptr_t pane_id, ghostty_text_s*);
+
+// Tmux pane info: leaf pane position/size in cells, relative to window.
+typedef struct {
+  uintptr_t window_id;
+  uintptr_t pane_id;
+  uint32_t x, y, width, height;
+} ghostty_tmux_pane_info_s;
+
+// Query tmux pane topology. Returns number of panes. If out is NULL,
+// returns total count without writing. Otherwise writes up to max_count.
+size_t ghostty_surface_tmux_panes(ghostty_surface_t, ghostty_tmux_pane_info_s* out, size_t max_count);
+
+// Register/unregister pane surfaces for tmux %output routing.
+void ghostty_surface_tmux_register_pane(ghostty_surface_t host, uintptr_t pane_id, uint32_t reg_id, ghostty_surface_t pane_surface);
+void ghostty_surface_tmux_unregister_pane(ghostty_surface_t host, uintptr_t pane_id, uint32_t reg_id);
+
+// Send keys to a tmux pane. key_type: 0=literal text (-l), 1=key name.
+void ghostty_surface_tmux_send_keys(ghostty_surface_t host, uintptr_t pane_id,
+                                     const uint8_t* data, size_t len, int key_type);
+
+// Send a raw tmux command through the control mode channel.
+// The command string should NOT include a trailing newline.
+void ghostty_surface_tmux_command(ghostty_surface_t host,
+                                   const uint8_t* cmd, size_t len);
+
+// Feed raw terminal output to a surface (used for Manual I/O mode).
+void ghostty_surface_process_output(ghostty_surface_t, const uint8_t* data, size_t len);
 
 #ifdef __APPLE__
 void ghostty_surface_set_display_id(ghostty_surface_t, uint32_t);

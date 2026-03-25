@@ -702,4 +702,41 @@ _cmux_fix_path() {
 _cmux_fix_path
 unset -f _cmux_fix_path
 
+# tmux auto-CC: when the user runs `tmux attach` or `tmux new-session`
+# in an interactive cmux terminal, automatically add -CC so native pane
+# rendering activates. Use `command tmux ...` to bypass, or set
+# CMUX_TMUX_AUTO_CC=0 to disable globally.
+tmux() {
+    # Opt-out
+    [[ "${CMUX_TMUX_AUTO_CC:-1}" == "0" ]] && { command tmux "$@"; return $?; }
+    # Inside cmux, $TMUX may be inherited from the launcher env but
+    # this terminal is NOT really inside tmux — ignore it.
+    # Outside cmux (no CMUX_SOCKET_PATH), respect $TMUX as usual.
+    [[ -z "$CMUX_SOCKET_PATH" && -n "$TMUX" ]] && { command tmux "$@"; return $?; }
+    [[ "$-" == *i* ]] || { command tmux "$@"; return $?; }
+    [[ -t 1 ]] || { command tmux "$@"; return $?; }
+    # Already has -CC or -C
+    local arg; for arg in "$@"; do
+        [[ "$arg" == "-CC" || "$arg" == "-C" ]] && { command tmux "$@"; return $?; }
+        [[ "$arg" == "--" ]] && break
+    done
+    # Determine the tmux subcommand (skip global flags that take a value)
+    local subcmd="" skip_next=0
+    for arg in "$@"; do
+        if (( skip_next )); then skip_next=0; continue; fi
+        case "$arg" in
+            -L|-S|-f|-c) skip_next=1; continue ;;  # these flags consume the next arg
+            -*) continue ;;
+            *) subcmd="$arg"; break ;;
+        esac
+    done
+    # Only auto-add -CC for commands that start a tmux client
+    case "$subcmd" in
+        attach|attach-session|a|new|new-session|"")
+            command tmux -CC "$@" ;;
+        *)
+            command tmux "$@" ;;
+    esac
+}
+
 _cmux_install_prompt_command

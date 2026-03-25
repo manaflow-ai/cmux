@@ -414,10 +414,11 @@ func cmuxPasteboardImagePathForTesting(_ pasteboard: NSPasteboard) -> String? {
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
+    case internalFile(URL)
 
     var url: URL {
         switch self {
-        case let .embeddedBrowser(url), let .external(url):
+        case let .embeddedBrowser(url), let .external(url), let .internalFile(url):
             return url
         }
     }
@@ -510,13 +511,26 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
 
     if NSString(string: trimmed).isAbsolutePath {
         #if DEBUG
-        dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
+        dlog("link.resolve result=internalFile(absolutePath) path=\(trimmed)")
         #endif
-        return .external(URL(fileURLWithPath: trimmed))
+        return .internalFile(URL(fileURLWithPath: trimmed))
     }
 
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
+        if scheme == "file" {
+            let host = parsed.host?.lowercased()
+            if host == nil || host == "" || host == "localhost" {
+                #if DEBUG
+                dlog("link.resolve result=internalFile(fileURL) path=\(parsed.path)")
+                #endif
+                return .internalFile(parsed)
+            }
+            #if DEBUG
+            dlog("link.resolve result=external(remoteFileURL) url=\(parsed)")
+            #endif
+            return .external(parsed)
+        }
         if scheme == "http" || scheme == "https" {
             guard BrowserInsecureHTTPSettings.normalizeHost(parsed.host ?? "") != nil else {
                 #if DEBUG
@@ -2137,6 +2151,17 @@ class GhosttyApp {
         let callbackTabId = callbackContext?.tabId
         let callbackSurfaceId = callbackContext?.surfaceId
 
+        #if DEBUG
+        // Trace tmux-related actions to debug control mode activation
+        if action.tag == GHOSTTY_ACTION_TMUX_STATE ||
+           action.tag == GHOSTTY_ACTION_TMUX_WINDOWS_CHANGED ||
+           action.tag == GHOSTTY_ACTION_TMUX_PANE_UNREGISTERED {
+            let ctxOk = callbackContext != nil
+            let svOk = callbackContext?.surfaceView != nil
+            dlog("tmux.action tag=\(action.tag.rawValue) ctxOk=\(ctxOk) svOk=\(svOk) tabId=\(callbackTabId?.uuidString.prefix(5) ?? "nil")")
+        }
+        #endif
+
         if action.tag == GHOSTTY_ACTION_SHOW_CHILD_EXITED {
             // The child (shell) exited. Ghostty will fall back to printing
             // "Process exited. Press any key..." into the terminal unless the host
@@ -2435,6 +2460,17 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_MOUSE_OVER_LINK:
+            #if DEBUG
+            let mol = action.action.mouse_over_link
+            if let ptr = mol.url, mol.len > 0 {
+                let linkStr = String(data: Data(bytes: ptr, count: Int(mol.len)), encoding: .utf8) ?? ""
+                dlog("link.mouseOverLink url=\(linkStr)")
+            } else {
+                dlog("link.mouseOverLink url=nil (cleared)")
+            }
+            #endif
+            return true
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
@@ -2451,7 +2487,9 @@ class GhosttyApp {
                 #endif
                 return false
             }
-            if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
+            if case .internalFile = target {
+                // Local file routing should not depend on the browser-link setting.
+            } else if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
                 #endif
@@ -2460,6 +2498,50 @@ class GhosttyApp {
                 }
             }
             switch target {
+            case let .internalFile(fileURL):
+                let path = fileURL.path
+                #if DEBUG
+                dlog("link.openURL target=internalFile, opening in markdown panel path=\(path)")
+                #endif
+                // Validate the path is a readable file (not a directory or missing).
+                // Fall back to system handler if validation fails.
+                var isDir: ObjCBool = false
+                let fileExists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+                guard fileExists, !isDir.boolValue else {
+                    #if DEBUG
+                    dlog("link.openURL internalFile not a readable file, falling back to external path=\(path)")
+                    #endif
+                    return performOnMain {
+                        NSWorkspace.shared.open(fileURL)
+                    }
+                }
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                guard let sourceWorkspaceId, let sourcePanelId else {
+                    return performOnMain {
+                        NSWorkspace.shared.open(fileURL)
+                    }
+                }
+                return performOnMain {
+                    guard let app = AppDelegate.shared,
+                          let resolved = app.workspaceContainingPanel(
+                            panelId: sourcePanelId,
+                            preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
+                        NSWorkspace.shared.open(fileURL)
+                        return true
+                    }
+                    if resolved.workspace.newMarkdownSplit(
+                        from: sourcePanelId,
+                        orientation: .horizontal,
+                        filePath: path
+                    ) != nil {
+                        return true
+                    }
+                    // Split creation failed — fall back to system handler
+                    NSWorkspace.shared.open(fileURL)
+                    return true
+                }
             case let .external(url):
                 #if DEBUG
                 dlog("link.openURL target=external, opening externally url=\(url)")
@@ -2544,6 +2626,33 @@ class GhosttyApp {
                         return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
+            }
+        case GHOSTTY_ACTION_TMUX_STATE:
+            let entered = action.action.tmux_state == GHOSTTY_TMUX_STATE_ENTER
+            #if DEBUG
+            dlog("tmux.state entered=\(entered)")
+            #endif
+            return performOnMain {
+                surfaceView.tmuxControlMode = entered
+                if entered {
+                    surfaceView.tmuxLoadPrefixConfig()
+                } else {
+                    surfaceView.tmuxResetPrefixState()
+                    surfaceView.tmuxCleanupAllPanes()
+                }
+                return true
+            }
+        case GHOSTTY_ACTION_TMUX_WINDOWS_CHANGED:
+            return performOnMain {
+                surfaceView.handleTmuxWindowsChanged()
+                return true
+            }
+        case GHOSTTY_ACTION_TMUX_PANE_UNREGISTERED:
+            let paneId = action.action.tmux_pane_unregistered.pane_id
+            let regId = action.action.tmux_pane_unregistered.reg_id
+            return performOnMain {
+                surfaceView.handleTmuxPaneUnregistered(paneId: paneId, regId: regId)
+                return true
             }
         default:
             return false
@@ -3964,6 +4073,56 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
+    /// True when this surface is in tmux control mode.
+    var tmuxControlMode: Bool = false
+
+    /// Tmux pane surface management (Phase 2).
+    struct TmuxPaneState {
+        let surface: ghostty_surface_t
+        let view: NSView
+        let regId: UInt32
+        let writeContext: UnsafeMutablePointer<TmuxPaneWriteContext>
+    }
+
+    /// Context passed through the C io_write_cb for a tmux pane surface.
+    class TmuxPaneWriteContext {
+        let hostSurface: ghostty_surface_t
+        let paneId: UInt
+
+        init(hostSurface: ghostty_surface_t, paneId: UInt) {
+            self.hostSurface = hostSurface
+            self.paneId = paneId
+        }
+    }
+
+    var tmuxPaneSurfaces: [UInt: TmuxPaneState] = [:]
+    var tmuxRegIdCounter: UInt32 = 0
+    var tmuxPaneContainer: NSView?
+    var tmuxStatusBar: NSTextField?
+    var tmuxStatusBarTimer: Timer?
+    /// Pane IDs awaiting unregister ack before surface can be freed.
+    var tmuxPendingUnregister: [UInt: UInt32] = [:]
+    /// Last tmux client size we requested via refresh-client -C.
+    var tmuxRequestedClientSize: (cols: Int, rows: Int)?
+
+    // MARK: - Tmux Prefix Layer
+
+    /// Configuration loaded from tmux: prefix keys and key bindings.
+    struct TmuxPrefixConfig {
+        /// Keys that activate prefix mode, e.g. ["C-b", "C-Space"]
+        var prefixKeys: Set<String> = []
+        /// Bindings: tmux key name → tmux command, e.g. "d" → "detach-client"
+        var bindings: [String: String] = [:]
+        var loaded: Bool = false
+    }
+
+    enum TmuxPrefixState {
+        case idle
+        case pending
+    }
+
+    private var tmuxPrefixConfig = TmuxPrefixConfig()
+    private var tmuxPrefixState: TmuxPrefixState = .idle
     var onFocus: (() -> Void)?
     var onTriggerFlash: (() -> Void)?
     var backgroundColor: NSColor?
@@ -4524,6 +4683,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
+    /// The pane ID that was last clicked or focused. Updated on mouseDown.
+    private var tmuxActivePaneId: UInt?
+
+    /// Returns the active tmux pane state, or nil if not in tmux mode.
+    /// Returns the last-clicked pane, falling back to the first pane.
+    private var activeTmuxPane: TmuxPaneState? {
+        guard tmuxControlMode else { return nil }
+        if let id = tmuxActivePaneId, let state = tmuxPaneSurfaces[id] {
+            return state
+        }
+        // Fallback: first pane (single-pane case)
+        return tmuxPaneSurfaces.values.first
+    }
+
+    /// Returns the surface that should receive keyboard/IME input.
+    /// In tmux control mode, returns the active pane surface; otherwise the host surface.
+    private var inputSurface: ghostty_surface_t? {
+        if let pane = activeTmuxPane {
+            return pane.surface
+        }
+        return surface
+    }
+
     private func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
@@ -4562,9 +4744,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func performBindingAction(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        // In tmux mode, route binding actions (paste, copy, etc.) to the
+        // pane surface so they operate on the pane's terminal content.
+        guard let target = inputSurface ?? surface else { return false }
         return action.withCString { cString in
-            ghostty_surface_binding_action(surface, cString, UInt(strlen(cString)))
+            ghostty_surface_binding_action(target, cString, UInt(strlen(cString)))
         }
     }
 
@@ -4783,6 +4967,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
+        // In tmux mode, Ghostty's async clipboard flow would send the result
+        // back to the host surface (shared userdata). Instead, read the
+        // clipboard directly and route through the pane's send-keys path.
+        if let paneState = activeTmuxPane {
+            guard let str = NSPasteboard.general.string(forType: .string),
+                  !str.isEmpty else { return }
+            let hostSurface = paneState.writeContext.pointee.hostSurface
+            let paneId = paneState.writeContext.pointee.paneId
+            // Split by newlines to avoid raw newlines breaking the tmux
+            // command stream. Each line is sent as literal text, with
+            // explicit Enter key events between lines.
+            let lines = str.components(separatedBy: .newlines)
+            for (i, line) in lines.enumerated() {
+                if !line.isEmpty, let data = line.data(using: .utf8) {
+                    data.withUnsafeBytes { rawBuf in
+                        let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                        ghostty_surface_tmux_send_keys(hostSurface, paneId, ptr, data.count, 0)
+                    }
+                }
+                // Send Enter between lines (not after the last line)
+                if i < lines.count - 1 {
+                    "Enter".withCString { cstr in
+                        ghostty_surface_tmux_send_keys(
+                            hostSurface, paneId,
+                            UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                            strlen(cstr), 1  // key_type=1 (key name)
+                        )
+                    }
+                }
+            }
+            return
+        }
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -4991,6 +5207,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
+            // Cancel tmux prefix mode on focus loss
+            if tmuxPrefixState == .pending { tmuxPrefixState = .idle }
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -5005,6 +5223,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // For NSTextInputClient - accumulates text during key events
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
+    /// Cursor position within the IME preedit text (from setMarkedText selectedRange).
+    private var markedTextCursorOffset: Int = 0
     private var lastPerformKeyEvent: TimeInterval?
     private struct SelectionSnapshot {
         let range: NSRange
@@ -5219,12 +5439,61 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
-        guard let surface = ensureSurfaceReadyForInput() else {
+        guard var surface = ensureSurfaceReadyForInput() else {
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
             super.keyDown(with: event)
             return
+        }
+        // In tmux control mode, redirect keyboard input to the pane surface.
+        // This preserves the full keyDown flow (IME, interpretKeyEvents, etc.)
+        // while routing the encoded key bytes to the pane's Manual I/O backend.
+        // If tmux mode is active but pane surfaces aren't ready yet, drop the
+        // key event to avoid sending it to the host surface (which would eat it).
+        if tmuxControlMode && tmuxPaneSurfaces.isEmpty {
+            return
+        }
+
+        // Tmux prefix key state machine: intercept prefix keys before
+        // they reach Ghostty's key handler or the pane surface.
+        // Only active when not composing IME text (markedText).
+        if tmuxControlMode && tmuxPrefixConfig.loaded && !hasMarkedText() {
+            if let key = tmuxKeyName(for: event) {
+                switch tmuxPrefixState {
+                case .idle:
+                    if tmuxPrefixConfig.prefixKeys.contains(key) {
+                        tmuxPrefixState = .pending
+                        #if DEBUG
+                        dlog("tmux.prefix PENDING key=\(key)")
+                        #endif
+                        return
+                    }
+                case .pending:
+                    tmuxPrefixState = .idle
+                    if let command = tmuxPrefixConfig.bindings[key] {
+                        #if DEBUG
+                        dlog("tmux.prefix EXEC key=\(key) cmd=\(command)")
+                        #endif
+                        tmuxSendCommand(command)
+                    } else {
+                        #if DEBUG
+                        dlog("tmux.prefix UNKNOWN key=\(key), beep")
+                        #endif
+                        NSSound.beep()
+                    }
+                    return
+                }
+            } else if tmuxPrefixState == .pending {
+                // Unmappable key while in prefix mode → cancel
+                tmuxPrefixState = .idle
+                NSSound.beep()
+                return
+            }
+        }
+
+        if let paneState = activeTmuxPane {
+            surface = paneState.surface
         }
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
@@ -5396,12 +5665,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         // Capture the keyboard layout ID before interpretation so we can
         // detect if an IME changed it (e.g. toggling input methods).
-        // We only check when not already in a preedit state.
-        let keyboardIdBefore: String? = if (!markedTextBefore) {
-            KeyboardLayout.id
-        } else {
-            nil
-        }
+        // We capture in both composing and non-composing states so that
+        // switching input methods during composition can commit the preedit.
+        let keyboardIdBefore: String? = KeyboardLayout.id
 
         // Let the input system handle the event (for IME, dead keys, etc.)
 #if DEBUG
@@ -5419,16 +5685,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // If the keyboard layout changed, an input method grabbed the event.
-        // Sync preedit and return without sending the key to Ghostty.
-        if !markedTextBefore, let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+        if let kbBefore = keyboardIdBefore, kbBefore != KeyboardLayout.id {
+            if markedTextBefore && markedText.length > 0 {
+                // Switching input methods mid-composition: commit the current
+                // preedit text as literal input so the user's typing isn't lost.
+                let commitText = markedText.string
+                markedText.mutableString.setString("")
+                syncPreedit(clearIfNeeded: true)
+                if !commitText.isEmpty {
+                    keyTextAccumulator?.append(commitText)
+                }
+                // Fall through to send the accumulated text via ghostty_surface_key
+            } else {
+                // No composition was active — sync preedit and return.
 #if DEBUG
-            let syncPreeditStart = ProcessInfo.processInfo.systemUptime
+                let syncPreeditStart = ProcessInfo.processInfo.systemUptime
 #endif
-            syncPreedit(clearIfNeeded: markedTextBefore)
+                syncPreedit(clearIfNeeded: markedTextBefore)
 #if DEBUG
-            syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
+                syncPreeditMs = (ProcessInfo.processInfo.systemUptime - syncPreeditStart) * 1000.0
 #endif
-            return
+                return
+            }
         }
 
         // Sync the preedit state with Ghostty so it can render the IME
@@ -5894,6 +6172,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
         guard let surface = surface else { return }
+
+        // In tmux mode, route mouse events to the pane surface so Ghostty's
+        // native link detection works on the pane's real Terminal content.
+        #if DEBUG
+        dlog("tmux.mouseDown check tmuxControlMode=\(tmuxControlMode) paneCount=\(tmuxPaneSurfaces.count)")
+        #endif
+        if let paneState = activeTmuxPane {
+            let paneSurface = paneState.surface
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            let y = paneState.view.bounds.height - point.y
+            #if DEBUG
+            dlog("tmux.mouseDown routed to pane regId=\(paneState.regId) point=(\(String(format: "%.0f", point.x)),\(String(format: "%.0f", y))) cmd=\(event.modifierFlags.contains(.command))")
+            #endif
+            // Track and sync active pane with tmux so prefix commands target the right pane
+            let paneId = paneState.writeContext.pointee.paneId
+            tmuxActivePaneId = paneId
+            tmuxSendCommand("select-pane -t %\(paneId)")
+            // Cancel prefix mode on click
+            if tmuxPrefixState == .pending { tmuxPrefixState = .idle }
+            ghostty_surface_mouse_pos(paneSurface, point.x, y, modsFromEvent(event))
+            _ = ghostty_surface_mouse_button(paneSurface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+            return
+        }
+
         let point = convert(event.locationInWindow, from: nil)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
@@ -5903,11 +6205,945 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
+    /// Handle cmd+click in tmux control mode by querying pane text
+    /// and finding file paths at the clicked row.
+    private func handleTmuxCmdClick(surface: ghostty_surface_t, event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        // Convert pixel position to terminal row (0-indexed, top=0)
+        guard cellSize.height > 0 else { return false }
+        let row = Int((bounds.height - point.y) / cellSize.height)
+        let col = Int(point.x / cellSize.width)
+
+        #if DEBUG
+        dlog("tmux.cmdClick row=\(row) col=\(col)")
+        #endif
+
+        // Query tmux pane text
+        var textResult = ghostty_text_s()
+        guard ghostty_surface_tmux_pane_text(surface, UInt.max, &textResult),
+              let ptr = textResult.text else {
+            #if DEBUG
+            dlog("tmux.cmdClick pane text query failed")
+            #endif
+            return false
+        }
+        defer { var mutable = textResult; ghostty_surface_free_text(surface, &mutable) }
+
+        let fullText = String(cString: ptr)
+        let lines = fullText.components(separatedBy: "\n")
+
+        guard row >= 0 && row < lines.count else {
+            #if DEBUG
+            dlog("tmux.cmdClick row \(row) out of range (lines=\(lines.count))")
+            #endif
+            return false
+        }
+
+        let line = lines[row]
+        #if DEBUG
+        dlog("tmux.cmdClick line[\(row)]=\(line.prefix(120))")
+        #endif
+
+        // Find file paths in the clicked line using a simple regex:
+        // absolute paths (/...) or ~/ paths
+        guard let regex = try? NSRegularExpression(
+            pattern: "(?:/[\\w.@~+-]+)+(?::\\d+)?|~/[\\w.@/+-]+(?::\\d+)?",
+            options: []
+        ) else { return false }
+
+        let nsLine = line as NSString
+        let matches = regex.matches(in: line, range: NSRange(location: 0, length: nsLine.length))
+
+        // Find the match that contains the click column
+        for match in matches {
+            let range = match.range
+            if col >= range.location && col < range.location + range.length {
+                let path = nsLine.substring(with: range)
+                #if DEBUG
+                dlog("tmux.cmdClick matched path=\(path) at col \(range.location)-\(range.location + range.length)")
+                #endif
+                return openTmuxClickedPath(path)
+            }
+        }
+
+        // No match at click position — try the nearest match on the line
+        if let nearest = matches.first {
+            let path = nsLine.substring(with: nearest.range)
+            #if DEBUG
+            dlog("tmux.cmdClick nearest path=\(path) (click col \(col) not inside match)")
+            #endif
+        }
+
+        return false
+    }
+
+    /// Open a file path found via tmux cmd+click.
+    private func openTmuxClickedPath(_ rawPath: String) -> Bool {
+        // Strip optional :line_number suffix
+        let path: String
+        if let colonIdx = rawPath.lastIndex(of: ":"),
+           colonIdx > rawPath.startIndex,
+           rawPath[rawPath.index(after: colonIdx)...].allSatisfy(\.isNumber) {
+            path = String(rawPath[..<colonIdx])
+        } else {
+            path = rawPath
+        }
+
+        // Expand ~ to home directory
+        let expanded = (path as NSString).expandingTildeInPath
+
+        guard let target = resolveTerminalOpenURLTarget(expanded) else {
+            #if DEBUG
+            dlog("tmux.cmdClick resolve failed for path=\(expanded)")
+            #endif
+            return false
+        }
+
+        if case let .internalFile(fileURL) = target {
+            let filePath = fileURL.path
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: filePath, isDirectory: &isDir),
+                  !isDir.boolValue else {
+                #if DEBUG
+                dlog("tmux.cmdClick file not found or is directory path=\(filePath)")
+                #endif
+                return false
+            }
+
+            guard let tabId = tabId,
+                  let surfaceId = terminalSurface?.id,
+                  let app = AppDelegate.shared,
+                  let resolved = app.workspaceContainingPanel(
+                    panelId: surfaceId,
+                    preferredWorkspaceId: tabId
+                  ) else {
+                NSWorkspace.shared.open(fileURL)
+                return true
+            }
+
+            if resolved.workspace.newMarkdownSplit(
+                from: surfaceId,
+                orientation: .horizontal,
+                filePath: filePath
+            ) != nil {
+                #if DEBUG
+                dlog("tmux.cmdClick opened markdown panel path=\(filePath)")
+                #endif
+                return true
+            }
+            NSWorkspace.shared.open(fileURL)
+            return true
+        }
+
+        return false
+    }
+
+    // MARK: - Tmux Phase 2: Pane Surface Management
+
+    /// Handle tmux windows/pane topology change. Creates or destroys
+    /// native Ghostty surfaces for each tmux pane.
+    func handleTmuxWindowsChanged() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        guard let app = ghostty_surface_app(hostSurface) else { return }
+
+        // Query current pane topology
+        let count = ghostty_surface_tmux_panes(hostSurface, nil, 0)
+        guard count > 0 else {
+            #if DEBUG
+            dlog("tmux.windowsChanged: no panes")
+            #endif
+            return
+        }
+
+        var panes = [ghostty_tmux_pane_info_s](repeating: ghostty_tmux_pane_info_s(), count: Int(count))
+        let written = ghostty_surface_tmux_panes(hostSurface, &panes, count)
+
+        #if DEBUG
+        dlog("tmux.windowsChanged paneCount=\(written)")
+        #endif
+
+        // Determine which panes are new vs existing vs removed
+        let currentPaneIds = Set(panes[0..<Int(written)].map { $0.pane_id })
+        let existingPaneIds = Set(tmuxPaneSurfaces.keys)
+        let toAdd = currentPaneIds.subtracting(existingPaneIds)
+        let toRemove = existingPaneIds.subtracting(currentPaneIds)
+
+        // Remove stale panes (two-phase: unregister first, destroy on ack)
+        for paneId in toRemove {
+            guard let state = tmuxPaneSurfaces[paneId] else { continue }
+            tmuxPendingUnregister[paneId] = state.regId
+            ghostty_surface_tmux_unregister_pane(hostSurface, paneId, state.regId)
+            state.view.removeFromSuperview()
+            tmuxPaneSurfaces.removeValue(forKey: paneId)
+            #if DEBUG
+            dlog("tmux.pane remove pane=\(paneId) regId=\(state.regId)")
+            #endif
+        }
+
+        // Ensure container exists — add above the scroll view so it's
+        // not hidden behind the host terminal's Metal rendering layer.
+        if tmuxPaneContainer == nil {
+            let container = NSView(frame: bounds)
+            container.autoresizingMask = [.width, .height]
+            // Hide host terminal rendering but keep the view in the event
+            // chain for mouse handling. alphaValue=0 makes the Metal layer
+            // invisible without setting isHidden (which breaks hit-testing).
+            self.alphaValue = 0
+            // Walk up: GhosttyNSView → documentView → clipView → scrollView → GhosttySurfaceScrollView
+            if let parentView = enclosingScrollView?.superview {
+                parentView.addSubview(container, positioned: .above, relativeTo: nil)
+                container.frame = parentView.bounds
+                #if DEBUG
+                dlog("tmux.container added to parentView=\(type(of: parentView)) frame=\(parentView.bounds)")
+                #endif
+            } else {
+                if let contentView = window?.contentView {
+                    contentView.addSubview(container, positioned: .above, relativeTo: nil)
+                    container.frame = contentView.bounds
+                    #if DEBUG
+                    dlog("tmux.container fallback to window.contentView frame=\(contentView.bounds)")
+                    #endif
+                } else {
+                    addSubview(container)
+                    #if DEBUG
+                    dlog("tmux.container fallback to self (nothing else available)")
+                    #endif
+                }
+            }
+            tmuxPaneContainer = container
+
+            // Create tmux status bar at the bottom of the container.
+            // Matches tmux's default green status bar appearance.
+            let barHeight: CGFloat = max(cellSize.height, 18)
+            let barView = NSView(frame: NSRect(
+                x: 0, y: 0,
+                width: container.bounds.width,
+                height: barHeight
+            ))
+            barView.wantsLayer = true
+            barView.layer?.backgroundColor = NSColor(red: 0.0, green: 0.67, blue: 0.0, alpha: 1.0).cgColor
+            barView.autoresizingMask = [.width, .maxYMargin]
+
+            // Left-aligned label: [session] window:name
+            let leftLabel = NSTextField(frame: NSRect(
+                x: 0, y: 0,
+                width: container.bounds.width * 0.5,
+                height: barHeight
+            ))
+            leftLabel.isEditable = false
+            leftLabel.isSelectable = false
+            leftLabel.isBordered = false
+            leftLabel.drawsBackground = false
+            leftLabel.textColor = NSColor.black
+            leftLabel.font = NSFont.monospacedSystemFont(ofSize: min(cellSize.height * 0.65, 13), weight: .regular)
+            leftLabel.lineBreakMode = .byTruncatingTail
+            leftLabel.autoresizingMask = [.width, .maxYMargin]
+            leftLabel.tag = 1
+            barView.addSubview(leftLabel)
+
+            // Right-aligned label: time/date
+            let rightLabel = NSTextField(frame: NSRect(
+                x: container.bounds.width * 0.5, y: 0,
+                width: container.bounds.width * 0.5,
+                height: barHeight
+            ))
+            rightLabel.isEditable = false
+            rightLabel.isSelectable = false
+            rightLabel.isBordered = false
+            rightLabel.drawsBackground = false
+            rightLabel.textColor = NSColor.black
+            rightLabel.font = leftLabel.font
+            rightLabel.alignment = .right
+            rightLabel.lineBreakMode = .byTruncatingHead
+            rightLabel.autoresizingMask = [.width, .maxYMargin, .minXMargin]
+            rightLabel.tag = 2
+            barView.addSubview(rightLabel)
+
+            container.addSubview(barView)
+            tmuxStatusBar = leftLabel  // keep ref for updates
+
+            // Query tmux for session info using the first pane's ID
+            let firstPaneId = panes[0].pane_id
+            tmuxUpdateStatusBar(barView: barView, paneId: firstPaneId)
+
+            // Refresh status bar every 15 seconds
+            tmuxStartStatusBarTimer(barView: barView, paneId: firstPaneId)
+        }
+
+        let paneSlice = panes[0..<Int(written)]
+        let desiredClientSize = tmuxDesiredClientSize()
+        let currentClientSize = tmuxCurrentClientSize(paneSlice)
+
+        // Tell tmux the correct client size based on the pane container
+        // dimensions. Initial sync must wait until tmux reports geometry
+        // that matches the pane surface rows/cols; otherwise capture-pane
+        // will return a different number of rows and replay will scroll.
+        if let desired = desiredClientSize,
+           !(currentClientSize.map { $0.cols == desired.cols && $0.rows == desired.rows } ?? false) {
+            #if DEBUG
+            dlog("tmux.refreshClient desired=\(desired.cols)x\(desired.rows) current=\(currentClientSize?.cols ?? -1)x\(currentClientSize?.rows ?? -1)")
+            #endif
+            if tmuxRequestedClientSize?.cols != desired.cols || tmuxRequestedClientSize?.rows != desired.rows {
+                tmuxRequestedClientSize = desired
+                tmuxSendCommand("refresh-client -C \(desired.cols)x\(desired.rows)")
+            }
+        } else if let desired = desiredClientSize {
+            tmuxRequestedClientSize = desired
+        }
+
+        // Create surfaces for new panes
+        for i in 0..<Int(written) {
+            let paneInfo = panes[i]
+            guard toAdd.contains(paneInfo.pane_id) else { continue }
+
+            tmuxRegIdCounter += 1
+            let regId = tmuxRegIdCounter
+
+            // Create a host NSView for the pane surface.
+            // Do NOT set wantsLayer here — Ghostty's Metal renderer sets
+            // the view's layer property first, then enables wantsLayer
+            // (layer-hosting mode). Pre-setting wantsLayer creates a
+            // layer-backed view which breaks Metal rendering.
+            let paneView = NSView(frame: tmuxPaneFrame(paneInfo))
+            #if DEBUG
+            dlog("tmux.paneView frame=\(paneView.frame) container=\(tmuxPaneContainer?.frame ?? .zero)")
+            #endif
+            tmuxPaneContainer?.addSubview(paneView)
+
+            // Create Ghostty surface in Manual I/O mode
+            var config = ghostty_surface_config_new()
+            config.platform_tag = GHOSTTY_PLATFORM_MACOS
+            config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
+                nsview: Unmanaged.passUnretained(paneView).toOpaque()
+            ))
+            if let window = window {
+                config.scale_factor = Double(window.backingScaleFactor)
+            }
+            config.io_mode = GHOSTTY_IO_MODE_MANUAL
+
+            // Share the host surface's callback context so actions dispatched
+            // from the pane surface (e.g. OPEN_URL on cmd+click) are routed
+            // to the host's GhosttyNSView action handler.
+            config.userdata = ghostty_surface_userdata(hostSurface)
+
+            // Set up write callback context (C function + opaque pointer)
+            let writeCtx = UnsafeMutablePointer<TmuxPaneWriteContext>.allocate(capacity: 1)
+            writeCtx.initialize(to: TmuxPaneWriteContext(hostSurface: hostSurface, paneId: paneInfo.pane_id))
+            config.io_write_cb = { (userdata: UnsafeMutableRawPointer?, data: UnsafePointer<UInt8>?, len: Int) in
+                guard let userdata = userdata, let data = data, len > 0 else { return }
+                let ctx = userdata.assumingMemoryBound(to: TmuxPaneWriteContext.self).pointee
+                // Classify: printable UTF-8 → literal, control/escape → key name
+                let bytes = UnsafeBufferPointer(start: data, count: len)
+                let first = bytes[0]
+
+                #if DEBUG
+                let hexStr = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+                dlog("tmux.input write_cb len=\(len) first=0x\(String(format: "%02x", first)) hex=[\(hexStr)]")
+                #endif
+
+                // Space via send-keys key name to avoid quoting issues
+                // in tmux control mode command parsing
+                if first == 0x20 && len == 1 {
+                    "Space".withCString { cstr in
+                        ghostty_surface_tmux_send_keys(
+                            ctx.hostSurface, ctx.paneId,
+                            UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                            strlen(cstr), 1  // key_type=1 (key name)
+                        )
+                    }
+                    return
+                }
+                if first == 0x1B && len > 1 {
+                    // Escape sequence → map to tmux key name
+                    if let keyName = GhosttyNSView.tmuxMapEscapeSequence(bytes) {
+                        keyName.withCString { cstr in
+                            ghostty_surface_tmux_send_keys(
+                                ctx.hostSurface, ctx.paneId,
+                                UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                                strlen(cstr), 1  // key_type=1 (key name)
+                            )
+                        }
+                    }
+                } else if first < 0x20 || first == 0x7F {
+                    // Control character → map to tmux key name
+                    if let keyName = GhosttyNSView.tmuxMapControlChar(first) {
+                        keyName.withCString { cstr in
+                            ghostty_surface_tmux_send_keys(
+                                ctx.hostSurface, ctx.paneId,
+                                UnsafePointer<UInt8>(OpaquePointer(cstr)),
+                                strlen(cstr), 1
+                            )
+                        }
+                    }
+                } else {
+                    // Printable text → literal
+                    ghostty_surface_tmux_send_keys(
+                        ctx.hostSurface, ctx.paneId,
+                        data, len, 0  // key_type=0 (literal)
+                    )
+                }
+            }
+            config.io_write_userdata = UnsafeMutableRawPointer(writeCtx)
+
+            guard let paneSurface = ghostty_surface_new(app, &config) else {
+                #if DEBUG
+                dlog("tmux.pane create FAILED pane=\(paneInfo.pane_id)")
+                #endif
+                writeCtx.deinitialize(count: 1)
+                writeCtx.deallocate()
+                paneView.removeFromSuperview()
+                continue
+            }
+
+            // Register with host for %output routing + initial sync
+            ghostty_surface_tmux_register_pane(hostSurface, paneInfo.pane_id, regId, paneSurface)
+
+            tmuxPaneSurfaces[paneInfo.pane_id] = TmuxPaneState(
+                surface: paneSurface,
+                view: paneView,
+                regId: regId,
+                writeContext: writeCtx
+            )
+
+            // Complete surface initialization (same as normal surface flow):
+            // set display ID, content scale, and pixel size so renderer starts.
+            if let screen = window?.screen,
+               let displayID = screen.displayID,
+               displayID != 0 {
+                ghostty_surface_set_display_id(paneSurface, displayID)
+            }
+            let scaleFactor = window?.backingScaleFactor ?? 2.0
+            ghostty_surface_set_content_scale(paneSurface, scaleFactor, scaleFactor)
+            let backingSize = paneView.convertToBacking(NSRect(origin: .zero, size: paneView.bounds.size)).size
+            let wpx = UInt32(max(backingSize.width, 1))
+            let hpx = UInt32(max(backingSize.height, 1))
+            ghostty_surface_set_size(paneSurface, wpx, hpx)
+
+            // Focus the pane surface so it starts accepting input
+            ghostty_surface_set_focus(paneSurface, true)
+
+            #if DEBUG
+            dlog("tmux.pane create pane=\(paneInfo.pane_id) regId=\(regId) viewFrame=\(paneView.frame) wpx=\(wpx) hpx=\(hpx) scale=\(scaleFactor)")
+            #endif
+
+            // Initial sync: capture tmux pane content and replay.
+            // On re-attach, tmux may still be on the default 80x24 geometry,
+            // so we wait briefly for pane_height to converge before replaying.
+            tmuxInitialSync(paneId: paneInfo.pane_id, regId: regId)
+        }
+
+        // Update layout for existing panes
+        for i in 0..<Int(written) {
+            let paneInfo = panes[i]
+            if let state = tmuxPaneSurfaces[paneInfo.pane_id], !toAdd.contains(paneInfo.pane_id) {
+                state.view.frame = tmuxPaneFrame(paneInfo)
+            }
+        }
+
+    }
+
+    /// Convert tmux pane cell coordinates to NSView frame.
+    /// Uses the container bounds to scale: each cell maps to
+    /// (container_width / window_cols) × (container_height / window_rows).
+    private func tmuxPaneFrame(_ pane: ghostty_tmux_pane_info_s) -> NSRect {
+        guard let container = tmuxPaneContainer else { return .zero }
+        let containerBounds = container.bounds
+
+        // For a single-pane window, the pane IS the window — fill container.
+        // For multi-pane, we need the window dimensions to compute cell size.
+        // tmux pane x/y/width/height are in cells. The pane at (0,0) with
+        // full window width/height should fill the entire container.
+        // We use the host surface's cell size for pixel mapping.
+        let cw = max(cellSize.width, 1)
+        let ch = max(cellSize.height, 1)
+
+        let x = CGFloat(pane.x) * cw
+        let y = CGFloat(pane.y) * ch
+        let w = CGFloat(pane.width) * cw
+        let h = CGFloat(pane.height) * ch
+
+        // Reserve space for the status bar at the bottom (AppKit y=0).
+        // tmuxStatusBar points to the left label inside the barView.
+        let barHeight = tmuxStatusBar?.superview?.frame.height ?? 0
+        let availH = containerBounds.height - barHeight
+
+        // Clamp to available area (above status bar)
+        return NSRect(
+            x: min(x, containerBounds.width),
+            y: min(y + barHeight, containerBounds.height),
+            width: min(w, containerBounds.width - min(x, containerBounds.width)),
+            height: min(h, availH - min(y, availH))
+        )
+    }
+
+    private func tmuxDesiredClientSize() -> (cols: Int, rows: Int)? {
+        let cw = max(cellSize.width, 1)
+        let ch = max(cellSize.height, 1)
+        let containerH = tmuxPaneContainer?.bounds.height ?? bounds.height
+        let containerW = tmuxPaneContainer?.bounds.width ?? bounds.width
+        let barH = tmuxStatusBar?.superview?.frame.height ?? 0
+        let cols = Int(containerW / cw)
+        let rows = Int((containerH - barH) / ch)
+        guard cols > 0, rows > 0 else { return nil }
+        return (cols, rows)
+    }
+
+    private func tmuxCurrentClientSize(_ panes: ArraySlice<ghostty_tmux_pane_info_s>) -> (cols: Int, rows: Int)? {
+        guard !panes.isEmpty else { return nil }
+        var cols = 0
+        var rows = 0
+        for pane in panes {
+            cols = max(cols, Int(pane.x + pane.width))
+            rows = max(rows, Int(pane.y + pane.height))
+        }
+        guard cols > 0, rows > 0 else { return nil }
+        return (cols, rows)
+    }
+
+    /// Handle ack from I/O thread that a pane surface is unregistered.
+    /// Now safe to destroy the surface.
+    func handleTmuxPaneUnregistered(paneId: UInt, regId: UInt32) {
+        #if DEBUG
+        dlog("tmux.pane unregistered ack pane=\(paneId) regId=\(regId)")
+        #endif
+
+        // Verify this ack matches our pending unregister
+        if let pendingRegId = tmuxPendingUnregister[paneId], pendingRegId == regId {
+            tmuxPendingUnregister.removeValue(forKey: paneId)
+        }
+
+        // If the pane is still in our surfaces map with a DIFFERENT regId,
+        // it's been re-registered — don't destroy.
+        if let current = tmuxPaneSurfaces[paneId], current.regId == regId {
+            current.view.removeFromSuperview()
+            ghostty_surface_free(current.surface)
+            current.writeContext.deinitialize(count: 1)
+            current.writeContext.deallocate()
+            tmuxPaneSurfaces.removeValue(forKey: paneId)
+        }
+    }
+
+    /// Clean up all tmux pane surfaces (called on tmux exit).
+    func tmuxCleanupAllPanes() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        for (paneId, state) in tmuxPaneSurfaces {
+            ghostty_surface_tmux_unregister_pane(hostSurface, paneId, state.regId)
+            state.view.removeFromSuperview()
+            ghostty_surface_free(state.surface)
+            state.writeContext.deinitialize(count: 1)
+            state.writeContext.deallocate()
+        }
+        tmuxPaneSurfaces.removeAll()
+        tmuxPendingUnregister.removeAll()
+        tmuxStatusBarTimer?.invalidate()
+        tmuxStatusBarTimer = nil
+        tmuxStatusBar?.superview?.removeFromSuperview()  // remove barView
+        tmuxStatusBar = nil
+        // Restore host terminal rendering
+        self.alphaValue = 1
+        tmuxPaneContainer?.removeFromSuperview()
+        tmuxPaneContainer = nil
+        tmuxRequestedClientSize = nil
+    }
+
+    /// Query tmux for session/window info and update the status bar.
+    /// Uses tmux's actual status-left and status-right format strings,
+    /// targeting the specific pane so we get the correct session context.
+    private func tmuxUpdateStatusBar(barView: NSView, paneId: UInt) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak barView] in
+            let target = "%\(paneId)"
+            // Use tmux's own status format evaluation
+            let leftText = Self.tmuxQuery(
+                "display-message", "-t", target, "-p",
+                "#{T:status-left}#{W:#{E:window-status-current-format} ,#{E:window-status-format} }"
+            )
+            let rightText = Self.tmuxQuery(
+                "display-message", "-t", target, "-p", "#{T:status-right}"
+            )
+
+            DispatchQueue.main.async {
+                guard let barView = barView else { return }
+                if let left = barView.viewWithTag(1) as? NSTextField {
+                    left.stringValue = leftText.isEmpty ? "" : leftText
+                }
+                if let right = barView.viewWithTag(2) as? NSTextField {
+                    right.stringValue = rightText.isEmpty ? "" : rightText
+                }
+            }
+        }
+    }
+
+    /// Run a tmux command and return trimmed stdout.
+    private func tmuxStartStatusBarTimer(barView: NSView, paneId: UInt) {
+        tmuxStatusBarTimer?.invalidate()
+        tmuxStatusBarTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self, weak barView] _ in
+            guard let barView = barView else {
+                self?.tmuxStatusBarTimer?.invalidate()
+                return
+            }
+            self?.tmuxUpdateStatusBar(barView: barView, paneId: paneId)
+        }
+    }
+
+    private static func tmuxQuery(_ args: String...) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    // MARK: - Tmux Prefix Layer Methods
+
+    /// Reset prefix state (called on tmux exit).
+    func tmuxResetPrefixState() {
+        tmuxPrefixState = .idle
+        tmuxPrefixConfig = TmuxPrefixConfig()
+        tmuxActivePaneId = nil
+    }
+
+    /// Capture the tmux pane's visible content and feed it to the pane surface.
+    /// Uses `tmux capture-pane -p -e` to get ANSI-escaped content. On re-attach
+    /// tmux may briefly report the default 80x24 geometry, so we retry until
+    /// pane_height matches the pane surface rows (or fall back after a few tries).
+    private func tmuxInitialSync(paneId: UInt, regId: UInt32, attempt: Int = 0) {
+        let maxAttempts = 12
+        let retryDelay: TimeInterval = 0.05
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let paneInfo = Self.tmuxQueryArray([
+                "display-message", "-t", "%\(paneId)", "-p", "#{pane_height};#{cursor_y};#{cursor_x}"
+            ])
+            let output = Self.tmuxQueryRaw(["capture-pane", "-p", "-e", "-t", "%\(paneId)"])
+
+            DispatchQueue.main.async {
+                guard let self = self,
+                      let state = self.tmuxPaneSurfaces[paneId],
+                      state.regId == regId else { return }
+
+                let surfaceRows = max(Int(ghostty_surface_size(state.surface).rows), 1)
+
+                let paneParts = paneInfo.components(separatedBy: ";")
+                let tmuxRows = paneParts.count >= 1 ? Int(paneParts[0]) : nil
+                let rawCursorRow = paneParts.count >= 2 ? Int(paneParts[1]) : nil
+                let rawCursorCol = paneParts.count >= 3 ? Int(paneParts[2]) : nil
+
+                if attempt < maxAttempts {
+                    if tmuxRows != surfaceRows || output.isEmpty {
+                        if let desired = self.tmuxDesiredClientSize() {
+                            self.tmuxRequestedClientSize = desired
+                            self.tmuxSendCommand("refresh-client -C \(desired.cols)x\(desired.rows)")
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay) { [weak self] in
+                            self?.tmuxInitialSync(paneId: paneId, regId: regId, attempt: attempt + 1)
+                        }
+                        return
+                    }
+                } else if output.isEmpty {
+                    return
+                }
+
+                var captureLines = output.components(separatedBy: "\n")
+                if captureLines.last == "" {
+                    captureLines.removeLast()
+                }
+
+                var adjustedCursorRow = rawCursorRow ?? 0
+                let adjustedCursorCol = rawCursorCol ?? 0
+
+                if captureLines.count > surfaceRows {
+                    // More lines than surface can display: keep bottom rows
+                    let overflow = captureLines.count - surfaceRows
+                    captureLines = Array(captureLines.suffix(surfaceRows))
+                    adjustedCursorRow -= overflow
+                } else if captureLines.count < surfaceRows {
+                    // Fewer lines: use cursor position to calculate minimal
+                    // top padding so content aligns with where tmux has the
+                    // cursor, instead of blindly padding to fill the screen.
+                    let neededTopPad = max(0, adjustedCursorRow - (captureLines.count - 1))
+                    if neededTopPad > 0 {
+                        captureLines = Array(repeating: "", count: neededTopPad) + captureLines
+                        adjustedCursorRow = adjustedCursorRow  // unchanged — pad pushes content down to match
+                    }
+                }
+
+                adjustedCursorRow = max(0, min(adjustedCursorRow, max(captureLines.count - 1, 0)))
+
+                var fullOutput = "\u{1B}[H"
+                for (i, line) in captureLines.enumerated() {
+                    if i > 0 { fullOutput += "\r\n" }
+                    fullOutput += line
+                }
+                fullOutput += "\u{1B}[\(adjustedCursorRow + 1);\(adjustedCursorCol + 1)H"
+
+                guard let bytes = fullOutput.data(using: .utf8) else { return }
+                bytes.withUnsafeBytes { rawBuf in
+                    let ptr = rawBuf.baseAddress!.assumingMemoryBound(to: UInt8.self)
+                    ghostty_surface_process_output(state.surface, ptr, bytes.count)
+                }
+            }
+        }
+    }
+
+    /// Run a tmux command and return raw stdout bytes (no trimming).
+    private static func tmuxQueryRaw(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    /// Send a raw tmux command through the control mode channel.
+    private func tmuxSendCommand(_ command: String) {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        command.withCString { cstr in
+            ghostty_surface_tmux_command(hostSurface, UnsafePointer<UInt8>(OpaquePointer(cstr)), strlen(cstr))
+        }
+    }
+
+    /// Normalize an NSEvent into a tmux key name (e.g. "C-b", "d", "Left", "Enter").
+    /// Returns nil if the event can't be mapped to a tmux key.
+    private func tmuxKeyName(for event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let hasCtrl = flags.contains(.control)
+        let hasMeta = flags.contains(.option)  // tmux calls Option "Meta"
+        let hasShift = flags.contains(.shift)
+
+        // Special keys by keyCode
+        let specialKey: String? = switch event.keyCode {
+        case 126: "Up"
+        case 125: "Down"
+        case 123: "Left"
+        case 124: "Right"
+        case 115: "Home"
+        case 119: "End"
+        case 116: "PPage"     // tmux uses PPage/NPage in list-keys -T prefix
+        case 121: "NPage"
+        case 117: "DC"        // Forward Delete
+        case 122: "F1"
+        case 120: "F2"
+        case 99:  "F3"
+        case 118: "F4"
+        case 96:  "F5"
+        case 97:  "F6"
+        case 98:  "F7"
+        case 100: "F8"
+        case 101: "F9"
+        case 109: "F10"
+        case 103: "F11"
+        case 111: "F12"
+        case 36:  "Enter"
+        case 48:  "Tab"
+        case 53:  "Escape"
+        case 49:  "Space"
+        case 51:  "BSpace"    // Backspace
+        default:  nil
+        }
+
+        var name: String
+        if let specialKey {
+            name = specialKey
+        } else if hasCtrl, let chars = event.charactersIgnoringModifiers?.lowercased(),
+                  let ch = chars.first, ch.isASCII, let av = ch.asciiValue, av >= 0x61, av <= 0x7A {
+            // Ctrl+letter: tmux uses "C-<letter>"
+            return "C-\(ch)"
+        } else if let chars = event.characters, !chars.isEmpty {
+            // Use .characters (not .charactersIgnoringModifiers) to get the
+            // actual typed character. This means Shift+5 → "%" not "S-5",
+            // matching how tmux names keys in list-keys output.
+            let ch = chars.first!
+            if ch == " " { name = "Space" }
+            else { name = String(ch) }
+        } else {
+            return nil
+        }
+
+        // For special keys (arrows, F-keys, etc.), add modifier prefixes.
+        // For printable characters, the character itself already encodes
+        // the shift state (e.g. "%" instead of "S-5"), so only add C-/M-.
+        var prefix = ""
+        if hasCtrl { prefix += "C-" }
+        if let _ = specialKey, hasShift { prefix += "S-" }
+        if hasMeta { prefix += "M-" }
+
+        if prefix.isEmpty {
+            return name
+        }
+        return "\(prefix)\(name)"
+    }
+
+    /// Load prefix configuration from tmux: prefix keys and key bindings.
+    /// Called asynchronously after entering tmux control mode.
+    func tmuxLoadPrefixConfig() {
+        guard let hostSurface = terminalSurface?.surface else { return }
+        // Capture pane ID for target
+        let paneId: UInt? = tmuxPaneSurfaces.values.first?.writeContext.pointee.paneId
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            var config = TmuxPrefixConfig()
+
+            // Load prefix keys
+            let targetArgs: [String] = paneId.map { ["-t", "%\($0)"] } ?? []
+            let prefix1 = Self.tmuxQueryArray(["show", "-gv", "prefix"] + targetArgs)
+            let prefix2 = Self.tmuxQueryArray(["show", "-gv", "prefix2"] + targetArgs)
+            if !prefix1.isEmpty { config.prefixKeys.insert(prefix1) }
+            if !prefix2.isEmpty { config.prefixKeys.insert(prefix2) }
+
+            // Load bindings from prefix key table
+            let listKeysOutput = Self.tmuxQueryArray(["list-keys", "-T", "prefix"] + targetArgs)
+            // Parse lines like: bind-key    -T prefix d detach-client
+            // tmux escapes some key tokens with backslash: \%, \", \#, \$
+            for line in listKeysOutput.components(separatedBy: "\n") {
+                let parts = line.trimmingCharacters(in: .whitespaces)
+                    .components(separatedBy: .whitespaces)
+                    .filter { !$0.isEmpty }
+                // Format: bind-key [-r] -T prefix <key> <command...>
+                guard parts.count >= 5,
+                      parts[0] == "bind-key" else { continue }
+                // Find the key and command after "-T prefix"
+                if let tIdx = parts.firstIndex(of: "-T"),
+                   tIdx + 2 < parts.count,
+                   parts[tIdx + 1] == "prefix" {
+                    let keyIdx = tIdx + 2
+                    // Unescape tmux key token: \% → %, \" → ", etc.
+                    var key = parts[keyIdx]
+                    if key.hasPrefix("\\") && key.count == 2 {
+                        key = String(key.dropFirst())
+                    }
+                    let command = parts[(keyIdx + 1)...].joined(separator: " ")
+                    if !command.isEmpty {
+                        config.bindings[key] = command
+                    }
+                }
+            }
+
+            config.loaded = true
+
+            #if DEBUG
+            dlog("tmux.prefix loaded: keys=\(config.prefixKeys) bindings=\(config.bindings.count) entries")
+            #endif
+
+            DispatchQueue.main.async {
+                self?.tmuxPrefixConfig = config
+            }
+        }
+    }
+
+    /// Helper: run tmux command and return full stdout.
+    private static func tmuxQueryArray(_ args: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["tmux"] + args
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    /// Map escape sequences to tmux key names.
+    static func tmuxMapEscapeSequence(_ bytes: UnsafeBufferPointer<UInt8>) -> String? {
+        // Handle both CSI (ESC [) and SS3/application mode (ESC O) arrow keys
+        if bytes.count == 3 && (bytes[1] == 0x5B || bytes[1] == 0x4F) { // ESC[ or ESCO
+            switch bytes[2] {
+            case 0x41: return "Up"
+            case 0x42: return "Down"
+            case 0x43: return "Right"
+            case 0x44: return "Left"
+            case 0x48: return "Home"
+            case 0x46: return "End"
+            default: break
+            }
+        }
+        if bytes.count == 4 && bytes[1] == 0x5B { // ESC[x~
+            if bytes[3] == 0x7E { // ~
+                switch bytes[2] {
+                case 0x32: return "IC"     // Insert
+                case 0x33: return "DC"     // Delete
+                case 0x35: return "PPage"  // Page Up
+                case 0x36: return "NPage"  // Page Down
+                default: break
+                }
+            }
+        }
+        if bytes.count == 1 {
+            return "Escape"
+        }
+        // Unknown escape sequence — log and skip
+        #if DEBUG
+        let hex = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+        dlog("tmux.input unmapped escape: \(hex)")
+        #endif
+        return nil
+    }
+
+    /// Map control characters to tmux key names.
+    static func tmuxMapControlChar(_ byte: UInt8) -> String? {
+        switch byte {
+        case 0x0D: return "Enter"
+        case 0x09: return "Tab"
+        case 0x1B: return "Escape"
+        case 0x7F: return "BSpace"
+        case 0x08: return "BSpace"
+        case 0x01: return "C-a"
+        case 0x02: return "C-b"
+        case 0x03: return "C-c"
+        case 0x04: return "C-d"
+        case 0x05: return "C-e"
+        case 0x06: return "C-f"
+        case 0x0B: return "C-k"
+        case 0x0C: return "C-l"
+        case 0x0E: return "C-n"
+        case 0x10: return "C-p"
+        case 0x12: return "C-r"
+        case 0x15: return "C-u"
+        case 0x17: return "C-w"
+        case 0x19: return "C-y"
+        case 0x1A: return "C-z"
+        default:
+            if byte < 0x20 {
+                // Generic C-x mapping
+                let ch = Character(UnicodeScalar(byte + 0x60))
+                return "C-\(ch)"
+            }
+            return nil
+        }
+    }
+
     override func mouseUp(with event: NSEvent) {
         #if DEBUG
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
+        if let paneState = activeTmuxPane {
+            _ = ghostty_surface_mouse_button(paneState.surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+            return
+        }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
 
@@ -6045,6 +7281,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
+        // Route to pane surface in tmux mode for link hover detection
+        if let paneState = activeTmuxPane {
+            let paneSurface = paneState.surface
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(paneSurface, point.x, paneState.view.bounds.height - point.y, modsFromEvent(event))
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
@@ -6084,6 +7327,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         guard let surface = surface else { return }
+        if let paneState = activeTmuxPane {
+            let point = paneState.view.convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(paneState.surface, point.x, paneState.view.bounds.height - point.y, modsFromEvent(event))
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
@@ -9236,6 +10484,9 @@ extension GhosttyNSView: NSTextInputClient {
         default:
             break
         }
+        // selectedRange.location is the cursor position between characters.
+        // The renderer draws a bar cursor at the LEFT edge of this codepoint index.
+        markedTextCursorOffset = selectedRange.location
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts
@@ -9279,21 +10530,28 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
-        guard let surface = surface else { return }
+        // Use inputSurface so IME preedit renders on the pane surface
+        // when in tmux control mode.
+        guard let target = inputSurface else { return }
 
         if markedText.length > 0 {
             let str = markedText.string
             let len = str.utf8CString.count
             if len > 0 {
                 str.withCString { ptr in
-                    // Subtract 1 for the null terminator
-                    ghostty_surface_preedit(surface, ptr, UInt(len - 1))
+                    // Subtract 1 for the null terminator.
+                    // Pass cursor offset so the renderer draws a double
+                    // underline at the IME cursor position.
+                    ghostty_surface_preedit_with_cursor(
+                        target, ptr, UInt(len - 1),
+                        UInt(markedTextCursorOffset)
+                    )
                 }
             }
         } else if clearIfNeeded {
             // If we had marked text before but don't now, we're no longer
             // in a preedit state so we can clear it.
-            ghostty_surface_preedit(surface, nil, 0)
+            ghostty_surface_preedit(target, nil, 0)
         }
     }
 
@@ -9333,8 +10591,8 @@ extension GhosttyNSView: NSTextInputClient {
             y = override.y
             w = override.width
             h = override.height
-        } else if let surface = surface {
-            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        } else if let target = inputSurface {
+            ghostty_surface_ime_point(target, &x, &y, &w, &h)
         }
 #else
         if range.length > 0,
@@ -9342,8 +10600,8 @@ extension GhosttyNSView: NSTextInputClient {
            let snapshot = readSelectionSnapshot() {
             x = snapshot.topLeft.x - 2
             y = snapshot.topLeft.y + 2
-        } else if let surface = surface {
-            ghostty_surface_ime_point(surface, &x, &y, &w, &h)
+        } else if let target = inputSurface {
+            ghostty_surface_ime_point(target, &x, &y, &w, &h)
         }
 #endif
 
@@ -9353,13 +10611,21 @@ extension GhosttyNSView: NSTextInputClient {
         }
 
         // Ghostty coordinates are top-left origin; AppKit expects bottom-left.
+        // When in tmux mode, the coordinates are relative to the pane view,
+        // so we must convert through the pane view's coordinate space.
+        let sourceView: NSView
+        if let paneState = activeTmuxPane {
+            sourceView = paneState.view
+        } else {
+            sourceView = self
+        }
         let viewRect = NSRect(
             x: x,
-            y: frame.size.height - y,
+            y: sourceView.frame.size.height - y,
             width: w,
             height: max(h, cellSize.height)
         )
-        let winRect = convert(viewRect, to: nil)
+        let winRect = sourceView.convert(viewRect, to: nil)
         return window.convertToScreen(winRect)
     }
 
