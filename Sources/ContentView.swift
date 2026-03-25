@@ -12367,13 +12367,29 @@ private struct TabItemView: View, Equatable {
     private func promptCustomColor(targetIds: [UUID]) {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
-        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
+        alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color or use the color picker.")
 
         let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
-        let input = NSTextField(string: seed)
-        input.placeholderString = "#1565C0"
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+
+        let colorWell = NSColorWell(frame: NSRect(x: 0, y: 0, width: 40, height: 24))
+        if #available(macOS 13.0, *) {
+            colorWell.colorWellStyle = .minimal
+        }
+        colorWell.color = NSColor(hex: seed) ?? .systemBlue
+        container.addSubview(colorWell)
+
+        let input = NSTextField(frame: NSRect(x: 48, y: 1, width: 192, height: 22))
+        input.stringValue = seed.isEmpty ? colorWell.color.hexString() : seed
+        input.placeholderString = String(localized: "alert.customColor.placeholder", defaultValue: "#1565C0")
+        container.addSubview(input)
+
+        let coordinator = ColorPanelCoordinator(colorWell: colorWell, textField: input)
+        // Keep coordinator alive for the duration of the alert
+        objc_setAssociatedObject(alert, &ColorPanelCoordinator.associatedKey, coordinator, .OBJC_ASSOCIATION_RETAIN)
+
+        alert.accessoryView = container
         alert.addButton(withTitle: String(localized: "alert.customColor.apply", defaultValue: "Apply"))
         alert.addButton(withTitle: String(localized: "alert.customColor.cancel", defaultValue: "Cancel"))
 
@@ -12385,6 +12401,9 @@ private struct TabItemView: View, Equatable {
         }
 
         let response = alert.runModal()
+        if coordinator.didOpenColorPanel {
+            NSColorPanel.shared.orderOut(nil)
+        }
         guard response == .alertFirstButtonReturn else { return }
         guard let normalized = WorkspaceTabColorSettings.addCustomColor(input.stringValue) else {
             showInvalidColorAlert(input.stringValue)
@@ -13959,6 +13978,48 @@ enum SidebarPresetOption: String, CaseIterable, Identifiable {
         case .hudGlass: return 0.98
         case .underWindow: return 0.9
         }
+    }
+}
+
+private class ColorPanelCoordinator: NSObject, NSTextFieldDelegate {
+    static var associatedKey: UInt8 = 0
+    private weak var colorWell: NSColorWell?
+    private weak var textField: NSTextField?
+    private var isSyncing = false
+    private(set) var didOpenColorPanel = false
+
+    init(colorWell: NSColorWell, textField: NSTextField) {
+        self.colorWell = colorWell
+        self.textField = textField
+        super.init()
+        colorWell.target = self
+        colorWell.action = #selector(colorWellChanged(_:))
+        textField.delegate = self
+    }
+
+    @objc private func colorWellChanged(_ sender: NSColorWell) {
+        didOpenColorPanel = true
+        guard !isSyncing, let textField else { return }
+        isSyncing = true
+        textField.stringValue = sender.color.hexString()
+        textField.backgroundColor = .controlBackgroundColor
+        isSyncing = false
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard !isSyncing, let textField, let colorWell else { return }
+        isSyncing = true
+        let trimmed = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalized = WorkspaceTabColorSettings.normalizedHex(trimmed),
+           let color = NSColor(hex: normalized) {
+            colorWell.color = color
+            textField.backgroundColor = .controlBackgroundColor
+        } else if !trimmed.isEmpty {
+            textField.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15)
+        } else {
+            textField.backgroundColor = .controlBackgroundColor
+        }
+        isSyncing = false
     }
 }
 
