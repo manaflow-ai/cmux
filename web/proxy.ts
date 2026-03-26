@@ -20,7 +20,9 @@ export default function middleware(request: NextRequest) {
   const legalPages = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
   const { pathname } = request.nextUrl;
   if (legalPages.has(pathname)) {
-    return NextResponse.next();
+    const url = request.nextUrl.clone();
+    url.pathname = `/en${pathname}`;
+    return NextResponse.rewrite(url);
   }
   const secondSlash = pathname.indexOf("/", 1);
   if (secondSlash !== -1) {
