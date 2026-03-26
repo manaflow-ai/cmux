@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Nouvel espace de travail",
+        "ws-prev": "Espace de travail précédent",
+        "ws-next": "Espace de travail suivant",
         "ws-jump-1-8": "Aller à l'espace de travail 1–8",
         "ws-jump-last": "Aller au dernier espace de travail",
         "ws-close": "Fermer l'espace de travail",

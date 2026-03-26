@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Nyt workspace",
+        "ws-prev": "Forrige workspace",
+        "ws-next": "Næste workspace",
         "ws-jump-1-8": "Spring til workspace 1–8",
         "ws-jump-last": "Spring til sidste workspace",
         "ws-close": "Luk workspace",

@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Workspace ថ្មី",
+        "ws-prev": "Workspace មុន",
+        "ws-next": "Workspace បន្ទាប់",
         "ws-jump-1-8": "លោតទៅ workspace 1–8",
         "ws-jump-last": "លោតទៅ workspace ចុងក្រោយ",
         "ws-close": "បិទ workspace",

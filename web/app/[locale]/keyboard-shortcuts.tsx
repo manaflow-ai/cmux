@@ -23,6 +23,8 @@ const CATEGORIES: ShortcutCategory[] = [
     blurbKey: "workspacesBlurb",
     shortcuts: [
       { id: "ws-new", combos: [["⌘", "N"]] },
+      { id: "ws-prev", combos: [["⌃", "⌘", "["]] },
+      { id: "ws-next", combos: [["⌃", "⌘", "]"]] },
       { id: "ws-jump-1-8", combos: [["⌘", "1–8"]] },
       { id: "ws-jump-last", combos: [["⌘", "9"]] },
       { id: "ws-close", combos: [["⌘", "⇧", "W"]] },

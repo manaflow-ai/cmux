@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Novo workspace",
+        "ws-prev": "Workspace anterior",
+        "ws-next": "Workspace seguinte",
         "ws-jump-1-8": "Ir para workspace 1–8",
         "ws-jump-last": "Ir para último workspace",
         "ws-close": "Fechar workspace",
