@@ -4565,7 +4565,8 @@ class TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
-            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
+            let focus = v2Bool(params, "focus") ?? true
+            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction, focus: focus) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([

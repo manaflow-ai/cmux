@@ -9015,6 +9015,18 @@ struct CMUXCLI {
     ) throws -> (workspaceId: String, paneId: String?, surfaceId: String) {
         if tmuxPaneSelector(from: raw) != nil {
             let resolved = try tmuxResolvePaneTarget(raw, client: client)
+            // When the target pane matches the caller's pane, prefer the caller's
+            // exact surface (CMUX_SURFACE_ID) over the pane's currently selected
+            // surface. The selected surface can change (e.g. tab switches) after
+            // claude-teams started, but the caller surface stays fixed.
+            let callerPane = tmuxCallerPaneHandle()
+            let callerSurface = tmuxCallerSurfaceHandle()
+            let canonicalCallerPane = callerPane.flatMap { try? tmuxCanonicalPaneId($0, workspaceId: resolved.workspaceId, client: client) }
+            let paneMatch = callerPane != nil && (resolved.paneId == callerPane! || resolved.paneId == canonicalCallerPane)
+            let canonicalSurface = callerSurface.flatMap { try? tmuxCanonicalSurfaceId($0, workspaceId: resolved.workspaceId, client: client) }
+            if paneMatch, let surfaceId = canonicalSurface {
+                return (resolved.workspaceId, resolved.paneId, surfaceId)
+            }
             let surfaceId = try tmuxSelectedSurfaceId(
                 workspaceId: resolved.workspaceId,
                 paneId: resolved.paneId,
@@ -9548,23 +9560,62 @@ struct CMUXCLI {
                 valueFlags: ["-c", "-F", "-l", "-t"],
                 boolFlags: ["-P", "-b", "-d", "-h", "-v"]
             )
-            let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-            let direction: String
+            var target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
+            var direction: String
             if parsed.hasFlag("-h") {
                 direction = parsed.hasFlag("-b") ? "left" : "right"
             } else {
                 direction = parsed.hasFlag("-b") ? "up" : "down"
             }
+
+            // Claude's agent teams targets arbitrary panes (from list-panes),
+            // not necessarily the leader pane from TMUX_PANE. Override the
+            // target to anchor all teammate splits to the leader surface.
+            let store = loadTmuxCompatStore()
+            if let callerSurface = tmuxCallerSurfaceHandle(),
+               let callerWorkspace = tmuxCallerWorkspaceHandle() {
+                let wsId = (try? resolveWorkspaceId(callerWorkspace, client: client)) ?? target.workspaceId
+                if let mvState = store.mainVerticalLayouts[wsId],
+                   let lastColumn = mvState.lastColumnSurfaceId {
+                    // Main-vertical active: stack in right column.
+                    target = (wsId, nil, lastColumn)
+                    direction = "down"
+                } else {
+                    // First teammate: split the leader surface to the right.
+                    target = (wsId, nil, callerSurface)
+                    direction = "right"
+                }
+            }
+
+            // Keep the leader pane focused while Claude starts teammates beside it.
             let created = try client.sendV2(method: "surface.split", params: [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "direction": direction
+                "direction": direction,
+                "focus": false
             ])
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
             }
             let paneId = created["pane_id"] as? String
-            // Keep the leader pane focused while Claude starts teammates beside it.
+
+            // Track the newly created pane for main-vertical layout.
+            do {
+                var updatedStore = loadTmuxCompatStore()
+                updatedStore.lastSplitSurface[target.workspaceId] = surfaceId
+                if updatedStore.mainVerticalLayouts[target.workspaceId] != nil {
+                    updatedStore.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
+                } else if direction == "right", let callerSurface = tmuxCallerSurfaceHandle() {
+                    // First right split created the column; seed main-vertical
+                    // state so subsequent splits stack downward.
+                    updatedStore.mainVerticalLayouts[target.workspaceId] = MainVerticalState(
+                        mainSurfaceId: callerSurface,
+                        lastColumnSurfaceId: surfaceId
+                    )
+                }
+                try saveTmuxCompatStore(updatedStore)
+            }
+
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 _ = try client.sendV2(method: "surface.send_text", params: [
                     "workspace_id": target.workspaceId,
@@ -9785,7 +9836,27 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             _ = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
 
-        case "select-layout", "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
+        case "select-layout":
+            let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
+            let layoutName = parsed.positional.first ?? ""
+            if layoutName == "main-vertical" {
+                let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+                if let callerSurface = tmuxCallerSurfaceHandle() {
+                    var store = loadTmuxCompatStore()
+                    // Seed lastColumnSurfaceId from the most recent split if
+                    // this is the first time main-vertical is set and a split
+                    // already happened (the normal flow: split then layout).
+                    let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
+                    let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
+                    store.mainVerticalLayouts[workspaceId] = MainVerticalState(
+                        mainSurfaceId: callerSurface,
+                        lastColumnSurfaceId: seedColumn
+                    )
+                    try saveTmuxCompatStore(store)
+                }
+            }
+
+        case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
 
         default:
@@ -9793,14 +9864,31 @@ struct CMUXCLI {
         }
     }
 
+    private struct MainVerticalState: Codable {
+        /// The surface ID of the "main" (leader) pane on the left side.
+        var mainSurfaceId: String
+        /// The surface ID of the bottom-most pane in the right column.
+        /// Subsequent teammate splits target this pane with direction "down".
+        var lastColumnSurfaceId: String?
+    }
+
     private struct TmuxCompatStore: Codable {
         var buffers: [String: String] = [:]
         var hooks: [String: String] = [:]
+        /// Tracks main-vertical layout state per workspace, keyed by workspace ID.
+        var mainVerticalLayouts: [String: MainVerticalState] = [:]
+        /// Tracks the last surface created by split-window per workspace.
+        /// Used to seed lastColumnSurfaceId when select-layout main-vertical
+        /// is called after the first split.
+        var lastSplitSurface: [String: String] = [:]
     }
 
     private func tmuxCompatStoreURL() -> URL {
-        let root = NSString(string: "~/.cmuxterm").expandingTildeInPath
-        return URL(fileURLWithPath: root).appendingPathComponent("tmux-compat-store.json")
+        let homePath = ProcessInfo.processInfo.environment["HOME"]
+            ?? NSString(string: "~").expandingTildeInPath
+        return URL(fileURLWithPath: homePath)
+            .appendingPathComponent(".cmuxterm")
+            .appendingPathComponent("tmux-compat-store.json")
     }
 
     private func loadTmuxCompatStore() -> TmuxCompatStore {
