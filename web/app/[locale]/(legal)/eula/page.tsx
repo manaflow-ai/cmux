@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "EULA — cmux",
   description: "End-User License Agreement for cmux",
-  alternates: { canonical: "./" },
+  alternates: { canonical: "https://cmux.com/eula" },
 };
 
 export default function EulaPage() {

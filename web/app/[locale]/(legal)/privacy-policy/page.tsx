@@ -4,7 +4,7 @@ import { Link } from "../../../../i18n/navigation";
 export const metadata: Metadata = {
   title: "Privacy Policy — cmux",
   description: "Privacy policy for cmux",
-  alternates: { canonical: "./" },
+  alternates: { canonical: "https://cmux.com/privacy-policy" },
 };
 
 export default function PrivacyPolicyPage() {

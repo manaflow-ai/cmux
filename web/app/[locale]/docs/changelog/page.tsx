@@ -3,6 +3,7 @@ import path from "path";
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
 import { changelogMedia, type VersionMedia } from "./changelog-media";
 
 /** Read PNG dimensions from the IHDR chunk (bytes 16-23). */
@@ -21,6 +22,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/changelog"),
   };
 }
 

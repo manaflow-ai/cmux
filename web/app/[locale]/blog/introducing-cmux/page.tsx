@@ -1,11 +1,11 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.introducingCmux" });
-  const url = locale === "en" ? "/blog/introducing-cmux" : `/${locale}/blog/introducing-cmux`;
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
@@ -18,14 +18,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-02-12T00:00:00Z",
-      url,
     },
     twitter: {
       card: "summary_large_image",
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
-    alternates: { canonical: url },
+    alternates: buildAlternates(locale, "/blog/introducing-cmux"),
   };
 }
 

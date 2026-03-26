@@ -8,6 +8,7 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "../../i18n/routing";
+import { buildAlternates } from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { SiteFooter } from "./components/site-footer";
@@ -30,8 +31,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "meta" });
-  const url =
-    locale === "en" ? "https://cmux.com" : `https://cmux.com/${locale}`;
+  const alternates = buildAlternates(locale, "");
   return {
     title: t("title"),
     description: t("description"),
@@ -52,7 +52,7 @@ export async function generateMetadata({
     openGraph: {
       title: t("title"),
       description: t("ogDescription"),
-      url,
+      url: alternates.canonical,
       siteName: "cmux",
       type: "website",
     },
@@ -61,6 +61,7 @@ export async function generateMetadata({
       title: t("title"),
       description: t("ogDescription"),
     },
+    alternates,
     metadataBase: new URL("https://cmux.com"),
   };
 }
