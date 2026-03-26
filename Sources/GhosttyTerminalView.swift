@@ -540,7 +540,16 @@ func resolveTerminalOpenURLTarget(_ rawValue: String, workingDirectory: String? 
     // are never misrouted to local files.
     // Strip trailing line/column suffix (e.g. "file.swift:42:10") before checking.
     if let cwd = workingDirectory, !cwd.isEmpty {
-        let pathPart = trimmed.components(separatedBy: ":").first ?? trimmed
+        // Strip trailing ":line" or ":line:col" suffixes only — filenames can
+        // legally contain colons on macOS, so only drop components that are purely numeric.
+        let pathPart: String = {
+            let parts = trimmed.components(separatedBy: ":")
+            var end = parts.count
+            while end > 1, parts[end - 1].allSatisfy(\.isNumber) {
+                end -= 1
+            }
+            return parts[..<end].joined(separator: ":")
+        }()
         let resolved = (cwd as NSString).appendingPathComponent(pathPart)
         if FileManager.default.fileExists(atPath: resolved) {
             #if DEBUG
@@ -2609,7 +2618,7 @@ class GhosttyApp {
                 guard let tabId = surfaceView.tabId,
                       let surfaceId = surfaceView.terminalSurface?.id,
                       let app = AppDelegate.shared,
-                      let tabManager = app.tabManagerFor(tabId: tabId),
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
                       let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
                     return nil
                 }
