@@ -10652,15 +10652,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
-        // When a non-Latin input source is active, treat non-ASCII event chars the same as
-        // absent chars — they carry no usable Latin key identity.
+        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
+        // event chars carry no usable Latin key identity. Always allow keyCode fallback as a
+        // safety net — even when the layout-based translation resolved a character, the
+        // physical key code is the definitive identifier for the intended shortcut.
         let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasUsableEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || !hasUsableEventChars
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode
