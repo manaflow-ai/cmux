@@ -8,13 +8,16 @@ struct FileExplorerView: View {
     let onFileSelect: (URL) -> Void
     /// Called when the user double-clicks a file (open in external editor).
     let onFileDoubleClick: (URL) -> Void
+    /// Called when the user clicks the "sync to cwd" button.
+    let onSyncToCwd: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             FileExplorerHeader(
                 rootURL: state.rootURL,
                 showHidden: $state.showHidden,
-                onRefresh: { state.refresh() }
+                onRefresh: { state.refresh() },
+                onSyncToCwd: onSyncToCwd
             )
 
             if state.rootNodes.isEmpty {
@@ -46,6 +49,7 @@ private struct FileExplorerHeader: View {
     let rootURL: URL?
     @Binding var showHidden: Bool
     let onRefresh: () -> Void
+    let onSyncToCwd: () -> Void
 
     var body: some View {
         HStack(spacing: 4) {
@@ -55,6 +59,14 @@ private struct FileExplorerHeader: View {
                 .padding(.leading, 12)
 
             Spacer()
+
+            Button(action: onSyncToCwd) {
+                Image(systemName: "location")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Sync to working directory")
 
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")

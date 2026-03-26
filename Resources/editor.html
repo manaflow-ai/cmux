@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: transparent; }
+    #editor { height: 100%; }
+    .cm-editor { height: 100%; font-size: 13px; }
+    .cm-scroller { overflow: auto; }
+    .cm-focused { outline: none; }
+    /* Loading state */
+    #loading { display: flex; align-items: center; justify-content: center; height: 100%;
+               color: #888; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading editor...</div>
+  <div id="editor"></div>
+  <script type="importmap">
+  {
+    "imports": {
+      "@codemirror/": "https://esm.sh/@codemirror/",
+      "@lezer/": "https://esm.sh/@lezer/",
+      "crelt": "https://esm.sh/crelt",
+      "style-mod": "https://esm.sh/style-mod",
+      "w3c-keyname": "https://esm.sh/w3c-keyname"
+    }
+  }
+  </script>
+  <script type="module">
+    import {basicSetup} from "https://esm.sh/@codemirror/basic-setup@0.20";
+    import {EditorView, keymap} from "https://esm.sh/@codemirror/view@6";
+    import {EditorState} from "https://esm.sh/@codemirror/state@6";
+    import {oneDark} from "https://esm.sh/@codemirror/theme-one-dark@6";
+    import {javascript} from "https://esm.sh/@codemirror/lang-javascript@6";
+    import {python} from "https://esm.sh/@codemirror/lang-python@6";
+    import {html as langHTML} from "https://esm.sh/@codemirror/lang-html@6";
+    import {css} from "https://esm.sh/@codemirror/lang-css@6";
+    import {json} from "https://esm.sh/@codemirror/lang-json@6";
+    import {markdown} from "https://esm.sh/@codemirror/lang-markdown@6";
+    import {rust} from "https://esm.sh/@codemirror/lang-rust@6";
+    import {cpp} from "https://esm.sh/@codemirror/lang-cpp@6";
+    import {java} from "https://esm.sh/@codemirror/lang-java@6";
+    import {xml} from "https://esm.sh/@codemirror/lang-xml@6";
+    import {sql} from "https://esm.sh/@codemirror/lang-sql@6";
+
+    const languageMap = {
+      js: () => javascript(),
+      jsx: () => javascript({jsx: true}),
+      ts: () => javascript({typescript: true}),
+      tsx: () => javascript({jsx: true, typescript: true}),
+      py: () => python(),
+      html: () => langHTML(),
+      htm: () => langHTML(),
+      css: () => css(),
+      json: () => json(),
+      md: () => markdown(),
+      mdx: () => markdown(),
+      rs: () => rust(),
+      c: () => cpp(),
+      cpp: () => cpp(),
+      h: () => cpp(),
+      hpp: () => cpp(),
+      java: () => java(),
+      xml: () => xml(),
+      svg: () => xml(),
+      plist: () => xml(),
+      sql: () => sql(),
+      swift: () => javascript(), // Basic highlighting fallback
+      go: () => javascript(),
+      rb: () => javascript(),
+      yaml: () => javascript(),
+      yml: () => javascript(),
+      toml: () => javascript(),
+      sh: () => javascript(),
+      zsh: () => javascript(),
+      bash: () => javascript(),
+    };
+
+    let view;
+    let isDirty = false;
+    let currentFilePath = '';
+
+    function getLanguageExtension(filename) {
+      const ext = filename.split('.').pop()?.toLowerCase() || '';
+      const factory = languageMap[ext];
+      return factory ? factory() : [];
+    }
+
+    function postMessage(msg) {
+      try {
+        window.webkit.messageHandlers.editorBridge.postMessage(msg);
+      } catch (e) {
+        console.error('editorBridge not available:', e);
+      }
+    }
+
+    // Called from Swift via evaluateJavaScript
+    window.cmuxEditorInit = function(content, filePath, darkMode) {
+      currentFilePath = filePath;
+      const filename = filePath.split('/').pop() || '';
+      const langExt = getLanguageExtension(filename);
+
+      const extensions = [
+        basicSetup,
+        keymap.of([{
+          key: 'Mod-s',
+          run: () => { saveToSwift(); return true; }
+        }]),
+        EditorView.updateListener.of(update => {
+          if (update.docChanged && !isDirty) {
+            isDirty = true;
+            postMessage({ type: 'dirtyChanged', isDirty: true });
+          }
+        }),
+      ];
+
+      if (langExt.length !== undefined || langExt.extension !== undefined) {
+        extensions.push(langExt);
+      }
+      if (darkMode) {
+        extensions.push(oneDark);
+      }
+
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('editor').style.display = 'block';
+
+      if (view) view.destroy();
+      view = new EditorView({
+        state: EditorState.create({ doc: content, extensions }),
+        parent: document.getElementById('editor'),
+      });
+      isDirty = false;
+    };
+
+    window.cmuxEditorGetContent = function() {
+      return view ? view.state.doc.toString() : '';
+    };
+
+    window.cmuxEditorSetClean = function() {
+      isDirty = false;
+      postMessage({ type: 'dirtyChanged', isDirty: false });
+    };
+
+    function saveToSwift() {
+      if (!view) return;
+      const content = view.state.doc.toString();
+      postMessage({
+        type: 'save',
+        content: content,
+        filePath: currentFilePath
+      });
+    }
+  </script>
+</body>
+</html>

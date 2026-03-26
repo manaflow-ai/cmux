@@ -442,7 +442,17 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+        case .editor:
+            guard let editorPanel = panel as? EditorPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
         }
+
+        let editorSnapshot: SessionEditorPanelSnapshot? = {
+            guard panel.panelType == .editor, let editorPanel = panel as? EditorPanel else { return nil }
+            return SessionEditorPanelSnapshot(filePath: editorPanel.filePath)
+        }()
 
         return SessionPanelSnapshot(
             id: panelId,
@@ -457,7 +467,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            editor: editorSnapshot
         )
     }
 
@@ -632,6 +643,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .editor:
+            guard let filePath = snapshot.editor?.filePath,
+                  let editorPanel = newEditorSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: editorPanel.id)
+            return editorPanel.id
         }
     }
 
@@ -5530,6 +5552,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let editor = "editor"
     }
 
     enum PanelShellActivityState: String {
@@ -6037,6 +6060,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .editor:
+            return SurfaceKind.editor
         }
     }
 
@@ -7837,6 +7862,81 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    @discardableResult
+    func newEditorSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil
+    ) -> EditorPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let editorPanel = EditorPanel(workspaceId: id, filePath: filePath)
+        panels[editorPanel.id] = editorPanel
+        panelTitles[editorPanel.id] = editorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: editorPanel.displayTitle,
+            icon: editorPanel.displayIcon,
+            kind: SurfaceKind.editor,
+            isDirty: editorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: editorPanel.id)
+            panelTitles.removeValue(forKey: editorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = editorPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: editorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installEditorPanelSubscription(editorPanel)
+        return editorPanel
+    }
+
+    private func installEditorPanelSubscription(_ editorPanel: EditorPanel) {
+        let subscription = Publishers.CombineLatest(
+            editorPanel.$displayTitle.removeDuplicates(),
+            editorPanel.$isDirty.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak editorPanel] newTitle, newDirty in
+            guard let self,
+                  let editorPanel,
+                  let tabId = self.surfaceIdFromPanelId(editorPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[editorPanel.id] != newTitle {
+                self.panelTitles[editorPanel.id] = newTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(
+                panelId: editorPanel.id, fallback: newTitle
+            )
+            if existing.title != resolvedTitle || existing.isDirty != newDirty {
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedTitle,
+                    icon: editorPanel.displayIcon,
+                    isDirty: newDirty
+                )
+            }
+        }
+        panelSubscriptions[editorPanel.id] = subscription
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.

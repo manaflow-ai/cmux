@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// The file explorer section that sits below the tab list in the sidebar.
 /// This is a self-contained view that manages its own state and communicates
@@ -9,6 +10,17 @@ struct FileExplorerSidebarSection: View {
     @EnvironmentObject var tabManager: TabManager
     let height: CGFloat
 
+    /// Publisher that emits when the focused workspace's currentDirectory changes.
+    /// Re-binds when tabManager updates (workspace switch).
+    private var currentDirectoryPublisher: AnyPublisher<String, Never> {
+        guard let workspace = tabManager.selectedTab else {
+            return Empty().eraseToAnyPublisher()
+        }
+        return workspace.$currentDirectory
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+
     var body: some View {
         FileExplorerView(
             state: explorerState,
@@ -17,11 +29,17 @@ struct FileExplorerSidebarSection: View {
             },
             onFileDoubleClick: { url in
                 openFileInExternalEditor(url)
+            },
+            onSyncToCwd: {
+                updateRoot()
             }
         )
         .frame(height: height)
         .frame(maxWidth: .infinity)
         .onChange(of: tabManager.selectedTabId) { _ in
+            updateRoot()
+        }
+        .onReceive(currentDirectoryPublisher) { _ in
             updateRoot()
         }
         .onAppear {
@@ -42,23 +60,17 @@ struct FileExplorerSidebarSection: View {
         explorerState.setRoot(URL(fileURLWithPath: dirPath))
     }
 
-    /// Open a file as a new MarkdownPanel tab in the focused workspace.
+    /// Open a file as a new panel tab in the focused workspace.
     private func openFileInPanel(_ url: URL) {
         guard let workspace = tabManager.selectedTab else { return }
-
-        // Find the focused pane to add the tab there
         let focusedPaneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
-
         guard let paneId = focusedPaneId else { return }
-
-        // Reuse the markdown panel infrastructure for text file preview
-        workspace.newMarkdownSurface(inPane: paneId, filePath: url.path, focus: true)
+        workspace.newEditorSurface(inPane: paneId, filePath: url.path, focus: true)
     }
 
     /// Open a file in the user's default editor or system app.
     private func openFileInExternalEditor(_ url: URL) {
-        // Try $EDITOR first, fall back to system default
         if let editor = ProcessInfo.processInfo.environment["EDITOR"], !editor.isEmpty {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
