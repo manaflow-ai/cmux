@@ -496,10 +496,10 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
+func resolveTerminalOpenURLTarget(_ rawValue: String, workingDirectory: String? = nil) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
-    dlog("link.resolve input=\(trimmed)")
+    dlog("link.resolve input=\(trimmed) cwd=\(workingDirectory ?? "nil")")
     #endif
     guard !trimmed.isEmpty else {
         #if DEBUG
@@ -513,6 +513,19 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
         dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
         #endif
         return .external(URL(fileURLWithPath: trimmed))
+    }
+
+    // Semantic History: resolve bare filenames and relative paths against CWD.
+    // Strip trailing line/column suffix (e.g. "file.swift:42:10") before checking.
+    if let cwd = workingDirectory, !cwd.isEmpty {
+        let pathPart = trimmed.components(separatedBy: ":").first ?? trimmed
+        let resolved = (cwd as NSString).appendingPathComponent(pathPart)
+        if FileManager.default.fileExists(atPath: resolved) {
+            #if DEBUG
+            dlog("link.resolve result=external(cwdResolved) path=\(resolved)")
+            #endif
+            return .external(URL(fileURLWithPath: resolved))
+        }
     }
 
     if let parsed = URL(string: trimmed),
@@ -2588,7 +2601,18 @@ class GhosttyApp {
             #if DEBUG
             dlog("link.openURL raw=\(urlString)")
             #endif
-            guard let target = resolveTerminalOpenURLTarget(urlString) else {
+            // Resolve the terminal CWD for Semantic History (bare filename resolution).
+            let terminalCWD: String? = {
+                guard let tabId = surfaceView.tabId,
+                      let surfaceId = surfaceView.terminalSurface?.id,
+                      let tabManager = AppDelegate.shared?.tabManager,
+                      let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
+                    return nil
+                }
+                return workspace.panelDirectories[surfaceId]
+                    ?? workspace.currentDirectory
+            }()
+            guard let target = resolveTerminalOpenURLTarget(urlString, workingDirectory: terminalCWD) else {
                 #if DEBUG
                 dlog("link.openURL resolve failed, returning false")
                 #endif
