@@ -515,19 +515,6 @@ func resolveTerminalOpenURLTarget(_ rawValue: String, workingDirectory: String? 
         return .external(URL(fileURLWithPath: trimmed))
     }
 
-    // Semantic History: resolve bare filenames and relative paths against CWD.
-    // Strip trailing line/column suffix (e.g. "file.swift:42:10") before checking.
-    if let cwd = workingDirectory, !cwd.isEmpty {
-        let pathPart = trimmed.components(separatedBy: ":").first ?? trimmed
-        let resolved = (cwd as NSString).appendingPathComponent(pathPart)
-        if FileManager.default.fileExists(atPath: resolved) {
-            #if DEBUG
-            dlog("link.resolve result=external(cwdResolved) path=\(resolved)")
-            #endif
-            return .external(URL(fileURLWithPath: resolved))
-        }
-    }
-
     if let parsed = URL(string: trimmed),
        let scheme = parsed.scheme?.lowercased() {
         if scheme == "http" || scheme == "https" {
@@ -546,6 +533,21 @@ func resolveTerminalOpenURLTarget(_ rawValue: String, workingDirectory: String? 
         dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
         #endif
         return .external(parsed)
+    }
+
+    // Semantic History: resolve bare filenames and relative paths against CWD.
+    // Placed after URL/scheme checks so that `localhost:3000` or `http://...`
+    // are never misrouted to local files.
+    // Strip trailing line/column suffix (e.g. "file.swift:42:10") before checking.
+    if let cwd = workingDirectory, !cwd.isEmpty {
+        let pathPart = trimmed.components(separatedBy: ":").first ?? trimmed
+        let resolved = (cwd as NSString).appendingPathComponent(pathPart)
+        if FileManager.default.fileExists(atPath: resolved) {
+            #if DEBUG
+            dlog("link.resolve result=external(cwdResolved) path=\(resolved)")
+            #endif
+            return .external(URL(fileURLWithPath: resolved))
+        }
     }
 
     if let webURL = resolveBrowserNavigableURL(trimmed) {
@@ -2602,10 +2604,12 @@ class GhosttyApp {
             dlog("link.openURL raw=\(urlString)")
             #endif
             // Resolve the terminal CWD for Semantic History (bare filename resolution).
+            // Use tabManagerFor(tabId:) so this works in detached/secondary windows too.
             let terminalCWD: String? = {
                 guard let tabId = surfaceView.tabId,
                       let surfaceId = surfaceView.terminalSurface?.id,
-                      let tabManager = AppDelegate.shared?.tabManager,
+                      let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId),
                       let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
                     return nil
                 }
