@@ -131,6 +131,9 @@
 			FE000012A1B2C3D4E5F60002 /* FileExplorerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */; };
 			FE000013A1B2C3D4E5F60003 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */; };
 			FE000014A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */; };
+					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */; };
+			FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */; };
+			FE000017A1B2C3D4E5F60007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = FE000007A1B2C3D4E5F60007 /* editor.html */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -308,6 +311,9 @@
 			FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerState.swift; sourceTree = "<group>"; };
 			FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerView.swift; sourceTree = "<group>"; };
 			FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSidebarSection.swift; sourceTree = "<group>"; };
+			FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanel.swift; sourceTree = "<group>"; };
+			FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanelView.swift; sourceTree = "<group>"; };
+			FE000007A1B2C3D4E5F60007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -456,6 +462,8 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */,
+				FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -495,6 +503,7 @@
 			children = (
 				B2E7294509CC42FE9191870E /* xterm-ghostty */,
 				A5002001 /* THIRD_PARTY_LICENSES.md */,
+				FE000007A1B2C3D4E5F60007 /* editor.html */,
 				C1ADE00001A1B2C3D4E5F719 /* claude */,
 				DA7A10CA710E000000000001 /* Localizable.xcstrings */,
 				DA7A10CA710E000000000002 /* InfoPlist.xcstrings */,
@@ -731,6 +740,9 @@
 				files = (
 					A5001001 /* cmuxApp.swift in Sources */,
 					A5001002 /* ContentView.swift in Sources */,
+					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */,
+					FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */,
+
 					FE000011A1B2C3D4E5F60001 /* FileExplorerNode.swift in Sources */,
 					FE000012A1B2C3D4E5F60002 /* FileExplorerState.swift in Sources */,
 					FE000013A1B2C3D4E5F60003 /* FileExplorerView.swift in Sources */,
