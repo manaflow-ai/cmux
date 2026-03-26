@@ -10104,6 +10104,11 @@ struct CMUXCLI {
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId
             ])
+            // Re-equalize the agent column after removing a pane
+            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                "workspace_id": target.workspaceId,
+                "orientation": "vertical"
+            ])
 
         case "send-keys", "send":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: ["-l"])
