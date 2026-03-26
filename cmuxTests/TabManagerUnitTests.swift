@@ -1605,6 +1605,50 @@ final class TabManagerWorkspaceConfigInheritanceSourceTests: XCTestCase {
             "Expected workspace inheritance source to use last focused terminal across panes"
         )
     }
+
+    func testNewWorkspaceDoesNotProbeRuntimeFontOnSourceSurfaceDuringInheritance() {
+        let manager = TabManager()
+        guard let sourceWorkspace = manager.selectedWorkspace,
+              let sourcePanelId = sourceWorkspace.focusedPanelId,
+              let sourcePanel = sourceWorkspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        let fakeSurfaceStorage = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        let fakeSurface = unsafeBitCast(fakeSurfaceStorage, to: ghostty_surface_t.self)
+        let originalFontOverride = cmuxCurrentSurfaceFontSizePointsOverride
+        let originalInheritedOverride = cmuxGhosttyInheritedSurfaceConfigOverride
+        let originalSurfaceOverride = cmuxSurfaceForInheritanceOverride
+        var runtimeProbeCount = 0
+        cmuxSurfaceForInheritanceOverride = { panel in
+            panel.id == sourcePanel.id ? fakeSurface : nil
+        }
+        cmuxGhosttyInheritedSurfaceConfigOverride = { _, _ in
+            var config = ghostty_surface_config_new()
+            config.font_size = 17
+            return config
+        }
+        cmuxCurrentSurfaceFontSizePointsOverride = { _ in
+            runtimeProbeCount += 1
+            return 23
+        }
+        defer {
+            cmuxCurrentSurfaceFontSizePointsOverride = originalFontOverride
+            cmuxGhosttyInheritedSurfaceConfigOverride = originalInheritedOverride
+            cmuxSurfaceForInheritanceOverride = originalSurfaceOverride
+            fakeSurfaceStorage.deallocate()
+        }
+
+        let newWorkspace = manager.addWorkspace()
+
+        XCTAssertNotNil(newWorkspace.focusedPanelId)
+        XCTAssertEqual(
+            runtimeProbeCount,
+            0,
+            "New workspace inheritance should not probe runtime font state from the source surface"
+        )
+    }
 }
 
 

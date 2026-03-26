@@ -2285,13 +2285,17 @@ class TabManager: ObservableObject {
         workspace: Workspace?
     ) -> ghostty_surface_config_s? {
         if let panel = terminalPanelForWorkspaceConfigInheritanceSource(workspace: workspace),
-           let sourceSurface = panel.surface.liveSurfaceForGhosttyAccess(
-               reason: "tabManager.inheritedTerminalConfigForNewWorkspace"
-           ) {
-            return cmuxInheritedSurfaceConfig(
+           let sourceSurface = cmuxSurfaceForInheritance(panel) {
+            var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_TAB
             )
+            if config.font_size <= 0,
+               let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance(),
+               fallbackFontPoints > 0 {
+                config.font_size = fallbackFontPoints
+            }
+            return config
         }
         if let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
             var config = ghostty_surface_config_new()

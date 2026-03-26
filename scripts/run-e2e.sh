@@ -16,6 +16,7 @@ REF=""
 WAIT=false
 RECORD_VIDEO=true
 TIMEOUT=120
+RUNNER=""
 
 usage() {
   cat <<EOF
@@ -29,6 +30,7 @@ Options:
   --wait           Wait for the run to complete and print result
   --no-video       Disable video recording
   --timeout <sec>  Per-test timeout in seconds (default: 120)
+  --runner <name>  Workflow runner (for example depot-macos-latest or macos-15-intel)
   -h, --help       Show this help
 EOF
   exit 0
@@ -59,6 +61,10 @@ while [ $# -gt 0 ]; do
       TIMEOUT="$2"
       shift 2
       ;;
+    --runner)
+      RUNNER="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1" >&2
       usage
@@ -71,8 +77,11 @@ FIELDS=(-f "test_filter=$TEST_FILTER" -f "record_video=$RECORD_VIDEO" -f "test_t
 if [ -n "$REF" ]; then
   FIELDS+=(-f "ref=$REF")
 fi
+if [ -n "$RUNNER" ]; then
+  FIELDS+=(-f "runner=$RUNNER")
+fi
 
-echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${REF:-<default>} video=$RECORD_VIDEO timeout=$TIMEOUT"
+echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${REF:-<default>} video=$RECORD_VIDEO timeout=$TIMEOUT runner=${RUNNER:-<default>}"
 gh workflow run "$WORKFLOW" --repo "$REPO" "${FIELDS[@]}"
 
 # Wait a moment for the run to register

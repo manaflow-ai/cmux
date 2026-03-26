@@ -1457,6 +1457,56 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
             "Expected inheritance to prefer last focused terminal when browser is focused in another pane"
         )
     }
+
+    func testNewTerminalSplitDoesNotProbeRuntimeFontOnSourceSurfaceDuringInheritance() {
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected initial focused terminal panel")
+            return
+        }
+
+        let fakeSurfaceStorage = UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)
+        let fakeSurface = unsafeBitCast(fakeSurfaceStorage, to: ghostty_surface_t.self)
+        let originalFontOverride = cmuxCurrentSurfaceFontSizePointsOverride
+        let originalInheritedOverride = cmuxGhosttyInheritedSurfaceConfigOverride
+        let originalSurfaceOverride = cmuxSurfaceForInheritanceOverride
+        var runtimeProbeCount = 0
+        cmuxSurfaceForInheritanceOverride = { panel in
+            panel.id == sourcePanel.id ? fakeSurface : nil
+        }
+        cmuxGhosttyInheritedSurfaceConfigOverride = { _, _ in
+            var config = ghostty_surface_config_new()
+            config.font_size = 17
+            return config
+        }
+        cmuxCurrentSurfaceFontSizePointsOverride = { _ in
+            runtimeProbeCount += 1
+            return 23
+        }
+        defer {
+            cmuxCurrentSurfaceFontSizePointsOverride = originalFontOverride
+            cmuxGhosttyInheritedSurfaceConfigOverride = originalInheritedOverride
+            cmuxSurfaceForInheritanceOverride = originalSurfaceOverride
+            fakeSurfaceStorage.deallocate()
+        }
+
+        guard let splitPanel = workspace.newTerminalSplit(
+            from: sourcePanel.id,
+            orientation: .horizontal,
+            focus: false
+        ) else {
+            XCTFail("Expected split terminal panel to be created")
+            return
+        }
+
+        XCTAssertNotNil(workspace.panels[splitPanel.id])
+        XCTAssertEqual(
+            runtimeProbeCount,
+            0,
+            "Split inheritance should not probe runtime font state from the source surface"
+        )
+    }
 }
 
 

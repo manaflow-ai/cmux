@@ -1,0 +1,90 @@
+name: Repro Intel release split shortcuts
+
+on:
+  schedule:
+    - cron: '17 09 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to test, for example nightly or v0.62.2
+        required: false
+        default: nightly
+      runner:
+        description: Intel runner to use
+        required: false
+        default: macos-15-intel
+        type: choice
+        options:
+          - macos-15-intel
+          - macos-26-intel
+      shortcut:
+        description: Shortcut to send
+        required: false
+        default: cmd-d
+        type: choice
+        options:
+          - cmd-d
+          - cmd-shift-d
+
+jobs:
+  repro:
+    name: ${{ format('{0} {1} {2}', github.event_name == 'schedule' && 'macos-15-intel' || inputs.runner || 'macos-15-intel', github.event_name == 'schedule' && 'cmd-d' || inputs.shortcut || 'cmd-d', github.event_name == 'schedule' && 'nightly' || inputs.release_tag || 'nightly') }}
+    runs-on: ${{ github.event_name == 'schedule' && 'macos-15-intel' || inputs.runner || 'macos-15-intel' }}
+    timeout-minutes: 20
+    env:
+      REPRO_RUNNER: ${{ github.event_name == 'schedule' && 'macos-15-intel' || inputs.runner || 'macos-15-intel' }}
+      REPRO_SHORTCUT: ${{ github.event_name == 'schedule' && 'cmd-d' || inputs.shortcut || 'cmd-d' }}
+      REPRO_RELEASE_TAG: ${{ github.event_name == 'schedule' && 'nightly' || inputs.release_tag || 'nightly' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | head -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode installation found" >&2
+              exit 1
+            fi
+            XCODE_DIR="${XCODE_APP}/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Create virtual display
+        run: |
+          set -euo pipefail
+          clang -framework Foundation -framework CoreGraphics \
+            -o /tmp/create-virtual-display scripts/create-virtual-display.m
+          READY_FILE="$(mktemp)"
+          rm -f "$READY_FILE"
+          /tmp/create-virtual-display --ready-path "$READY_FILE" &
+          for _ in $(seq 1 60); do
+            if [[ -f "$READY_FILE" ]]; then
+              break
+            fi
+            sleep 0.5
+          done
+          [[ -f "$READY_FILE" ]] || { echo "Virtual display did not become ready" >&2; exit 1; }
+          system_profiler SPDisplaysDataType 2>/dev/null || true
+
+      - name: Reproduce release split failure
+        env:
+          CMUX_RELEASE_TAG: ${{ env.REPRO_RELEASE_TAG }}
+          CMUX_REPRO_SHORTCUT: ${{ env.REPRO_SHORTCUT }}
+          CMUX_REPRO_DIR: ${{ runner.temp }}/cmux-intel-release-repro-${{ env.REPRO_RUNNER }}-${{ env.REPRO_SHORTCUT }}
+        run: scripts/repro-intel-release-split-shortcuts.sh
+
+      - name: Upload repro artifacts
+        if: always()
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4
+        with:
+          name: intel-release-repro-${{ env.REPRO_RUNNER }}-${{ env.REPRO_SHORTCUT }}
+          path: ${{ runner.temp }}/cmux-intel-release-repro-${{ env.REPRO_RUNNER }}-${{ env.REPRO_SHORTCUT }}/artifacts
+          if-no-files-found: warn

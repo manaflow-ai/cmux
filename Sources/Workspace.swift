@@ -37,10 +37,14 @@ func cmuxSurfacePointerAppearsLive(_ surface: ghostty_surface_t) -> Bool {
 }
 
 func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
+#if DEBUG
+    if let override = cmuxCurrentSurfaceFontSizePointsOverride {
+        return override(surface)
+    }
+#endif
     guard cmuxSurfacePointerAppearsLive(surface) else {
         return nil
     }
-
     guard let quicklookFont = ghostty_surface_quicklook_font(surface) else {
         return nil
     }
@@ -59,27 +63,42 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
     return points
 }
 
+#if DEBUG
+var cmuxCurrentSurfaceFontSizePointsOverride: ((ghostty_surface_t) -> Float?)?
+var cmuxGhosttyInheritedSurfaceConfigOverride: ((ghostty_surface_t, ghostty_surface_context_e) -> ghostty_surface_config_s)?
+var cmuxSurfaceForInheritanceOverride: ((TerminalPanel) -> ghostty_surface_t?)?
+#endif
+
+@MainActor
+func cmuxSurfaceForInheritance(_ terminalPanel: TerminalPanel) -> ghostty_surface_t? {
+#if DEBUG
+    if let override = cmuxSurfaceForInheritanceOverride {
+        return override(terminalPanel)
+    }
+#endif
+    return terminalPanel.surface.liveSurfaceForGhosttyAccess(
+        reason: "workspace.surfaceForInheritance"
+    )
+}
+
 func cmuxInheritedSurfaceConfig(
     sourceSurface: ghostty_surface_t,
     context: ghostty_surface_context_e
 ) -> ghostty_surface_config_s {
+#if DEBUG
+    let inherited = cmuxGhosttyInheritedSurfaceConfigOverride?(sourceSurface, context)
+        ?? ghostty_surface_inherited_config(sourceSurface, context)
+#else
     let inherited = ghostty_surface_inherited_config(sourceSurface, context)
-    var config = inherited
-
-    // Make runtime zoom inheritance explicit, even when Ghostty's
-    // inherit-font-size config is disabled.
-    let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
-    if let points = runtimePoints {
-        config.font_size = points
-    }
+#endif
+    let config = inherited
 
 #if DEBUG
     let inheritedText = String(format: "%.2f", inherited.font_size)
-    let runtimeText = runtimePoints.map { String(format: "%.2f", $0) } ?? "nil"
     let finalText = String(format: "%.2f", config.font_size)
     dlog(
         "zoom.inherit context=\(cmuxSurfaceContextName(context)) " +
-        "inherited=\(inheritedText) runtime=\(runtimeText) final=\(finalText)"
+        "inherited=\(inheritedText) runtime=nil final=\(finalText)"
     )
 #endif
 
@@ -7205,22 +7224,19 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func resolvedTerminalInheritanceFontPoints(
         for terminalPanel: TerminalPanel,
-        sourceSurface: ghostty_surface_t,
         inheritedConfig: ghostty_surface_config_s
     ) -> Float? {
-        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
-                // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
-                // treat runtime as the new root for future descendants.
-                return runtimePoints
+            if inheritedConfig.font_size > 0,
+               abs(inheritedConfig.font_size - rooted) > 0.05 {
+                return inheritedConfig.font_size
             }
             return rooted
         }
         if inheritedConfig.font_size > 0 {
             return inheritedConfig.font_size
         }
-        return runtimePoints
+        return nil
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
@@ -7328,9 +7344,7 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: preferredPaneId
         ) {
             let rootedFontFallback = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            guard let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-                reason: "workspace.inheritedTerminalConfig"
-            ) else {
+            guard let sourceSurface = cmuxSurfaceForInheritance(terminalPanel) else {
                 if staleRootedFontFallback == nil,
                    let rootedFontFallback,
                    rootedFontFallback > 0 {
@@ -7344,13 +7358,12 @@ final class Workspace: Identifiable, ObservableObject {
             )
             if let rootedFontPoints = resolvedTerminalInheritanceFontPoints(
                 for: terminalPanel,
-                sourceSurface: sourceSurface,
                 inheritedConfig: config
             ), rootedFontPoints > 0 {
                 config.font_size = rootedFontPoints
                 terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
             }
-            rememberTerminalConfigInheritanceSource(terminalPanel)
+            lastTerminalConfigInheritancePanelId = terminalPanel.id
             if config.font_size > 0 {
                 lastTerminalConfigInheritanceFontPoints = config.font_size
             }
