@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Regression test: `cmux claude-teams` supports Claude's tmux teammate flow.
+Regression test: `cmux claude-teams` keeps teammate panes in a right-side vertical stack.
 """
 
 from __future__ import annotations
@@ -14,13 +14,17 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
-INITIAL_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
-INITIAL_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
-INITIAL_PANE_ID = "33333333-3333-4333-8333-333333333333"
-INITIAL_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
-INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
-NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
-NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
+
+WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+WINDOW_ID = "22222222-2222-4222-8222-222222222222"
+TOP_PANE_ID = "33333333-3333-4333-8333-333333333333"
+TOP_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
+LEADER_PANE_ID = "55555555-5555-4555-8555-555555555555"
+LEADER_SURFACE_ID = "66666666-6666-4666-8666-666666666666"
+TEAM_ONE_PANE_ID = "77777777-7777-4777-8777-777777777777"
+TEAM_ONE_SURFACE_ID = "88888888-8888-4888-8888-888888888888"
+TEAM_TWO_PANE_ID = "99999999-9999-4999-8999-999999999999"
+TEAM_TWO_SURFACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -37,42 +41,56 @@ def read_text(path: Path) -> str:
 class FakeCmuxState:
     def __init__(self) -> None:
         self.lock = threading.Lock()
-        self.requests: list[str] = []
         self.workspace = {
-            "id": INITIAL_WORKSPACE_ID,
+            "id": WORKSPACE_ID,
             "ref": "workspace:1",
             "index": 1,
             "title": "demo-team",
         }
         self.window = {
-            "id": INITIAL_WINDOW_ID,
+            "id": WINDOW_ID,
             "ref": "window:1",
         }
-        self.current_pane_id = INITIAL_PANE_ID
-        self.current_surface_id = INITIAL_SURFACE_ID
+        self.current_pane_id = LEADER_PANE_ID
+        self.current_surface_id = LEADER_SURFACE_ID
+        self.split_requests: list[dict[str, str]] = []
         self.panes = [
             {
-                "id": INITIAL_PANE_ID,
+                "id": TOP_PANE_ID,
                 "ref": "pane:1",
-                "index": 7,
-                "surface_ids": [INITIAL_SURFACE_ID],
-            }
+                "index": 1,
+                "surface_ids": [TOP_SURFACE_ID],
+            },
+            {
+                "id": LEADER_PANE_ID,
+                "ref": "pane:2",
+                "index": 2,
+                "surface_ids": [LEADER_SURFACE_ID],
+            },
         ]
         self.surfaces = [
             {
-                "id": INITIAL_SURFACE_ID,
+                "id": TOP_SURFACE_ID,
                 "ref": "surface:1",
-                "pane_id": INITIAL_PANE_ID,
+                "pane_id": TOP_PANE_ID,
+                "title": "top",
+            },
+            {
+                "id": LEADER_SURFACE_ID,
+                "ref": "surface:2",
+                "pane_id": LEADER_PANE_ID,
                 "title": "leader",
-            }
+            },
+        ]
+        self.pending_splits = [
+            (TEAM_ONE_PANE_ID, TEAM_ONE_SURFACE_ID, "pane:3", "surface:3", "teammate-1"),
+            (TEAM_TWO_PANE_ID, TEAM_TWO_SURFACE_ID, "pane:4", "surface:4", "teammate-2"),
         ]
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         with self.lock:
-            self.requests.append(method)
             if method == "system.identify":
                 return {
-                    "socket_path": str(params.get("socket_path", "")),
                     "focused": {
                         "workspace_id": self.workspace["id"],
                         "workspace_ref": self.workspace["ref"],
@@ -82,8 +100,6 @@ class FakeCmuxState:
                         "pane_ref": self._pane_ref(self.current_pane_id),
                         "surface_id": self.current_surface_id,
                         "surface_ref": self._surface_ref(self.current_surface_id),
-                        "tab_id": INITIAL_TAB_ID,
-                        "tab_ref": "tab:1",
                         "surface_type": "terminal",
                         "is_browser_surface": False,
                     },
@@ -156,36 +172,40 @@ class FakeCmuxState:
                             "title": surface["title"],
                             "pane_id": surface["pane_id"],
                             "pane_ref": self._pane_ref(surface["pane_id"]),
+                            "focused": surface["id"] == self.current_surface_id,
                         }
                         for surface in self.surfaces
                     ]
                 }
             if method == "surface.split":
+                pane_id, surface_id, pane_ref, surface_ref, title = self.pending_splits.pop(0)
+                self.split_requests.append(
+                    {
+                        "workspace_id": str(params.get("workspace_id") or ""),
+                        "surface_id": str(params.get("surface_id") or ""),
+                        "direction": str(params.get("direction") or ""),
+                    }
+                )
                 self.panes.append(
                     {
-                        "id": NEW_PANE_ID,
-                        "ref": "pane:2",
-                        "index": 8,
-                        "surface_ids": [NEW_SURFACE_ID],
+                        "id": pane_id,
+                        "ref": pane_ref,
+                        "index": len(self.panes) + 1,
+                        "surface_ids": [surface_id],
                     }
                 )
                 self.surfaces.append(
                     {
-                        "id": NEW_SURFACE_ID,
-                        "ref": "surface:2",
-                        "pane_id": NEW_PANE_ID,
-                        "title": "teammate",
+                        "id": surface_id,
+                        "ref": surface_ref,
+                        "pane_id": pane_id,
+                        "title": title,
                     }
                 )
                 return {
-                    "surface_id": NEW_SURFACE_ID,
-                    "pane_id": NEW_PANE_ID,
+                    "surface_id": surface_id,
+                    "pane_id": pane_id,
                 }
-            if method == "surface.focus":
-                self.current_surface_id = str(params.get("surface_id") or self.current_surface_id)
-                surface = self._surface_by_id(self.current_surface_id)
-                self.current_pane_id = surface["pane_id"]
-                return {"ok": True}
             if method == "pane.focus":
                 pane_id = str(params.get("pane_id") or "")
                 pane = self._pane_by_id(pane_id)
@@ -204,14 +224,14 @@ class FakeCmuxState:
                 return pane
         raise RuntimeError(f"Unknown pane id: {pane_id}")
 
+    def _pane_ref(self, pane_id: str) -> str:
+        return self._pane_by_id(pane_id)["ref"]  # type: ignore[return-value]
+
     def _surface_by_id(self, surface_id: str) -> dict[str, object]:
         for surface in self.surfaces:
             if surface["id"] == surface_id or surface["ref"] == surface_id:
                 return surface
         raise RuntimeError(f"Unknown surface id: {surface_id}")
-
-    def _pane_ref(self, pane_id: str) -> str:
-        return self._pane_by_id(pane_id)["ref"]  # type: ignore[return-value]
 
     def _surface_ref(self, surface_id: str) -> str:
         return self._surface_by_id(surface_id)["ref"]  # type: ignore[return-value]
@@ -251,12 +271,12 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-seq-") as td:
+    with tempfile.TemporaryDirectory(prefix="ctmv-", dir="/tmp") as td:
         tmp = Path(td)
         home = tmp / "home"
         home.mkdir(parents=True, exist_ok=True)
 
-        socket_path = tmp / "fake-cmux.sock"
+        socket_path = tmp / "s.sock"
         state = FakeCmuxState()
         server = FakeCmuxUnixServer(str(socket_path), state)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -265,25 +285,18 @@ def main() -> int:
         real_bin = tmp / "real-bin"
         real_bin.mkdir(parents=True, exist_ok=True)
 
-        tmux_pane_log = tmp / "tmux-pane.log"
-        tmux_socket_log = tmp / "tmux-socket.log"
-        window_target_log = tmp / "window-target.log"
-        split_pane_log = tmp / "split-pane.log"
-        pane_list_log = tmp / "pane-list.log"
+        first_split_log = tmp / "first-split.log"
+        second_split_log = tmp / "second-split.log"
 
         make_executable(
             real_bin / "claude",
             """#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\\n' "${TMUX_PANE-__UNSET__}" > "$FAKE_TMUX_PANE_LOG"
-printf '%s\\n' "${CMUX_SOCKET_PATH-__UNSET__}" > "$FAKE_SOCKET_LOG"
 window_target="$(tmux display-message -t "${TMUX_PANE}" -p '#{session_name}:#{window_index}')"
-printf '%s\\n' "$window_target" > "$FAKE_WINDOW_TARGET_LOG"
-split_pane="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
-printf '%s\\n' "$split_pane" > "$FAKE_SPLIT_PANE_LOG"
-tmux select-layout -t "$window_target" main-vertical
-tmux resize-pane -t "${TMUX_PANE}" -x 30%
-tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
+first_split="$(tmux split-window -t "${TMUX_PANE}" -h -P -F '#{pane_id}')"
+second_split="$(tmux select-layout -t "$window_target" main-vertical && tmux split-window -t "${TMUX_PANE}" -h -P -F '#{pane_id}')"
+printf '%s\\n' "$first_split" > "$FAKE_FIRST_SPLIT_LOG"
+printf '%s\\n' "$second_split" > "$FAKE_SECOND_SPLIT_LOG"
 """,
         )
 
@@ -291,11 +304,8 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["HOME"] = str(home)
         env["PATH"] = f"{real_bin}:/usr/bin:/bin"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
-        env["FAKE_TMUX_PANE_LOG"] = str(tmux_pane_log)
-        env["FAKE_SOCKET_LOG"] = str(tmux_socket_log)
-        env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
-        env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
-        env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
+        env["FAKE_FIRST_SPLIT_LOG"] = str(first_split_log)
+        env["FAKE_SECOND_SPLIT_LOG"] = str(second_split_log)
 
         try:
             proc = subprocess.run(
@@ -322,45 +332,38 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
             print(f"stderr={proc.stderr.strip()}")
             return 1
 
-        tmux_pane = read_text(tmux_pane_log)
-        if tmux_pane != f"%{INITIAL_PANE_ID}":
-            print(f"FAIL: expected TMUX_PANE=%{INITIAL_PANE_ID}, got {tmux_pane!r}")
+        if read_text(first_split_log) != f"%{TEAM_ONE_PANE_ID}":
+            print(f"FAIL: expected first split to print %{TEAM_ONE_PANE_ID}, got {read_text(first_split_log)!r}")
             return 1
 
-        socket_value = read_text(tmux_socket_log)
-        if socket_value != str(socket_path):
-            print(f"FAIL: expected CMUX_SOCKET_PATH={socket_path}, got {socket_value!r}")
+        if read_text(second_split_log) != f"%{TEAM_TWO_PANE_ID}":
+            print(f"FAIL: expected second split to print %{TEAM_TWO_PANE_ID}, got {read_text(second_split_log)!r}")
             return 1
 
-        window_target = read_text(window_target_log)
-        if window_target != "cmux:1":
-            print(f"FAIL: expected tmux window target 'cmux:1', got {window_target!r}")
+        expected = [
+            {
+                "workspace_id": WORKSPACE_ID,
+                "surface_id": LEADER_SURFACE_ID,
+                "direction": "right",
+            },
+            {
+                "workspace_id": WORKSPACE_ID,
+                "surface_id": TEAM_ONE_SURFACE_ID,
+                "direction": "down",
+            },
+        ]
+        if state.split_requests != expected:
+            print(f"FAIL: expected split requests {expected!r}, got {state.split_requests!r}")
             return 1
 
-        split_pane = read_text(split_pane_log)
-        if split_pane != f"%{NEW_PANE_ID}":
-            print(f"FAIL: expected split-window to print %{NEW_PANE_ID}, got {split_pane!r}")
-            return 1
-
-        pane_lines = pane_list_log.read_text(encoding="utf-8").splitlines()
-        expected_panes = [f"%{INITIAL_PANE_ID}", f"%{NEW_PANE_ID}"]
-        if pane_lines != expected_panes:
-            print(f"FAIL: expected list-panes output {expected_panes!r}, got {pane_lines!r}")
-            return 1
-
-        if state.current_pane_id != INITIAL_PANE_ID:
+        if state.current_pane_id != LEADER_PANE_ID:
             print(
-                "FAIL: expected split-window to keep the leader pane focused, "
+                "FAIL: expected teammate setup to keep the leader pane focused, "
                 f"got current pane {state.current_pane_id!r}"
             )
             return 1
 
-        if "surface.send_text" in state.requests:
-            print("FAIL: split-window treated '-l 70%' like shell text and called surface.send_text")
-            print(f"requests={state.requests!r}")
-            return 1
-
-    print("PASS: cmux claude-teams supports Claude's tmux teammate flow")
+    print("PASS: cmux claude-teams keeps teammate panes in a right-side vertical stack")
     return 0
 
 
