@@ -74,7 +74,7 @@ export default function ConceptsPage() {
             new: "⌘N",
             jump: "⌘1–⌘9",
             close: "⌘⇧W",
-            prevNext: "⌘⇧[ / ⌘⇧]",
+            prevNext: "⌃⌘[ / ⌃⌘]",
           })}
         </strong>
       </p>

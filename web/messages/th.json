@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Workspace ใหม่",
+        "ws-prev": "Workspace ก่อนหน้า",
+        "ws-next": "Workspace ถัดไป",
         "ws-jump-1-8": "ไปยัง workspace 1–8",
         "ws-jump-last": "ไปยัง workspace สุดท้าย",
         "ws-close": "ปิด workspace",

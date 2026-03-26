@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Novi radni prostor",
+        "ws-prev": "Prethodni radni prostor",
+        "ws-next": "Sljedeći radni prostor",
         "ws-jump-1-8": "Skok na radni prostor 1–8",
         "ws-jump-last": "Skok na posljednji radni prostor",
         "ws-close": "Zatvori radni prostor",

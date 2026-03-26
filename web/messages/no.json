@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Nytt arbeidsområde",
+        "ws-prev": "Forrige arbeidsområde",
+        "ws-next": "Neste arbeidsområde",
         "ws-jump-1-8": "Hopp til arbeidsområde 1–8",
         "ws-jump-last": "Hopp til siste arbeidsområde",
         "ws-close": "Lukk arbeidsområde",
