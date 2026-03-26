@@ -621,6 +621,9 @@
       "apiReference": "Référence API",
       "browserAutomation": "Automatisation du navigateur",
       "notifications": "Notifications",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog"
     }
   },

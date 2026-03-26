@@ -2,14 +2,15 @@
 
 import { useTranslations } from "next-intl";
 import { Link, usePathname } from "../../../i18n/navigation";
-import { navItems } from "./docs-nav-items";
+import { navItems, flatNavItems } from "./docs-nav-items";
 
 export function DocsPager() {
   const pathname = usePathname();
   const t = useTranslations("docs.navItems");
-  const index = navItems.findIndex((item) => item.href === pathname);
-  const prev = index > 0 ? navItems[index - 1] : null;
-  const next = index < navItems.length - 1 ? navItems[index + 1] : null;
+  const flat = flatNavItems(navItems);
+  const index = flat.findIndex((item) => item.href === pathname);
+  const prev = index > 0 ? flat[index - 1] : null;
+  const next = index < flat.length - 1 ? flat[index + 1] : null;
 
   if (!prev && !next) return null;
 

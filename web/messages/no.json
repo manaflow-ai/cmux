@@ -621,6 +621,9 @@
       "apiReference": "API-referanse",
       "browserAutomation": "Nettleserautomatisering",
       "notifications": "Varsler",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Endringslogg"
     }
   },

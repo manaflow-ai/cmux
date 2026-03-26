@@ -621,6 +621,9 @@
       "apiReference": "API Referansı",
       "browserAutomation": "Tarayıcı Otomasyonu",
       "notifications": "Bildirimler",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Değişiklik Günlüğü"
     }
   },
