@@ -1406,12 +1406,6 @@ class GhosttyApp {
         "U+30A0-U+30FF",  // Katakana
     ]
 
-    /// Unicode ranges specific to Korean (Hangul).
-    private static let koreanRanges = [
-        "U+AC00-U+D7AF",  // Hangul Syllables
-        "U+1100-U+11FF",  // Hangul Jamo
-    ]
-
     private struct UserFontConfigSummary {
         var containsCodepointMap = false
         var effectiveFontFamilies: [String] = []
