@@ -2071,6 +2071,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
+        case "workspace.equalize_splits":
+            return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
         case "workspace.remote.configure":
             return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.reconnect":
@@ -2443,6 +2445,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
@@ -3668,6 +3671,24 @@ class TerminalController {
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
+        }
+        return result
+    }
+
+    private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let success = tabManager.equalizeSplits(tabId: ws.id)
+            if success {
+                result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id)])
+            } else {
+                result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "note": "no splits to equalize"])
+            }
         }
         return result
     }

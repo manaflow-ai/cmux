@@ -10224,29 +10224,47 @@ struct CMUXCLI {
                 || parsed.hasFlag("-R")
                 || parsed.hasFlag("-U")
                 || parsed.hasFlag("-D")
-            if !hasDirectionalFlags {
-                return
-            }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-            let direction: String
-            if parsed.hasFlag("-L") {
-                direction = "left"
-            } else if parsed.hasFlag("-U") {
-                direction = "up"
-            } else if parsed.hasFlag("-D") {
-                direction = "down"
-            } else {
-                direction = "right"
+
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
+                // Absolute width: resize-pane -t <pane> -x <columns>
+                // Compute pixel delta from current width to desired width.
+                let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+                let panes = panePayload["panes"] as? [[String: Any]] ?? []
+                if let matchingPane = panes.first(where: { ($0["id"] as? String) == target.paneId }),
+                   let cellW = matchingPane["cell_width_px"] as? Int, cellW > 0,
+                   let currentCols = matchingPane["columns"] as? Int {
+                    let delta = absWidth - currentCols
+                    if delta != 0 {
+                        _ = try? client.sendV2(method: "pane.resize", params: [
+                            "workspace_id": target.workspaceId,
+                            "pane_id": target.paneId,
+                            "direction": delta > 0 ? "right" : "left",
+                            "amount": abs(delta) * cellW
+                        ])
+                    }
+                }
+            } else if hasDirectionalFlags {
+                let direction: String
+                if parsed.hasFlag("-L") {
+                    direction = "left"
+                } else if parsed.hasFlag("-U") {
+                    direction = "up"
+                } else if parsed.hasFlag("-D") {
+                    direction = "down"
+                } else {
+                    direction = "right"
+                }
+                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                    .replacingOccurrences(of: "%", with: "")
+                let amount = Int(rawAmount) ?? 5
+                _ = try client.sendV2(method: "pane.resize", params: [
+                    "workspace_id": target.workspaceId,
+                    "pane_id": target.paneId,
+                    "direction": direction,
+                    "amount": max(1, amount)
+                ])
             }
-            let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
-                .replacingOccurrences(of: "%", with: "")
-            let amount = Int(rawAmount) ?? 5
-            _ = try client.sendV2(method: "pane.resize", params: [
-                "workspace_id": target.workspaceId,
-                "pane_id": target.paneId,
-                "direction": direction,
-                "amount": max(1, amount)
-            ])
 
         case "wait-for":
             try runTmuxCompatCommand(
@@ -10301,13 +10319,12 @@ struct CMUXCLI {
         case "select-layout":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
+            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            // Equalize all splits in the workspace (redistributes evenly)
+            _ = try? client.sendV2(method: "workspace.equalize_splits", params: ["workspace_id": workspaceId])
             if layoutName == "main-vertical" {
-                let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     var store = loadTmuxCompatStore()
-                    // Seed lastColumnSurfaceId from the most recent split if
-                    // this is the first time main-vertical is set and a split
-                    // already happened (the normal flow: split then layout).
                     let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
                     let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                     store.mainVerticalLayouts[workspaceId] = MainVerticalState(
