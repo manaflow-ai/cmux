@@ -1258,6 +1258,51 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
     }
 }
 
+final class TitlebarDoubleClickPreferenceTests: XCTestCase {
+    func testResolvesZoomForFillPreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "Fill",
+            ]),
+            .zoom
+        )
+    }
+
+    func testResolvesMiniaturizeForExplicitMinimizePreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "Minimize",
+            ]),
+            .miniaturize
+        )
+    }
+
+    func testResolvesNoneForNoActionPreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleActionOnDoubleClick": "No Action",
+            ]),
+            .none
+        )
+    }
+
+    func testFallsBackToLegacyMiniaturizePreference() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [
+                "AppleMiniaturizeOnDoubleClick": true,
+            ]),
+            .miniaturize
+        )
+    }
+
+    func testDefaultsToZoomWhenPreferenceIsMissing() {
+        XCTAssertEqual(
+            resolvedStandardTitlebarDoubleClickAction(globalDefaults: [:]),
+            .zoom
+        )
+    }
+}
+
 final class WorkspaceRemoteDaemonPendingCallRegistryTests: XCTestCase {
     func testSupportsMultiplePendingCallsResolvedOutOfOrder() {
         let registry = WorkspaceRemoteDaemonPendingCallRegistry()
@@ -2165,7 +2210,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
             .write(to: included, atomically: true, encoding: .utf8)
 
         let main = dir.appendingPathComponent("config")
-        try "config-file = \(included.path)?\n"
+        try "config-file = ?\(included.path)\n"
             .write(to: main, atomically: true, encoding: .utf8)
 
         XCTAssertTrue(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [main.path]))
@@ -2186,6 +2231,192 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         // Should not hang; should return false since neither file has font-codepoint-map
         XCTAssertFalse(GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [fileA.path]))
+    }
+
+    func testUserConfigContainsCJKCodepointMapRespectsReset() throws {
+        try withTempConfig("""
+        font-codepoint-map = U+4E00-U+9FFF=Hiragino Sans
+        font-codepoint-map =
+        """) { path in
+            XCTAssertFalse(
+                GhosttyApp.userConfigContainsCJKCodepointMap(configPaths: [path])
+            )
+        }
+    }
+
+    // MARK: userConfigHasExplicitFontFamilyFallbackChain
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainDetectsMultipleEntries() throws {
+        try withTempConfig("""
+        font-family = JetBrains Mono
+        font-family = LXGW WenKai Mono TC
+        """) { path in
+            XCTAssertTrue(
+                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+            )
+        }
+    }
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainFollowsConfigFileIncludes() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-font-family-include-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-family = LXGW WenKai Mono TC\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [main.path])
+        )
+    }
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainRespectsFontFamilyReset() throws {
+        try withTempConfig("""
+        font-family = JetBrains Mono
+        font-family =
+        font-family = LXGW WenKai Mono TC
+        """) { path in
+            XCTAssertFalse(
+                GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(configPaths: [path])
+            )
+        }
+    }
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainIgnoresDuplicateFamilies() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-font-family-duplicate-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let legacy = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\n"
+            .write(to: legacy, atomically: true, encoding: .utf8)
+
+        let preferred = dir.appendingPathComponent("config.ghostty")
+        try "font-family = JetBrains Mono\n"
+            .write(to: preferred, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+                configPaths: [legacy.path, preferred.path]
+            )
+        )
+    }
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainMatchesGhosttyIncludeLoadOrder() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-font-family-order-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-family = LXGW WenKai Mono TC\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        let reset = dir.appendingPathComponent("config.ghostty")
+        try "font-family =\n"
+            .write(to: reset, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+                configPaths: [main.path, reset.path]
+            )
+        )
+    }
+
+    func testUserConfigHasExplicitFontFamilyFallbackChainRespectsConfigFileReset() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-font-family-config-file-reset-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("fonts.conf")
+        try "font-family = LXGW WenKai Mono TC\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "font-family = JetBrains Mono\nconfig-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        let reset = dir.appendingPathComponent("config.ghostty")
+        try "config-file =\n"
+            .write(to: reset, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.userConfigHasExplicitFontFamilyFallbackChain(
+                configPaths: [main.path, reset.path]
+            )
+        )
+    }
+
+    // MARK: shouldInjectCJKFontFallback
+
+    func testShouldInjectCJKFontFallbackSkipsExplicitMultiFontFallbackChain() throws {
+        try withTempConfig("""
+        font-family = JetBrains Mono
+        font-family = LXGW WenKai Mono TC
+        """) { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldInjectCJKFontFallback(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testShouldInjectCJKFontFallbackAllowsSingleFontWithoutExplicitOverrides() throws {
+        try withTempConfig("font-family = JetBrains Mono\n") { path in
+            XCTAssertTrue(
+                GhosttyApp.shouldInjectCJKFontFallback(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path]
+                )
+            )
+        }
+    }
+
+    func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appSupport) }
+
+        let taggedDir = appSupport.appendingPathComponent("com.example.cmux-dev", isDirectory: true)
+        try FileManager.default.createDirectory(at: taggedDir, withIntermediateDirectories: true)
+        let taggedConfig = taggedDir.appendingPathComponent("config", isDirectory: false)
+        try "font-family = JetBrains Mono\n"
+            .write(to: taggedConfig, atomically: true, encoding: .utf8)
+
+        let releaseDir = appSupport.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: releaseDir, withIntermediateDirectories: true)
+        let releaseConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
+        try "font-family = LXGW WenKai Mono TC\n"
+            .write(to: releaseConfig, atomically: true, encoding: .utf8)
+
+        let paths = GhosttyApp.loadedCJKScanPaths(
+            currentBundleIdentifier: "com.example.cmux-dev",
+            appSupportDirectory: appSupport
+        )
+
+        XCTAssertTrue(paths.contains(taggedConfig.path))
+        XCTAssertFalse(paths.contains(releaseConfig.path))
+        XCTAssertTrue(
+            GhosttyApp.shouldInjectCJKFontFallback(
+                preferredLanguages: ["zh-Hans-CN"],
+                configPaths: paths
+            )
+        )
     }
 }
 

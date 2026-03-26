@@ -59,6 +59,33 @@ final class UpdatePillUITests: XCTestCase {
         attachScreenshot(name: "background-detected-update-available")
     }
 
+    func testDetectedBackgroundUpdateFirstClickOpensPopover() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "none"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+
+        pill.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Update Available"].waitForExistence(timeout: 8.0),
+            "Expected the first click on a background-detected update pill to open the popover"
+        )
+        XCTAssertTrue(
+            app.buttons["Install and Relaunch"].waitForExistence(timeout: 2.0),
+            "Expected cached update info to show the install action without running a new update check"
+        )
+    }
+
     func testUpdatePillShowsForNoUpdateThenDismisses() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()

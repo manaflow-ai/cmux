@@ -853,9 +853,116 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testBrowserFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D to create a split before opening the browser. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before opening find. value=\(String(describing: omnibar.value))"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("seed")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "seed"
+            },
+            "Expected browser find field to capture initial typing. value=\(String(describing: findField.value))"
+        )
+
+        app.typeKey("p", modifierFlags: [.command, .shift])
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        XCTAssertTrue(paletteSearchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        paletteSearchField.click()
+        paletteSearchField.typeText("New Workspace")
+
+        let firstResultRow = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
+        XCTAssertTrue(firstResultRow.waitForExistence(timeout: 5.0), "Expected command palette results for New Workspace")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected command palette to dismiss after creating a workspace"
+        )
+
+        app.typeKey("1", modifierFlags: [.command])
+
+        let restoredFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected browser find field after returning to workspace 1")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((restoredFindField.value as? String) ?? "") == "seed"
+            },
+            "Expected existing browser find query to persist after returning. value=\(String(describing: restoredFindField.value))"
+        )
+
+        app.typeText("x")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((restoredFindField.value as? String) ?? "") == "seedx"
+            },
+            "Expected typing after returning from a new workspace to stay in the browser find field. " +
+                "findValue=\(String(describing: restoredFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
+        )
+    }
+
+    func testWorkspaceRoundTripPreservesFocusedTerminalFindWhenBrowserFindIsAlsoOpen() {
+        runSplitFindWorkspaceRoundTripScenario(restoredOwner: .terminal)
+    }
+
+    func testWorkspaceRoundTripPreservesFocusedBrowserFindWhenTerminalFindIsAlsoOpen() {
+        runSplitFindWorkspaceRoundTripScenario(restoredOwner: .browser)
+    }
+
     private enum FindFocusRoute {
         case cmdOptionArrows
         case cmdCtrlLetters
+    }
+
+    private enum SplitFindOwner {
+        case terminal
+        case browser
+
+        var focusedPanelKind: String {
+            switch self {
+            case .terminal:
+                return "terminal"
+            case .browser:
+                return "browser"
+            }
+        }
     }
 
     private func runFindFocusPersistenceScenario(route: FindFocusRoute, useAutofocusRacePage: Bool) {
@@ -964,6 +1071,124 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                     && data["browserFindNeedle"] == "amdo"
             },
             "Expected browser find query to stay focused and become 'amdo'. data=\(String(describing: loadData()))"
+        )
+    }
+
+    private func runSplitFindWorkspaceRoundTripScenario(restoredOwner: SplitFindOwner) {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window to exist")
+
+        app.typeKey("d", modifierFlags: [.command])
+        focusRightPaneForFindScenario(app, route: .cmdOptionArrows)
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+Shift+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before running workspace round trip. value=\(String(describing: omnibar.value))"
+        )
+
+        focusLeftPaneForFindScenario(app, route: .cmdOptionArrows)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "terminal"
+            },
+            "Expected left terminal pane to be focused before opening terminal find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("la")
+
+        focusRightPaneForFindScenario(app, route: .cmdOptionArrows)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "browser"
+                    && data["terminalFindNeedle"] == "la"
+            },
+            "Expected terminal find query to persist before opening browser find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("am")
+
+        switch restoredOwner {
+        case .terminal:
+            focusLeftPaneForFindScenario(app, route: .cmdOptionArrows)
+        case .browser:
+            break
+        }
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == restoredOwner.focusedPanelKind
+                    && data["terminalFindNeedle"] == "la"
+                    && data["browserFindNeedle"] == "am"
+            },
+            "Expected the intended find owner before leaving workspace 1. data=\(String(describing: loadData()))"
+        )
+
+        openCommandPaletteForNewWorkspace(app)
+        app.typeKey("1", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == restoredOwner.focusedPanelKind
+                    && data["terminalFindNeedle"] == "la"
+                    && data["browserFindNeedle"] == "am"
+            },
+            "Expected the previously focused find owner to be restored after the workspace round trip. data=\(String(describing: loadData()))"
+        )
+
+        switch restoredOwner {
+        case .terminal:
+            app.typeText("foo")
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPanelKind"] == "terminal"
+                        && data["terminalFindNeedle"] == "lafoo"
+                        && data["browserFindNeedle"] == "am"
+                },
+                "Expected typing after returning to stay in terminal find. data=\(String(describing: loadData()))"
+            )
+        case .browser:
+            app.typeText("do")
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPanelKind"] == "browser"
+                        && data["terminalFindNeedle"] == "la"
+                        && data["browserFindNeedle"] == "amdo"
+                },
+                "Expected typing after returning to stay in browser find. data=\(String(describing: loadData()))"
+            )
+        }
+    }
+
+    private func openCommandPaletteForNewWorkspace(_ app: XCUIApplication) {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        XCTAssertTrue(paletteSearchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        paletteSearchField.click()
+        paletteSearchField.typeText("New Workspace")
+
+        let firstResultRow = app.descendants(matching: .any).matching(identifier: "CommandPaletteResultRow.0").firstMatch
+        XCTAssertTrue(firstResultRow.waitForExistence(timeout: 5.0), "Expected command palette results for New Workspace")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected command palette to dismiss after creating a workspace"
         )
     }
 

@@ -1,7 +1,6 @@
 import Sparkle
 import Cocoa
 import Combine
-import ObjectiveC.runtime
 import SwiftUI
 
 enum UpdateSettings {
@@ -60,15 +59,9 @@ class UpdateController {
     private var readyCheckWorkItem: DispatchWorkItem?
     private var backgroundProbeTimer: Timer?
     private var didStartUpdater: Bool = false
-    private var latestItemProbe: UpdateLatestItemProbe?
-    private var latestItemProbeQueuedFollowUp: (() -> Void)?
-    private var isShowingLatestItemProbeCheckingState: Bool = false
     private let readyRetryDelay: TimeInterval = 0.25
     private let readyRetryCount: Int = 20
     private let backgroundProbeInterval: TimeInterval = UpdateSettings.scheduledCheckInterval
-#if DEBUG
-    private var debugDeferredUpdateCandidate: DeferredUpdateCandidate?
-#endif
 
     var viewModel: UpdateViewModel {
         userDriver.viewModel
@@ -91,13 +84,6 @@ class UpdateController {
             userDriver: userDriver,
             delegate: userDriver
         )
-#if DEBUG
-        if let versionString = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DEFERRED_UPDATE_VERSION"],
-           !versionString.isEmpty {
-            let displayVersionString = ProcessInfo.processInfo.environment["CMUX_UI_TEST_DEFERRED_UPDATE_DISPLAY_VERSION"] ?? versionString
-            self.debugDeferredUpdateCandidate = .init(versionString: versionString, displayVersionString: displayVersionString)
-        }
-#endif
         installNoUpdateDismissObserver()
     }
 
@@ -108,7 +94,6 @@ class UpdateController {
         noUpdateDismissWorkItem?.cancel()
         readyCheckWorkItem?.cancel()
         backgroundProbeTimer?.invalidate()
-        latestItemProbe?.cancel()
     }
 
     /// Start the updater. If startup fails, the error is shown via the custom UI.
@@ -208,37 +193,33 @@ class UpdateController {
                     return
                 }
 
-                guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
+                // Only stop on terminal failure states (.notFound, .error).
+                // Don't stop on .idle — the check may still be starting up
+                // (e.g. retry loop, background probe finishing).
+                guard self.didObserveAttemptUpdateProgress, !state.isInstallable, !state.isIdle else {
                     return
                 }
                 self.stopAttemptUpdateMonitoring()
             }
 
-        requestCheckForUpdates(presentation: .custom)
+        checkForUpdates()
     }
 
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
-        requestCheckForUpdates(presentation: .dialog)
+        UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
+        checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
-    private func requestCheckForUpdates(presentation: UpdateUserInitiatedCheckPresentation) {
-        UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"), presentation=\(presentation == .dialog ? "dialog" : "custom"))")
-        checkForUpdatesWhenReady(retries: readyRetryCount, presentation: presentation)
+    /// Check for updates using the custom popover-based UI.
+    func checkForUpdatesInCustomUI() {
+        checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
-    private func performCheckForUpdates(presentation: UpdateUserInitiatedCheckPresentation) {
+    private func performCheckForUpdates() {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
-        refreshLatestUpdateSelectionIfNeeded(presentation: presentation) { [weak self] in
-            self?.performUserInitiatedCheck(presentation: presentation)
-        }
-    }
-
-    private func performUserInitiatedCheck(presentation: UpdateUserInitiatedCheckPresentation) {
-        userDriver.prepareForUserInitiatedCheck(presentation: presentation)
-        if viewModel.state == .idle || isShowingLatestItemProbeCheckingState {
-            isShowingLatestItemProbeCheckingState = false
+        if viewModel.state == .idle {
             updater.checkForUpdates()
             return
         }
@@ -247,13 +228,12 @@ class UpdateController {
         viewModel.state.cancel()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
-            self?.userDriver.prepareForUserInitiatedCheck(presentation: presentation)
             self?.updater.checkForUpdates()
         }
     }
 
     /// Check for updates once the updater is ready (used by UI tests).
-    func checkForUpdatesWhenReady(retries: Int = 10, presentation: UpdateUserInitiatedCheckPresentation = .dialog) {
+    func checkForUpdatesWhenReady(retries: Int = 10) {
         readyCheckWorkItem?.cancel()
         readyCheckWorkItem = nil
         startUpdaterIfNeeded()
@@ -261,7 +241,7 @@ class UpdateController {
         let canCheck = updater.canCheckForUpdates
         UpdateLogStore.shared.append("checkForUpdatesWhenReady invoked (canCheck=\(canCheck))")
         if canCheck {
-            performCheckForUpdates(presentation: presentation)
+            performCheckForUpdates()
             return
         }
         if viewModel.state.isIdle {
@@ -276,14 +256,14 @@ class UpdateController {
                         code: 1,
                         userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
                     ),
-                    retry: { [weak self] in self?.requestCheckForUpdates(presentation: presentation) },
+                    retry: { [weak self] in self?.checkForUpdates() },
                     dismiss: { [weak self] in self?.viewModel.state = .idle }
                 ))
             }
             return
         }
         let workItem = DispatchWorkItem { [weak self] in
-            self?.checkForUpdatesWhenReady(retries: retries - 1, presentation: presentation)
+            self?.checkForUpdatesWhenReady(retries: retries - 1)
         }
         readyCheckWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + readyRetryDelay, execute: workItem)
@@ -390,440 +370,5 @@ class UpdateController {
         } catch {
             UpdateLogStore.shared.append("Failed creating Sparkle installation cache: \(error)")
         }
-    }
-
-    private func refreshLatestUpdateSelectionIfNeeded(
-        presentation: UpdateUserInitiatedCheckPresentation,
-        completion: @escaping () -> Void
-    ) {
-        // Sparkle resumes cached deferred updates before fetching the feed again.
-        // Probe the latest appcast first so a manual check doesn't surface an older cached version.
-        guard latestItemProbe == nil else {
-            latestItemProbeQueuedFollowUp = completion
-            UpdateLogStore.shared.append(
-                "latest update probe already in progress; coalescing latest user check (presentation=\(presentation == .dialog ? "dialog" : "custom"))"
-            )
-            return
-        }
-        guard let deferredUpdateCandidate = currentDeferredUpdateCandidate() else {
-            completion()
-            return
-        }
-
-        if viewModel.state == .idle {
-            isShowingLatestItemProbeCheckingState = true
-            viewModel.state = .checking(.init(cancel: { [weak self] in
-                self?.cancelLatestItemProbe()
-            }))
-        }
-
-        UpdateLogStore.shared.append(
-            "probing latest update before user check (deferred=\(deferredUpdateCandidate.displayVersionString), presentation=\(presentation == .dialog ? "dialog" : "custom"))"
-        )
-
-        let probe = UpdateLatestItemProbe()
-        latestItemProbe = probe
-        latestItemProbeQueuedFollowUp = nil
-        probe.start { [weak self] result in
-            guard let self else { return }
-            self.latestItemProbe = nil
-            let followUp = self.latestItemProbeQueuedFollowUp ?? completion
-            self.latestItemProbeQueuedFollowUp = nil
-
-            if let latestValidUpdate = result.latestValidUpdate,
-               self.shouldReplaceDeferredUpdate(
-                   deferredUpdateCandidate,
-                   with: latestValidUpdate
-               ) {
-                self.clearDeferredUpdateCandidate()
-                UpdateLogStore.shared.append(
-                    "cleared stale deferred update \(deferredUpdateCandidate.displayVersionString) in favor of \(latestValidUpdate.displayVersionString)"
-                )
-            } else if let error = result.error {
-                UpdateLogStore.shared.append("latest update probe failed: \(self.userDriver.formatErrorForLog(error))")
-            }
-
-            followUp()
-        }
-    }
-
-    private func cancelLatestItemProbe() {
-        guard latestItemProbe != nil || latestItemProbeQueuedFollowUp != nil || isShowingLatestItemProbeCheckingState else {
-            return
-        }
-
-        UpdateLogStore.shared.append("latest update probe canceled")
-        latestItemProbe?.cancel()
-        latestItemProbe = nil
-        latestItemProbeQueuedFollowUp = nil
-
-        guard isShowingLatestItemProbeCheckingState else { return }
-        isShowingLatestItemProbeCheckingState = false
-        if case .checking = viewModel.state {
-            viewModel.state = .idle
-        }
-    }
-
-    private func currentDeferredUpdateCandidate() -> DeferredUpdateCandidate? {
-#if DEBUG
-        if let debugDeferredUpdateCandidate {
-            return debugDeferredUpdateCandidate
-        }
-#endif
-        return SparkleResumableUpdateReflection.deferredUpdateCandidate(from: updater)
-    }
-
-    private func clearDeferredUpdateCandidate() {
-#if DEBUG
-        debugDeferredUpdateCandidate = nil
-#endif
-        _ = SparkleResumableUpdateReflection.clearDeferredUpdate(from: updater)
-    }
-
-    private func shouldReplaceDeferredUpdate(
-        _ deferredUpdateCandidate: DeferredUpdateCandidate,
-        with latestValidUpdate: DeferredUpdateCandidate
-    ) -> Bool {
-        let latestVersionString = effectiveVersionString(for: latestValidUpdate)
-        let deferredVersionString = effectiveVersionString(for: deferredUpdateCandidate)
-        guard !latestVersionString.isEmpty, !deferredVersionString.isEmpty else {
-            return false
-        }
-        let comparison = SUStandardVersionComparator.default.compareVersion(
-            deferredVersionString,
-            toVersion: latestVersionString
-        )
-        return comparison == .orderedAscending
-    }
-
-    private func effectiveVersionString(for deferredUpdateCandidate: DeferredUpdateCandidate) -> String {
-        deferredUpdateCandidate.versionString.isEmpty ? deferredUpdateCandidate.displayVersionString : deferredUpdateCandidate.versionString
-    }
-}
-
-private struct DeferredUpdateCandidate {
-    let versionString: String
-    let displayVersionString: String
-
-    init(versionString: String, displayVersionString: String) {
-        self.versionString = versionString
-        self.displayVersionString = displayVersionString
-    }
-
-    init(item: SUAppcastItem) {
-        self.init(versionString: item.versionString, displayVersionString: item.displayVersionString)
-    }
-}
-
-private enum SparkleResumableUpdateReflection {
-    private static let resumableUpdateIvarName = "_resumableUpdate"
-
-    static func deferredUpdateCandidate(from updater: SPUUpdater) -> DeferredUpdateCandidate? {
-        guard let resumableUpdate = resumableUpdateObject(from: updater),
-              let updateItem = resumableUpdate.perform(NSSelectorFromString("updateItem"))?.takeUnretainedValue() as? SUAppcastItem else {
-            return nil
-        }
-        return DeferredUpdateCandidate(item: updateItem)
-    }
-
-    @discardableResult
-    static func clearDeferredUpdate(from updater: SPUUpdater) -> Bool {
-        guard let resumableUpdateIvar = class_getInstanceVariable(SPUUpdater.self, resumableUpdateIvarName) else {
-            return false
-        }
-        object_setIvar(updater, resumableUpdateIvar, nil)
-        return true
-    }
-
-    private static func resumableUpdateObject(from updater: SPUUpdater) -> NSObject? {
-        guard let resumableUpdateIvar = class_getInstanceVariable(SPUUpdater.self, resumableUpdateIvarName),
-              let resumableUpdate = object_getIvar(updater, resumableUpdateIvar) else {
-            return nil
-        }
-        return resumableUpdate as? NSObject
-    }
-}
-
-private final class UpdateLatestItemProbe: NSObject {
-    struct Result {
-        let latestValidUpdate: DeferredUpdateCandidate?
-        let error: Error?
-    }
-
-    private let stateLock = NSLock()
-    private var completionHandler: ((Result) -> Void)?
-    private var dataTask: URLSessionDataTask?
-
-    func start(completion: @escaping (Result) -> Void) {
-        stateLock.lock()
-        completionHandler = completion
-        stateLock.unlock()
-
-        guard let feedURLString = resolvedFeedURLString(),
-              let feedURL = URL(string: feedURLString) else {
-            deliver(.init(latestValidUpdate: nil, error: nil))
-            return
-        }
-
-#if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        if let override = env["CMUX_UI_TEST_FEED_URL"], !override.isEmpty {
-            UpdateTestURLProtocol.registerIfNeeded()
-        }
-#endif
-
-        let task = URLSession.shared.dataTask(with: feedURL) { [weak self] data, _, error in
-            let result: Result
-            if let error {
-                result = .init(latestValidUpdate: nil, error: error)
-            } else if let data {
-                do {
-                    let parser = LatestAppcastFeedParser()
-                    let items = try parser.parse(data: data)
-                    result = .init(
-                        latestValidUpdate: Self.pickLatestItem(from: items),
-                        error: nil
-                    )
-                } catch {
-                    result = .init(latestValidUpdate: nil, error: error)
-                }
-            } else {
-                result = .init(latestValidUpdate: nil, error: nil)
-            }
-
-            self?.deliver(result)
-        }
-        stateLock.lock()
-        dataTask = task
-        stateLock.unlock()
-        task.resume()
-    }
-
-    func cancel() {
-        let task: URLSessionDataTask?
-        stateLock.lock()
-        task = dataTask
-        dataTask = nil
-        completionHandler = nil
-        stateLock.unlock()
-        task?.cancel()
-    }
-
-    private func deliver(_ result: Result) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let completion = self.takeCompletion()
-            guard let completion else { return }
-            completion(result)
-        }
-    }
-
-    private func takeCompletion() -> ((Result) -> Void)? {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        let completion = completionHandler
-        completionHandler = nil
-        dataTask = nil
-        return completion
-    }
-
-    private func resolvedFeedURLString() -> String? {
-#if DEBUG
-        let env = ProcessInfo.processInfo.environment
-        if let override = env["CMUX_UI_TEST_FEED_URL"], !override.isEmpty {
-            return override
-        }
-#endif
-        let infoFeedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        return UpdateFeedResolver.resolvedFeedURLString(infoFeedURL: infoFeedURL).url
-    }
-
-    private static func pickLatestItem(from items: [DeferredUpdateCandidate]) -> DeferredUpdateCandidate? {
-        var latestItem: DeferredUpdateCandidate?
-        for item in items {
-            guard let currentLatest = latestItem else {
-                latestItem = item
-                continue
-            }
-            let comparison = SUStandardVersionComparator.default.compareVersion(
-                effectiveVersionString(for: currentLatest),
-                toVersion: effectiveVersionString(for: item)
-            )
-            if comparison == .orderedAscending {
-                latestItem = item
-            }
-        }
-        return latestItem
-    }
-
-    private static func effectiveVersionString(for item: DeferredUpdateCandidate) -> String {
-        item.versionString.isEmpty ? item.displayVersionString : item.versionString
-    }
-}
-
-private final class LatestAppcastFeedParser: NSObject, XMLParserDelegate {
-    private struct ParsedItem {
-        var versionString = ""
-        var displayVersionString = ""
-        var channel: String?
-        var minimumSystemVersion: String?
-        var maximumSystemVersion: String?
-        var hasDownload = false
-        var hasInfoURL = false
-    }
-
-    private var parsedItems: [DeferredUpdateCandidate] = []
-    private var currentItem: ParsedItem?
-    private var currentText = ""
-
-    func parse(data: Data) throws -> [DeferredUpdateCandidate] {
-        parsedItems = []
-        currentItem = nil
-        currentText = ""
-
-        let parser = XMLParser(data: data)
-        parser.delegate = self
-        if parser.parse() {
-            return parsedItems
-        }
-
-        throw parser.parserError ?? NSError(
-            domain: "cmux.update",
-            code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "Failed to parse update feed."]
-        )
-    }
-
-    func parser(
-        _ parser: XMLParser,
-        didStartElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?,
-        attributes attributeDict: [String: String] = [:]
-    ) {
-        let name = qName ?? elementName
-        currentText = ""
-
-        switch name {
-        case "item":
-            currentItem = ParsedItem()
-        case "enclosure":
-            guard currentItem != nil else { return }
-            currentItem?.hasDownload = true
-            if let versionString = attributeDict["sparkle:version"], !versionString.isEmpty {
-                currentItem?.versionString = versionString
-            }
-            if let displayVersionString = attributeDict["sparkle:shortVersionString"], !displayVersionString.isEmpty {
-                currentItem?.displayVersionString = displayVersionString
-            }
-        default:
-            break
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        currentText.append(string)
-    }
-
-    func parser(
-        _ parser: XMLParser,
-        didEndElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?
-    ) {
-        let name = qName ?? elementName
-        let text = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard currentItem != nil else {
-            currentText = ""
-            return
-        }
-
-        switch name {
-        case "sparkle:version":
-            if !text.isEmpty {
-                currentItem?.versionString = text
-            }
-        case "sparkle:shortVersionString":
-            if !text.isEmpty {
-                currentItem?.displayVersionString = text
-            }
-        case "sparkle:channel":
-            currentItem?.channel = text.isEmpty ? nil : text
-        case "sparkle:minimumSystemVersion":
-            currentItem?.minimumSystemVersion = text.isEmpty ? nil : text
-        case "sparkle:maximumSystemVersion":
-            currentItem?.maximumSystemVersion = text.isEmpty ? nil : text
-        case "link":
-            if !text.isEmpty {
-                currentItem?.hasInfoURL = true
-            }
-        case "item":
-            finalizeCurrentItem()
-        default:
-            break
-        }
-
-        currentText = ""
-    }
-
-    private func finalizeCurrentItem() {
-        guard let currentItem else { return }
-        defer { self.currentItem = nil }
-
-        guard currentItem.channel == nil else { return }
-        guard currentItem.hasDownload || currentItem.hasInfoURL else { return }
-        let versionString = currentItem.versionString
-        guard !versionString.isEmpty else { return }
-        guard passesMinimumSystemVersion(currentItem.minimumSystemVersion) else { return }
-        guard passesMaximumSystemVersion(currentItem.maximumSystemVersion) else { return }
-
-        let displayVersionString = currentItem.displayVersionString.isEmpty
-            ? versionString
-            : currentItem.displayVersionString
-        parsedItems.append(
-            DeferredUpdateCandidate(
-                versionString: versionString,
-                displayVersionString: displayVersionString
-            )
-        )
-    }
-
-    private func passesMinimumSystemVersion(_ versionString: String?) -> Bool {
-        guard let versionString, !versionString.isEmpty else { return true }
-        return compareSystemVersion(versionString, to: currentSystemVersionString) != .orderedDescending
-    }
-
-    private func passesMaximumSystemVersion(_ versionString: String?) -> Bool {
-        guard let versionString, !versionString.isEmpty else { return true }
-        return compareSystemVersion(versionString, to: currentSystemVersionString) != .orderedAscending
-    }
-
-    private var currentSystemVersionString: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
-        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
-    }
-
-    private func compareSystemVersion(_ lhs: String, to rhs: String) -> ComparisonResult {
-        let lhsComponents = versionComponents(from: lhs)
-        let rhsComponents = versionComponents(from: rhs)
-        let count = max(lhsComponents.count, rhsComponents.count)
-        for index in 0..<count {
-            let lhsValue = index < lhsComponents.count ? lhsComponents[index] : 0
-            let rhsValue = index < rhsComponents.count ? rhsComponents[index] : 0
-            if lhsValue < rhsValue {
-                return .orderedAscending
-            }
-            if lhsValue > rhsValue {
-                return .orderedDescending
-            }
-        }
-        return .orderedSame
-    }
-
-    private func versionComponents(from versionString: String) -> [Int] {
-        versionString
-            .split(separator: ".")
-            .compactMap { Int($0) }
     }
 }
