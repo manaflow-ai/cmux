@@ -15,6 +15,17 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(url.toString(), 301);
   }
 
+  // Legal pages are English-only. Redirect localized variants to the English version.
+  const legalPages = ["/privacy-policy", "/terms-of-service", "/eula"];
+  const { pathname } = request.nextUrl;
+  for (const page of legalPages) {
+    if (pathname.endsWith(page) && pathname !== page) {
+      const url = request.nextUrl.clone();
+      url.pathname = page;
+      return NextResponse.redirect(url, 301);
+    }
+  }
+
   return intlMiddleware(request);
 }
 

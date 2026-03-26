@@ -1,14 +1,11 @@
-import { buildAlternates } from "../../../../i18n/seo";
+import type { Metadata } from "next";
 import { Link } from "../../../../i18n/navigation";
 
-export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
-  return {
-    title: "Privacy Policy — cmux",
-    description: "Privacy policy for cmux",
-    alternates: buildAlternates(locale, "/privacy-policy"),
-  };
-}
+export const metadata: Metadata = {
+  title: "Privacy Policy — cmux",
+  description: "Privacy policy for cmux",
+  alternates: { canonical: "https://cmux.com/privacy-policy" },
+};
 
 export default function PrivacyPolicyPage() {
   return (

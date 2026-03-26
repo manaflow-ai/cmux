@@ -28,9 +28,22 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
+  // Legal pages are English-only (not translated), so they only get one entry.
+  const englishOnly = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
+
   const entries: MetadataRoute.Sitemap = [];
 
   for (const { path, lastModified, changeFrequency, priority } of paths) {
+    if (englishOnly.has(path)) {
+      entries.push({
+        url: `${base}${path}`,
+        lastModified,
+        changeFrequency,
+        priority,
+      });
+      continue;
+    }
+
     const alternates: Record<string, string> = {};
     for (const locale of locales) {
       alternates[locale] =
