@@ -2082,6 +2082,16 @@ class TerminalController {
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
 
+        // Named sessions
+        case "session.save":
+            return v2Result(id: id, self.v2SessionSave(params: params))
+        case "session.restore":
+            return v2Result(id: id, self.v2SessionRestore(params: params))
+        case "session.list":
+            return v2Result(id: id, self.v2SessionList(params: params))
+        case "session.delete":
+            return v2Result(id: id, self.v2SessionDelete(params: params))
+
         // Settings
         case "settings.open":
             return v2Result(id: id, self.v2SettingsOpen(params: params))
@@ -2448,6 +2458,10 @@ class TerminalController {
             "workspace.remote.disconnect",
             "workspace.remote.status",
             "workspace.remote.terminal_session_end",
+            "session.save",
+            "session.restore",
+            "session.list",
+            "session.delete",
             "settings.open",
             "feedback.open",
             "feedback.submit",
@@ -3941,6 +3955,113 @@ class TerminalController {
         }
 
         return result
+    }
+
+    // MARK: - V2 Named Session Methods
+
+    private func v2SessionSave(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name"),
+              let name = NamedWorkspaceSessionStore.normalizedSessionName(rawName) else {
+            return .err(code: "invalid_params", message: "Missing or invalid session name", data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var snapshot: SessionTabManagerSnapshot?
+        v2MainSync {
+            snapshot = tabManager.sessionSnapshot(includeScrollback: false)
+        }
+        guard let snapshot else {
+            return .err(code: "internal_error", message: "Failed to capture session snapshot", data: [
+                "name": name
+            ])
+        }
+
+        let record = NamedWorkspaceSessionRecord(
+            version: NamedWorkspaceSessionSchema.currentVersion,
+            name: name,
+            savedAt: Date().timeIntervalSince1970,
+            tabManager: snapshot
+        )
+        guard NamedWorkspaceSessionStore.save(record) else {
+            return .err(code: "internal_error", message: "Failed to save session", data: [
+                "name": name
+            ])
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        let fileURL = NamedWorkspaceSessionStore.fileURL(forSessionNamed: name)
+        return .ok([
+            "name": name,
+            "saved_at": record.savedAt,
+            "workspace_count": snapshot.workspaces.count,
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "file_path": v2OrNull(fileURL?.path)
+        ])
+    }
+
+    private func v2SessionRestore(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name"),
+              let name = NamedWorkspaceSessionStore.normalizedSessionName(rawName) else {
+            return .err(code: "invalid_params", message: "Missing or invalid session name", data: nil)
+        }
+        guard let record = NamedWorkspaceSessionStore.load(named: name) else {
+            return .err(code: "not_found", message: "Saved session not found", data: [
+                "name": name
+            ])
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        v2MainSync {
+            tabManager.restoreSessionSnapshot(record.tabManager)
+        }
+
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "name": record.name,
+            "saved_at": record.savedAt,
+            "workspace_count": record.tabManager.workspaces.count,
+            "window_id": v2OrNull(windowId?.uuidString),
+            "window_ref": v2Ref(kind: .window, uuid: windowId)
+        ])
+    }
+
+    private func v2SessionList(params _: [String: Any]) -> V2CallResult {
+        let sessions = NamedWorkspaceSessionStore.list().map { entry in
+            [
+                "name": entry.name,
+                "saved_at": entry.savedAt,
+                "workspace_count": entry.workspaceCount,
+                "file_path": entry.fileURL.path
+            ]
+        }
+        return .ok([
+            "sessions": sessions
+        ])
+    }
+
+    private func v2SessionDelete(params: [String: Any]) -> V2CallResult {
+        guard let rawName = v2String(params, "name"),
+              let name = NamedWorkspaceSessionStore.normalizedSessionName(rawName) else {
+            return .err(code: "invalid_params", message: "Missing or invalid session name", data: nil)
+        }
+
+        switch NamedWorkspaceSessionStore.delete(named: name) {
+        case .deleted:
+            return .ok(["name": name])
+        case .notFound:
+            return .err(code: "not_found", message: "Saved session not found", data: [
+                "name": name
+            ])
+        case .failed:
+            return .err(code: "internal_error", message: "Failed to delete session", data: [
+                "name": name
+            ])
+        }
     }
 
     private func v2WorkspaceAction(params: [String: Any]) -> V2CallResult {

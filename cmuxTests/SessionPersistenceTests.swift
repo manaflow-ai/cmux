@@ -148,6 +148,82 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(path?.path.contains("com.example_unsafe_id") == true)
     }
 
+    func testNamedWorkspaceSessionStoreRoundTripListAndDelete() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Docs",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let record = NamedWorkspaceSessionRecord(
+            version: NamedWorkspaceSessionSchema.currentVersion,
+            name: "project alpha",
+            savedAt: 1_711_111_111,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [workspace]
+            )
+        )
+
+        XCTAssertTrue(NamedWorkspaceSessionStore.save(record, appSupportDirectory: tempDir))
+
+        let loaded = NamedWorkspaceSessionStore.load(
+            named: "project alpha",
+            appSupportDirectory: tempDir
+        )
+        XCTAssertEqual(loaded?.name, "project alpha")
+        XCTAssertEqual(loaded?.savedAt, record.savedAt)
+        XCTAssertEqual(loaded?.tabManager.workspaces.count, 1)
+        XCTAssertEqual(loaded?.tabManager.workspaces.first?.currentDirectory, "/tmp/project")
+
+        let entries = NamedWorkspaceSessionStore.list(appSupportDirectory: tempDir)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.name, "project alpha")
+        XCTAssertEqual(entries.first?.workspaceCount, 1)
+        XCTAssertTrue(entries.first?.fileURL.path.contains("/cmux/sessions/") == true)
+
+        XCTAssertEqual(
+            NamedWorkspaceSessionStore.delete(named: "project alpha", appSupportDirectory: tempDir),
+            .deleted
+        )
+        XCTAssertNil(
+            NamedWorkspaceSessionStore.load(named: "project alpha", appSupportDirectory: tempDir)
+        )
+    }
+
+    func testNamedWorkspaceSessionStoreRejectsInvalidNames() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-named-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let record = NamedWorkspaceSessionRecord(
+            version: NamedWorkspaceSessionSchema.currentVersion,
+            name: "../nope",
+            savedAt: 1,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: [])
+        )
+
+        XCTAssertFalse(NamedWorkspaceSessionStore.save(record, appSupportDirectory: tempDir))
+        XCTAssertEqual(
+            NamedWorkspaceSessionStore.delete(named: "../nope", appSupportDirectory: tempDir),
+            .failed
+        )
+    }
+
     func testRestorePolicySkipsWhenLaunchHasExplicitArguments() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],

@@ -1521,7 +1521,7 @@ struct CMUXCLI {
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
         // If the user explicitly targets a window, focus it first so commands route correctly.
-        if let windowId {
+        if let windowId, command != "session" {
             let normalizedWindow = try normalizeWindowHandle(windowId, client: client) ?? windowId
             _ = try client.sendV2(method: "window.focus", params: ["window_id": normalizedWindow])
         }
@@ -2286,6 +2286,14 @@ struct CMUXCLI {
         case "simulate-app-active":
             let response = try sendV1Command("simulate_app_active", client: client)
             print(response)
+
+        case "session":
+            try runSessionCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                windowOverride: windowId
+            )
 
         case "__tmux-compat":
             try runClaudeTeamsTmuxCompat(
@@ -6014,6 +6022,138 @@ struct CMUXCLI {
         throw CLIError(message: "Unable to resolve surface ID")
     }
 
+    private func runSessionCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        windowOverride: String?
+    ) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+
+        switch subcommand {
+        case "save":
+            let name = try requiredSessionName(
+                Array(commandArgs.dropFirst()),
+                subcommand: "save"
+            )
+            var params: [String: Any] = ["name": name]
+            if let windowOverride {
+                let normalizedWindow = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+                params["window_id"] = normalizedWindow
+            }
+
+            let payload = try client.sendV2(method: "session.save", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let count = intFromAny(payload["workspace_count"]) ?? 0
+                print("Saved session '\(name)' (\(count) workspace\(count == 1 ? "" : "s"))")
+            }
+
+        case "restore":
+            let name = try requiredSessionName(
+                Array(commandArgs.dropFirst()),
+                subcommand: "restore"
+            )
+            var params: [String: Any] = ["name": name]
+            if let windowOverride {
+                let normalizedWindow = try normalizeWindowHandle(windowOverride, client: client) ?? windowOverride
+                params["window_id"] = normalizedWindow
+            }
+
+            let payload = try client.sendV2(method: "session.restore", params: params)
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let count = intFromAny(payload["workspace_count"]) ?? 0
+                print("Restored session '\(name)' (\(count) workspace\(count == 1 ? "" : "s"))")
+            }
+
+        case "list":
+            let payload = try client.sendV2(method: "session.list")
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                let sessions = payload["sessions"] as? [[String: Any]] ?? []
+                printSessionList(sessions)
+            }
+
+        case "delete":
+            let name = try requiredSessionName(
+                Array(commandArgs.dropFirst()),
+                subcommand: "delete"
+            )
+            let payload = try client.sendV2(method: "session.delete", params: ["name": name])
+            if jsonOutput {
+                print(jsonString(payload))
+            } else {
+                print("Deleted session '\(name)'")
+            }
+
+        case "help", "--help", "-h":
+            if let text = subcommandUsage("session") {
+                print("cmux session")
+                print("")
+                print(text)
+            } else {
+                print(usage())
+            }
+
+        default:
+            throw CLIError(message: "Unknown session subcommand '\(subcommand)'. Run 'cmux session --help'.")
+        }
+    }
+
+    private func requiredSessionName(
+        _ args: [String],
+        subcommand: String
+    ) throws -> String {
+        let tokens = args.first == "--" ? Array(args.dropFirst()) : args
+        let rawName = tokens.joined(separator: " ")
+        guard let name = normalizedSessionName(rawName) else {
+            throw CLIError(message: "session \(subcommand) requires a valid <name>")
+        }
+        return name
+    }
+
+    private func normalizedSessionName(_ rawName: String) -> String? {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed != ".", trimmed != ".." else { return nil }
+
+        let invalidCharacters = CharacterSet(charactersIn: "/:\u{0000}")
+            .union(.newlines)
+            .union(.controlCharacters)
+        guard trimmed.rangeOfCharacter(from: invalidCharacters) == nil else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func printSessionList(_ sessions: [[String: Any]]) {
+        guard !sessions.isEmpty else {
+            print("No saved sessions")
+            return
+        }
+
+        for session in sessions {
+            let name = (session["name"] as? String) ?? ""
+            let count = intFromAny(session["workspace_count"]) ?? 0
+            let savedAtText: String = {
+                guard let savedAt = doubleFromAny(session["saved_at"]) else { return "" }
+                return sessionTimestampText(savedAt)
+            }()
+            let savedAtSuffix = savedAtText.isEmpty ? "" : "  \(savedAtText)"
+            print("\(name)  [\(count) workspace\(count == 1 ? "" : "s")]\(savedAtSuffix)")
+        }
+    }
+
+    private func sessionTimestampText(_ timestamp: Double) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: Date(timeIntervalSince1970: timestamp))
+    }
+
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
     private func subcommandUsage(_ command: String) -> String? {
         switch command {
@@ -6350,6 +6490,28 @@ struct CMUXCLI {
               cmux new-workspace
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
+            """
+        case "session":
+            return """
+            Usage: cmux session save <name>
+                   cmux session restore <name>
+                   cmux session list
+                   cmux session delete <name>
+
+            Save and restore named workspace sets for the current window.
+            Sessions are stored in ~/Library/Application Support/cmux/sessions/.
+
+            Subcommands:
+              save <name>      Capture the current window's workspaces, CWDs, and split layouts
+              restore <name>   Replace the current window's workspaces with the saved session
+              list             List saved sessions
+              delete <name>    Delete a saved session
+
+            Examples:
+              cmux session save my-project
+              cmux session restore my-project
+              cmux session list
+              cmux session delete my-project
             """
         case "list-workspaces":
             return """
@@ -12088,6 +12250,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
           list-workspaces
           new-workspace [--cwd <path>] [--command <text>]
+          session <save|restore|list|delete> [name]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

@@ -360,6 +360,190 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
+enum NamedWorkspaceSessionSchema {
+    static let currentVersion = 1
+}
+
+struct NamedWorkspaceSessionRecord: Codable, Sendable {
+    var version: Int
+    var name: String
+    var savedAt: TimeInterval
+    var tabManager: SessionTabManagerSnapshot
+}
+
+struct NamedWorkspaceSessionListEntry: Sendable, Equatable {
+    var name: String
+    var savedAt: TimeInterval
+    var workspaceCount: Int
+    var fileURL: URL
+}
+
+enum NamedWorkspaceSessionStore {
+    enum DeleteResult: Equatable {
+        case deleted
+        case notFound
+        case failed
+    }
+
+    static func load(
+        named name: String,
+        appSupportDirectory: URL? = nil
+    ) -> NamedWorkspaceSessionRecord? {
+        guard let fileURL = fileURL(forSessionNamed: name, appSupportDirectory: appSupportDirectory) else {
+            return nil
+        }
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let decoder = JSONDecoder()
+        guard let record = try? decoder.decode(NamedWorkspaceSessionRecord.self, from: data) else {
+            return nil
+        }
+        guard record.version == NamedWorkspaceSessionSchema.currentVersion else { return nil }
+        guard normalizedSessionName(record.name) != nil else { return nil }
+        return record
+    }
+
+    @discardableResult
+    static func save(
+        _ record: NamedWorkspaceSessionRecord,
+        appSupportDirectory: URL? = nil
+    ) -> Bool {
+        guard normalizedSessionName(record.name) != nil else { return false }
+        guard record.version == NamedWorkspaceSessionSchema.currentVersion else { return false }
+        guard let fileURL = fileURL(forSessionNamed: record.name, appSupportDirectory: appSupportDirectory) else {
+            return false
+        }
+
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let data = try encodedRecordData(record)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return true
+            }
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func list(
+        appSupportDirectory: URL? = nil
+    ) -> [NamedWorkspaceSessionListEntry] {
+        guard let directoryURL = sessionsDirectoryURL(appSupportDirectory: appSupportDirectory) else {
+            return []
+        }
+        guard let fileURLs = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return fileURLs
+            .filter { $0.pathExtension == "json" }
+            .compactMap { fileURL in
+                guard let record = loadRecord(from: fileURL) else { return nil }
+                return NamedWorkspaceSessionListEntry(
+                    name: record.name,
+                    savedAt: record.savedAt,
+                    workspaceCount: record.tabManager.workspaces.count,
+                    fileURL: fileURL
+                )
+            }
+            .sorted { lhs, rhs in
+                let lhsName = lhs.name.localizedLowercase
+                let rhsName = rhs.name.localizedLowercase
+                if lhsName != rhsName {
+                    return lhsName < rhsName
+                }
+                return lhs.savedAt > rhs.savedAt
+            }
+    }
+
+    static func delete(
+        named name: String,
+        appSupportDirectory: URL? = nil
+    ) -> DeleteResult {
+        guard let fileURL = fileURL(forSessionNamed: name, appSupportDirectory: appSupportDirectory) else {
+            return .failed
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return .notFound
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            return .deleted
+        } catch {
+            return .failed
+        }
+    }
+
+    static func sessionsDirectoryURL(
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+
+        return resolvedAppSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("sessions", isDirectory: true)
+    }
+
+    static func fileURL(
+        forSessionNamed name: String,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        guard let normalizedName = normalizedSessionName(name) else { return nil }
+        guard let encodedName = encodedSessionFilenameComponent(for: normalizedName) else { return nil }
+        return sessionsDirectoryURL(appSupportDirectory: appSupportDirectory)?
+            .appendingPathComponent(encodedName, isDirectory: false)
+            .appendingPathExtension("json")
+    }
+
+    static func normalizedSessionName(_ rawName: String) -> String? {
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed != ".", trimmed != ".." else { return nil }
+
+        let invalidCharacters = CharacterSet(charactersIn: "/:\u{0000}")
+            .union(.newlines)
+            .union(.controlCharacters)
+        guard trimmed.rangeOfCharacter(from: invalidCharacters) == nil else { return nil }
+        return trimmed
+    }
+
+    private static func loadRecord(from fileURL: URL) -> NamedWorkspaceSessionRecord? {
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let decoder = JSONDecoder()
+        guard let record = try? decoder.decode(NamedWorkspaceSessionRecord.self, from: data) else {
+            return nil
+        }
+        guard record.version == NamedWorkspaceSessionSchema.currentVersion else { return nil }
+        guard normalizedSessionName(record.name) != nil else { return nil }
+        return record
+    }
+
+    private static func encodedRecordData(_ record: NamedWorkspaceSessionRecord) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(record)
+    }
+
+    private static func encodedSessionFilenameComponent(for name: String) -> String? {
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._"))
+        return name.addingPercentEncoding(withAllowedCharacters: allowedCharacters)
+    }
+}
+
 enum SessionPersistenceStore {
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
