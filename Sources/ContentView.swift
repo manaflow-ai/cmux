@@ -5110,6 +5110,8 @@ struct ContentView: View {
             return .newSurface
         case "palette.newBrowserTab":
             return .openBrowser
+        case "palette.closeTab":
+            return .closeTab
         case "palette.closeWindow":
             return .closeWindow
         case "palette.toggleSidebar":
@@ -5153,8 +5155,6 @@ struct ContentView: View {
 
     private func commandPaletteStaticShortcutHint(for commandId: String) -> String? {
         switch commandId {
-        case "palette.closeTab":
-            return "⌘W"
         case "palette.closeWorkspace":
             return "⌘⇧W"
         case "palette.reopenClosedBrowserTab":

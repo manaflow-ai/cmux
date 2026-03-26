@@ -150,6 +150,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.toggleSidebar.defaultsKey) private var toggleSidebarShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.newTab.defaultsKey) private var newWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.newWindow.defaultsKey) private var newWindowShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeTab.defaultsKey) private var closeTabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showNotifications.defaultsKey) private var showNotificationsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.nextSurface.defaultsKey) private var nextSurfaceShortcutData = Data()
@@ -616,10 +617,9 @@ struct cmuxApp: App {
                 // default, closing the last surface also closes the workspace and the window
                 // if it was also the last workspace. Users can opt into keeping the workspace
                 // open instead.
-                Button(String(localized: "menu.file.closeTab", defaultValue: "Close Tab")) {
+                splitCommandButton(title: String(localized: "menu.file.closeTab", defaultValue: "Close Tab"), shortcut: closeTabMenuShortcut) {
                     closePanelOrWindow()
                 }
-                .keyboardShortcut("w", modifiers: .command)
 
                 Button(String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")) {
                     closeOtherTabsInFocusedPane()
@@ -870,6 +870,10 @@ struct cmuxApp: App {
 
     private var newWindowMenuShortcut: StoredShortcut {
         decodeShortcut(from: newWindowShortcutData, fallback: KeyboardShortcutSettings.Action.newWindow.defaultShortcut)
+    }
+
+    private var closeTabMenuShortcut: StoredShortcut {
+        decodeShortcut(from: closeTabShortcutData, fallback: KeyboardShortcutSettings.Action.closeTab.defaultShortcut)
     }
 
     private var openFolderMenuShortcut: StoredShortcut {

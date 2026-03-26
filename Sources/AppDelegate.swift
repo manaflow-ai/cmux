@@ -9551,20 +9551,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Cmd+W must close the focused panel even if first-responder momentarily lags on a
-        // browser NSTextView during split focus transitions.
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
-        ) {
-            // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
+        // The configured close-tab shortcut must close the focused panel even if first-responder
+        // momentarily lags on a browser NSTextView during split focus transitions.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeTab)) {
+            // Browser popup windows primarily intercept the default Cmd+W in BrowserPopupPanel.
             // This AppDelegate path is a fallback for cases where AppKit routes the
             // event through the global shortcut handler first.
             if let targetWindow = [NSApp.keyWindow, event.window]
                 .compactMap({ $0 })
                 .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
 #if DEBUG
-                dlog("shortcut.cmdW route=browserPopup")
+                dlog("shortcut.closeTab route=browserPopup")
 #endif
                 targetWindow.performClose(nil)
                 return true
@@ -9576,7 +9573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 if let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow) {
 #if DEBUG
                     dlog(
-                        "shortcut.cmdW route=ghostty workspace=\(terminalContext.workspaceId.uuidString.prefix(5)) " +
+                        "shortcut.closeTab route=ghostty workspace=\(terminalContext.workspaceId.uuidString.prefix(5)) " +
                         "panel=\(terminalContext.panelId.uuidString.prefix(5)) selected=\(terminalContext.tabManager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
                     )
 #endif
@@ -9586,7 +9583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     )
                 } else {
 #if DEBUG
-                    dlog("shortcut.cmdW route=focusedPanelFallback")
+                    dlog("shortcut.closeTab route=focusedPanelFallback")
 #endif
                     tabManager?.closeCurrentPanelWithConfirmation()
                 }

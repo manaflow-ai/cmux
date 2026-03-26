@@ -11,6 +11,7 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newWindow
+        case closeTab
         case closeWindow
         case openFolder
         case sendFeedback
@@ -54,6 +55,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleSidebar.label", defaultValue: "Toggle Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newWindow: return String(localized: "shortcut.newWindow.label", defaultValue: "New Window")
+            case .closeTab: return String(localized: "shortcut.closeTab.label", defaultValue: "Close Tab")
             case .closeWindow: return String(localized: "shortcut.closeWindow.label", defaultValue: "Close Window")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .sendFeedback: return String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback")
@@ -91,6 +93,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return "shortcut.toggleSidebar"
             case .newTab: return "shortcut.newTab"
             case .newWindow: return "shortcut.newWindow"
+            case .closeTab: return "shortcut.closeTab"
             case .closeWindow: return "shortcut.closeWindow"
             case .openFolder: return "shortcut.openFolder"
             case .sendFeedback: return "shortcut.sendFeedback"
@@ -131,6 +134,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newWindow:
                 return StoredShortcut(key: "n", command: true, shift: true, option: false, control: false)
+            case .closeTab:
+                return StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
             case .closeWindow:
                 return StoredShortcut(key: "w", command: true, shift: false, option: false, control: true)
             case .openFolder:
@@ -318,6 +323,7 @@ enum KeyboardShortcutSettings {
     static func prevSurfaceShortcut() -> StoredShortcut { shortcut(for: .prevSurface) }
     static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
+    static func closeTabShortcut() -> StoredShortcut { shortcut(for: .closeTab) }
     static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }

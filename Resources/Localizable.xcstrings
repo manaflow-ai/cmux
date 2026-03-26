@@ -60440,6 +60440,23 @@
         }
       }
     },
+    "shortcut.closeTab.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる"
+          }
+        }
+      }
+    },
     "shortcut.closeWorkspace.label": {
       "extractionState": "manual",
       "localizations": {
