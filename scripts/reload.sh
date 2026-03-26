@@ -288,6 +288,11 @@ if [[ -z "$TAG" ]]; then
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
 fi
+# Forward CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases (e.g. macOS
+# Tahoe where zig 0.15.2 can't link the ghostty CLI helper).
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
+fi
 XCODEBUILD_ARGS+=(build)
 
 XCODE_LOG="/tmp/cmux-xcodebuild-${TAG_SLUG}.log"

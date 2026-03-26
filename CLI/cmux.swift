@@ -9573,11 +9573,11 @@ struct CMUXCLI {
         let tmuxScript = """
         #!/usr/bin/env bash
         set -euo pipefail
-        for arg in "$@"; do
-          case "$arg" in
-            -V|-v) echo "tmux 3.4"; exit 0 ;;
-          esac
-        done
+        # Only match -V/-v as the first arg (top-level tmux flag).
+        # -v inside subcommands (e.g. split-window -v) is a vertical split flag.
+        case "${1:-}" in
+          -V|-v) echo "tmux 3.4"; exit 0 ;;
+        esac
         exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
         try writeShimIfChanged(tmuxScript, to: tmuxURL)
@@ -9840,6 +9840,10 @@ struct CMUXCLI {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
         }
         unsetenv("TERM_PROGRAM")
+        // Tell oh-my-opencode the API server port so subagent attach works
+        if processEnvironment["OPENCODE_PORT"] == nil {
+            setenv("OPENCODE_PORT", "4096", 1)
+        }
         if let focusedContext {
             setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
             if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
@@ -9881,7 +9885,15 @@ struct CMUXCLI {
         )
 
         let launchPath = openCodeExecutablePath ?? "opencode"
-        var argv = ([launchPath] + commandArgs).map { strdup($0) }
+        // oh-my-openagent needs the OpenCode API server running to attach
+        // subagent sessions to tmux panes. Inject --port 4096 unless the
+        // user already specified a port.
+        var effectiveArgs = commandArgs
+        if !commandArgs.contains("--port") {
+            effectiveArgs.append("--port")
+            effectiveArgs.append("4096")
+        }
+        var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -10015,12 +10027,14 @@ struct CMUXCLI {
                 }
             }
 
-            // Keep the leader pane focused while Claude starts teammates beside it.
+            // Keep the leader pane focused while agents spawn beside it.
+            // -d explicitly means "don't focus the new pane".
+            let focusNewPane = !parsed.hasFlag("-d")
             let created = try client.sendV2(method: "surface.split", params: [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
                 "direction": direction,
-                "focus": false
+                "focus": focusNewPane
             ])
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
