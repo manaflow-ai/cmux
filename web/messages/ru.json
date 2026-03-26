@@ -621,6 +621,9 @@
       "apiReference": "Справочник API",
       "browserAutomation": "Автоматизация браузера",
       "notifications": "Уведомления",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Изменения"
     }
   },

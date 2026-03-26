@@ -621,6 +621,9 @@
       "apiReference": "API 參考",
       "browserAutomation": "瀏覽器自動化",
       "notifications": "通知",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "更新日誌"
     }
   },

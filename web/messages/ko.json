@@ -621,6 +621,9 @@
       "apiReference": "API 레퍼런스",
       "browserAutomation": "브라우저 자동화",
       "notifications": "알림",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "변경 로그"
     }
   },

@@ -2071,6 +2071,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
+        case "workspace.equalize_splits":
+            return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
         case "workspace.remote.configure":
             return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.reconnect":
@@ -2443,6 +2445,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
@@ -3674,6 +3677,66 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let orientationFilter = v2String(params, "orientation")
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let tree = ws.bonsplitController.treeSnapshot()
+            let success = v2ProportionalEqualize(node: tree, controller: ws.bonsplitController, orientationFilter: orientationFilter)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "equalized": success
+            ])
+        }
+        return result
+    }
+
+    /// Count leaf panes in a tree node.
+    private func v2CountLeaves(_ node: ExternalTreeNode) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let s):
+            return v2CountLeaves(s.first) + v2CountLeaves(s.second)
+        }
+    }
+
+    /// Proportionally equalize splits so each leaf pane gets equal space.
+    /// For a split with N1 leaves on the left and N2 on the right,
+    /// the divider is set to N1/(N1+N2).
+    /// When orientationFilter is set (e.g. "vertical"), only splits matching
+    /// that orientation are equalized. This lets main-vertical layout equalize
+    /// the agent column without squishing the main pane.
+    @discardableResult
+    private func v2ProportionalEqualize(
+        node: ExternalTreeNode,
+        controller: BonsplitController,
+        orientationFilter: String? = nil
+    ) -> Bool {
+        guard case .split(let s) = node else { return false }
+        guard let splitId = UUID(uuidString: s.id) else { return false }
+
+        var didEqualize = false
+        if orientationFilter == nil || s.orientation == orientationFilter {
+            let leftLeaves = v2CountLeaves(s.first)
+            let rightLeaves = v2CountLeaves(s.second)
+            let total = leftLeaves + rightLeaves
+            let position = CGFloat(leftLeaves) / CGFloat(total)
+            controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+            didEqualize = true
+        }
+
+        let l = v2ProportionalEqualize(node: s.first, controller: controller, orientationFilter: orientationFilter)
+        let r = v2ProportionalEqualize(node: s.second, controller: controller, orientationFilter: orientationFilter)
+        return didEqualize || l || r
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
@@ -5724,12 +5787,19 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
 
             let focusedPaneId = ws.bonsplitController.focusedPaneId
+            let snapshot = ws.bonsplitController.layoutSnapshot()
+            let geometryByPaneId = Dictionary(
+                snapshot.panes.map { ($0.paneId, $0.frame) },
+                uniquingKeysWith: { first, _ in first }
+            )
+
             let panes: [[String: Any]] = ws.bonsplitController.allPaneIds.enumerated().map { index, paneId in
                 let tabs = ws.bonsplitController.tabs(inPane: paneId)
                 let surfaceUUIDs: [UUID] = tabs.compactMap { ws.panelIdFromSurfaceId($0.id) }
                 let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
                 let selectedSurfaceUUID = selectedTab.flatMap { ws.panelIdFromSurfaceId($0.id) }
-                return [
+
+                var dict: [String: Any] = [
                     "id": paneId.id.uuidString,
                     "ref": v2Ref(kind: .pane, uuid: paneId.id),
                     "index": index,
@@ -5740,16 +5810,44 @@ class TerminalController {
                     "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
                     "surface_count": surfaceUUIDs.count
                 ]
+
+                if let frame = geometryByPaneId[paneId.id.uuidString] {
+                    dict["pixel_frame"] = [
+                        "x": frame.x, "y": frame.y,
+                        "width": frame.width, "height": frame.height
+                    ]
+                }
+
+                // Get terminal grid size from the selected surface
+                if let panelUUID = selectedSurfaceUUID,
+                   let panel = ws.panels[panelUUID] as? TerminalPanel,
+                   panel.surface.hasLiveSurface,
+                   let ghosttySurface = panel.surface.surface {
+                    let size = ghostty_surface_size(ghosttySurface)
+                    if size.columns > 0 && size.rows > 0 {
+                        dict["columns"] = Int(size.columns)
+                        dict["rows"] = Int(size.rows)
+                        dict["cell_width_px"] = Int(size.cell_width_px)
+                        dict["cell_height_px"] = Int(size.cell_height_px)
+                    }
+                }
+
+                return dict
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            payload = [
+            var payloadDict: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "panes": panes,
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ]
+            payloadDict["container_frame"] = [
+                "width": snapshot.containerFrame.width,
+                "height": snapshot.containerFrame.height
+            ]
+            payload = payloadDict
         }
 
         guard let payload else {

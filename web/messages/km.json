@@ -621,6 +621,9 @@
       "apiReference": "ឯកសារយោង API",
       "browserAutomation": "ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក",
       "notifications": "ជូនដំណឹង",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ"
     }
   },

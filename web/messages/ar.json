@@ -621,6 +621,9 @@
       "apiReference": "مرجع الواجهة البرمجية",
       "browserAutomation": "أتمتة المتصفح",
       "notifications": "الإشعارات",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "سجل التغييرات"
     }
   },

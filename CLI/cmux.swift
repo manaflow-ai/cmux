@@ -1464,6 +1464,15 @@ struct CMUXCLI {
             return
         }
 
+        if command == "omo" {
+            try runOMO(
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
         // Codex hooks management (no socket needed)
         if command == "codex" {
             let sub = commandArgs.first?.lowercased() ?? "help"
@@ -6120,6 +6129,29 @@ struct CMUXCLI {
               cmux claude-teams --continue
               cmux claude-teams --model sonnet
             """)
+        case "omo":
+            return String(localized: "cli.omo.usage", defaultValue: """
+            Usage: cmux omo [opencode-args...]
+
+            Launch OpenCode with oh-my-openagent in a cmux-aware environment.
+
+            oh-my-openagent orchestrates multiple AI models as specialized agents in
+            parallel. This command sets up a tmux shim so agent panes become native
+            cmux splits with sidebar metadata and notifications.
+
+            This command:
+              - sets a tmux-like environment so oh-my-openagent uses cmux splits
+              - prepends a private tmux shim to PATH
+              - forwards all remaining arguments to opencode
+
+            The tmux shim translates tmux window/pane commands into cmux workspace
+            and split operations in the current cmux session.
+
+            Examples:
+              cmux omo
+              cmux omo --continue
+              cmux omo --model claude-sonnet-4-6
+            """)
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -8763,6 +8795,7 @@ struct CMUXCLI {
     private func splitTmuxCommand(_ args: [String]) throws -> (command: String, args: [String]) {
         var index = 0
         let globalValueFlags: Set<String> = ["-L", "-S", "-f"]
+        let globalBoolFlags: Set<String> = ["-V", "-v"]
 
         while index < args.count {
             let arg = args[index]
@@ -8771,6 +8804,10 @@ struct CMUXCLI {
             }
             if arg == "--" {
                 break
+            }
+            // Handle -V (version) as a pseudo-command
+            if globalBoolFlags.contains(arg) {
+                return (arg, [])
             }
             if let flag = globalValueFlags.first(where: { arg == $0 || arg.hasPrefix($0) }) {
                 if arg == flag {
@@ -9151,6 +9188,44 @@ struct CMUXCLI {
         return context
     }
 
+    /// Enrich a tmux format context dictionary with pane geometry data from the
+    /// enriched pane.list response. Computes character-cell positions from pixel
+    /// frames and cell dimensions so tmux format variables like #{pane_width},
+    /// #{pane_height}, #{pane_left}, #{pane_top}, #{window_width}, #{window_height}
+    /// render correctly.
+    private func tmuxEnrichContextWithGeometry(
+        _ context: inout [String: String],
+        pane: [String: Any],
+        containerFrame: [String: Any]?
+    ) {
+        let isFocused = (pane["focused"] as? Bool) == true
+        context["pane_active"] = isFocused ? "1" : "0"
+
+        guard let columns = pane["columns"] as? Int,
+              let rows = pane["rows"] as? Int else { return }
+
+        context["pane_width"] = String(columns)
+        context["pane_height"] = String(rows)
+
+        let cellW = pane["cell_width_px"] as? Int ?? 0
+        let cellH = pane["cell_height_px"] as? Int ?? 0
+        guard cellW > 0, cellH > 0 else { return }
+
+        if let frame = pane["pixel_frame"] as? [String: Any] {
+            let px = frame["x"] as? Double ?? 0
+            let py = frame["y"] as? Double ?? 0
+            context["pane_left"] = String(Int(px) / cellW)
+            context["pane_top"] = String(Int(py) / cellH)
+        }
+
+        if let cf = containerFrame {
+            let cw = cf["width"] as? Double ?? 0
+            let ch = cf["height"] as? Double ?? 0
+            context["window_width"] = String(max(Int(cw) / cellW, 1))
+            context["window_height"] = String(max(Int(ch) / cellH, 1))
+        }
+    }
+
     private func tmuxShellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
@@ -9476,6 +9551,386 @@ struct CMUXCLI {
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
+    // MARK: - cmux omo (OpenCode + oh-my-openagent)
+
+    private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
+        let entries = searchPath?.split(separator: ":").map(String.init) ?? []
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent("opencode", isDirectory: false)
+                .path
+            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
+            return candidate
+        }
+        return nil
+    }
+
+    private func createOMOShimDirectory() throws -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let root = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+
+        // tmux shim: redirects tmux commands to cmux __tmux-compat
+        // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
+        let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
+        let tmuxScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # Only match -V/-v as the first arg (top-level tmux flag).
+        # -v inside subcommands (e.g. split-window -v) is a vertical split flag.
+        case "${1:-}" in
+          -V|-v) echo "tmux 3.4"; exit 0 ;;
+        esac
+        exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
+        """
+        try writeShimIfChanged(tmuxScript, to: tmuxURL)
+
+        // terminal-notifier shim: intercepts macOS notifications and routes to cmux notify
+        let notifierURL = root.appendingPathComponent("terminal-notifier", isDirectory: false)
+        let notifierScript = """
+        #!/usr/bin/env bash
+        # Intercept terminal-notifier calls and route through cmux notify.
+        # oh-my-openagent calls: terminal-notifier -title <t> -message <m> [-activate <id>]
+        TITLE="" BODY=""
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -title)   TITLE="$2"; shift 2 ;;
+            -message) BODY="$2"; shift 2 ;;
+            *)        shift ;;
+          esac
+        done
+        exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
+        """
+        try writeShimIfChanged(notifierScript, to: notifierURL)
+
+        return root
+    }
+
+    private func writeShimIfChanged(_ script: String, to url: URL) throws {
+        let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        if existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized {
+            try script.write(to: url, atomically: false, encoding: .utf8)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    private static let omoPluginName = "oh-my-opencode"
+
+    private func resolveExecutableInPath(_ name: String) -> String? {
+        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        for entry in entries where !entry.isEmpty {
+            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
+                .appendingPathComponent(name, isDirectory: false)
+                .path
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    private func omoUserConfigDir() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("opencode", isDirectory: true)
+    }
+
+    private func omoShadowConfigDir() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-config", isDirectory: true)
+    }
+
+    /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
+    /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
+    /// to point at the shadow directory.
+    private func omoEnsurePlugin() throws {
+        let userDir = omoUserConfigDir()
+        let shadowDir = omoShadowConfigDir()
+        let fm = FileManager.default
+
+        try fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
+
+        // Read the user's opencode.json (if any), add the plugin, write to shadow dir
+        let userJsonURL = userDir.appendingPathComponent("opencode.json")
+        let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
+
+        var config: [String: Any]
+        if let data = try? Data(contentsOf: userJsonURL) {
+            guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
+            }
+            config = existing
+        } else {
+            config = [:]
+        }
+
+        var plugins = (config["plugin"] as? [String]) ?? []
+        let alreadyPresent = plugins.contains {
+            $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@")
+        }
+        if !alreadyPresent {
+            plugins.append(Self.omoPluginName)
+        }
+        config["plugin"] = plugins
+
+        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
+        try output.write(to: shadowJsonURL, options: .atomic)
+
+        // Symlink node_modules from the user's config dir so installed packages resolve
+        let shadowNodeModules = shadowDir.appendingPathComponent("node_modules")
+        let userNodeModules = userDir.appendingPathComponent("node_modules")
+        if fm.fileExists(atPath: userNodeModules.path) {
+            // Remove stale symlink or directory if it exists
+            if let attrs = try? fm.attributesOfItem(atPath: shadowNodeModules.path),
+               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+                let target = try? fm.destinationOfSymbolicLink(atPath: shadowNodeModules.path)
+                if target != userNodeModules.path {
+                    try? fm.removeItem(at: shadowNodeModules)
+                }
+            }
+            if !fm.fileExists(atPath: shadowNodeModules.path) {
+                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
+            }
+        }
+
+        // Symlink package.json and bun.lock so bun/npm can resolve in the shadow dir
+        for filename in ["package.json", "bun.lock"] {
+            let userFile = userDir.appendingPathComponent(filename)
+            let shadowFile = shadowDir.appendingPathComponent(filename)
+            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
+                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
+            }
+        }
+
+        // Copy oh-my-opencode plugin config (jsonc) if the user has one
+        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+            let userFile = userDir.appendingPathComponent(filename)
+            let shadowFile = shadowDir.appendingPathComponent(filename)
+            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
+                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
+            }
+        }
+
+        // Install the package if not available via the symlinked node_modules
+        let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
+        if !fm.fileExists(atPath: pluginPackageDir.path) {
+            // Need to install into the real user config dir so the symlink picks it up
+            let installDir = fm.fileExists(atPath: userNodeModules.path) ? userDir : shadowDir
+            // If installing into shadow dir, remove the symlink first
+            if installDir == shadowDir {
+                try? fm.removeItem(at: shadowNodeModules)
+            }
+            let process = Process()
+            process.currentDirectoryURL = installDir
+            if let bunPath = resolveExecutableInPath("bun") {
+                process.executableURL = URL(fileURLWithPath: bunPath)
+                process.arguments = ["add", Self.omoPluginName]
+            } else if let npmPath = resolveExecutableInPath("npm") {
+                process.executableURL = URL(fileURLWithPath: npmPath)
+                process.arguments = ["install", Self.omoPluginName]
+            } else {
+                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+            }
+            let stdoutPipe = Pipe()
+            let stderrPipe = Pipe()
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+            FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
+            try process.run()
+            // Drain pipes concurrently to prevent deadlock from full buffers
+            var stderrData = Data()
+            let drainGroup = DispatchGroup()
+            drainGroup.enter()
+            DispatchQueue.global().async {
+                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                drainGroup.leave()
+            }
+            drainGroup.enter()
+            DispatchQueue.global().async {
+                _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                drainGroup.leave()
+            }
+            drainGroup.wait()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                let errText = String(data: stderrData, encoding: .utf8) ?? ""
+                throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
+            }
+            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+            // Re-create symlink if we installed into user dir
+            if installDir == userDir && !fm.fileExists(atPath: shadowNodeModules.path) {
+                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
+            }
+        }
+
+        // Ensure tmux mode is enabled in oh-my-opencode config.
+        // Without this, the TmuxSessionManager won't spawn visual panes even though
+        // $TMUX is set (tmux.enabled defaults to false).
+        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
+        var omoConfig: [String: Any]
+        if let data = try? Data(contentsOf: omoConfigURL),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            omoConfig = existing
+        } else {
+            // Check if user has a config we symlinked, read from source
+            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
+            if let data = try? Data(contentsOf: userOmoConfig),
+               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                omoConfig = existing
+                // Remove the symlink so we can write our own copy
+                try? fm.removeItem(at: omoConfigURL)
+            } else {
+                omoConfig = [:]
+            }
+        }
+        var tmuxConfig = (omoConfig["tmux"] as? [String: Any]) ?? [:]
+        var needsWrite = false
+        if tmuxConfig["enabled"] as? Bool != true {
+            tmuxConfig["enabled"] = true
+            needsWrite = true
+        }
+        // Lower the default min widths so agent panes spawn in normal-sized windows.
+        // oh-my-openagent defaults: main_pane_min_width=120, agent_pane_min_width=40,
+        // requiring 161+ columns. Most terminal windows are narrower.
+        if tmuxConfig["main_pane_min_width"] == nil {
+            tmuxConfig["main_pane_min_width"] = 60
+            needsWrite = true
+        }
+        if tmuxConfig["agent_pane_min_width"] == nil {
+            tmuxConfig["agent_pane_min_width"] = 30
+            needsWrite = true
+        }
+        if tmuxConfig["main_pane_size"] == nil {
+            tmuxConfig["main_pane_size"] = 50
+            needsWrite = true
+        }
+        if needsWrite {
+            omoConfig["tmux"] = tmuxConfig
+            // Remove symlink if it exists (we need a real file)
+            if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
+               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+                try? fm.removeItem(at: omoConfigURL)
+            }
+            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+            try output.write(to: omoConfigURL, options: .atomic)
+        }
+
+        // Point OpenCode at the shadow config
+        setenv("OPENCODE_CONFIG_DIR", shadowDir.path, 1)
+    }
+
+    private func configureOMOEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        focusedContext: ClaudeTeamsFocusedContext?
+    ) {
+        let updatedPath = prependPathEntries(
+            [shimDirectory.path],
+            to: processEnvironment["PATH"]
+        )
+        let fakeTmuxValue: String = {
+            if let focusedContext {
+                let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
+                return "/tmp/cmux-omo/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
+            }
+            return processEnvironment["TMUX"] ?? "/tmp/cmux-omo/default,0,0"
+        }()
+        let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
+            ?? processEnvironment["TMUX_PANE"]
+            ?? "%1"
+        let fakeTerm = processEnvironment["CMUX_OMO_TERM"] ?? "screen-256color"
+
+        setenv("CMUX_OMO_CMUX_BIN", executablePath, 1)
+        setenv("PATH", updatedPath, 1)
+        setenv("TMUX", fakeTmuxValue, 1)
+        setenv("TMUX_PANE", fakeTmuxPane, 1)
+        setenv("TERM", fakeTerm, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET", socketPath, 1)
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
+        unsetenv("TERM_PROGRAM")
+        // Tell oh-my-opencode the API server port so subagent attach works
+        if processEnvironment["OPENCODE_PORT"] == nil {
+            setenv("OPENCODE_PORT", "4096", 1)
+        }
+        if let focusedContext {
+            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
+            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+                setenv("CMUX_SURFACE_ID", surfaceId, 1)
+            }
+        }
+    }
+
+    private func runOMO(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        // Ensure oh-my-opencode plugin is registered and installed
+        try omoEnsurePlugin()
+
+        let processEnvironment = ProcessInfo.processInfo.environment
+        var launcherEnvironment = processEnvironment
+        launcherEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        launcherEnvironment["CMUX_SOCKET"] = socketPath
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
+        }
+        let shimDirectory = try createOMOShimDirectory()
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let focusedContext = claudeTeamsFocusedContext(
+            processEnvironment: launcherEnvironment,
+            explicitPassword: explicitPassword
+        )
+        let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
+        configureOMOEnvironment(
+            processEnvironment: launcherEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext
+        )
+
+        let launchPath = openCodeExecutablePath ?? "opencode"
+        // oh-my-openagent needs the OpenCode API server running to attach
+        // subagent sessions to tmux panes. Inject --port 4096 unless the
+        // user already specified a port.
+        var effectiveArgs = commandArgs
+        if !commandArgs.contains("--port") {
+            effectiveArgs.append("--port")
+            effectiveArgs.append("4096")
+        }
+        var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
+        defer {
+            for item in argv {
+                free(item)
+            }
+        }
+        argv.append(nil)
+
+        if openCodeExecutablePath != nil {
+            execv(launchPath, &argv)
+        } else {
+            execvp("opencode", &argv)
+        }
+        let code = errno
+        throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))")
+    }
+
     private func runClaudeTeamsTmuxCompat(
         commandArgs: [String],
         client: SocketClient,
@@ -9593,12 +10048,14 @@ struct CMUXCLI {
                 }
             }
 
-            // Keep the leader pane focused while Claude starts teammates beside it.
+            // Keep the leader pane focused while agents spawn beside it.
+            // -d explicitly means "don't focus the new pane".
+            let focusNewPane = !parsed.hasFlag("-d")
             let created = try client.sendV2(method: "surface.split", params: [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
                 "direction": direction,
-                "focus": false
+                "focus": focusNewPane
             ])
             guard let surfaceId = created["surface_id"] as? String else {
                 throw CLIError(message: "surface.split did not return surface_id")
@@ -9668,6 +10125,11 @@ struct CMUXCLI {
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId
             ])
+            // Re-equalize the agent column after removing a pane
+            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                "workspace_id": target.workspaceId,
+                "orientation": "vertical"
+            ])
 
         case "send-keys", "send":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: ["-l"])
@@ -9709,12 +10171,22 @@ struct CMUXCLI {
         case "display-message", "display", "displayp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: ["-p"])
             let target = try tmuxResolveSurfaceTarget(parsed.value("-t"), client: client)
-            let context = try tmuxFormatContext(
+            var context = try tmuxFormatContext(
                 workspaceId: target.workspaceId,
                 paneId: target.paneId,
                 surfaceId: target.surfaceId,
                 client: client
             )
+            // Enrich with geometry for format strings like #{pane_width},#{window_width}
+            let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+            let panesList = panePayload["panes"] as? [[String: Any]] ?? []
+            let containerFrame = panePayload["container_frame"] as? [String: Any]
+            if let targetPaneId = target.paneId,
+               let matchingPane = panesList.first(where: { ($0["id"] as? String) == targetPaneId }) {
+                tmuxEnrichContextWithGeometry(&context, pane: matchingPane, containerFrame: containerFrame)
+            } else if let firstPane = panesList.first(where: { ($0["focused"] as? Bool) == true }) ?? panesList.first {
+                tmuxEnrichContextWithGeometry(&context, pane: firstPane, containerFrame: containerFrame)
+            }
             let format = parsed.positional.isEmpty ? parsed.value("-F") : parsed.positional.joined(separator: " ")
             let rendered = tmuxRenderFormat(format, context: context, fallback: "")
             if parsed.hasFlag("-p") || !rendered.isEmpty {
@@ -9736,12 +10208,22 @@ struct CMUXCLI {
 
         case "list-panes", "lsp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-F", "-t"], boolFlags: [])
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            // Resolve target: can be a pane (%uuid) or workspace. In tmux,
+            // list-panes -t %<pane> lists all panes in the window containing that pane.
+            let workspaceId: String
+            if let target = parsed.value("-t"), tmuxPaneSelector(from: target) != nil {
+                let paneTarget = try tmuxResolvePaneTarget(target, client: client)
+                workspaceId = paneTarget.workspaceId
+            } else {
+                workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            }
             let payload = try client.sendV2(method: "pane.list", params: ["workspace_id": workspaceId])
             let panes = payload["panes"] as? [[String: Any]] ?? []
+            let containerFrame = payload["container_frame"] as? [String: Any]
             for pane in panes {
                 guard let paneId = pane["id"] as? String else { continue }
-                let context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
+                var context = try tmuxFormatContext(workspaceId: workspaceId, paneId: paneId, client: client)
+                tmuxEnrichContextWithGeometry(&context, pane: pane, containerFrame: containerFrame)
                 let fallback = context["pane_id"] ?? paneId
                 print(tmuxRenderFormat(parsed.value("-F"), context: context, fallback: fallback))
             }
@@ -9768,29 +10250,47 @@ struct CMUXCLI {
                 || parsed.hasFlag("-R")
                 || parsed.hasFlag("-U")
                 || parsed.hasFlag("-D")
-            if !hasDirectionalFlags {
-                return
-            }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
-            let direction: String
-            if parsed.hasFlag("-L") {
-                direction = "left"
-            } else if parsed.hasFlag("-U") {
-                direction = "up"
-            } else if parsed.hasFlag("-D") {
-                direction = "down"
-            } else {
-                direction = "right"
+
+            if !hasDirectionalFlags, let absWidth = parsed.value("-x").flatMap({ Int($0.replacingOccurrences(of: "%", with: "")) }) {
+                // Absolute width: resize-pane -t <pane> -x <columns>
+                // Compute pixel delta from current width to desired width.
+                let panePayload = try client.sendV2(method: "pane.list", params: ["workspace_id": target.workspaceId])
+                let panes = panePayload["panes"] as? [[String: Any]] ?? []
+                if let matchingPane = panes.first(where: { ($0["id"] as? String) == target.paneId }),
+                   let cellW = matchingPane["cell_width_px"] as? Int, cellW > 0,
+                   let currentCols = matchingPane["columns"] as? Int {
+                    let delta = absWidth - currentCols
+                    if delta != 0 {
+                        _ = try? client.sendV2(method: "pane.resize", params: [
+                            "workspace_id": target.workspaceId,
+                            "pane_id": target.paneId,
+                            "direction": delta > 0 ? "right" : "left",
+                            "amount": abs(delta) * cellW
+                        ])
+                    }
+                }
+            } else if hasDirectionalFlags {
+                let direction: String
+                if parsed.hasFlag("-L") {
+                    direction = "left"
+                } else if parsed.hasFlag("-U") {
+                    direction = "up"
+                } else if parsed.hasFlag("-D") {
+                    direction = "down"
+                } else {
+                    direction = "right"
+                }
+                let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
+                    .replacingOccurrences(of: "%", with: "")
+                let amount = Int(rawAmount) ?? 5
+                _ = try client.sendV2(method: "pane.resize", params: [
+                    "workspace_id": target.workspaceId,
+                    "pane_id": target.paneId,
+                    "direction": direction,
+                    "amount": max(1, amount)
+                ])
             }
-            let rawAmount = (parsed.value("-x") ?? parsed.value("-y") ?? "5")
-                .replacingOccurrences(of: "%", with: "")
-            let amount = Int(rawAmount) ?? 5
-            _ = try client.sendV2(method: "pane.resize", params: [
-                "workspace_id": target.workspaceId,
-                "pane_id": target.paneId,
-                "direction": direction,
-                "amount": max(1, amount)
-            ])
 
         case "wait-for":
             try runTmuxCompatCommand(
@@ -9845,13 +10345,22 @@ struct CMUXCLI {
         case "select-layout":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
+            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            if layoutName == "main-vertical" || layoutName == "main-horizontal" {
+                // For main-* layouts, only equalize the agent column (vertical splits),
+                // not the top-level horizontal split between main and agents.
+                let orientation = layoutName == "main-vertical" ? "vertical" : "horizontal"
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": workspaceId,
+                    "orientation": orientation
+                ])
+            } else {
+                // For tiled/even-* layouts, equalize everything
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: ["workspace_id": workspaceId])
+            }
             if layoutName == "main-vertical" {
-                let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     var store = loadTmuxCompatStore()
-                    // Seed lastColumnSurfaceId from the most recent split if
-                    // this is the first time main-vertical is set and a split
-                    // already happened (the normal flow: split then layout).
                     let existingColumn = store.mainVerticalLayouts[workspaceId]?.lastColumnSurfaceId
                     let seedColumn = existingColumn ?? store.lastSplitSurface[workspaceId]
                     store.mainVerticalLayouts[workspaceId] = MainVerticalState(
@@ -9863,6 +10372,10 @@ struct CMUXCLI {
             }
 
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
+            return
+
+        case "-V", "-v":
+            print("tmux 3.4")
             return
 
         default:
@@ -12079,6 +12592,7 @@ struct CMUXCLI {
           feedback [--email <email> --body <text> [--image <path> ...]]
           themes [list|set|clear]
           claude-teams [claude-args...]
+          omo [opencode-args...]
           codex <install-hooks|uninstall-hooks>
           ping
           version

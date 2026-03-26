@@ -132,6 +132,23 @@
         }
       }
     },
+    "cli.omo.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux omo [opencode-args...]\n\nLaunch OpenCode with oh-my-openagent in a cmux-aware environment.\n\noh-my-openagent orchestrates multiple AI models as specialized agents in\nparallel. This command sets up a tmux shim so agent panes become native\ncmux splits with sidebar metadata and notifications.\n\nThis command:\n  - sets a tmux-like environment so oh-my-openagent uses cmux splits\n  - prepends a private tmux shim to PATH\n  - forwards all remaining arguments to opencode\n\nThe tmux shim translates tmux window/pane commands into cmux workspace\nand split operations in the current cmux session.\n\nExamples:\n  cmux omo\n  cmux omo --continue\n  cmux omo --model claude-sonnet-4-6"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux omo [opencode-args...]\n\ncmux 対応の環境で OpenCode と oh-my-openagent を起動します。\n\noh-my-openagent は複数の AI モデルを専門エージェントとして並列に\nオーケストレーションします。このコマンドは tmux shim を設定し、\nエージェントのペインをネイティブの cmux split に変換します。\n\nこのコマンドは次を行います:\n  - oh-my-openagent が cmux の split を使うよう tmux 風の環境を設定\n  - 専用の tmux shim を PATH の先頭に追加\n  - 残りの引数をそのまま opencode に渡す\n\ntmux shim は、tmux の window/pane コマンドを、現在の cmux セッション内の\nworkspace と split 操作に変換します。\n\n例:\n  cmux omo\n  cmux omo --continue\n  cmux omo --model claude-sonnet-4-6"
+          }
+        }
+      }
+    },
     "applescript.error.disabled": {
       "extractionState": "manual",
       "localizations": {
