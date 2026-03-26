@@ -2103,13 +2103,10 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
     }
 
-    func testCJKFontMappingsReturnsKoreanMappings() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"])
-        XCTAssertNotNil(mappings)
-        let fonts = Set(mappings!.map { $0.1 })
-        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
-        let ranges = mappings!.map { $0.0 }
-        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"))
+    func testCJKFontMappingsReturnsNilForKoreanOnly() {
+        // Korean is not auto-mapped — Ghostty's native CTFontCreateForString
+        // fallback selects a better-matching font for Hangul.
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
@@ -2128,12 +2125,17 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
     }
 
-    func testCJKFontMappingsMultiLanguageIncludesKorean() {
-        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja", "ko-KR"])
-        XCTAssertNotNil(mappings)
-        let fonts = Set(mappings!.map { $0.1 })
-        XCTAssertTrue(fonts.contains("Hiragino Sans"))
-        XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
+    func testCJKFontMappingsMultiLanguageSkipsKorean() {
+        // When both ja and ko are preferred, only Japanese mappings are generated.
+        // Korean is left to Ghostty's native CTFontCreateForString fallback.
+        let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
+
+        let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
+
+        XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
+        XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
+        XCTAssertFalse(mappings.contains { $0.1 == "Apple SD Gothic Neo" }, "No Korean font mapping")
+        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
     }
 
     // MARK: userConfigContainsCJKCodepointMap
