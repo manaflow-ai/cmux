@@ -460,7 +460,7 @@ struct BrowserPanelView: View {
                     searchState: searchState,
                     focusRequestGeneration: panel.searchFocusRequestGeneration,
                     canApplyFocusRequest: { generation in
-                        panel.canApplySearchFocusRequest(generation)
+                        canApplyBrowserFindFieldFocusRequest(generation)
                     },
                     onNext: { panel.findNext() },
                     onPrevious: { panel.findPrevious() },
@@ -1133,7 +1133,7 @@ struct BrowserPanelView: View {
                             searchState: searchState,
                             focusRequestGeneration: panel.searchFocusRequestGeneration,
                             canApplyFocusRequest: { generation in
-                                panel.canApplySearchFocusRequest(generation)
+                                canApplyBrowserFindFieldFocusRequest(generation)
                             },
                             onNext: { panel.findNext() },
                             onPrevious: { panel.findPrevious() },
@@ -1297,6 +1297,10 @@ struct BrowserPanelView: View {
             return false
         }
         return workspace.focusedPanelId == panel.id
+    }
+
+    private func canApplyBrowserFindFieldFocusRequest(_ generation: UInt64) -> Bool {
+        isPanelFocusedInModel() && panel.canApplySearchFocusRequest(generation)
     }
 
     private func shouldApplyAddressBarExitFallback(in window: NSWindow) -> Bool {

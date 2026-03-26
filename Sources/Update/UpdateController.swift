@@ -193,7 +193,10 @@ class UpdateController {
                     return
                 }
 
-                guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
+                // Only stop on terminal failure states (.notFound, .error).
+                // Don't stop on .idle — the check may still be starting up
+                // (e.g. retry loop, background probe finishing).
+                guard self.didObserveAttemptUpdateProgress, !state.isInstallable, !state.isIdle else {
                     return
                 }
                 self.stopAttemptUpdateMonitoring()
@@ -205,6 +208,11 @@ class UpdateController {
     /// Check for updates (used by the menu item).
     @objc func checkForUpdates() {
         UpdateLogStore.shared.append("checkForUpdates invoked (state=\(viewModel.state.isIdle ? "idle" : "busy"))")
+        checkForUpdatesWhenReady(retries: readyRetryCount)
+    }
+
+    /// Check for updates using the custom popover-based UI.
+    func checkForUpdatesInCustomUI() {
         checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 

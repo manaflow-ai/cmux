@@ -13,7 +13,8 @@ struct CmuxConfigExecutor {
     ) {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
-        } else if let shellCommand = command.command {
+        } else if let rawCommand = command.command {
+            let shellCommand = sanitizeForDisplay(rawCommand)
             let needsConfirm = command.confirm ?? false
             if needsConfirm, let sourcePath = configSourcePath {
                 let trusted = CmuxDirectoryTrust.shared.isTrusted(

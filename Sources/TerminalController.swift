@@ -1020,14 +1020,12 @@ class TerminalController {
 
         // Wire batched port scanner results back to workspace state.
         PortScanner.shared.onPortsUpdated = { [weak self] workspaceId, panelId, ports in
-            MainActor.assumeIsolated {
-                guard let self, let tabManager = self.tabManager else { return }
-                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
-                let validSurfaceIds = Set(workspace.panels.keys)
-                guard validSurfaceIds.contains(panelId) else { return }
-                workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
-                workspace.recomputeListeningPorts()
-            }
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            let validSurfaceIds = Set(workspace.panels.keys)
+            guard validSurfaceIds.contains(panelId) else { return }
+            workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
+            workspace.recomputeListeningPorts()
         }
 
         // Accept connections in background thread
@@ -4085,29 +4083,30 @@ class TerminalController {
                 finish()
 
             case "set_color":
-                guard let colorRaw = v2String(params, "color"), !colorRaw.isEmpty else {
-                    result = .err(code: "invalid_params", message: "set-color requires --color", data: nil)
+                guard let colorRaw = v2String(params, "color"),
+                      !colorRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid color", data: nil)
                     return
                 }
-                // Resolve named color to hex via palette lookup
-                let resolved: String
-                if colorRaw.hasPrefix("#") {
-                    guard let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) else {
-                        result = .err(code: "invalid_params", message: "Invalid hex color '\(colorRaw)'. Expected #RRGGBB", data: nil)
-                        return
-                    }
-                    resolved = normalized
-                } else if let entry = WorkspaceTabColorSettings.defaultPalette.first(where: {
-                    $0.name.lowercased() == colorRaw.lowercased()
+                let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Resolve named colors from effective palette (includes user overrides, excludes custom entries)
+                let effectivePalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+                let hex: String
+                if let entry = effectivePalette.first(where: {
+                    $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
                 }) {
-                    resolved = entry.hex
+                    hex = entry.hex
+                } else if let normalized = WorkspaceTabColorSettings.normalizedHex(colorInput) {
+                    hex = normalized
                 } else {
-                    let names = WorkspaceTabColorSettings.defaultPalette.map(\.name).joined(separator: ", ")
-                    result = .err(code: "invalid_params", message: "Unknown color '\(colorRaw)'. Use #RRGGBB or: \(names)", data: nil)
+                    let colorNames = effectivePalette.map(\.name)
+                    result = .err(code: "invalid_params", message: "Invalid color. Use a hex value (#RRGGBB) or a named color.", data: [
+                        "named_colors": colorNames
+                    ])
                     return
                 }
-                tabManager.setTabColor(tabId: workspace.id, color: resolved)
-                finish(["color": resolved])
+                tabManager.setTabColor(tabId: workspace.id, color: hex)
+                finish(["color": hex])
 
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
@@ -13205,6 +13204,36 @@ class TerminalController {
             return true
         case "backspace":
             sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
+            return true
+        case "up", "arrow_up", "arrowup":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_UpArrow))
+            return true
+        case "down", "arrow_down", "arrowdown":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_DownArrow))
+            return true
+        case "left", "arrow_left", "arrowleft":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_LeftArrow))
+            return true
+        case "right", "arrow_right", "arrowright":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_RightArrow))
+            return true
+        case "shift+tab", "shift-tab", "backtab":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab), mods: GHOSTTY_MODS_SHIFT)
+            return true
+        case "home":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Home))
+            return true
+        case "end":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_End))
+            return true
+        case "delete", "del", "forward_delete":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ForwardDelete))
+            return true
+        case "pageup", "page_up":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageUp))
+            return true
+        case "pagedown", "page_down":
+            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageDown))
             return true
         default:
             if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {

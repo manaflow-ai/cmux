@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1939,6 +1940,34 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.showCount, 2)
+    }
+
+    func testSyncDoesNotRepublishHiddenDeveloperToolsIntentWhenInspectorAlreadyHidden() {
+        let (panel, inspector) = makePanelWithInspector(hideBehavior: .hides)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        inspector.hide()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+        waitForDeveloperToolsTransitions()
+
+        var publishCount = 0
+        let cancellable = panel.objectWillChange.sink {
+            publishCount += 1
+        }
+        defer { _ = cancellable }
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
+        )
     }
 
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
