@@ -1,1 +1,0 @@
-#import "ghostty.h"

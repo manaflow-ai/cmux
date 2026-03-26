@@ -3148,6 +3148,13 @@ class TabManager: ObservableObject {
         // Route workspace reactivation through the normal focus machinery so panel-local
         // activation intents like browser find-field focus are restored on return.
         tab.focusPanel(panelId)
+
+        // During keyboard workspace cycling (isWorkspaceCycleHot), the incoming workspace
+        // may already be mounted and its terminal already visible (isVisibleInUI == true),
+        // so the normal setVisibleInUI false→true transition that triggers a redraw and
+        // AppKit first-responder apply does not fire. Schedule an event-driven follow-up
+        // to ensure the terminal surface redraws and receives focus even in that case.
+        tab.requestTerminalFocusFollowUp(for: panelId)
     }
 
     func completePendingWorkspaceUnfocus(reason: String) {
