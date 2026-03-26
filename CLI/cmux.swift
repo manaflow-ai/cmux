@@ -9015,6 +9015,18 @@ struct CMUXCLI {
     ) throws -> (workspaceId: String, paneId: String?, surfaceId: String) {
         if tmuxPaneSelector(from: raw) != nil {
             let resolved = try tmuxResolvePaneTarget(raw, client: client)
+            // When the target pane matches the caller's pane, prefer the caller's
+            // exact surface (CMUX_SURFACE_ID) over the pane's currently selected
+            // surface. The selected surface can change (e.g. tab switches) after
+            // claude-teams started, but the caller surface stays fixed.
+            let callerPane = tmuxCallerPaneHandle()
+            let callerSurface = tmuxCallerSurfaceHandle()
+            let canonicalCallerPane = callerPane.flatMap { try? tmuxCanonicalPaneId($0, workspaceId: resolved.workspaceId, client: client) }
+            let paneMatch = callerPane != nil && (resolved.paneId == callerPane! || resolved.paneId == canonicalCallerPane)
+            let canonicalSurface = callerSurface.flatMap { try? tmuxCanonicalSurfaceId($0, workspaceId: resolved.workspaceId, client: client) }
+            if paneMatch, let surfaceId = canonicalSurface {
+                return (resolved.workspaceId, resolved.paneId, surfaceId)
+            }
             let surfaceId = try tmuxSelectedSurfaceId(
                 workspaceId: resolved.workspaceId,
                 paneId: resolved.paneId,
@@ -9556,17 +9568,23 @@ struct CMUXCLI {
                 direction = parsed.hasFlag("-b") ? "up" : "down"
             }
 
-            // When main-vertical layout is active for this workspace and this is a
-            // horizontal split targeting the main (leader) pane, redirect subsequent
-            // splits to stack vertically in the right-side column instead.
+            // Claude's agent teams targets arbitrary panes (from list-panes),
+            // not necessarily the leader pane from TMUX_PANE. Override the
+            // target to anchor all teammate splits to the leader surface.
             let store = loadTmuxCompatStore()
-            if let mvState = store.mainVerticalLayouts[target.workspaceId],
-               direction == "right",
-               target.surfaceId == mvState.mainSurfaceId,
-               let lastColumn = mvState.lastColumnSurfaceId {
-                // Split the bottom pane of the right column downward.
-                target = (target.workspaceId, target.paneId, lastColumn)
-                direction = "down"
+            if let callerSurface = tmuxCallerSurfaceHandle(),
+               let callerWorkspace = tmuxCallerWorkspaceHandle() {
+                let wsId = (try? resolveWorkspaceId(callerWorkspace, client: client)) ?? target.workspaceId
+                if let mvState = store.mainVerticalLayouts[wsId],
+                   let lastColumn = mvState.lastColumnSurfaceId {
+                    // Main-vertical active: stack in right column.
+                    target = (wsId, nil, lastColumn)
+                    direction = "down"
+                } else {
+                    // First teammate: split the leader surface to the right.
+                    target = (wsId, nil, callerSurface)
+                    direction = "right"
+                }
             }
 
             // Keep the leader pane focused while Claude starts teammates beside it.
@@ -9587,6 +9605,13 @@ struct CMUXCLI {
                 updatedStore.lastSplitSurface[target.workspaceId] = surfaceId
                 if updatedStore.mainVerticalLayouts[target.workspaceId] != nil {
                     updatedStore.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
+                } else if direction == "right", let callerSurface = tmuxCallerSurfaceHandle() {
+                    // First right split created the column; seed main-vertical
+                    // state so subsequent splits stack downward.
+                    updatedStore.mainVerticalLayouts[target.workspaceId] = MainVerticalState(
+                        mainSurfaceId: callerSurface,
+                        lastColumnSurfaceId: surfaceId
+                    )
                 }
                 try saveTmuxCompatStore(updatedStore)
             }
