@@ -15,13 +15,15 @@ export default function middleware(request: NextRequest) {
     return NextResponse.redirect(url.toString(), 301);
   }
 
-  // Legal pages are English-only. Redirect localized variants to the English version.
-  const legalPages = ["/privacy-policy", "/terms-of-service", "/eula"];
+  // Legal pages are English-only. Redirect /<locale>/privacy-policy etc. to /privacy-policy.
+  const legalPages = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
   const { pathname } = request.nextUrl;
-  for (const page of legalPages) {
-    if (pathname.endsWith(page) && pathname !== page) {
+  const secondSlash = pathname.indexOf("/", 1);
+  if (secondSlash !== -1) {
+    const rest = pathname.slice(secondSlash);
+    if (legalPages.has(rest)) {
       const url = request.nextUrl.clone();
-      url.pathname = page;
+      url.pathname = rest;
       return NextResponse.redirect(url, 301);
     }
   }
