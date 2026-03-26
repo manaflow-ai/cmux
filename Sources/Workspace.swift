@@ -547,7 +547,6 @@ extension Workspace {
             let workingDirectory = snapshot.terminal?.workingDirectory
                 ?? snapshot.directory
                 ?? (snapshot.id == workspaceFocusedPanelId ? currentDirectory : nil)
-                ?? currentDirectory
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )

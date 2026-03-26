@@ -50,16 +50,30 @@ final class SessionPersistenceTests: XCTestCase {
 
         let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
         let focusedDirectory = root.appendingPathComponent("focused", isDirectory: true)
+        let unfocusedDirectory = root.appendingPathComponent("unfocused", isDirectory: true)
         try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: focusedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unfocusedDirectory, withIntermediateDirectories: true)
 
         let workspace = Workspace(title: "Terminal", workingDirectory: requestedDirectory.path, portOrdinal: 0)
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
         workspace.updatePanelDirectory(panelId: focusedPanelId, directory: focusedDirectory.path)
+        let unfocusedPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal, focus: false)
+        )
+        workspace.updatePanelDirectory(panelId: unfocusedPanel.id, directory: unfocusedDirectory.path)
+        workspace.focusPanel(focusedPanelId)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
-        let terminalSnapshot = try XCTUnwrap(snapshot.panels.first?.terminal)
-        XCTAssertEqual(terminalSnapshot.workingDirectory, focusedDirectory.path)
+        let persistedFocusedPanel = try XCTUnwrap(
+            snapshot.panels.first(where: { $0.id == snapshot.focusedPanelId })
+        )
+        let persistedUnfocusedPanel = try XCTUnwrap(
+            snapshot.panels.first(where: { $0.id == unfocusedPanel.id })
+        )
+
+        XCTAssertEqual(persistedFocusedPanel.terminal?.workingDirectory, focusedDirectory.path)
+        XCTAssertEqual(persistedUnfocusedPanel.terminal?.workingDirectory, unfocusedDirectory.path)
         XCTAssertEqual(snapshot.currentDirectory, focusedDirectory.path)
     }
 
@@ -72,21 +86,47 @@ final class SessionPersistenceTests: XCTestCase {
 
         let requestedDirectory = root.appendingPathComponent("requested", isDirectory: true)
         let restoredDirectory = root.appendingPathComponent("restored", isDirectory: true)
+        let explicitDirectory = root.appendingPathComponent("explicit", isDirectory: true)
         try FileManager.default.createDirectory(at: requestedDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: restoredDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: explicitDirectory, withIntermediateDirectories: true)
 
         var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion).windows[0].tabManager.workspaces[0]
-        let panelId = UUID()
-        snapshot.focusedPanelId = panelId
+        let focusedPanelId = UUID()
+        let unfocusedPanelId = UUID()
+        snapshot.focusedPanelId = focusedPanelId
         snapshot.currentDirectory = restoredDirectory.path
-        snapshot.layout = .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId))
+        snapshot.layout = .pane(
+            SessionPaneLayoutSnapshot(
+                panelIds: [focusedPanelId, unfocusedPanelId],
+                selectedPanelId: focusedPanelId
+            )
+        )
         snapshot.panels = [
             SessionPanelSnapshot(
-                id: panelId,
+                id: focusedPanelId,
                 type: .terminal,
-                title: "Terminal",
+                title: "Focused Terminal",
                 customTitle: nil,
                 directory: nil,
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: nil,
+                    scrollback: nil
+                ),
+                browser: nil,
+                markdown: nil
+            ),
+            SessionPanelSnapshot(
+                id: unfocusedPanelId,
+                type: .terminal,
+                title: "Unfocused Terminal",
+                customTitle: nil,
+                directory: explicitDirectory.path,
                 isPinned: false,
                 isManuallyUnread: false,
                 gitBranch: nil,
@@ -104,13 +144,18 @@ final class SessionPersistenceTests: XCTestCase {
         let restored = Workspace(title: "Terminal", workingDirectory: requestedDirectory.path, portOrdinal: 0)
         restored.restoreSessionSnapshot(snapshot)
 
-        let restoredFocusedPanelId = try XCTUnwrap(restored.focusedPanelId)
-        let restoredTerminal = try XCTUnwrap(restored.terminalPanel(for: restoredFocusedPanelId))
+        let restoredFocusedPanel = try XCTUnwrap(restored.terminalPanel(for: try XCTUnwrap(restored.focusedPanelId)))
+        let restoredUnfocusedPanel = try XCTUnwrap(restored.terminalPanel(for: unfocusedPanelId))
         XCTAssertEqual(restored.currentDirectory, restoredDirectory.path)
         XCTAssertEqual(
-            restoredTerminal.requestedWorkingDirectory,
+            restoredFocusedPanel.requestedWorkingDirectory,
             restoredDirectory.path,
-            "Expected restored terminals to use the workspace snapshot cwd when no panel-specific cwd was persisted"
+            "Expected the focused restored terminal to use the workspace snapshot cwd when no panel-specific cwd was persisted"
+        )
+        XCTAssertEqual(
+            restoredUnfocusedPanel.requestedWorkingDirectory,
+            explicitDirectory.path,
+            "Expected non-focused terminals to keep their own persisted directory instead of inheriting the workspace cwd"
         )
     }
 
