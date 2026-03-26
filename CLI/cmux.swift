@@ -10320,8 +10320,18 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
-            // Equalize all splits in the workspace (redistributes evenly)
-            _ = try? client.sendV2(method: "workspace.equalize_splits", params: ["workspace_id": workspaceId])
+            if layoutName == "main-vertical" || layoutName == "main-horizontal" {
+                // For main-* layouts, only equalize the agent column (vertical splits),
+                // not the top-level horizontal split between main and agents.
+                let orientation = layoutName == "main-vertical" ? "vertical" : "horizontal"
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": workspaceId,
+                    "orientation": orientation
+                ])
+            } else {
+                // For tiled/even-* layouts, equalize everything
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: ["workspace_id": workspaceId])
+            }
             if layoutName == "main-vertical" {
                 if let callerSurface = tmuxCallerSurfaceHandle() {
                     var store = loadTmuxCompatStore()
