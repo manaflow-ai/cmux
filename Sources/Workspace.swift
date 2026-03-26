@@ -5837,12 +5837,39 @@ final class Workspace: Identifiable, ObservableObject {
         let manuallyUnread: Bool
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
+        let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
+
+        func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
+            Self(
+                panelId: panelId,
+                panel: panel,
+                title: title,
+                icon: icon,
+                iconImageData: iconImageData,
+                kind: kind,
+                isLoading: isLoading,
+                isPinned: isPinned,
+                directory: directory,
+                ttyName: ttyName,
+                cachedTitle: cachedTitle,
+                customTitle: customTitle,
+                manuallyUnread: manuallyUnread,
+                isRemoteTerminal: isRemoteTerminal,
+                remoteRelayPort: remoteRelayPort,
+                remoteCleanupConfiguration: configuration
+            )
+        }
     }
 
     private var detachingTabIds: Set<TabID> = []
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    // When the last live remote terminal is detached out, the source workspace may be
+    // closed immediately after the move succeeds. That teardown must not shut down the
+    // shared SSH control master that is still serving the moved terminal.
+    private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+    private var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
 #if DEBUG
     private func debugElapsedMs(since start: TimeInterval) -> String {
@@ -6797,6 +6824,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         remoteDetectedPorts = []
@@ -6847,7 +6875,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
         let shouldCleanupControlMaster =
-            clearConfiguration && !isDetachingCloseTransaction && pendingDetachedSurfaces.isEmpty
+            clearConfiguration
+            && !isDetachingCloseTransaction
+            && pendingDetachedSurfaces.isEmpty
+            && !skipControlMasterCleanupAfterDetachedRemoteTransfer
         let configurationForCleanup = shouldCleanupControlMaster ? remoteConfiguration : nil
         let previousController = remoteSessionController
         activeRemoteSessionControllerID = nil
@@ -6871,6 +6902,7 @@ final class Workspace: Identifiable, ObservableObject {
         remoteLastPortConflictFingerprint = nil
         if clearConfiguration {
             remoteConfiguration = nil
+            skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         }
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -6898,7 +6930,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
+        skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
     }
@@ -6921,7 +6955,22 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func cleanupTransferredRemoteConnectionIfNeeded(surfaceId: UUID, relayPort: Int?) -> Bool {
+        guard let relayPort,
+              relayPort > 0,
+              let cleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[surfaceId],
+              cleanupConfiguration.relayPort == relayPort else {
+            return false
+        }
+        transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: surfaceId)
+        Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
+        return true
+    }
+
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
+        if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
+            return
+        }
         guard let relayPort,
               relayPort > 0,
               remoteConfiguration?.relayPort == relayPort else {
@@ -8189,6 +8238,9 @@ final class Workspace: Identifiable, ObservableObject {
     func detachSurface(panelId: UUID) -> DetachedSurfaceTransfer? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         guard panels[panelId] != nil else { return nil }
+        let shouldSkipControlMasterCleanupAfterDetach =
+            activeRemoteTerminalSurfaceIds.contains(panelId)
+            && activeRemoteTerminalSurfaceIds.count == 1
 #if DEBUG
         let detachStart = ProcessInfo.processInfo.systemUptime
         dlog(
@@ -8215,7 +8267,13 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        let detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+        var detached = pendingDetachedSurfaces.removeValue(forKey: tabId)
+        if shouldSkipControlMasterCleanupAfterDetach, let detachedTransfer = detached, detachedTransfer.isRemoteTerminal {
+            skipControlMasterCleanupAfterDetachedRemoteTransfer = true
+            if detachedTransfer.remoteCleanupConfiguration == nil {
+                detached = detachedTransfer.withRemoteCleanupConfiguration(remoteConfiguration)
+            }
+        }
 #if DEBUG
         dlog(
             "split.detach.end ws=\(id.uuidString.prefix(5)) panel=\(panelId.uuidString.prefix(5)) " +
@@ -8330,10 +8388,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
-        if detached.isRemoteTerminal,
-           let detachedRelayPort = detached.remoteRelayPort,
-           detachedRelayPort == remoteConfiguration?.relayPort {
+        let didAdoptWorkspaceRemoteTracking =
+            detached.isRemoteTerminal
+            && detached.remoteRelayPort == remoteConfiguration?.relayPort
+        if didAdoptWorkspaceRemoteTracking {
             trackRemoteTerminalSurface(detached.panelId)
+        }
+        if let cleanupConfiguration = detached.remoteCleanupConfiguration {
+            if didAdoptWorkspaceRemoteTracking {
+                transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
+            } else {
+                transferredRemoteCleanupConfigurationsByPanelId[detached.panelId] = cleanupConfiguration
+            }
+        } else {
+            transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
         }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
@@ -10171,6 +10239,7 @@ extension Workspace: BonsplitDelegate {
         #endif
 
         let panel = panels[panelId]
+        let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
 
         if isDetaching, let panel {
             let browserPanel = panel as? BrowserPanel
@@ -10193,7 +10262,8 @@ extension Workspace: BonsplitDelegate {
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
-                    : nil
+                    : nil,
+                remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
             )
         } else {
             if let closedBrowserRestoreSnapshot {
@@ -10224,6 +10294,9 @@ extension Workspace: BonsplitDelegate {
             lastTerminalConfigInheritancePanelId = nil
         }
         clearRemoteConfigurationIfWorkspaceBecameLocal()
+        if !isDetaching, let transferredRemoteCleanupConfiguration {
+            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+        }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
 
         // Keep the workspace invariant for normal close paths.
