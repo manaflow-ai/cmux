@@ -200,6 +200,18 @@ class TerminalController {
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
+
+    /// Remove all per-surface browser state for a destroyed surface.
+    /// Called from Workspace.splitTabBar(_:didCloseTab:fromPane:) to prevent unbounded dictionary growth.
+    @MainActor
+    func cleanupBrowserSurfaceState(surfaceId: UUID) {
+        v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+        v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
+        v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
+        v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
+        v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
+        v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+    }
     private var browserDownloadObserver: NSObjectProtocol?
 
     private init() {
