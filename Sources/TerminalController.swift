@@ -3683,14 +3683,45 @@ class TerminalController {
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
-            let success = tabManager.equalizeSplits(tabId: ws.id)
-            if success {
-                result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id)])
-            } else {
-                result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "note": "no splits to equalize"])
-            }
+            let tree = ws.bonsplitController.treeSnapshot()
+            let success = v2ProportionalEqualize(node: tree, controller: ws.bonsplitController)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "equalized": success
+            ])
         }
         return result
+    }
+
+    /// Count leaf panes in a tree node.
+    private func v2CountLeaves(_ node: ExternalTreeNode) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let s):
+            return v2CountLeaves(s.first) + v2CountLeaves(s.second)
+        }
+    }
+
+    /// Proportionally equalize splits so each leaf pane gets equal space.
+    /// For a split with N1 leaves on the left and N2 on the right,
+    /// the divider is set to N1/(N1+N2).
+    @discardableResult
+    private func v2ProportionalEqualize(node: ExternalTreeNode, controller: BonsplitController) -> Bool {
+        guard case .split(let s) = node else { return false }
+        guard let splitId = UUID(uuidString: s.id) else { return false }
+
+        let leftLeaves = v2CountLeaves(s.first)
+        let rightLeaves = v2CountLeaves(s.second)
+        let total = leftLeaves + rightLeaves
+        let position = CGFloat(leftLeaves) / CGFloat(total)
+        controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+
+        // Recurse into children
+        v2ProportionalEqualize(node: s.first, controller: controller)
+        v2ProportionalEqualize(node: s.second, controller: controller)
+        return true
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
