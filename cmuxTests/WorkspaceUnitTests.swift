@@ -448,6 +448,53 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
+    func testAddWorkspaceKeepsCapturedWorkspaceAliveUntilCreationFinishes() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        var closingWorkspace: Workspace? = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        guard let capturedClosingWorkspace = closingWorkspace else {
+            XCTFail("Expected secondary workspace")
+            return
+        }
+
+        let closingWorkspaceId = capturedClosingWorkspace.id
+        weak var weakClosingWorkspace = capturedClosingWorkspace
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, closingWorkspaceId, third.id])
+        closingWorkspace = nil
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            guard let liveWorkspace = manager.tabs.first(where: { $0.id == closingWorkspaceId }) else {
+                XCTFail("Expected captured workspace to still be present when closing after snapshot")
+                return
+            }
+            manager.closeWorkspace(liveWorkspace)
+        }
+
+        var didReachBeforeCreateWorkspace = false
+        manager.beforeCreateWorkspace = {
+            didReachBeforeCreateWorkspace = true
+            XCTAssertNotNil(
+                weakClosingWorkspace,
+                "Expected the workspace captured before Cmd+N to stay alive until creation finishes"
+            )
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertTrue(didReachBeforeCreateWorkspace)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspaceId }))
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+        XCTAssertNil(weakClosingWorkspace)
+    }
+
     func testAddWorkspaceAfterCurrentUsesSnapshotPinnedStateWhenPinningMutatesAfterSnapshot() {
         let manager = SnapshotMutatingTabManager()
         guard let first = manager.tabs.first else {
