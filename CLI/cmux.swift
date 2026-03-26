@@ -10032,10 +10032,14 @@ struct CMUXCLI {
             // Claude's agent teams targets arbitrary panes (from list-panes),
             // not necessarily the leader pane from TMUX_PANE. Override the
             // target to anchor all teammate splits to the leader surface.
+            // Only apply caller anchoring when the caller's workspace resolves
+            // successfully. Falling back to target.workspaceId would pair
+            // the caller's surface with a different workspace, creating an
+            // invalid cross-workspace split.
             let store = loadTmuxCompatStore()
             if let callerSurface = tmuxCallerSurfaceHandle(),
-               let callerWorkspace = tmuxCallerWorkspaceHandle() {
-                let wsId = (try? resolveWorkspaceId(callerWorkspace, client: client)) ?? target.workspaceId
+               let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
                 if let mvState = store.mainVerticalLayouts[wsId],
                    let lastColumn = mvState.lastColumnSurfaceId {
                     // Main-vertical active: stack in right column.
@@ -10369,6 +10373,14 @@ struct CMUXCLI {
                     )
                     try saveTmuxCompatStore(store)
                 }
+            } else if !layoutName.isEmpty {
+                // Non-main-vertical layout selected: clear stale state so
+                // future splits don't incorrectly redirect to the old column.
+                let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+                var store = loadTmuxCompatStore()
+                if store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil {
+                    try saveTmuxCompatStore(store)
+                }
             }
 
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
@@ -10400,6 +10412,19 @@ struct CMUXCLI {
         /// Used to seed lastColumnSurfaceId when select-layout main-vertical
         /// is called after the first split.
         var lastSplitSurface: [String: String] = [:]
+
+        /// Custom decoder so older store files missing newer keys
+        /// (mainVerticalLayouts, lastSplitSurface) decode gracefully
+        /// instead of throwing and resetting the entire store.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            buffers = try container.decodeIfPresent([String: String].self, forKey: .buffers) ?? [:]
+            hooks = try container.decodeIfPresent([String: String].self, forKey: .hooks) ?? [:]
+            mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
+            lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
+        }
+
+        init() {}
     }
 
     private func tmuxCompatStoreURL() -> URL {
