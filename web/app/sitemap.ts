@@ -14,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/getting-started", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.9 },
     { path: "/docs/concepts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/configuration", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/custom-commands", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/keyboard-shortcuts", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/api", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/notifications", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
@@ -37,13 +38,18 @@ export default function sitemap(): MetadataRoute.Sitemap {
     }
     alternates["x-default"] = `${base}${path}`;
 
-    entries.push({
-      url: `${base}${path}`,
-      lastModified,
-      changeFrequency,
-      priority,
-      alternates: { languages: alternates },
-    });
+    // Emit a separate entry for each locale so Google sees every URL declared
+    for (const locale of locales) {
+      const url =
+        locale === "en" ? `${base}${path}` : `${base}/${locale}${path}`;
+      entries.push({
+        url,
+        lastModified,
+        changeFrequency,
+        priority,
+        alternates: { languages: alternates },
+      });
+    }
   }
 
   return entries;

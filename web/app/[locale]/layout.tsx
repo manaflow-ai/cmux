@@ -8,6 +8,7 @@ import {
 } from "next-intl/server";
 import { notFound } from "next/navigation";
 import { routing } from "../../i18n/routing";
+import { buildAlternates } from "../../i18n/seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { SiteFooter } from "./components/site-footer";
@@ -61,6 +62,7 @@ export async function generateMetadata({
       title: t("title"),
       description: t("ogDescription"),
     },
+    alternates: buildAlternates(locale, ""),
     metadataBase: new URL("https://cmux.com"),
   };
 }

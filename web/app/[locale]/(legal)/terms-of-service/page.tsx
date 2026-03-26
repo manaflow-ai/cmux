@@ -1,10 +1,13 @@
-import type { Metadata } from "next";
+import { buildAlternates } from "../../../../i18n/seo";
 
-export const metadata: Metadata = {
-  title: "Terms of Service — cmux",
-  description: "Terms of service for cmux",
-  alternates: { canonical: "./" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  return {
+    title: "Terms of Service — cmux",
+    description: "Terms of service for cmux",
+    alternates: buildAlternates(locale, "/terms-of-service"),
+  };
+}
 
 export default function TermsOfServicePage() {
   return (

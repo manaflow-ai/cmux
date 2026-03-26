@@ -1,10 +1,13 @@
-import type { Metadata } from "next";
+import { buildAlternates } from "../../../../i18n/seo";
 
-export const metadata: Metadata = {
-  title: "EULA — cmux",
-  description: "End-User License Agreement for cmux",
-  alternates: { canonical: "./" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  return {
+    title: "EULA — cmux",
+    description: "End-User License Agreement for cmux",
+    alternates: buildAlternates(locale, "/eula"),
+  };
+}
 
 export default function EulaPage() {
   return (
