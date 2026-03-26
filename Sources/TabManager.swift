@@ -816,7 +816,7 @@ class TabManager: ObservableObject {
         let selectedTabId: UUID?
         let selectedTabWasPinned: Bool
         let preferredWorkingDirectory: String?
-        let inheritedTerminalConfig: ghostty_surface_config_s?
+        let inheritedTerminalFontPoints: Float?
     }
     private var agentPIDSweepTimer: DispatchSourceTimer?
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
@@ -1218,7 +1218,9 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
         let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
         let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
-        let inheritedConfig = snapshot.inheritedTerminalConfig
+        let inheritedConfig = workspaceCreationConfigTemplate(
+            inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
+        )
         // Resolve placement against the pre-creation snapshot before Workspace init
         // boots terminal state. The ssh/new-workspace path can otherwise crash while
         // reading @Published placement state from existing workspaces mid-creation.
@@ -2191,7 +2193,7 @@ class TabManager: ObservableObject {
             selectedTabId: currentSelectedTabId,
             selectedTabWasPinned: selectedTabSnapshot?.isPinned ?? false,
             preferredWorkingDirectory: preferredWorkingDirectoryForNewTab(workspace: selectedWorkspace),
-            inheritedTerminalConfig: inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
+            inheritedTerminalFontPoints: inheritedTerminalFontPointsForNewWorkspace(workspace: selectedWorkspace)
         )
     }
 
@@ -2251,7 +2253,7 @@ class TabManager: ObservableObject {
         inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
     }
 
-    private func inheritedTerminalConfigForNewWorkspace(
+    func inheritedTerminalConfigForNewWorkspace(
         workspace: Workspace?
     ) -> ghostty_surface_config_s? {
         if let panel = terminalPanelForWorkspaceConfigInheritanceSource(workspace: workspace),
@@ -2269,6 +2271,30 @@ class TabManager: ObservableObject {
             return config
         }
         return nil
+    }
+
+    private func inheritedTerminalFontPointsForNewWorkspace(
+        workspace: Workspace?
+    ) -> Float? {
+        guard let inheritedConfig = inheritedTerminalConfigForNewWorkspace(workspace: workspace),
+              inheritedConfig.font_size > 0 else {
+            return nil
+        }
+        return inheritedConfig.font_size
+    }
+
+    private func workspaceCreationConfigTemplate(
+        inheritedTerminalFontPoints: Float?
+    ) -> ghostty_surface_config_s? {
+        guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
+            return nil
+        }
+        // ghostty_surface_config_s can carry raw C pointers owned by the source surface.
+        // New workspace creation only needs the inherited zoom level, so rebuild a clean
+        // config instead of snapshotting pointer-backed fields across workspace creation.
+        var config = ghostty_surface_config_new()
+        config.font_size = inheritedTerminalFontPoints
+        return config
     }
 
     private func normalizedWorkingDirectory(_ directory: String?) -> String? {
