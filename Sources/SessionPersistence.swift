@@ -194,6 +194,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var isVisible: Bool
     var selection: SessionSidebarSelection
     var width: Double?
+    var fileExplorerVisible: Bool?
+    var fileExplorerDividerPosition: Double?
 }
 
 struct SessionStatusEntrySnapshot: Codable, Sendable {
