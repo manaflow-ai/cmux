@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { BlogPager } from "../components/blog-pager";
 import { BlogCTA } from "../components/blog-cta";
@@ -19,9 +20,7 @@ export async function generateMetadata({
       siteName: "cmux",
       type: "article" as const,
     },
-    alternates: {
-      canonical: "./",
-    },
+    alternates: buildAlternates(locale, "/blog"),
   };
 }
 
