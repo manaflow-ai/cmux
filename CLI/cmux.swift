@@ -1413,7 +1413,6 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         if command != "__tmux-compat",
            command != "claude-teams",
-           command != "omo",
            command != "codex",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
@@ -9656,8 +9655,10 @@ struct CMUXCLI {
         let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
 
         var config: [String: Any]
-        if let data = try? Data(contentsOf: userJsonURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if let data = try? Data(contentsOf: userJsonURL) {
+            guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
+            }
             config = existing
         } else {
             config = [:]
@@ -9736,9 +9737,23 @@ struct CMUXCLI {
             process.standardError = stderrPipe
             FileHandle.standardError.write("Installing oh-my-opencode plugin...\n".data(using: .utf8)!)
             try process.run()
+            // Drain pipes concurrently to prevent deadlock from full buffers
+            var stderrData = Data()
+            let drainGroup = DispatchGroup()
+            drainGroup.enter()
+            DispatchQueue.global().async {
+                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                drainGroup.leave()
+            }
+            drainGroup.enter()
+            DispatchQueue.global().async {
+                _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                drainGroup.leave()
+            }
+            drainGroup.wait()
             process.waitUntilExit()
             if process.terminationStatus != 0 {
-                let errText = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                let errText = String(data: stderrData, encoding: .utf8) ?? ""
                 throw CLIError(message: "Failed to install oh-my-opencode: \(errText)")
             }
             FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
