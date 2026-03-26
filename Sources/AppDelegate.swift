@@ -9625,14 +9625,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
         ) {
-            if let manager = tabManager,
-               let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
+            if let manager = tabManager {
+                let orderedWorkspaceIds = manager.orderedSidebarWorkspaceIds()
+                if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                    forDigit: digit,
+                    workspaceCount: orderedWorkspaceIds.count
+                ), targetIndex < orderedWorkspaceIds.count {
 #if DEBUG
-                dlog(
-                    "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
-                )
+                    dlog(
+                        "shortcut.action name=workspaceDigit digit=\(digit) targetIndex=\(targetIndex) manager=\(debugManagerToken(manager)) \(debugShortcutRouteSnapshot(event: event))"
+                    )
 #endif
-                manager.selectTab(at: targetIndex)
+                    if let workspace = manager.tabs.first(where: { $0.id == orderedWorkspaceIds[targetIndex] }) {
+                        manager.selectWorkspace(workspace)
+                    }
+                }
             }
             return true
         }

@@ -252,6 +252,7 @@ extension Workspace {
         }
 
         return SessionWorkspaceSnapshot(
+            id: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customColor: customColor,
@@ -5636,14 +5637,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
-        title: String = "Terminal",
+        id: UUID = UUID(),
+        title: String = String(localized: "workspace.defaultTitle", defaultValue: "Terminal"),
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         configTemplate: ghostty_surface_config_s? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
-        self.id = UUID()
+        self.id = id
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title

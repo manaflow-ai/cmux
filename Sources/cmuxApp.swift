@@ -791,8 +791,13 @@ struct cmuxApp: App {
                 ForEach(1...9, id: \.self) { number in
                     Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                         let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
+                        let orderedWorkspaceIds = manager.orderedSidebarWorkspaceIds()
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                            forDigit: number,
+                            workspaceCount: orderedWorkspaceIds.count
+                        ), targetIndex < orderedWorkspaceIds.count,
+                           let workspace = manager.tabs.first(where: { $0.id == orderedWorkspaceIds[targetIndex] }) {
+                            manager.selectWorkspace(workspace)
                         }
                     }
                     .keyboardShortcut(

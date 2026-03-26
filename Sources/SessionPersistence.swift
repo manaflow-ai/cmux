@@ -3,7 +3,7 @@ import Foundation
 import Bonsplit
 
 enum SessionSnapshotSchema {
-    static let currentVersion = 1
+    static let currentVersion = 2
 }
 
 enum SessionPersistencePolicy {
@@ -328,6 +328,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    var id: UUID
     var processTitle: String
     var customTitle: String?
     var customColor: String?
@@ -340,11 +341,113 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case processTitle
+        case customTitle
+        case customColor
+        case isPinned
+        case currentDirectory
+        case focusedPanelId
+        case layout
+        case panels
+        case statusEntries
+        case logEntries
+        case progress
+        case gitBranch
+    }
+
+    init(
+        id: UUID = UUID(),
+        processTitle: String,
+        customTitle: String?,
+        customColor: String?,
+        isPinned: Bool,
+        currentDirectory: String,
+        focusedPanelId: UUID?,
+        layout: SessionWorkspaceLayoutSnapshot,
+        panels: [SessionPanelSnapshot],
+        statusEntries: [SessionStatusEntrySnapshot],
+        logEntries: [SessionLogEntrySnapshot],
+        progress: SessionProgressSnapshot?,
+        gitBranch: SessionGitBranchSnapshot?
+    ) {
+        self.id = id
+        self.processTitle = processTitle
+        self.customTitle = customTitle
+        self.customColor = customColor
+        self.isPinned = isPinned
+        self.currentDirectory = currentDirectory
+        self.focusedPanelId = focusedPanelId
+        self.layout = layout
+        self.panels = panels
+        self.statusEntries = statusEntries
+        self.logEntries = logEntries
+        self.progress = progress
+        self.gitBranch = gitBranch
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        processTitle = try container.decode(String.self, forKey: .processTitle)
+        customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        customColor = try container.decodeIfPresent(String.self, forKey: .customColor)
+        isPinned = try container.decode(Bool.self, forKey: .isPinned)
+        currentDirectory = try container.decode(String.self, forKey: .currentDirectory)
+        focusedPanelId = try container.decodeIfPresent(UUID.self, forKey: .focusedPanelId)
+        layout = try container.decode(SessionWorkspaceLayoutSnapshot.self, forKey: .layout)
+        panels = try container.decode([SessionPanelSnapshot].self, forKey: .panels)
+        statusEntries = try container.decode([SessionStatusEntrySnapshot].self, forKey: .statusEntries)
+        logEntries = try container.decode([SessionLogEntrySnapshot].self, forKey: .logEntries)
+        progress = try container.decodeIfPresent(SessionProgressSnapshot.self, forKey: .progress)
+        gitBranch = try container.decodeIfPresent(SessionGitBranchSnapshot.self, forKey: .gitBranch)
+    }
+}
+
+struct SessionGroupSnapshot: Codable, Sendable {
+    let id: UUID
+    let name: String
+    let color: String?
+    let isCollapsed: Bool
+    let workspaceIds: [UUID]
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var groups: [SessionGroupSnapshot]
+    var sidebarOrder: [SidebarOrderItem]
+
+    init(
+        selectedWorkspaceIndex: Int? = nil,
+        workspaces: [SessionWorkspaceSnapshot] = [],
+        groups: [SessionGroupSnapshot] = [],
+        sidebarOrder: [SidebarOrderItem] = []
+    ) {
+        self.selectedWorkspaceIndex = selectedWorkspaceIndex
+        self.workspaces = workspaces
+        self.groups = groups
+        self.sidebarOrder = sidebarOrder
+    }
+}
+
+extension SessionTabManagerSnapshot {
+    private enum CodingKeys: String, CodingKey {
+        case selectedWorkspaceIndex
+        case workspaces
+        case groups
+        case sidebarOrder
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedWorkspaceIndex = try container.decodeIfPresent(Int.self, forKey: .selectedWorkspaceIndex)
+        workspaces = try container.decode([SessionWorkspaceSnapshot].self, forKey: .workspaces)
+        groups = try container.decodeIfPresent([SessionGroupSnapshot].self, forKey: .groups) ?? []
+        sidebarOrder = try container.decodeIfPresent([SidebarOrderItem].self, forKey: .sidebarOrder) ?? []
+    }
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
@@ -366,7 +469,7 @@ enum SessionPersistenceStore {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         let decoder = JSONDecoder()
         guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else { return nil }
-        guard snapshot.version == SessionSnapshotSchema.currentVersion else { return nil }
+        guard snapshot.version >= 1 && snapshot.version <= SessionSnapshotSchema.currentVersion else { return nil }
         guard !snapshot.windows.isEmpty else { return nil }
         return snapshot
     }
