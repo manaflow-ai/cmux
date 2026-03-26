@@ -1199,6 +1199,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func addWorkspace(
+        title: String? = nil,
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
@@ -1243,7 +1244,7 @@ class TabManager: ObservableObject {
         let ordinal = Self.nextPortOrdinal
         Self.nextPortOrdinal += 1
         let newWorkspace = makeWorkspaceForCreation(
-            title: "Terminal \(nextTabCount)",
+            title: title ?? "Terminal \(nextTabCount)",
             workingDirectory: workingDirectory,
             portOrdinal: ordinal,
             configTemplate: inheritedConfig,
@@ -1251,6 +1252,9 @@ class TabManager: ObservableObject {
             initialTerminalEnvironment: initialTerminalEnvironment
         )
         newWorkspace.owningTabManager = self
+        if title != nil {
+            newWorkspace.setCustomTitle(title)
+        }
         wireClosedBrowserTracking(for: newWorkspace)
         if eagerLoadTerminal && !select {
             requestBackgroundWorkspaceLoad(for: newWorkspace.id)
