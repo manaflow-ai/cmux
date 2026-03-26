@@ -8621,6 +8621,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    /// Schedules an event-driven layout follow-up to ensure the given terminal panel
+    /// redraws and acquires AppKit focus after a workspace switch. Called by TabManager
+    /// after changing selectedTabId via keyboard navigation (Cmd+Ctrl+]/[), where the
+    /// workspace and its terminal may already be mounted/visible (isWorkspaceCycleHot),
+    /// so the normal setVisibleInUI false→true transition that triggers a redraw does
+    /// not occur.
+    func requestTerminalFocusFollowUp(for panelId: UUID) {
+        guard panels[panelId] is TerminalPanel else { return }
+        beginEventDrivenLayoutFollowUp(
+            reason: "workspace.switch.followUp",
+            terminalFocusPanelId: panelId
+        )
+    }
+
     private func maybeAutoFocusBrowserAddressBarOnPanelFocus(
         _ browserPanel: BrowserPanel,
         trigger: FocusPanelTrigger
