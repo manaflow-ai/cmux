@@ -42,10 +42,12 @@ func isCommandPaletteFocusStealingTerminalOrBrowserResponder(_ responder: NSResp
         return true
     }
 
-    if let textView = responder as? NSTextView,
-       !textView.isFieldEditor,
-       let delegateView = textView.delegate as? NSView {
-        return isCommandPaletteFocusStealingTerminalOrBrowserView(delegateView)
+    if let textView = responder as? NSTextView, !textView.isFieldEditor {
+        if let delegateView = textView.delegate as? NSView,
+           isCommandPaletteFocusStealingTerminalOrBrowserView(delegateView) {
+            return true
+        }
+        return isCommandPaletteFocusStealingTerminalOrBrowserView(textView)
     }
 
     if let view = responder as? NSView {

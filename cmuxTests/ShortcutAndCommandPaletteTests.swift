@@ -406,6 +406,7 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
 
 final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
     private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
+    private final class UnrelatedViewTextDelegate: NSView, NSTextViewDelegate {}
 
     func testTreatsGhosttySurfaceViewAsFocusStealer() {
         let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
@@ -444,6 +445,21 @@ final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
         XCTAssertTrue(
             isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
             "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate is not a view"
+        )
+    }
+
+    func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateViewIsUnrelated() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        let delegateView = UnrelatedViewTextDelegate(frame: .zero)
+        textView.delegate = delegateView
+        hostedView.addSubview(textView)
+
+        XCTAssertTrue(
+            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate view is unrelated"
         )
     }
 }
