@@ -12211,7 +12211,7 @@ extension Workspace: BonsplitDelegate {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
-        TerminalController.shared.cleanupBrowserSurfaceState(surfaceId: panelId)
+        TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
 
         // Keep the workspace invariant for normal close paths.
         // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can

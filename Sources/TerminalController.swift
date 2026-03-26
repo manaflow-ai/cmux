@@ -201,16 +201,26 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
-    /// Remove all per-surface browser state for a destroyed surface.
+    /// Remove all per-surface state for a destroyed surface.
     /// Called from Workspace.splitTabBar(_:didCloseTab:fromPane:) to prevent unbounded dictionary growth.
+    ///
+    /// Cleans up:
+    /// - 6 browser panel dictionaries (frame selector, init scripts/styles, dialog queue, download events, unsupported network requests)
+    /// - v2BrowserElementRefs entries whose surfaceId matches (stale refs can never be resolved after surface close)
+    /// - v2RefByUUID[.surface] and v2UUIDByRef[.surface] entries for this surface (written on creation, never removed otherwise)
     @MainActor
-    func cleanupBrowserSurfaceState(surfaceId: UUID) {
+    func cleanupSurfaceState(surfaceId: UUID) {
         v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
         v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
         v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
         v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
         v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
         v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
+        v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+        if let ref = v2RefByUUID[.surface]?[surfaceId] {
+            v2UUIDByRef[.surface]?.removeValue(forKey: ref)
+        }
+        v2RefByUUID[.surface]?.removeValue(forKey: surfaceId)
     }
     private var browserDownloadObserver: NSObjectProtocol?
 
