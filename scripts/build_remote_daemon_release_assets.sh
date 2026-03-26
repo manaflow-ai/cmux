@@ -7,7 +7,8 @@ Usage: scripts/build_remote_daemon_release_assets.sh \
   --version <app-version> \
   --release-tag <tag> \
   --repo <owner/repo> \
-  --output-dir <dir>
+  --output-dir <dir> \
+  [--asset-name-suffix <suffix>]
 
 Builds cmuxd-remote release assets for the supported remote platforms and emits:
   cmuxd-remote-<goos>-<goarch>
@@ -20,6 +21,7 @@ VERSION=""
 RELEASE_TAG=""
 REPO=""
 OUTPUT_DIR=""
+ASSET_NAME_SUFFIX=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       OUTPUT_DIR="${2:-}"
+      shift 2
+      ;;
+    --asset-name-suffix)
+      ASSET_NAME_SUFFIX="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -69,6 +75,24 @@ mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json
 
+asset_name_with_suffix() {
+  local name="$1"
+
+  if [[ -z "$ASSET_NAME_SUFFIX" ]]; then
+    printf '%s\n' "$name"
+    return
+  fi
+
+  if [[ "$name" == *.* ]]; then
+    local base="${name%.*}"
+    local extension=".${name##*.}"
+    printf '%s%s%s\n' "$base" "$ASSET_NAME_SUFFIX" "$extension"
+    return
+  fi
+
+  printf '%s%s\n' "$name" "$ASSET_NAME_SUFFIX"
+}
+
 DAEMON_GO_LDFLAGS="-s -w -X main.version=${VERSION}"
 DAEMON_GO_BUILD_ARGS=(
   build
@@ -77,9 +101,10 @@ DAEMON_GO_BUILD_ARGS=(
   -ldflags "$DAEMON_GO_LDFLAGS"
 )
 
-CHECKSUMS_ASSET_NAME="cmuxd-remote-checksums.txt"
+CHECKSUMS_ASSET_NAME="$(asset_name_with_suffix "cmuxd-remote-checksums.txt")"
 CHECKSUMS_PATH="${OUTPUT_DIR}/${CHECKSUMS_ASSET_NAME}"
-MANIFEST_PATH="${OUTPUT_DIR}/cmuxd-remote-manifest.json"
+MANIFEST_ASSET_NAME="$(asset_name_with_suffix "cmuxd-remote-manifest.json")"
+MANIFEST_PATH="${OUTPUT_DIR}/${MANIFEST_ASSET_NAME}"
 
 TARGETS=(
   "darwin arm64"
@@ -95,7 +120,7 @@ trap 'rm -f "$ENTRIES_FILE"' EXIT
 
 for target in "${TARGETS[@]}"; do
   read -r GOOS GOARCH <<<"$target"
-  ASSET_NAME="cmuxd-remote-${GOOS}-${GOARCH}"
+  ASSET_NAME="$(asset_name_with_suffix "cmuxd-remote-${GOOS}-${GOARCH}")"
   OUTPUT_PATH="${OUTPUT_DIR}/${ASSET_NAME}"
 
   (

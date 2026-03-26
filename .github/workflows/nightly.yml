@@ -256,6 +256,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inject nightly identities and metadata
+        id: nightly_metadata
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         run: |
           set -euo pipefail
@@ -274,9 +275,18 @@ jobs:
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
           NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
+          REMOTE_DAEMON_ASSET_SUFFIX="-${NIGHTLY_BUILD}"
           echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
           echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
           echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
+          echo "REMOTE_DAEMON_ASSET_SUFFIX=${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_ENV"
+          echo "remote_daemon_asset_suffix=${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_darwin_arm64=cmuxd-remote-darwin-arm64${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_darwin_amd64=cmuxd-remote-darwin-amd64${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_linux_arm64=cmuxd-remote-linux-arm64${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_linux_amd64=cmuxd-remote-linux-amd64${REMOTE_DAEMON_ASSET_SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_checksums=cmuxd-remote-checksums${REMOTE_DAEMON_ASSET_SUFFIX}.txt" >> "$GITHUB_OUTPUT"
+          echo "remote_daemon_manifest=cmuxd-remote-manifest${REMOTE_DAEMON_ASSET_SUFFIX}.json" >> "$GITHUB_OUTPUT"
 
           NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
           echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
@@ -321,8 +331,10 @@ jobs:
             --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
             --release-tag "nightly" \
             --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
+            --output-dir "remote-daemon-assets" \
+            --asset-name-suffix "$REMOTE_DAEMON_ASSET_SUFFIX"
+          MANIFEST_PATH="remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_manifest }}"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' "$MANIFEST_PATH")"
           APP_PLIST="build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
           if [ ! -f "$APP_PLIST" ]; then
             echo "Missing nightly app Info.plist at $APP_PLIST" >&2
@@ -479,12 +491,12 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_checksums }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_manifest }}
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -494,12 +506,12 @@ jobs:
           path: |
             cmux-nightly-macos*.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_checksums }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_manifest }}
             appcast-universal.xml
           if-no-files-found: error
 
@@ -533,12 +545,12 @@ jobs:
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_darwin_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_arm64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_linux_amd64 }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_checksums }}
+            remote-daemon-assets/${{ steps.nightly_metadata.outputs.remote_daemon_manifest }}
             appcast-universal.xml
           overwrite_files: true
 
