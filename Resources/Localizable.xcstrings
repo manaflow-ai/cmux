@@ -64785,6 +64785,40 @@
         }
       }
     },
+    "sidebar.port.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ":%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ":%lld"
+          }
+        }
+      }
+    },
+    "sidebar.port.openTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open localhost:%lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost:%lldを開く"
+          }
+        }
+      }
+    },
     "sidebar.pullRequest.openTooltip": {
       "extractionState": "manual",
       "localizations": {
