@@ -67,6 +67,7 @@ var commands = []commandSpec{
 	{name: "focus-panel", proto: protoV2, v2Method: "surface.focus", flagKeys: []string{"panel", "workspace"}, paramKeyOverrides: map[string]string{"panel": "surface_id"}},
 	{name: "list-panes", proto: protoV2, v2Method: "pane.list", flagKeys: []string{"workspace"}},
 	{name: "list-pane-surfaces", proto: protoV2, v2Method: "pane.surfaces", flagKeys: []string{"pane"}},
+	{name: "zoom-pane", proto: protoV2, v2Method: "pane.zoom", flagKeys: []string{"workspace", "pane"}},
 	{name: "new-pane", proto: protoV2, v2Method: "pane.create", flagKeys: []string{"workspace", "direction", "type", "url"}, defaultParams: map[string]any{"direction": "right"}},
 	{name: "new-surface", proto: protoV2, v2Method: "surface.create", flagKeys: []string{"workspace", "pane", "type", "url"}},
 	{name: "new-split", proto: protoV2, v2Method: "surface.split", flagKeys: []string{"surface", "direction"}},
@@ -747,6 +748,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  new-workspace             Create a new workspace")
 	fmt.Fprintln(os.Stderr, "  new-surface               Create a new surface")
 	fmt.Fprintln(os.Stderr, "  new-split                 Split an existing surface")
+	fmt.Fprintln(os.Stderr, "  zoom-pane                 Toggle pane zoom")
 	fmt.Fprintln(os.Stderr, "  close-surface             Close a surface")
 	fmt.Fprintln(os.Stderr, "  close-workspace           Close a workspace")
 	fmt.Fprintln(os.Stderr, "  select-workspace          Select a workspace")

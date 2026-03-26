@@ -5433,6 +5433,56 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
 
+    @discardableResult
+    private func exitSplitZoomIfNeeded(
+        whenFocusing targetPaneId: PaneID,
+        reason: String,
+        browserPanelId: UUID? = nil
+    ) -> Bool {
+        guard let zoomedPaneId = bonsplitController.zoomedPaneId,
+              zoomedPaneId != targetPaneId,
+              bonsplitController.clearPaneZoom() else {
+            return false
+        }
+
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
+
+        if let browserPanelId,
+           let browserPanel = browserPanel(for: browserPanelId) {
+            browserPanel.preparePortalHostReplacementForNextDistinctClaim(
+                inPane: targetPaneId,
+                reason: reason
+            )
+        }
+
+        beginEventDrivenLayoutFollowUp(
+            reason: reason,
+            browserPanelId: browserPanelId,
+            includeGeometry: true
+        )
+        return true
+    }
+
+    @discardableResult
+    func focusPane(
+        _ paneId: PaneID,
+        reason: String = "workspace.focusPane"
+    ) -> Bool {
+        guard bonsplitController.allPaneIds.contains(paneId) else { return false }
+
+        let browserPanelId = effectiveSelectedPanelId(inPane: paneId).flatMap { panelId in
+            browserPanel(for: panelId) != nil ? panelId : nil
+        }
+        _ = exitSplitZoomIfNeeded(
+            whenFocusing: paneId,
+            reason: reason,
+            browserPanelId: browserPanelId
+        )
+        bonsplitController.focusPane(paneId)
+        return true
+    }
+
     enum FocusPanelTrigger {
         case standard
         case terminalFirstResponder
@@ -8578,6 +8628,12 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
 
         if let targetPaneId, !selectionAlreadyConverged {
+            let browserPanelId = panels[panelId] is BrowserPanel ? panelId : nil
+            _ = exitSplitZoomIfNeeded(
+                whenFocusing: targetPaneId,
+                reason: "workspace.focusPanel",
+                browserPanelId: browserPanelId
+            )
 #if DEBUG
             dlog(
                 "focus.panel.focusPane workspace=\(id.uuidString.prefix(5)) " +
@@ -8656,6 +8712,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
+        guard let currentPaneId = bonsplitController.focusedPaneId,
+              let targetPaneId = bonsplitController.adjacentPane(to: currentPaneId, direction: direction) else {
+            return
+        }
+
         let previousFocusedPanelId = focusedPanelId
 
         // Unfocus the currently-focused panel before navigating.
@@ -8663,7 +8724,15 @@ final class Workspace: Identifiable, ObservableObject {
             prev.unfocus()
         }
 
-        bonsplitController.navigateFocus(direction: direction)
+        let browserPanelId = effectiveSelectedPanelId(inPane: targetPaneId).flatMap { panelId in
+            browserPanel(for: panelId) != nil ? panelId : nil
+        }
+        _ = exitSplitZoomIfNeeded(
+            whenFocusing: targetPaneId,
+            reason: "workspace.moveFocus",
+            browserPanelId: browserPanelId
+        )
+        bonsplitController.focusPane(targetPaneId)
 
         // Always reconcile selection/focus after navigation so AppKit first-responder and
         // bonsplit's focused pane stay aligned, even through split tree mutations.
@@ -8733,14 +8802,39 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func toggleSplitZoom(inPane paneId: PaneID) -> Bool {
+        toggleSplitZoom(
+            inPane: paneId,
+            preferredFocusPanelId: effectiveSelectedPanelId(inPane: paneId)
+        )
+    }
+
+    @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
-        let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard let paneId = paneId(forPanelId: panelId) else { return false }
+        return toggleSplitZoom(inPane: paneId, preferredFocusPanelId: panelId)
+    }
+
+    @discardableResult
+    private func toggleSplitZoom(
+        inPane paneId: PaneID,
+        preferredFocusPanelId: UUID?
+    ) -> Bool {
+        let wasSplitZoomed = bonsplitController.isSplitZoomed
         guard bonsplitController.togglePaneZoom(inPane: paneId) else { return false }
-        focusPanel(panelId)
+        let focusPanelId = preferredFocusPanelId ?? effectiveSelectedPanelId(inPane: paneId)
+        if let focusPanelId {
+            focusPanel(focusPanelId)
+        } else {
+            bonsplitController.focusPane(paneId)
+        }
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.toggleSplitZoom")
-        if let browserPanel = browserPanel(for: panelId) {
+        let browserPanelId = focusPanelId.flatMap { panelId in
+            browserPanel(for: panelId) != nil ? panelId : nil
+        }
+        if let browserPanelId,
+           let browserPanel = browserPanel(for: browserPanelId) {
             browserPanel.preparePortalHostReplacementForNextDistinctClaim(
                 inPane: paneId,
                 reason: "workspace.toggleSplitZoom"
@@ -8748,8 +8842,8 @@ final class Workspace: Identifiable, ObservableObject {
         }
         beginEventDrivenLayoutFollowUp(
             reason: "workspace.toggleSplitZoom",
-            browserPanelId: browserPanel(for: panelId) != nil ? panelId : nil,
-            browserExitFocusPanelId: (wasSplitZoomed && !bonsplitController.isSplitZoomed) ? panelId : nil,
+            browserPanelId: browserPanelId,
+            browserExitFocusPanelId: (wasSplitZoomed && !bonsplitController.isSplitZoomed) ? browserPanelId : nil,
             includeGeometry: true
         )
         return true

@@ -754,6 +754,30 @@ func TestCLIFocusPanelUsesSurfaceFocus(t *testing.T) {
 	}
 }
 
+func TestCLIZoomPaneUsesPaneZoom(t *testing.T) {
+	sockPath, requests := startMockV2SocketWithRequestCapture(t)
+	code := runCLI([]string{"--socket", sockPath, "--json", "zoom-pane", "--workspace", "ws-1", "--pane", "pane-2"})
+	if code != 0 {
+		t.Fatalf("zoom-pane should return 0, got %d", code)
+	}
+
+	select {
+	case req := <-requests:
+		if got := req["method"]; got != "pane.zoom" {
+			t.Fatalf("expected pane.zoom, got %v", got)
+		}
+		params, _ := req["params"].(map[string]any)
+		if got := params["workspace_id"]; got != "ws-1" {
+			t.Fatalf("expected workspace_id ws-1, got %v", got)
+		}
+		if got := params["pane_id"]; got != "pane-2" {
+			t.Fatalf("expected pane_id pane-2, got %v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for zoom-pane request")
+	}
+}
+
 func TestCLIBrowserOpenUsesOpenSplitAndWorkspaceEnv(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_WORKSPACE_ID", "env-ws")

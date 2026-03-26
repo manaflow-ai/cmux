@@ -134,6 +134,7 @@ class TerminalController {
         "workspace.last",
         "surface.focus",
         "pane.focus",
+        "pane.zoom",
         "pane.last",
         "browser.focus_webview",
         "browser.focus",
@@ -2136,6 +2137,8 @@ class TerminalController {
             return v2Result(id: id, self.v2PaneList(params: params))
         case "pane.focus":
             return v2Result(id: id, self.v2PaneFocus(params: params))
+        case "pane.zoom":
+            return v2Result(id: id, self.v2PaneZoom(params: params))
         case "pane.surfaces":
             return v2Result(id: id, self.v2PaneSurfaces(params: params))
         case "pane.create":
@@ -2472,6 +2475,7 @@ class TerminalController {
             "surface.trigger_flash",
             "pane.list",
             "pane.focus",
+            "pane.zoom",
             "pane.surfaces",
             "pane.create",
             "pane.resize",
@@ -5724,6 +5728,7 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
 
             let focusedPaneId = ws.bonsplitController.focusedPaneId
+            let zoomedPaneId = ws.bonsplitController.zoomedPaneId
             let panes: [[String: Any]] = ws.bonsplitController.allPaneIds.enumerated().map { index, paneId in
                 let tabs = ws.bonsplitController.tabs(inPane: paneId)
                 let surfaceUUIDs: [UUID] = tabs.compactMap { ws.panelIdFromSurfaceId($0.id) }
@@ -5734,6 +5739,7 @@ class TerminalController {
                     "ref": v2Ref(kind: .pane, uuid: paneId.id),
                     "index": index,
                     "focused": paneId == focusedPaneId,
+                    "zoomed": paneId == zoomedPaneId,
                     "surface_ids": surfaceUUIDs.map { $0.uuidString },
                     "surface_refs": surfaceUUIDs.map { v2Ref(kind: .surface, uuid: $0) },
                     "selected_surface_id": v2OrNull(selectedSurfaceUUID?.uuidString),
@@ -5746,6 +5752,8 @@ class TerminalController {
             payload = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "zoomed_pane_id": v2OrNull(zoomedPaneId?.id.uuidString),
+                "zoomed_pane_ref": v2Ref(kind: .pane, uuid: zoomedPaneId?.id),
                 "panes": panes,
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
@@ -5782,9 +5790,64 @@ class TerminalController {
             if tabManager.selectedTabId != ws.id {
                 tabManager.selectWorkspace(ws)
             }
-            ws.bonsplitController.focusPane(paneId)
+            guard ws.focusPane(paneId, reason: "socket.pane.focus") else {
+                result = .err(code: "internal_error", message: "Failed to focus pane", data: ["pane_id": paneUUID.uuidString])
+                return
+            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok(["window_id": v2OrNull(windowId?.uuidString), "window_ref": v2Ref(kind: .window, uuid: windowId), "workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "pane_id": paneId.id.uuidString, "pane_ref": v2Ref(kind: .pane, uuid: paneId.id)])
+        }
+        return result
+    }
+
+    private func v2PaneZoom(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Pane not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let paneId: PaneID? = {
+                if let paneUUID = v2UUID(params, "pane_id") {
+                    return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                }
+                return ws.bonsplitController.focusedPaneId
+            }()
+            guard let paneId else {
+                result = .err(code: "not_found", message: "Pane not found", data: nil)
+                return
+            }
+
+            guard ws.toggleSplitZoom(inPane: paneId) else {
+                result = .err(
+                    code: "invalid_state",
+                    message: "Pane zoom is unavailable",
+                    data: ["pane_id": paneId.id.uuidString]
+                )
+                return
+            }
+
+            let selectedSurfaceId = ws.effectiveSelectedPanelId(inPane: paneId)
+            let zoomedPaneId = ws.bonsplitController.zoomedPaneId
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": paneId.id.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "surface_id": v2OrNull(selectedSurfaceId?.uuidString),
+                "surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceId),
+                "zoomed": zoomedPaneId == paneId,
+                "zoomed_pane_id": v2OrNull(zoomedPaneId?.id.uuidString),
+                "zoomed_pane_ref": v2Ref(kind: .pane, uuid: zoomedPaneId?.id)
+            ])
         }
         return result
     }
@@ -6159,7 +6222,7 @@ class TerminalController {
             }
 
             if focus {
-                workspace.bonsplitController.focusPane(targetPane)
+                _ = workspace.focusPane(targetPane, reason: "socket.pane.swap")
             }
             let windowId = located.windowId
             result = .ok([
@@ -6317,7 +6380,10 @@ class TerminalController {
                 return
             }
 
-            ws.bonsplitController.focusPane(target)
+            guard ws.focusPane(target, reason: "socket.pane.last") else {
+                result = .err(code: "internal_error", message: "Failed to focus pane", data: ["pane_id": target.id.uuidString])
+                return
+            }
             let selectedSurfaceId = ws.bonsplitController.selectedTab(inPane: target).flatMap { ws.panelIdFromSurfaceId($0.id) }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             result = .ok([
@@ -13807,10 +13873,10 @@ class TerminalController {
             // Try UUID first, then fall back to index
             if let uuid = UUID(uuidString: paneArg),
                let paneId = paneIds.first(where: { $0.id == uuid }) {
-                tab.bonsplitController.focusPane(paneId)
+                _ = tab.focusPane(paneId, reason: "socket.focusPane")
                 result = "OK"
             } else if let index = Int(paneArg), index >= 0, index < paneIds.count {
-                tab.bonsplitController.focusPane(paneIds[index])
+                _ = tab.focusPane(paneIds[index], reason: "socket.focusPane")
                 result = "OK"
             }
         }

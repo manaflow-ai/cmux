@@ -1738,11 +1738,19 @@ struct CMUXCLI {
                 } else {
                     for pane in panes {
                         let focused = (pane["focused"] as? Bool) == true
+                        let zoomed = (pane["zoomed"] as? Bool) == true
                         let handle = textHandle(pane, idFormat: idFormat)
                         let count = pane["surface_count"] as? Int ?? 0
                         let prefix = focused ? "* " : "  "
-                        let focusTag = focused ? "  [focused]" : ""
-                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(focusTag)")
+                        var tags: [String] = []
+                        if focused {
+                            tags.append("focused")
+                        }
+                        if zoomed {
+                            tags.append("zoomed")
+                        }
+                        let suffix = tags.isEmpty ? "" : "  [" + tags.joined(separator: ", ") + "]"
+                        print("\(prefix)\(handle)  [\(count) surface\(count == 1 ? "" : "s")]\(suffix)")
                     }
                 }
             }
@@ -1779,7 +1787,7 @@ struct CMUXCLI {
 
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
-            guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
+            guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? firstPositionalArgument(commandArgs) else {
                 throw CLIError(message: "focus-pane requires --pane <id|ref>")
             }
             var params: [String: Any] = [:]
@@ -1789,6 +1797,24 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             let payload = try client.sendV2(method: "pane.focus", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
+
+        case "zoom-pane":
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
+            let paneRaw = optionValue(commandArgs, name: "--pane") ?? firstPositionalArgument(commandArgs)
+            var params: [String: Any] = [:]
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
+            if let wsId { params["workspace_id"] = wsId }
+            if let paneRaw {
+                let paneId = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsId)
+                if let paneId { params["pane_id"] = paneId }
+            }
+            let payload = try client.sendV2(method: "pane.zoom", params: params)
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2PaneZoomSummary(payload, idFormat: idFormat)
+            )
 
         case "new-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -6478,6 +6504,21 @@ struct CMUXCLI {
               cmux focus-pane pane:1
               cmux focus-pane --pane pane:1 --workspace workspace:2
             """
+        case "zoom-pane":
+            return """
+            Usage: cmux zoom-pane [--pane <id|ref> | <id|ref>] [flags]
+
+            Toggle pane zoom for the focused pane or a specific pane.
+
+            Flags:
+              --pane <id|ref>          Pane to zoom (default: focused pane)
+              --workspace <id|ref>     Workspace context (default: $CMUX_WORKSPACE_ID)
+
+            Example:
+              cmux zoom-pane
+              cmux zoom-pane --pane pane:2
+              cmux zoom-pane pane:1 --workspace workspace:2
+            """
         case "new-pane":
             return """
             Usage: cmux new-pane [flags]
@@ -8028,6 +8069,19 @@ struct CMUXCLI {
         return args[index + 1]
     }
 
+    private func firstPositionalArgument(_ args: [String]) -> String? {
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg.hasPrefix("--") {
+                index += 2
+                continue
+            }
+            return arg
+        }
+        return nil
+    }
+
     private func hasFlag(_ args: [String], name: String) -> Bool {
         args.contains(name)
     }
@@ -8117,6 +8171,17 @@ struct CMUXCLI {
     private func v2OKSummary(_ payload: [String: Any], idFormat: CLIIDFormat, kinds: [String] = ["surface", "workspace"]) -> String {
         var parts = ["OK"]
         for kind in kinds {
+            if let handle = formatHandle(payload, kind: kind, idFormat: idFormat) {
+                parts.append(handle)
+            }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func v2PaneZoomSummary(_ payload: [String: Any], idFormat: CLIIDFormat) -> String {
+        let state = (payload["zoomed"] as? Bool) == true ? "Zoomed" : "Restored"
+        var parts = [state]
+        for kind in ["pane", "workspace"] {
             if let handle = formatHandle(payload, kind: kind, idFormat: idFormat) {
                 parts.append(handle)
             }
@@ -12101,6 +12166,7 @@ struct CMUXCLI {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
+          zoom-pane [--pane <id|ref>] [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
