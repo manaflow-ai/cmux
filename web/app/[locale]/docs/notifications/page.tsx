@@ -202,6 +202,55 @@ esac`}</CodeBlock>
 }`}</CodeBlock>
       <p>{t("restartNote")}</p>
 
+      <h2>{t("copilotCliHooks")}</h2>
+      <p>
+        {t.rich("copilotCliHooksDesc", {
+          link: (chunks) => (
+            <a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks">{chunks}</a>
+          ),
+        })}
+      </p>
+      <CodeBlock title="~/.copilot/config.json" lang="json">{`{
+  "hooks": {
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux set-status copilot_cli Running; fi",
+        "timeoutSec": 3
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; cmux set-status copilot_cli Idle; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body 'An error occurred'; cmux set-status copilot_cli Error; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux clear-status copilot_cli; fi",
+        "timeoutSec": 3
+      }
+    ]
+  }
+}`}</CodeBlock>
+      <p>{t("copilotCliRepoHooks")}</p>
+      <CodeBlock title=".github/hooks/notify.json" lang="json">{`{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [ ... ],
+    "agentStop": [ ... ]
+  }
+}`}</CodeBlock>
+
       <h2>{t("integrationExamples")}</h2>
 
       <h3>{t("notifyAfterLong")}</h3>
