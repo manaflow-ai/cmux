@@ -3829,6 +3829,7 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @AppStorage(PreferredBrowserSettings.preferredBrowserKey) private var preferredExternalBrowserBundleID = PreferredBrowserSettings.defaultPreferredBrowser
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
@@ -5124,6 +5125,59 @@ struct SettingsView: View {
                         .id(SettingsNavigationTarget.browser)
                         .accessibilityIdentifier("SettingsBrowserSection")
                     SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.browser.preferredBrowser", defaultValue: "Preferred Browser"),
+                            subtitle: String(localized: "settings.browser.preferredBrowser.subtitle", defaultValue: "Choose which browser opens when you press ⌘L or click terminal links.")
+                        ) {
+                            Picker("", selection: $preferredExternalBrowserBundleID) {
+                                Text(String(localized: "settings.browser.preferredBrowser.builtin", defaultValue: "Built-in"))
+                                    .tag("")
+                                ForEach(detectedImportBrowsers, id: \.descriptor.id) { browser in
+                                    Text(browser.displayName)
+                                        .tag(browser.descriptor.bundleIdentifiers.first ?? "")
+                                }
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                            .frame(width: pickerColumnWidth)
+                            .accessibilityIdentifier("SettingsBrowserPreferredBrowserPicker")
+                        }
+
+                        if !preferredExternalBrowserBundleID.isEmpty,
+                           let preferredBrowser = detectedImportBrowsers.first(where: {
+                               $0.descriptor.bundleIdentifiers.contains(preferredExternalBrowserBundleID)
+                           }) {
+                            SettingsCardDivider()
+
+                            SettingsCardRow(
+                                String(
+                                    format: String(
+                                        localized: "settings.browser.preferredBrowser.importCookies",
+                                        defaultValue: "Import Cookies from %@"
+                                    ),
+                                    preferredBrowser.displayName
+                                ),
+                                subtitle: String(
+                                    format: String(
+                                        localized: "settings.browser.preferredBrowser.importCookies.subtitle",
+                                        defaultValue: "Copy your %@ login sessions into the built-in browser so you stay signed in."
+                                    ),
+                                    preferredBrowser.displayName
+                                )
+                            ) {
+                                Button(String(localized: "settings.browser.preferredBrowser.importCookies.button", defaultValue: "Import…")) {
+                                    DispatchQueue.main.async {
+                                        BrowserDataImportCoordinator.shared.presentImportDialog(forBrowserDescriptorID: preferredBrowser.descriptor.id)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBrowserPreferredBrowserImportCookiesButton")
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             String(localized: "settings.browser.searchEngine", defaultValue: "Default Search Engine"),
                             subtitle: String(localized: "settings.browser.searchEngine.subtitle", defaultValue: "Used by the browser address bar when input is not a URL."),
@@ -5628,6 +5682,7 @@ struct SettingsView: View {
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
         browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
+        preferredExternalBrowserBundleID = PreferredBrowserSettings.defaultPreferredBrowser
         browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
         browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
         notificationSound = NotificationSoundSettings.defaultValue

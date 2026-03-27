@@ -2588,6 +2588,18 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            if PreferredBrowserSettings.isUsingExternalBrowser() {
+                #if DEBUG
+                dlog("link.openURL preferredExternalBrowser=set, opening in preferred browser url=\(target.url)")
+                #endif
+                return performOnMain {
+                    if PreferredBrowserSettings.openURLInPreferredBrowser(target.url) {
+                        return true
+                    }
+                    NSWorkspace.shared.open(target.url)
+                    return true
+                }
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")

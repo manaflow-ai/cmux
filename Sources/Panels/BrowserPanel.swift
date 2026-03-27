@@ -669,6 +669,48 @@ enum BrowserLinkOpenSettings {
     }
 }
 
+enum PreferredBrowserSettings {
+    static let preferredBrowserKey = "preferredExternalBrowserBundleID"
+    static let defaultPreferredBrowser: String = "" // empty = built-in WebKit browser
+
+    static func preferredBrowserBundleID(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: preferredBrowserKey) ?? defaultPreferredBrowser
+    }
+
+    static func isUsingExternalBrowser(defaults: UserDefaults = .standard) -> Bool {
+        !preferredBrowserBundleID(defaults: defaults).isEmpty
+    }
+
+    static func preferredBrowserAppURL(defaults: UserDefaults = .standard) -> URL? {
+        let bundleID = preferredBrowserBundleID(defaults: defaults)
+        guard !bundleID.isEmpty else { return nil }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+    }
+
+    static func preferredBrowserDisplayName(defaults: UserDefaults = .standard) -> String? {
+        guard let appURL = preferredBrowserAppURL(defaults: defaults) else { return nil }
+        return (try? appURL.resourceValues(forKeys: [.localizedNameKey]))?.localizedName
+            ?? appURL.deletingPathExtension().lastPathComponent
+    }
+
+    @discardableResult
+    static func activatePreferredBrowser(defaults: UserDefaults = .standard) -> Bool {
+        guard let appURL = preferredBrowserAppURL(defaults: defaults) else { return false }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.open(appURL, configuration: config) { _, _ in }
+        return true
+    }
+
+    @discardableResult
+    static func openURLInPreferredBrowser(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
+        guard let appURL = preferredBrowserAppURL(defaults: defaults) else { return false }
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: config) { _, _ in }
+        return true
+    }
+}
+
 enum BrowserInsecureHTTPSettings {
     static let allowlistKey = "browserInsecureHTTPAllowlist"
     static let defaultAllowlistPatterns = [
@@ -8991,6 +9033,12 @@ final class BrowserDataImportCoordinator {
 
     func presentImportDialog(defaultDestinationProfileID: UUID? = nil) {
         presentImportDialog(prefilledBrowsers: nil, defaultDestinationProfileID: defaultDestinationProfileID)
+    }
+
+    func presentImportDialog(forBrowserDescriptorID descriptorID: String, defaultDestinationProfileID: UUID? = nil) {
+        let allBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        let filtered = allBrowsers.filter { $0.descriptor.id == descriptorID }
+        presentImportDialog(prefilledBrowsers: filtered.isEmpty ? nil : filtered, defaultDestinationProfileID: defaultDestinationProfileID)
     }
 
     private struct ImportSelection {

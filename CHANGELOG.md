@@ -2,6 +2,12 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- Preferred Browser setting: choose Chrome (or any installed browser) to open ⌘L and terminal links externally, with a toolbar button to send the current page there
+- One-click "Import Cookies from [Browser]" in Settings > Browser when an external browser is selected, so existing login sessions carry over to the built-in browser without re-authenticating
+
 ## [0.62.2] - 2026-03-14
 
 ### Added

@@ -9868,6 +9868,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
+            if PreferredBrowserSettings.isUsingExternalBrowser() {
+                PreferredBrowserSettings.activatePreferredBrowser()
+                return true
+            }
+
             if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
                 return true
             }

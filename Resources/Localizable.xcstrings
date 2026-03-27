@@ -10143,6 +10143,23 @@
         }
       }
     },
+    "browser.openInExternalBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開く"
+          }
+        }
+      }
+    },
     "browser.popup.loadingTitle": {
       "extractionState": "manual",
       "localizations": {
@@ -58984,6 +59001,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "Якщо вимкнено, `open https://...` та `open http://...` завжди використовують стандартний браузер."
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferred Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ブラウザー"
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser.builtin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込み"
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which browser opens when you press ⌘L or click terminal links."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘Lを押すかターミナルのリンクをクリックしたときに開くブラウザーを選択します。"
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser.importCookies": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Cookies from %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@からCookieをインポート"
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser.importCookies.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポート…"
+          }
+        }
+      }
+    },
+    "settings.browser.preferredBrowser.importCookies.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy your %@ login sessions into the built-in browser so you stay signed in."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のログインセッションを組み込みブラウザーにコピーして、サインイン状態を維持します。"
           }
         }
       }

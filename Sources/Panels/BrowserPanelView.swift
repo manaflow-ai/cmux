@@ -299,6 +299,8 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
     @AppStorage(KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultsKey)
     private var toggleBrowserDeveloperToolsShortcutData = Data()
+    @AppStorage(PreferredBrowserSettings.preferredBrowserKey)
+    private var preferredExternalBrowserBundleID = PreferredBrowserSettings.defaultPreferredBrowser
     @State private var suggestionTask: Task<Void, Never>?
     @State private var isLoadingRemoteSuggestions: Bool = false
     @State private var latestRemoteSuggestionQuery: String = ""
@@ -732,6 +734,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                openInExternalBrowserButton
                 browserProfileButton
                 browserThemeModeButton
                 developerToolsButton
@@ -820,6 +823,47 @@ struct BrowserPanelView: View {
                 .padding(.leading, 6)
                 .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
+        }
+    }
+
+    private var preferredBrowserDisplayName: String {
+        guard !preferredExternalBrowserBundleID.isEmpty,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: preferredExternalBrowserBundleID) else {
+            return ""
+        }
+        return (try? appURL.resourceValues(forKeys: [.localizedNameKey]))?.localizedName
+            ?? appURL.deletingPathExtension().lastPathComponent
+    }
+
+    @ViewBuilder
+    private var openInExternalBrowserButton: some View {
+        if !preferredExternalBrowserBundleID.isEmpty {
+            Button(action: {
+                if let url = panel.currentURL {
+                    PreferredBrowserSettings.openURLInPreferredBrowser(url)
+                } else {
+                    PreferredBrowserSettings.activatePreferredBrowser()
+                }
+            }) {
+                Image(systemName: "arrow.up.right.square")
+                    .symbolRenderingMode(.monochrome)
+                    .cmuxFlatSymbolColorRendering()
+                    .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                    .foregroundStyle(devToolsColorOption.color)
+                    .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            }
+            .buttonStyle(OmnibarAddressButtonStyle())
+            .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+            .safeHelp(
+                String(
+                    format: String(
+                        localized: "browser.openInExternalBrowser",
+                        defaultValue: "Open in %@"
+                    ),
+                    preferredBrowserDisplayName
+                )
+            )
+            .accessibilityIdentifier("BrowserOpenInExternalBrowserButton")
         }
     }
 
