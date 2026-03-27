@@ -2483,17 +2483,37 @@ final class SidebarBackgroundConfigTests: XCTestCase {
 
     func testApplyToUserDefaultsSkipsWritesWhenNoConfig() {
         let defaults = UserDefaults.standard
-        let testKey = "sidebarTintHex"
-        let original = defaults.string(forKey: testKey)
-        defer { restoreDefaultsValue(original, key: testKey, defaults: defaults) }
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark",
+                     "sidebarTintOpacity", "sidebarMaterial"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
 
-        defaults.set("#AAAAAA", forKey: testKey)
+        defaults.set("#AAAAAA", forKey: "sidebarTintHex")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexLight")
+        defaults.set("#CCCCCC", forKey: "sidebarTintHexDark")
+        defaults.set(0.42, forKey: "sidebarTintOpacity")
+        defaults.set(SidebarMaterialOption.hudWindow.rawValue, forKey: "sidebarMaterial")
 
         var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#1E1E2E")!
+        config.backgroundOpacity = 0.9
         config.applySidebarAppearanceToUserDefaults()
 
-        XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
-                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#AAAAAA",
+                       "Should not overwrite tint hex when rawSidebarBackground is nil")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexLight"), "#BBBBBB",
+                       "Should not clear the light tint override")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHexDark"), "#CCCCCC",
+                       "Should not clear the dark tint override")
+        XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.42, accuracy: 0.0001,
+                       "Should not overwrite opacity when sidebar-tint-opacity is unset")
+        XCTAssertEqual(defaults.string(forKey: "sidebarMaterial"),
+                       SidebarMaterialOption.hudWindow.rawValue,
+                       "Should not overwrite the current material")
     }
 
     func testApplyToUserDefaultsWritesHexWhenConfigSet() {
@@ -2568,6 +2588,42 @@ final class SidebarBackgroundConfigTests: XCTestCase {
         } else {
             defaults.removeObject(forKey: key)
         }
+    }
+}
+
+final class SidebarThemeSettingsTests: XCTestCase {
+    func testInferredModeDefaultsToMatchGhosttyForNativeSidebarAppearance() {
+        let (defaults, suiteName) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(SidebarThemeSettings.inferredMode(defaults: defaults), .matchGhostty)
+    }
+
+    func testInferredModeUsesCustomWhenTintOverridesExist() {
+        let (defaults, suiteName) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("#224466", forKey: "sidebarTintHexLight")
+
+        XCTAssertEqual(SidebarThemeSettings.inferredMode(defaults: defaults), .custom)
+    }
+
+    func testEnsureStoredModePersistsCustomForCustomizedSidebarAppearance() {
+        let (defaults, suiteName) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(0.42, forKey: "sidebarTintOpacity")
+
+        SidebarThemeSettings.ensureStoredMode(defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: SidebarThemeSettings.modeKey), SidebarThemeOption.custom.rawValue)
+    }
+
+    private func makeDefaults() -> (UserDefaults, String) {
+        let suiteName = "SidebarThemeSettingsTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return (defaults, suiteName)
     }
 }
 

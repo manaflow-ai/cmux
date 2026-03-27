@@ -211,6 +211,7 @@ struct cmuxApp: App {
             SocketControlPasswordStore.migrateLegacyKeychainPasswordIfNeeded(defaults: defaults)
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        SidebarThemeSettings.ensureStoredMode(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
@@ -1721,6 +1722,7 @@ private enum DebugWindowConfigSnapshot {
     static func combinedPayload(defaults: UserDefaults = .standard) -> String {
         let sidebarPayload = """
         sidebarPreset=\(stringValue(defaults, key: "sidebarPreset", fallback: SidebarPresetOption.nativeSidebar.rawValue))
+        sidebarTheme=\(stringValue(defaults, key: SidebarThemeSettings.modeKey, fallback: SidebarThemeSettings.defaultMode.rawValue))
         sidebarMaterial=\(stringValue(defaults, key: "sidebarMaterial", fallback: SidebarMaterialOption.sidebar.rawValue))
         sidebarBlendMode=\(stringValue(defaults, key: "sidebarBlendMode", fallback: SidebarBlendModeOption.withinWindow.rawValue))
         sidebarState=\(stringValue(defaults, key: "sidebarState", fallback: SidebarStateOption.followWindow.rawValue))
@@ -2864,6 +2866,7 @@ private struct AboutPanelView: View {
 
 private struct SidebarDebugView: View {
     @AppStorage("sidebarPreset") private var sidebarPreset = SidebarPresetOption.nativeSidebar.rawValue
+    @AppStorage(SidebarThemeSettings.modeKey) private var sidebarTheme = SidebarThemeSettings.defaultMode.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -3099,6 +3102,7 @@ private struct SidebarDebugView: View {
     private func copySidebarConfig() {
         let payload = """
         sidebarPreset=\(sidebarPreset)
+        sidebarTheme=\(sidebarTheme)
         sidebarMaterial=\(sidebarMaterial)
         sidebarBlendMode=\(sidebarBlendMode)
         sidebarState=\(sidebarState)
@@ -3870,6 +3874,7 @@ struct SettingsView: View {
     @AppStorage("sidebarShowLog") private var sidebarShowLog = true
     @AppStorage("sidebarShowProgress") private var sidebarShowProgress = true
     @AppStorage("sidebarShowStatusPills") private var sidebarShowMetadata = true
+    @AppStorage(SidebarThemeSettings.modeKey) private var sidebarTheme = SidebarThemeSettings.defaultMode.rawValue
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
     @AppStorage("sidebarTintHexDark") private var sidebarTintHexDark: String?
@@ -4912,6 +4917,22 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar Appearance"))
                     SettingsCard {
+                        SettingsPickerRow(
+                            String(localized: "settings.sidebarAppearance.theme", defaultValue: "Sidebar Theme"),
+                            subtitle: String(
+                                localized: "settings.sidebarAppearance.theme.subtitle",
+                                defaultValue: "Choose whether the sidebar follows Ghostty's current background or uses your custom tint settings."
+                            ),
+                            controlWidth: pickerColumnWidth,
+                            selection: $sidebarTheme
+                        ) {
+                            ForEach(SidebarThemeOption.allCases) { option in
+                                Text(option.title).tag(option.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             String(localized: "settings.sidebarAppearance.tintColorLight", defaultValue: "Light Mode Tint"),
                             subtitle: String(localized: "settings.sidebarAppearance.tintColorLight.subtitle", defaultValue: "Sidebar tint color when using light appearance.")
@@ -5670,6 +5691,7 @@ struct SettingsView: View {
         sidebarShowLog = true
         sidebarShowProgress = true
         sidebarShowMetadata = true
+        sidebarTheme = SidebarThemeSettings.defaultMode.rawValue
         sidebarTintHex = SidebarTintDefaults.hex
         sidebarTintHexLight = nil
         sidebarTintHexDark = nil

@@ -13730,6 +13730,7 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
 }
 
 private struct SidebarBackdrop: View {
+    @AppStorage(SidebarThemeSettings.modeKey) private var sidebarTheme = SidebarThemeSettings.defaultMode.rawValue
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -13740,12 +13741,15 @@ private struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @Environment(\.colorScheme) private var colorScheme
+    @State private var refreshGeneration = 0
 
     var body: some View {
-        let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
+        let preferredColorScheme: GhosttyConfig.ColorSchemePreference = colorScheme == .dark ? .dark : .light
+        let ghosttyConfig = GhosttyConfig.load(preferredColorScheme: preferredColorScheme)
+        let selectedSidebarTheme = SidebarThemeSettings.mode(for: sidebarTheme)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
-        let resolvedHex: String = {
+        let resolvedCustomHex: String = {
             if colorScheme == .dark, let dark = sidebarTintHexDark {
                 return dark
             } else if colorScheme == .light, let light = sidebarTintHexLight {
@@ -13753,13 +13757,45 @@ private struct SidebarBackdrop: View {
             }
             return sidebarTintHex
         }()
-        let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
+        let customTintColor = (NSColor(hex: resolvedCustomHex) ?? NSColor(hex: sidebarTintHex) ?? .black)
+            .withAlphaComponent(sidebarTintOpacity)
+        let explicitSidebarBackground: NSColor? = {
+            if colorScheme == .dark, let dark = ghosttyConfig.sidebarBackgroundDark {
+                return dark
+            } else if colorScheme == .light, let light = ghosttyConfig.sidebarBackgroundLight {
+                return light
+            }
+            return ghosttyConfig.sidebarBackground
+        }()
+        let hasExplicitSidebarBackground = ghosttyConfig.rawSidebarBackground != nil && explicitSidebarBackground != nil
+        let tintColor: NSColor = {
+            guard let explicitSidebarBackground else {
+                return customTintColor
+            }
+            let resolvedOpacity = ghosttyConfig.sidebarTintOpacity ?? sidebarTintOpacity
+            return explicitSidebarBackground.withAlphaComponent(resolvedOpacity)
+        }()
+        let baseColor: NSColor? =
+            hasExplicitSidebarBackground || selectedSidebarTheme == .custom
+            ? nil
+            : GhosttyBackgroundTheme.currentColor()
+        let materialOption: SidebarMaterialOption? = {
+            if hasExplicitSidebarBackground || selectedSidebarTheme == .custom {
+                return SidebarMaterialOption(rawValue: sidebarMaterial)
+            }
+            return SidebarMaterialOption.none
+        }()
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
 
         return ZStack {
-            if let material = materialOption?.material {
+            if let baseColor {
+                SidebarSolidColorBackground(color: baseColor)
+                if tintColor.alphaComponent > 0.0001 {
+                    SidebarSolidColorBackground(color: tintColor)
+                }
+            } else if let material = materialOption?.material {
                 // When using liquidGlass + behindWindow, window handles glass + tint
                 // Sidebar is fully transparent
                 if !useWindowLevelGlass {
@@ -13777,10 +13813,69 @@ private struct SidebarBackdrop: View {
                         Color(nsColor: tintColor)
                     }
                 }
+            } else {
+                // No material — render solid tint color (used when sidebar
+                // matches the terminal theme background). Uses a custom
+                // NSView instead of SwiftUI Color because
+                // makeViewHierarchyTransparent clears layer.backgroundColor
+                // on all views when the terminal has background-opacity < 1.
+                SidebarSolidColorBackground(color: tintColor)
             }
-            // When material is none or useWindowLevelGlass, render nothing
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+            refreshGeneration &+= 1
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            GhosttyConfig.invalidateLoadCache()
+            refreshGeneration &+= 1
+        }
+    }
+}
+
+/// Renders a solid color using the same compositing path as the terminal's
+/// CAMetalLayer (bgra8Unorm / sRGB blending). Uses a display link callback
+/// to re-apply layer.backgroundColor after makeViewHierarchyTransparent
+/// clears it on transparent windows.
+private struct SidebarSolidColorBackground: NSViewRepresentable {
+    let color: NSColor
+
+    final class SolidColorView: NSView {
+        var fillColor: NSColor = .clear {
+            didSet { applyColor() }
+        }
+
+        override func makeBackingLayer() -> CALayer {
+            let layer = CALayer()
+            layer.isOpaque = false
+            // Match the terminal's sRGB compositing by using the same
+            // contentsFormat as CAMetalLayer's bgra8Unorm pixel format.
+            layer.contentsFormat = .RGBA8Uint
+            return layer
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Re-apply after makeViewHierarchyTransparent clears it.
+            DispatchQueue.main.async { [weak self] in
+                self?.applyColor()
+            }
+        }
+
+        func applyColor() {
+            wantsLayer = true
+            layer?.backgroundColor = fillColor.cgColor
+        }
+    }
+
+    func makeNSView(context: Context) -> SolidColorView {
+        let view = SolidColorView()
+        view.wantsLayer = true
+        return view
+    }
+
+    func updateNSView(_ nsView: SolidColorView, context: Context) {
+        nsView.fillColor = color
     }
 }
 
@@ -13891,6 +13986,81 @@ enum SidebarStateOption: String, CaseIterable, Identifiable {
 enum SidebarTintDefaults {
     static let hex = "#000000"
     static let opacity = 0.18
+}
+
+enum SidebarThemeOption: String, CaseIterable, Identifiable {
+    case matchGhostty
+    case custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .matchGhostty:
+            return String(localized: "settings.sidebarAppearance.theme.matchGhostty", defaultValue: "Match Ghostty")
+        case .custom:
+            return String(localized: "settings.sidebarAppearance.theme.custom", defaultValue: "Custom")
+        }
+    }
+}
+
+enum SidebarThemeSettings {
+    static let modeKey = "sidebarTheme"
+    static let defaultMode: SidebarThemeOption = .matchGhostty
+
+    static func mode(for rawValue: String?) -> SidebarThemeOption {
+        guard let rawValue, let mode = SidebarThemeOption(rawValue: rawValue) else {
+            return defaultMode
+        }
+        return mode
+    }
+
+    static func mode(defaults: UserDefaults = .standard) -> SidebarThemeOption {
+        mode(for: defaults.string(forKey: modeKey))
+    }
+
+    static func ensureStoredMode(defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: modeKey) == nil else { return }
+        defaults.set(inferredMode(defaults: defaults).rawValue, forKey: modeKey)
+    }
+
+    static func inferredMode(defaults: UserDefaults = .standard) -> SidebarThemeOption {
+        usesCustomAppearance(defaults: defaults) ? .custom : .matchGhostty
+    }
+
+    static func usesCustomAppearance(defaults: UserDefaults = .standard) -> Bool {
+        let preset = SidebarPresetOption.nativeSidebar
+        let material = defaults.string(forKey: "sidebarMaterial") ?? preset.material.rawValue
+        let blendMode = defaults.string(forKey: "sidebarBlendMode") ?? preset.blendMode.rawValue
+        let state = defaults.string(forKey: "sidebarState") ?? preset.state.rawValue
+        let tintHex = defaults.string(forKey: "sidebarTintHex") ?? preset.tintHex
+        let tintOpacity = defaults.object(forKey: "sidebarTintOpacity") as? Double ?? preset.tintOpacity
+        let blurOpacity = defaults.object(forKey: "sidebarBlurOpacity") as? Double ?? preset.blurOpacity
+        let cornerRadius = defaults.object(forKey: "sidebarCornerRadius") as? Double ?? preset.cornerRadius
+        let tintHexLight = defaults.string(forKey: "sidebarTintHexLight")
+        let tintHexDark = defaults.string(forKey: "sidebarTintHexDark")
+
+        return material != preset.material.rawValue ||
+            blendMode != preset.blendMode.rawValue ||
+            state != preset.state.rawValue ||
+            normalizeHex(tintHex) != normalizeHex(preset.tintHex) ||
+            !approximatelyEqual(tintOpacity, preset.tintOpacity) ||
+            !approximatelyEqual(blurOpacity, preset.blurOpacity) ||
+            !approximatelyEqual(cornerRadius, preset.cornerRadius) ||
+            tintHexLight != nil ||
+            tintHexDark != nil
+    }
+
+    private static func normalizeHex(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+            .uppercased()
+    }
+
+    private static func approximatelyEqual(_ lhs: Double, _ rhs: Double, tolerance: Double = 0.0001) -> Bool {
+        abs(lhs - rhs) <= tolerance
+    }
 }
 
 enum SidebarPresetOption: String, CaseIterable, Identifiable {

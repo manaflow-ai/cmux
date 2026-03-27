@@ -77798,6 +77798,74 @@
         }
       }
     },
+    "settings.sidebarAppearance.theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Theme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのテーマ"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.theme.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.theme.matchGhostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Ghostty"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty に合わせる"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.theme.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose whether the sidebar follows Ghostty's current background or uses your custom tint settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーを Ghostty の現在の背景に合わせるか、カスタムのティント設定を使うかを選びます。"
+          }
+        }
+      }
+    },
     "settings.sidebarAppearance.tintColorLight": {
       "extractionState": "manual",
       "localizations": {
