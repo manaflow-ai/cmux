@@ -42,6 +42,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let hasRepoRootKey = container.contains(.repoRoot)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
@@ -85,7 +86,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
                 )
             )
         }
-        if workspace != nil && repoRoot == true {
+        if workspace != nil && hasRepoRootKey {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,

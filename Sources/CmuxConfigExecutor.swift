@@ -33,12 +33,12 @@ struct CmuxConfigExecutor {
             let shellCommand: String
             let repoRoot: String?
             switch preparedCommand {
-            case .ready(let command, let resolvedRepoRoot):
-                shellCommand = command
+            case .ready(let preparedShell, let resolvedRepoRoot):
+                shellCommand = preparedShell
                 repoRoot = resolvedRepoRoot
-            case .missingRepoRoot(let command):
+            case .missingRepoRoot(let fallbackShell):
                 guard showRepoRootFallbackDialog() else { return }
-                shellCommand = command
+                shellCommand = fallbackShell
                 repoRoot = nil
             }
             let needsConfirm = command.confirm ?? false
@@ -57,18 +57,17 @@ struct CmuxConfigExecutor {
     }
 
     static func prepareShellCommand(
-        _ rawCommand: String,
+        _ command: String,
         baseCwd: String,
         requiresRepoRoot: Bool
     ) -> PreparedShellCommand {
-        let shellCommand = sanitizeForDisplay(rawCommand)
         guard requiresRepoRoot else {
-            return .ready(shellCommand, repoRoot: nil)
+            return .ready(command, repoRoot: nil)
         }
         guard let repoRoot = CmuxConfigStore.findGitRoot(from: baseCwd) else {
-            return .missingRepoRoot(shellCommand)
+            return .missingRepoRoot(command)
         }
-        return .ready("(cd \(shellQuote(repoRoot)) && \(shellCommand))", repoRoot: repoRoot)
+        return .ready("(cd \(shellQuote(repoRoot)) && \(command))", repoRoot: repoRoot)
     }
 
     /// Show a confirmation dialog with the command text and a "trust this directory" checkbox.
@@ -89,7 +88,7 @@ struct CmuxConfigExecutor {
                 localized: "dialog.cmuxConfig.confirmCommand.repoRootNote",
                 defaultValue: "It will run from the current workspace's git repo root:\n\n%@"
             )
-            message += "\n\n" + String(format: repoRootFormat, repoRoot)
+            message += "\n\n" + String(format: repoRootFormat, sanitizeForDisplay(repoRoot))
         }
         alert.informativeText = message
         alert.alertStyle = .warning

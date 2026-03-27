@@ -124,6 +124,27 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
     }
 
+    func testDecodeWorkspaceCommandRejectsExplicitFalseRepoRoot() {
+        let json = """
+        {
+          "commands": [{
+            "name": "Dev env",
+            "repoRoot": false,
+            "workspace": {
+              "name": "Development"
+            }
+          }]
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json)) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                return XCTFail("Expected dataCorrupted, got \(error)")
+            }
+            XCTAssertTrue(context.debugDescription.contains("must not define 'repoRoot'"))
+        }
+    }
+
     func testDecodeRestartBehaviors() throws {
         for behavior in ["recreate", "ignore", "confirm"] {
             let json = """
