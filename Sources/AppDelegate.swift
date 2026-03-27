@@ -12611,9 +12611,10 @@ private extension NSWindow {
             // non-ASCII characters (e.g. "ㅅ" instead of "t"), causing menu
             // shortcut matching to fail.
             var menuEvent = event
-            if let chars = event.charactersIgnoringModifiers,
-               !chars.allSatisfy({ $0.isASCII }),
-               let normalized = KeyboardLayout.character(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags) {
+            let rawChars = event.charactersIgnoringModifiers ?? ""
+            if (rawChars.isEmpty || !rawChars.allSatisfy(\.isASCII)),
+               let normalized = KeyboardLayout.character(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags),
+               !normalized.isEmpty {
                 menuEvent = NSEvent.keyEvent(
                     with: event.type,
                     location: event.locationInWindow,
