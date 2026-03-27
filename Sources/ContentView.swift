@@ -8677,11 +8677,11 @@ struct VerticalTabsSidebar: View {
                                             isActive: tabManager.selectedTabId == tab.id,
                                             workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
                                                 at: sidebarWorkspaceIndex,
-                                                workspaceCount: workspaceCount
+                                                workspaceCount: orderedSidebarWorkspaceIds.count
                                             ),
                                             workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
                                             canCloseWorkspace: canCloseWorkspace,
-                                            accessibilityWorkspaceCount: workspaceCount,
+                                            accessibilityWorkspaceCount: orderedSidebarWorkspaceIds.count,
                                             unreadCount: notificationStore.unreadCount(forTabId: tab.id),
                                             latestNotificationText: {
                                                 guard showsSidebarNotificationMessage,
