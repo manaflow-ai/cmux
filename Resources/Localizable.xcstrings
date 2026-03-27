@@ -139,7 +139,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використання: cmux claude-teams [аргументи-claude...]\n\nЗапуск Claude Code з увімкненими командами агентів.\n\nЦя команда:\n  - типово вмикає режим teammate для Claude\n  - забезпечує підтримку cmux для сеансу"
+            "value": "Використання: cmux claude-teams [аргументи-claude...]\n\nЗапуск Claude Code з увімкненими командами агентів.\n\nЦя команда:\n  - типово вмикає режим teammate для Claude\n  - забезпечує підтримку cmux для сеансу\n  - встановлює CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до claude\n\nTmux-прокладка перетворює підтримувані команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux claude-teams\n  cmux claude-teams --continue\n  cmux claude-teams --model sonnet"
           }
         }
       }
@@ -162,7 +162,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використання: cmux omo [аргументи-opencode...]\n\nЗапуск OpenCode з oh-my-openagent у середовищі cmux.\n\noh-my-openagent оркеструє кілька моделей ШІ"
+            "value": "Використання: cmux omo [аргументи-opencode...]\n\nЗапуск OpenCode з oh-my-openagent у середовищі cmux.\n\noh-my-openagent оркеструє кілька моделей ШІ як спеціалізованих агентів\nпаралельно. Ця команда налаштовує tmux-прокладку, щоб панелі агентів\nстали нативними розділами cmux з метаданими бічної панелі та сповіщеннями.\n\nЦя команда:\n  - забезпечує підтримку cmux для oh-my-openagent\n  - додає приватну tmux-прокладку на початок PATH\n  - передає всі інші аргументи до opencode\n\nTmux-прокладка перетворює команди tmux вікон/панелей на операції\nробочих просторів і розділів cmux у поточному сеансі cmux.\n\nПриклади:\n  cmux omo\n  cmux omo --continue\n  cmux omo --model claude-sonnet-4-6"
           }
         }
       }
