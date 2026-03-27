@@ -5926,8 +5926,23 @@ extension TabManager {
             }
         } else {
             let insertAt = sidebarIndex ?? sidebarOrder.endIndex
-            let items = memberIds.map { SidebarOrderItem.workspace($0) }
-            sidebarOrder.insert(contentsOf: items, at: insertAt)
+            // Separate pinned and unpinned members to enforce pinned-first ordering.
+            let pinnedMembers = memberIds.filter { wsId in
+                tabs.first(where: { $0.id == wsId })?.isPinned == true
+            }
+            let unpinnedMembers = memberIds.filter { wsId in
+                tabs.first(where: { $0.id == wsId })?.isPinned != true
+            }
+            let boundary = sidebarPinnedBoundary()
+            let pinnedInsert = min(insertAt, boundary)
+            let pinnedItems = pinnedMembers.map { SidebarOrderItem.workspace($0) }
+            sidebarOrder.insert(contentsOf: pinnedItems, at: pinnedInsert)
+            // After pinned insertion, boundary has shifted by the number of pinned items added.
+            let adjustedBoundary = sidebarPinnedBoundary()
+            let unpinnedInsert = max(insertAt + pinnedItems.count, adjustedBoundary)
+            let clampedUnpinnedInsert = min(unpinnedInsert, sidebarOrder.count)
+            let unpinnedItems = unpinnedMembers.map { SidebarOrderItem.workspace($0) }
+            sidebarOrder.insert(contentsOf: unpinnedItems, at: clampedUnpinnedInsert)
         }
     }
 

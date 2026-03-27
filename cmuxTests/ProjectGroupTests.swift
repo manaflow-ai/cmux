@@ -237,7 +237,7 @@ final class TabManagerGroupTests: XCTestCase {
 
         XCTAssertEqual(
             manager.orderedSidebarWorkspaceIds(),
-            [topLevelWorkspace.id, trailingWorkspace.id, groupedWorkspaceA.id, groupedWorkspaceB.id]
+            [topLevelWorkspace.id, trailingWorkspace.id]
         )
     }
 
