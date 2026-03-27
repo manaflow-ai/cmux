@@ -10991,15 +10991,14 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            guard let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
+            let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
                 preferred: mappedSession?.surfaceId,
                 fallback: surfaceArg,
                 workspaceId: workspaceId,
                 client: client
-            ) else {
+            )
+            if surfaceId == nil {
                 telemetry.breadcrumb("claude-hook.stop.no-surface")
-                print("OK")
-                return
             }
 
             // Update session with transcript summary and send completion notification.
@@ -11007,7 +11006,7 @@ struct CMUXCLI {
                 parsedInput: parsedInput,
                 sessionRecord: mappedSession
             )
-            if let sessionId = parsedInput.sessionId, let completion {
+            if let sessionId = parsedInput.sessionId, let completion, let surfaceId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -11018,7 +11017,7 @@ struct CMUXCLI {
                 )
             }
 
-            if let completion {
+            if let completion, let surfaceId {
                 let title = "Claude Code"
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
