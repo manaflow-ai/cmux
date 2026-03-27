@@ -1038,6 +1038,8 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
 
         view.setMarkedText("한", selectedRange: NSRange(location: 0, length: 1), replacementRange: NSRange(location: NSNotFound, length: 0))
 
+        // Simulate Korean input source so shouldSendCommittedIMEConfirmKey fires
+        KeyboardLayout.debugInputSourceIdOverride = "com.apple.inputmethod.Korean.2SetKorean"
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, _ in
             guard candidateView === view else { return false }
@@ -1045,6 +1047,7 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
             return true
         }
         defer {
+            KeyboardLayout.debugInputSourceIdOverride = nil
             cjkIMEInterpretKeyEventsHook = nil
         }
 

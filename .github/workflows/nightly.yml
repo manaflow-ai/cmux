@@ -100,7 +100,7 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout build ref
@@ -317,12 +317,17 @@ jobs:
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         run: |
           set -euo pipefail
+          # Build with --asset-suffix so manifest download URLs point to
+          # immutable, build-specific asset names (e.g. cmuxd-remote-darwin-arm64-2362248028801).
+          # This prevents checksum mismatches when a newer nightly overwrites
+          # the shared "latest" assets on the release.
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
             --release-tag "nightly" \
             --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
+            --output-dir "remote-daemon-assets" \
+            --asset-suffix "$NIGHTLY_BUILD"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")"
           APP_PLIST="build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
           if [ ! -f "$APP_PLIST" ]; then
             echo "Missing nightly app Info.plist at $APP_PLIST" >&2
@@ -330,6 +335,30 @@ jobs:
           fi
           plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
           plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+          # Also create unsuffixed "latest" copies for the release page and
+          # any tooling that fetches the generic asset names. The manifest's
+          # downloadURLs still point to the versioned filenames (intentional:
+          # the live manifest is used by the client-side checksum fallback
+          # which only reads sha256, not downloadURL). The unsuffixed copies
+          # are convenience aliases and don't carry build-provenance
+          # attestation (attested versioned files are canonical).
+          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            cp "remote-daemon-assets/cmuxd-remote-${platform}-${NIGHTLY_BUILD}" \
+               "remote-daemon-assets/cmuxd-remote-${platform}"
+          done
+          # Regenerate unsuffixed checksums with generic filenames so
+          # `shasum -c cmuxd-remote-checksums.txt` works against the aliases.
+          (
+            cd remote-daemon-assets
+            shasum -a 256 \
+              cmuxd-remote-darwin-arm64 \
+              cmuxd-remote-darwin-amd64 \
+              cmuxd-remote-linux-arm64 \
+              cmuxd-remote-linux-amd64 \
+              > cmuxd-remote-checksums.txt
+          )
+          cp "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+             "remote-daemon-assets/cmuxd-remote-manifest.json"
 
       - name: Import signing cert
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
@@ -479,12 +508,12 @@ jobs:
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
           subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/cmuxd-remote-darwin-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-darwin-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-checksums-${{ env.NIGHTLY_BUILD }}.txt
+            remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -494,12 +523,7 @@ jobs:
           path: |
             cmux-nightly-macos*.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           if-no-files-found: error
 
@@ -533,12 +557,7 @@ jobs:
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
+            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           overwrite_files: true
 

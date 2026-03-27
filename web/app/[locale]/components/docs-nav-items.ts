@@ -1,10 +1,31 @@
-export const navItems = [
-  { titleKey: "gettingStarted" as const, href: "/docs/getting-started" },
-  { titleKey: "concepts" as const, href: "/docs/concepts" },
-  { titleKey: "configuration" as const, href: "/docs/configuration" },
-  { titleKey: "keyboardShortcuts" as const, href: "/docs/keyboard-shortcuts" },
-  { titleKey: "apiReference" as const, href: "/docs/api" },
-  { titleKey: "browserAutomation" as const, href: "/docs/browser-automation" },
-  { titleKey: "notifications" as const, href: "/docs/notifications" },
-  { titleKey: "changelog" as const, href: "/docs/changelog" },
+export type NavLink = { titleKey: string; href: string };
+export type NavSection = { sectionKey: string; children: NavLink[] };
+export type NavEntry = NavLink | NavSection;
+
+export function isSection(entry: NavEntry): entry is NavSection {
+  return "sectionKey" in entry;
+}
+
+/** Flatten sections into an ordered list of links (for pager prev/next). */
+export function flatNavItems(entries: NavEntry[]): NavLink[] {
+  return entries.flatMap((e) => (isSection(e) ? e.children : [e]));
+}
+
+export const navItems: NavEntry[] = [
+  { titleKey: "gettingStarted", href: "/docs/getting-started" },
+  { titleKey: "concepts", href: "/docs/concepts" },
+  { titleKey: "configuration", href: "/docs/configuration" },
+  { titleKey: "customCommands", href: "/docs/custom-commands" },
+  { titleKey: "keyboardShortcuts", href: "/docs/keyboard-shortcuts" },
+  { titleKey: "apiReference", href: "/docs/api" },
+  { titleKey: "browserAutomation", href: "/docs/browser-automation" },
+  { titleKey: "notifications", href: "/docs/notifications" },
+  {
+    sectionKey: "agentIntegrations",
+    children: [
+      { titleKey: "claudeCodeTeams", href: "/docs/agent-integrations/claude-code-teams" },
+      { titleKey: "ohMyOpenCode", href: "/docs/agent-integrations/oh-my-opencode" },
+    ],
+  },
+  { titleKey: "changelog", href: "/docs/changelog" },
 ];

@@ -527,6 +527,9 @@ enum BrowserLinkOpenSettings {
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
 
+    static let openSidebarPortLinksInCmuxBrowserKey = "browserOpenSidebarPortLinksInCmuxBrowser"
+    static let defaultOpenSidebarPortLinksInCmuxBrowser: Bool = true
+
     static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
     static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
 
@@ -547,6 +550,13 @@ enum BrowserLinkOpenSettings {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openSidebarPullRequestLinksInCmuxBrowserKey)
+    }
+
+    static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
+            return defaultOpenSidebarPortLinksInCmuxBrowser
+        }
+        return defaults.bool(forKey: openSidebarPortLinksInCmuxBrowserKey)
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
@@ -2987,14 +2997,39 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         let restoredBack = Self.sanitizedSessionHistoryURLs(backHistoryURLStrings)
         let restoredForward = Self.sanitizedSessionHistoryURLs(forwardHistoryURLStrings)
-        guard !restoredBack.isEmpty || !restoredForward.isEmpty else { return }
+        let restoredCurrent = Self.sanitizedSessionHistoryURL(currentURLString)
+        guard !restoredBack.isEmpty || !restoredForward.isEmpty || restoredCurrent != nil else { return }
 
         usesRestoredSessionHistory = true
         restoredBackHistoryStack = restoredBack
         // Store nearest-forward entries at the end to make stack pop operations trivial.
         restoredForwardHistoryStack = Array(restoredForward.reversed())
-        restoredHistoryCurrentURL = Self.sanitizedSessionHistoryURL(currentURLString)
+        restoredHistoryCurrentURL = restoredCurrent
         refreshNavigationAvailability()
+    }
+
+    func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
+        let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+
+        restoreSessionNavigationHistory(
+            backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
+            forwardHistoryURLStrings: snapshot.forwardHistoryURLStrings ?? [],
+            currentURLString: snapshot.urlString
+        )
+
+        currentURL = snapshot.shouldRenderWebView ? restoredURL : nil
+        shouldRenderWebView = snapshot.shouldRenderWebView
+
+        guard snapshot.shouldRenderWebView, let restoredURL else {
+            refreshNavigationAvailability()
+            return
+        }
+
+        navigateWithoutInsecureHTTPPrompt(
+            to: restoredURL,
+            recordTypedNavigation: false,
+            preserveRestoredSessionHistory: true
+        )
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -3914,7 +3949,7 @@ extension BrowserPanel {
 
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .unknown
         forceDeveloperToolsRefreshOnNextAttach = false
         developerToolsDetachedOpenGraceDeadline = nil
@@ -4132,6 +4167,20 @@ extension BrowserPanel {
     /// Reload the current page
     func reload() {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
+            let fallbackURL = resolvedCurrentSessionHistoryURL()
+                ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
+
+            if let fallbackURL,
+               Self.serializableSessionHistoryURLString(fallbackURL) != nil {
+                navigateWithoutInsecureHTTPPrompt(
+                    to: fallbackURL,
+                    recordTypedNavigation: false,
+                    preserveRestoredSessionHistory: usesRestoredSessionHistory
+                )
+                return
+            }
+        }
         webView.reload()
     }
 
@@ -4180,6 +4229,11 @@ extension BrowserPanel {
         }
     }
 
+    private func setPreferredDeveloperToolsVisible(_ next: Bool) {
+        guard preferredDeveloperToolsVisible != next else { return }
+        preferredDeveloperToolsVisible = next
+    }
+
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
         if !detachedDeveloperToolsWindows().isEmpty {
             setPreferredDeveloperToolsPresentation(.detached)
@@ -4208,7 +4262,7 @@ extension BrowserPanel {
                 guard self.preferredDeveloperToolsVisible else { return }
                 guard !self.isDeveloperToolsVisible() else { return }
                 self.developerToolsDetachedOpenGraceDeadline = nil
-                self.preferredDeveloperToolsVisible = false
+                self.setPreferredDeveloperToolsVisible(false)
                 self.cancelDeveloperToolsRestoreRetry()
 #if DEBUG
                 dlog(
@@ -4344,7 +4398,7 @@ extension BrowserPanel {
     ) -> Bool {
         if isDeveloperToolsTransitionInFlight {
             pendingDeveloperToolsTransitionTargetVisible = targetVisible
-            preferredDeveloperToolsVisible = targetVisible
+            setPreferredDeveloperToolsVisible(targetVisible)
             if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
@@ -4371,7 +4425,7 @@ extension BrowserPanel {
 
         let isVisibleSelector = NSSelectorFromString("isVisible")
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
-        preferredDeveloperToolsVisible = targetVisible
+        setPreferredDeveloperToolsVisible(targetVisible)
         developerToolsTransitionTargetVisible = targetVisible
 
         if targetVisible {
@@ -4473,7 +4527,7 @@ extension BrowserPanel {
         guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
         if isDeveloperToolsTransitionInFlight {
             let targetVisible = pendingDeveloperToolsTransitionTargetVisible ?? developerToolsTransitionTargetVisible ?? visible
-            preferredDeveloperToolsVisible = targetVisible
+            setPreferredDeveloperToolsVisible(targetVisible)
             if targetVisible, visible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 syncDeveloperToolsPresentationPreferenceFromUI()
@@ -4488,7 +4542,7 @@ extension BrowserPanel {
         if visible {
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
-            preferredDeveloperToolsVisible = true
+            setPreferredDeveloperToolsVisible(true)
             developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
             return
@@ -4496,7 +4550,7 @@ extension BrowserPanel {
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
             return
         }
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         developerToolsLastKnownVisibleAt = nil
         cancelDeveloperToolsRestoreRetry()
     }
@@ -4551,7 +4605,7 @@ extension BrowserPanel {
             return false
         }
 
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
@@ -4597,7 +4651,7 @@ extension BrowserPanel {
 
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
-            preferredDeveloperToolsVisible = false
+            setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
@@ -4624,7 +4678,7 @@ extension BrowserPanel {
         cmuxWithWindowFirstResponderBypass {
             _ = revealDeveloperTools(inspector)
         }
-        preferredDeveloperToolsVisible = true
+        setPreferredDeveloperToolsVisible(true)
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
             syncDeveloperToolsPresentationPreferenceFromUI()

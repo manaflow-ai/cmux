@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -54,6 +55,21 @@ func installCmuxUnitTestInspectorOverride() {
     }
 
     cmuxUnitTestInspectorOverrideInstalled = true
+}
+
+private final class BrowserMarkedTextProbeTextView: NSTextView {
+    var hasMarkedTextForTesting = false
+    private(set) var keyDownEvents: [NSEvent] = []
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func hasMarkedText() -> Bool {
+        hasMarkedTextForTesting
+    }
+
+    override func keyDown(with event: NSEvent) {
+        keyDownEvents.append(event)
+    }
 }
 
 final class CmuxWebViewKeyEquivalentTests: XCTestCase {
@@ -1926,6 +1942,34 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 2)
     }
 
+    func testSyncDoesNotRepublishHiddenDeveloperToolsIntentWhenInspectorAlreadyHidden() {
+        let (panel, inspector) = makePanelWithInspector(hideBehavior: .hides)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        inspector.hide()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+        waitForDeveloperToolsTransitions()
+
+        var publishCount = 0
+        let cancellable = panel.objectWillChange.sink {
+            publishCount += 1
+        }
+        defer { _ = cancellable }
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Repeated hidden-inspector syncs should not republish the same hidden DevTools intent"
+        )
+    }
+
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
 
@@ -2455,6 +2499,107 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
 }
 
 
+final class BrowserIMEKeyDownRoutingTests: XCTestCase {
+    @MainActor
+    func testWindowPerformKeyEquivalentDoesNotForwardReturnDuringMarkedTextComposition() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        responder.hasMarkedTextForTesting = true
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        let consumed = window.performKeyEquivalent(with: event)
+
+        XCTAssertFalse(consumed, "Return should stay in the IME path while marked text is active")
+        XCTAssertTrue(responder.hasMarkedText(), "Marked text should still be active until the input method commits it")
+        XCTAssertEqual(responder.keyDownEvents.count, 0, "Return should not be force-forwarded to the browser responder during IME composition")
+    }
+
+    @MainActor
+    func testWindowPerformKeyEquivalentDoesNotForwardKeypadEnterDuringMarkedTextComposition() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = BrowserMarkedTextProbeTextView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        responder.hasMarkedTextForTesting = true
+        webView.addSubview(responder)
+
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\r",
+            charactersIgnoringModifiers: "\r",
+            isARepeat: false,
+            keyCode: 76
+        ) else {
+            XCTFail("Failed to construct keypad Enter event")
+            return
+        }
+
+        let consumed = window.performKeyEquivalent(with: event)
+
+        XCTAssertFalse(consumed, "Keypad Enter should stay in the IME path while marked text is active")
+        XCTAssertTrue(responder.hasMarkedText(), "Marked text should still be active until the input method commits it")
+        XCTAssertEqual(responder.keyDownEvents.count, 0, "Keypad Enter should not be force-forwarded to the browser responder during IME composition")
+    }
+}
+
+
 final class BrowserReturnKeyDownRoutingTests: XCTestCase {
     func testRoutesForReturnWhenBrowserFirstResponder() {
         XCTAssertTrue(
@@ -2491,6 +2636,28 @@ final class BrowserReturnKeyDownRoutingTests: XCTestCase {
             shouldDispatchBrowserReturnViaFirstResponderKeyDown(
                 keyCode: 36,
                 firstResponderIsBrowser: false,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteReturnWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 36,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+    }
+
+    func testDoesNotRouteKeypadEnterWhenBrowserFirstResponderHasMarkedText() {
+        XCTAssertFalse(
+            shouldDispatchBrowserReturnViaFirstResponderKeyDown(
+                keyCode: 76,
+                firstResponderIsBrowser: true,
+                firstResponderHasMarkedText: true,
                 flags: []
             )
         )

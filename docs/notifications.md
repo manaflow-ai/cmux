@@ -54,33 +54,57 @@ cmux notify --title "Done" --tab 0 --panel 1
 
 ## Integration Examples
 
-### Claude Code Hooks
+### Claude Code
 
-Add to `~/.claude/settings.json`:
+See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for hook configuration.
+
+### GitHub Copilot CLI
+
+Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
 
 ```json
 {
   "hooks": {
-    "Notification": [
+    "userPromptSubmitted": [
       {
-        "matcher": "idle_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v cmux &>/dev/null && cmux notify --title 'Claude Code' --body 'Waiting for input' || osascript -e 'display notification \"Waiting for input\" with title \"Claude Code\"'"
-          }
-        ]
-      },
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux set-status copilot_cli Running; fi",
+        "timeoutSec": 3
+      }
+    ],
+    "agentStop": [
       {
-        "matcher": "permission_prompt",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v cmux &>/dev/null && cmux notify --title 'Claude Code' --subtitle 'Permission' --body 'Approval needed' || osascript -e 'display notification \"Approval needed\" with title \"Claude Code\"'"
-          }
-        ]
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --body 'Done'; cmux set-status copilot_cli Idle; else osascript -e 'display notification \"Done\" with title \"Copilot CLI\"'; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.errorMessage // \"An error occurred\"' 2>/dev/null | head -c 100)\"; cmux set-status copilot_cli Error; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux clear-status copilot_cli; fi",
+        "timeoutSec": 3
       }
     ]
+  }
+}
+```
+
+Or for repo-level hooks, create `.github/hooks/notify.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [ ... ],
+    "agentStop": [ ... ]
   }
 }
 ```
@@ -146,6 +170,8 @@ cmux sets these in child shells:
 cmux notify --title <text> [--subtitle <text>] [--body <text>] [--tab <id|index>] [--panel <id|index>]
 cmux list-notifications
 cmux clear-notifications
+cmux set-status <key> <value>
+cmux clear-status <key>
 cmux ping
 ```
 
