@@ -2898,6 +2898,14 @@ class TabManager: ObservableObject {
                 orderedIds.append(workspaceId)
             case .group(let groupId):
                 guard let group = groupsById[groupId] else { continue }
+                guard !group.isCollapsed else {
+                    // Mark collapsed members as seen so they aren't appended
+                    // by the fallback loop, but don't include them in the order.
+                    for workspaceId in group.workspaceIds where existingIds.contains(workspaceId) {
+                        seenIds.insert(workspaceId)
+                    }
+                    continue
+                }
                 for workspaceId in group.workspaceIds
                 where existingIds.contains(workspaceId) && seenIds.insert(workspaceId).inserted {
                     orderedIds.append(workspaceId)
@@ -5961,13 +5969,45 @@ extension TabManager {
     @discardableResult
     func reorderTopLevelItem(_ item: SidebarOrderItem, toIndex targetIndex: Int) -> Bool {
         guard let currentIndex = sidebarOrder.firstIndex(of: item) else { return false }
-        let clampedIndex = max(0, min(targetIndex, sidebarOrder.count - 1))
-        if currentIndex == clampedIndex { return true }
 
         let movedItem = sidebarOrder.remove(at: currentIndex)
-        let insertIndex = max(0, min(targetIndex, sidebarOrder.count))
+
+        // Compute pinned/unpinned boundary in sidebarOrder (after removal).
+        // Pinned boundary = index of the first ungrouped unpinned workspace.
+        let pinnedBoundary = sidebarPinnedBoundary()
+
+        var insertIndex = max(0, min(targetIndex, sidebarOrder.count))
+
+        // If the item is a workspace, enforce pinned-first ordering.
+        if case .workspace(let wsId) = item {
+            let isPinned = tabs.first(where: { $0.id == wsId })?.isPinned ?? false
+            if isPinned {
+                insertIndex = min(insertIndex, pinnedBoundary)
+            } else {
+                insertIndex = max(insertIndex, pinnedBoundary)
+            }
+            insertIndex = max(0, min(insertIndex, sidebarOrder.count))
+        }
+
         sidebarOrder.insert(movedItem, at: insertIndex)
         return true
+    }
+
+    /// Returns the index in `sidebarOrder` where ungrouped unpinned workspaces begin.
+    /// Groups are transparent to this boundary (they can appear anywhere).
+    private func sidebarPinnedBoundary() -> Int {
+        let groupedIds = Set(groups.flatMap(\.workspaceIds))
+        var boundary = 0
+        for (i, item) in sidebarOrder.enumerated() {
+            guard case .workspace(let wsId) = item, !groupedIds.contains(wsId) else {
+                continue
+            }
+            let isPinned = tabs.first(where: { $0.id == wsId })?.isPinned ?? false
+            if isPinned {
+                boundary = i + 1
+            }
+        }
+        return boundary
     }
 
     @discardableResult
@@ -6031,7 +6071,18 @@ extension TabManager {
 
         let item = SidebarOrderItem.workspace(workspaceId)
         sidebarOrder.removeAll { $0 == item }
-        let insertIndex = max(0, min(targetIndex, sidebarOrder.count))
+
+        // Enforce pinned-first ordering for the now-ungrouped workspace.
+        let pinnedBoundary = sidebarPinnedBoundary()
+        let isPinned = tabs.first(where: { $0.id == workspaceId })?.isPinned ?? false
+        var insertIndex = max(0, min(targetIndex, sidebarOrder.count))
+        if isPinned {
+            insertIndex = min(insertIndex, pinnedBoundary)
+        } else {
+            insertIndex = max(insertIndex, pinnedBoundary)
+        }
+        insertIndex = max(0, min(insertIndex, sidebarOrder.count))
+
         sidebarOrder.insert(item, at: insertIndex)
         return true
     }

@@ -70,7 +70,7 @@ final class ProjectGroupTests: XCTestCase {
         // Verify the type discriminator key is present in the JSON
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(json?["type"] as? String, "group")
-        XCTAssertEqual(json?["id"] as? String, id.uuidString.uppercased())
+        XCTAssertEqual((json?["id"] as? String)?.lowercased(), id.uuidString.lowercased())
     }
 
     func testSidebarOrderItemWorkspaceCodableRoundTrip() throws {

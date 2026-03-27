@@ -359,7 +359,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     }
 
     init(
-        id: UUID = UUID(),
+        id: UUID,
         processTitle: String,
         customTitle: String?,
         customColor: String?,
