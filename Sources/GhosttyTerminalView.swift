@@ -5792,6 +5792,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Alt+Backspace and generates ESC+DEL.
         if flags.contains(.option) && !flags.contains(.command) && !flags.contains(.control) && !hasMarkedText(),
            event.keyCode == 51 {
+            terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
