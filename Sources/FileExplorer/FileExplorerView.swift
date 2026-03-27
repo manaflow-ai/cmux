@@ -120,7 +120,7 @@ private struct FileExplorerHeader: View {
                 Button("🟢 Added") {}
                 Button("🔴 Deleted") {}
                 Button("🔵 Renamed") {}
-                Button("🔘 Untracked") {}
+                Button("🩶 Untracked") {}
                 Divider()
                 Text("Tips")
                 Button("📁 Drag file → terminal to paste path") {}
