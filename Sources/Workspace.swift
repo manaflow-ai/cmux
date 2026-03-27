@@ -9614,6 +9614,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
+            TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
             removePendingTerminalInputObservers(forPanelId: panelId)
             panelSubscriptions.removeValue(forKey: panelId)
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -12341,6 +12342,7 @@ extension Workspace: BonsplitDelegate {
 
         if !closedPanelIds.isEmpty {
             for panelId in closedPanelIds {
+                TerminalController.shared.cleanupSurfaceState(surfaceId: panelId)
                 removePendingTerminalInputObservers(forPanelId: panelId)
                 panels[panelId]?.close()
                 panels.removeValue(forKey: panelId)
