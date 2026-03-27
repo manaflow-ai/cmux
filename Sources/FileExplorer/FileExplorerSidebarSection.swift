@@ -89,7 +89,11 @@ struct FileExplorerSidebarSection: View {
         if currentDir != lastSyncedDirectory {
             debugLog("poll CHANGED: '\(lastSyncedDirectory)' -> '\(currentDir)'")
         }
-        guard !currentDir.isEmpty, currentDir != lastSyncedDirectory else { return }
+        guard !currentDir.isEmpty, currentDir != lastSyncedDirectory else {
+            // Directory hasn't changed, but refresh git status (detects file edits)
+            explorerState.refreshGitStatusOnly()
+            return
+        }
         lastSyncedDirectory = currentDir
         explorerState.setRoot(URL(fileURLWithPath: currentDir))
     }

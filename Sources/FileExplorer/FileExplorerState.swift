@@ -106,6 +106,12 @@ final class FileExplorerState: ObservableObject {
         reload(at: rootURL)
     }
 
+    /// Refresh only git status (lightweight, safe to call frequently).
+    func refreshGitStatusOnly() {
+        guard let rootURL else { return }
+        refreshGitStatus(for: rootURL)
+    }
+
     // MARK: - Search
 
     /// Recursively filter nodes by name match, keeping directories that contain matches.
