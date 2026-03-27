@@ -10975,62 +10975,65 @@ struct CMUXCLI {
 
         case "stop", "idle":
             telemetry.breadcrumb("claude-hook.stop")
-            do {
-                // Turn ended. Don't consume session or clear PID — Claude is still alive.
-                // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
-                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
-                    preferred: mappedSession?.workspaceId,
-                    fallback: workspaceArg,
-                    client: client
-                )
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                    preferred: mappedSession?.surfaceId,
-                    fallback: surfaceArg,
-                    workspaceId: workspaceId,
-                    client: client
-                )
-
-                // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
-                    parsedInput: parsedInput,
-                    sessionRecord: mappedSession
-                )
-                if let sessionId = parsedInput.sessionId, let completion {
-                    try? sessionStore.upsert(
-                        sessionId: sessionId,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        cwd: parsedInput.cwd,
-                        lastSubtitle: completion.subtitle,
-                        lastBody: completion.body
-                    )
-                }
-
-                if let completion {
-                    let title = "Claude Code"
-                    let subtitle = sanitizeNotificationField(completion.subtitle)
-                    let body = sanitizeNotificationField(completion.body)
-                    let payload = "\(title)|\(subtitle)|\(body)"
-                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
-
-                try? setClaudeStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93"
-                )
+            // Turn ended. Don't consume session or clear PID — Claude is still alive.
+            // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
+            //
+            // Use try? for workspace/surface resolution: during app teardown the TabManager
+            // may already be nil, causing these calls to throw "TabManager not available".
+            // That is expected and harmless — we simply skip the status update and exit cleanly.
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            guard let workspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
+            ) else {
+                telemetry.breadcrumb("claude-hook.stop.no-workspace")
                 print("OK")
-            } catch {
-                if shouldIgnoreClaudeHookTeardownError(error) {
-                    telemetry.breadcrumb("claude-hook.stop.ignored", data: ["error": String(describing: error)])
-                    print("OK")
-                    return
-                }
-                throw error
+                return
             }
+            guard let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            ) else {
+                telemetry.breadcrumb("claude-hook.stop.no-surface")
+                print("OK")
+                return
+            }
+
+            // Update session with transcript summary and send completion notification.
+            let completion = summarizeClaudeHookStop(
+                parsedInput: parsedInput,
+                sessionRecord: mappedSession
+            )
+            if let sessionId = parsedInput.sessionId, let completion {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: completion.subtitle,
+                    lastBody: completion.body
+                )
+            }
+
+            if let completion {
+                let title = "Claude Code"
+                let subtitle = sanitizeNotificationField(completion.subtitle)
+                let body = sanitizeNotificationField(completion.body)
+                let payload = "\(title)|\(subtitle)|\(body)"
+                _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+            }
+
+            try? setClaudeStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Idle",
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+            print("OK")
 
         case "prompt-submit":
             telemetry.breadcrumb("claude-hook.prompt-submit")
