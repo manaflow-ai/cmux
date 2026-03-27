@@ -136,6 +136,7 @@
 			FE000017A1B2C3D4E5F60007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = FE000007A1B2C3D4E5F60007 /* editor.html */; };
 					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */; };
 					FE000019A1B2C3D4E5F60009 /* SaveableTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000009A1B2C3D4E5F60009 /* SaveableTextView.swift */; };
+					FE00001AA1B2C3D4E5F6000A /* BracketMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -318,6 +319,7 @@
 			FE000007A1B2C3D4E5F60007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
 			FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighter.swift; sourceTree = "<group>"; };
 			FE000009A1B2C3D4E5F60009 /* SaveableTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SaveableTextView.swift; sourceTree = "<group>"; };
+			FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketMatcher.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -592,6 +594,7 @@
 				FE000001A1B2C3D4E5F60001 /* FileExplorerNode.swift */,
 				FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */,
 				FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */,
+				FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */,
 				FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */,
 				FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */,
 			);
@@ -746,6 +749,7 @@
 				files = (
 					A5001001 /* cmuxApp.swift in Sources */,
 					A5001002 /* ContentView.swift in Sources */,
+					FE00001AA1B2C3D4E5F6000A /* BracketMatcher.swift in Sources */,
 					FE000019A1B2C3D4E5F60009 /* SaveableTextView.swift in Sources */,
 					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */,
 					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */,
