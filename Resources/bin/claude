@@ -64,6 +64,7 @@ esac
 # hooks. Headless callers like auth-token refreshers have no TTY and should
 # not trigger session-start hooks that create phantom sessions burning API credits.
 if [[ ! -t 0 ]]; then
+    unset CLAUDECODE
     exec "$REAL_CLAUDE" "$@"
 fi
 
