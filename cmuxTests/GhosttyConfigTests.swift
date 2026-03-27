@@ -2481,19 +2481,86 @@ final class SidebarBackgroundConfigTests: XCTestCase {
         XCTAssertNil(config.sidebarBackgroundDark)
     }
 
-    func testApplyToUserDefaultsSkipsWritesWhenNoConfig() {
+    func testApplyToUserDefaultsFallsBackToTerminalBackground() {
         let defaults = UserDefaults.standard
-        let testKey = "sidebarTintHex"
-        let original = defaults.string(forKey: testKey)
-        defer { restoreDefaultsValue(original, key: testKey, defaults: defaults) }
+        let keys = ["sidebarTintHex", "sidebarTintHexLight", "sidebarTintHexDark",
+                     "sidebarTintOpacity", "sidebarMaterial"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
 
-        defaults.set("#AAAAAA", forKey: testKey)
+        defaults.set("#AAAAAA", forKey: "sidebarTintHex")
+        defaults.set("#BBBBBB", forKey: "sidebarTintHexLight")
+        defaults.set("#CCCCCC", forKey: "sidebarTintHexDark")
 
         var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#1e1e2e")!
+        config.backgroundOpacity = 0.9
         config.applySidebarAppearanceToUserDefaults()
 
-        XCTAssertEqual(defaults.string(forKey: testKey), "#AAAAAA",
-                       "Should not overwrite UserDefaults when rawSidebarBackground is nil")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#1e1e2e",
+                       "Should fall back to terminal background when rawSidebarBackground is nil")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexLight"),
+                     "Should clear stale light key")
+        XCTAssertNil(defaults.string(forKey: "sidebarTintHexDark"),
+                     "Should clear stale dark key")
+        XCTAssertEqual(defaults.double(forKey: "sidebarTintOpacity"), 0.9, accuracy: 0.0001,
+                       "Should use backgroundOpacity when sidebarTintOpacity is nil")
+        XCTAssertEqual(defaults.string(forKey: "sidebarMaterial"),
+                       SidebarMaterialOption.none.rawValue,
+                       "Should set material to none for solid color rendering")
+    }
+
+    func testApplyToUserDefaultsSkipsAutoSyncWhenUserChoseCustomMaterial() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarMaterial"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        defaults.set(SidebarMaterialOption.hudWindow.rawValue, forKey: "sidebarMaterial")
+        defaults.set("#FFFFFF", forKey: "sidebarTintHex")
+
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#151144")!
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarMaterial"),
+                       SidebarMaterialOption.hudWindow.rawValue,
+                       "Should not overwrite user's manual material choice")
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#FFFFFF",
+                       "Should not overwrite user's manual tint hex")
+    }
+
+    func testApplyToUserDefaultsAutoSyncsWhenMaterialIsDefault() {
+        let defaults = UserDefaults.standard
+        let keys = ["sidebarTintHex", "sidebarMaterial"]
+        let originals = keys.map { defaults.object(forKey: $0) }
+        defer {
+            for (key, original) in zip(keys, originals) {
+                restoreDefaultsValue(original, key: key, defaults: defaults)
+            }
+        }
+
+        // "sidebar" is the default material — auto-sync should still apply
+        defaults.set(SidebarMaterialOption.sidebar.rawValue, forKey: "sidebarMaterial")
+        defaults.set("#FFFFFF", forKey: "sidebarTintHex")
+
+        var config = GhosttyConfig()
+        config.backgroundColor = NSColor(hex: "#151144")!
+        config.applySidebarAppearanceToUserDefaults()
+
+        XCTAssertEqual(defaults.string(forKey: "sidebarTintHex"), "#151144",
+                       "Should auto-sync when material is the default sidebar")
+        XCTAssertEqual(defaults.string(forKey: "sidebarMaterial"),
+                       SidebarMaterialOption.none.rawValue,
+                       "Should switch material to none for solid color rendering")
     }
 
     func testApplyToUserDefaultsWritesHexWhenConfigSet() {

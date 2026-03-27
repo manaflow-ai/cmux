@@ -160,10 +160,26 @@ struct GhosttyConfig {
     }
 
     func applySidebarAppearanceToUserDefaults() {
-        guard rawSidebarBackground != nil else {
-            if let opacity = sidebarTintOpacity {
-                UserDefaults.standard.set(opacity, forKey: "sidebarTintOpacity")
+        if rawSidebarBackground == nil {
+            let defaults = UserDefaults.standard
+
+            // If the user has manually chosen a non-default material in
+            // Settings, respect their choice and skip auto-sync.
+            let currentMaterial = defaults.string(forKey: "sidebarMaterial")
+            if let currentMaterial,
+               currentMaterial != SidebarMaterialOption.none.rawValue,
+               currentMaterial != SidebarMaterialOption.sidebar.rawValue {
+                return
             }
+
+            // No explicit sidebar-background set — fall back to the terminal's
+            // background color so the sidebar matches the active Ghostty theme.
+            // Use material "none" to render a solid color without glass distortion.
+            defaults.set(backgroundColor.hexString(), forKey: "sidebarTintHex")
+            defaults.removeObject(forKey: "sidebarTintHexLight")
+            defaults.removeObject(forKey: "sidebarTintHexDark")
+            defaults.set(sidebarTintOpacity ?? backgroundOpacity, forKey: "sidebarTintOpacity")
+            defaults.set(SidebarMaterialOption.none.rawValue, forKey: "sidebarMaterial")
             return
         }
 

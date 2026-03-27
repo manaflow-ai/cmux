@@ -13777,8 +13777,11 @@ private struct SidebarBackdrop: View {
                         Color(nsColor: tintColor)
                     }
                 }
+            } else {
+                // No material — render solid tint color (used when sidebar
+                // matches the terminal theme background).
+                Color(nsColor: tintColor)
             }
-            // When material is none or useWindowLevelGlass, render nothing
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }

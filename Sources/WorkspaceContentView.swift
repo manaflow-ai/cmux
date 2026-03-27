@@ -669,6 +669,12 @@ struct WorkspaceContentView: View {
         let chromeReason =
             "refreshGhosttyAppearanceConfig:reason=\(reason):event=\(eventLabel):source=\(sourceLabel):payload=\(payloadLabel)"
         workspace.applyGhosttyChrome(from: next, reason: chromeReason)
+        // When no explicit sidebar-background is configured, keep sidebar
+        // UserDefaults in sync with the runtime Ghostty background so the
+        // sidebar visually matches the terminal.
+        if next.rawSidebarBackground == nil {
+            next.applySidebarAppearanceToUserDefaults()
+        }
         if let terminalPanel = workspace.focusedTerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
             logTheme(
