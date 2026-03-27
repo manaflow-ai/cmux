@@ -27,6 +27,24 @@ final class FileExplorerState: ObservableObject {
         }
     }
 
+    /// Path of the file currently open in the editor, used to highlight the row.
+    @Published var currentEditingFilePath: String?
+
+    /// Search query for filtering the file tree. Empty = no filter.
+    @Published var searchQuery: String = "" {
+        didSet {
+            if !searchQuery.isEmpty && oldValue.isEmpty {
+                ensureAllChildrenLoaded(maxDepth: 6)
+            }
+        }
+    }
+
+    /// Returns filtered nodes when searchQuery is non-empty, otherwise rootNodes.
+    var displayNodes: [FileExplorerNode] {
+        guard !searchQuery.isEmpty else { return rootNodes }
+        return Self.filterNodes(rootNodes, query: searchQuery.lowercased())
+    }
+
     /// Whether the file explorer section is visible in the sidebar.
     @Published var isVisible: Bool {
         didSet {
@@ -83,6 +101,46 @@ final class FileExplorerState: ObservableObject {
     func refresh() {
         guard let rootURL else { return }
         reload(at: rootURL)
+    }
+
+    // MARK: - Search
+
+    /// Recursively filter nodes by name match, keeping directories that contain matches.
+    private static func filterNodes(_ nodes: [FileExplorerNode], query: String) -> [FileExplorerNode] {
+        var result: [FileExplorerNode] = []
+        for node in nodes {
+            if node.name.lowercased().contains(query) {
+                result.append(node)
+            } else if node.isDirectory, let children = node.children {
+                let filtered = filterNodes(children, query: query)
+                if !filtered.isEmpty {
+                    var dirNode = node
+                    dirNode.children = filtered
+                    dirNode.isExpanded = true
+                    result.append(dirNode)
+                }
+            }
+        }
+        return result
+    }
+
+    /// Eagerly load all directory children so search can filter them.
+    private func ensureAllChildrenLoaded(maxDepth: Int = 6) {
+        guard let rootURL else { return }
+        func loadAll(_ nodes: inout [FileExplorerNode], depth: Int) {
+            guard depth < maxDepth else { return }
+            for i in nodes.indices {
+                if nodes[i].isDirectory && nodes[i].children == nil {
+                    nodes[i].children = FileExplorerNode.scanDirectory(
+                        at: nodes[i].url, relativeTo: rootURL, showHidden: showHidden
+                    )
+                }
+                if nodes[i].isDirectory, nodes[i].children != nil {
+                    loadAll(&nodes[i].children!, depth: depth + 1)
+                }
+            }
+        }
+        loadAll(&rootNodes, depth: 0)
     }
 
     // MARK: - Tree mutation
