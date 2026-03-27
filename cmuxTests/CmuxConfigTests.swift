@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -717,12 +718,27 @@ final class CmuxConfigGitRootResolutionTests: XCTestCase {
 // MARK: - Command preparation
 
 final class CmuxConfigExecutorTests: XCTestCase {
+    private final class AlertSpy: NSAlert {
+        private(set) var runModalCallCount = 0
+        var nextResponse: NSApplication.ModalResponse = .alertFirstButtonReturn
+
+        override func runModal() -> NSApplication.ModalResponse {
+            runModalCallCount += 1
+            return nextResponse
+        }
+    }
+
     private var tempDirectory: URL!
 
     override func setUpWithError() throws {
         tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        CmuxConfigExecutor.resetHooksForTesting()
+        super.tearDown()
     }
 
     override func tearDownWithError() throws {
@@ -738,7 +754,7 @@ final class CmuxConfigExecutorTests: XCTestCase {
                 baseCwd: "/tmp/project",
                 requiresRepoRoot: false
             ),
-            .ready("npm test")
+            .ready("npm test", repoRoot: nil)
         )
     }
 
@@ -756,7 +772,7 @@ final class CmuxConfigExecutorTests: XCTestCase {
                 baseCwd: nestedDirectory.path,
                 requiresRepoRoot: true
             ),
-            .ready("(cd '\(repoRoot.path)' && pnpm test)")
+            .ready("(cd '\(repoRoot.path)' && pnpm test)", repoRoot: repoRoot.path)
         )
     }
 
@@ -772,6 +788,111 @@ final class CmuxConfigExecutorTests: XCTestCase {
             ),
             .missingRepoRoot("pnpm test")
         )
+    }
+
+    @MainActor
+    func testExecuteShowsOriginalCommandInConfirmationButSendsRepoRootWrappedCommand() throws {
+        let repoRoot = tempDirectory.appendingPathComponent("repo root", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: repoRoot.appendingPathComponent(".git").path, contents: Data())
+        let nestedDirectory = repoRoot.appendingPathComponent("frontend", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+
+        let confirmAlert = AlertSpy()
+        var sentCommand: String?
+        CmuxConfigExecutor.configureHooksForTesting(
+            confirmCommandAlertFactory: { confirmAlert },
+            repoRootFallbackAlertFactory: { AlertSpy() },
+            commandSender: { _, text in sentCommand = text }
+        )
+
+        let manager = TabManager(initialWorkingDirectory: nestedDirectory.path)
+        let sourcePath = nestedDirectory.appendingPathComponent("cmux.json").path
+        let command = CmuxCommandDefinition(
+            name: "Run Tests",
+            command: "pnpm test",
+            confirm: true,
+            repoRoot: true
+        )
+
+        CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: nestedDirectory.path,
+            configSourcePath: sourcePath,
+            globalConfigPath: "/tmp/global-cmux.json"
+        )
+
+        XCTAssertEqual(confirmAlert.runModalCallCount, 1)
+        XCTAssertTrue(confirmAlert.informativeText.contains("pnpm test"))
+        XCTAssertFalse(confirmAlert.informativeText.contains("(cd "))
+        XCTAssertTrue(confirmAlert.informativeText.contains(repoRoot.path))
+        XCTAssertEqual(sentCommand, "(cd '\(repoRoot.path)' && pnpm test)\n")
+    }
+
+    @MainActor
+    func testExecuteCancelsWhenRepoRootFallbackPromptIsRejected() throws {
+        let workingDirectory = tempDirectory.appendingPathComponent("scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let fallbackAlert = AlertSpy()
+        fallbackAlert.nextResponse = .alertSecondButtonReturn
+        var sentCommand: String?
+        CmuxConfigExecutor.configureHooksForTesting(
+            confirmCommandAlertFactory: { AlertSpy() },
+            repoRootFallbackAlertFactory: { fallbackAlert },
+            commandSender: { _, text in sentCommand = text }
+        )
+
+        let manager = TabManager(initialWorkingDirectory: workingDirectory.path)
+        let command = CmuxCommandDefinition(
+            name: "Run Tests",
+            command: "pnpm test",
+            repoRoot: true
+        )
+
+        CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: workingDirectory.path,
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/global-cmux.json"
+        )
+
+        XCTAssertEqual(fallbackAlert.runModalCallCount, 1)
+        XCTAssertNil(sentCommand)
+    }
+
+    @MainActor
+    func testExecuteRunsCurrentDirectoryCommandWhenRepoRootFallbackIsAccepted() throws {
+        let workingDirectory = tempDirectory.appendingPathComponent("scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let fallbackAlert = AlertSpy()
+        var sentCommand: String?
+        CmuxConfigExecutor.configureHooksForTesting(
+            confirmCommandAlertFactory: { AlertSpy() },
+            repoRootFallbackAlertFactory: { fallbackAlert },
+            commandSender: { _, text in sentCommand = text }
+        )
+
+        let manager = TabManager(initialWorkingDirectory: workingDirectory.path)
+        let command = CmuxCommandDefinition(
+            name: "Run Tests",
+            command: "pnpm test",
+            repoRoot: true
+        )
+
+        CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: workingDirectory.path,
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/global-cmux.json"
+        )
+
+        XCTAssertEqual(fallbackAlert.runModalCallCount, 1)
+        XCTAssertEqual(sentCommand, "pnpm test\n")
     }
 }
 

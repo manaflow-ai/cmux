@@ -4,8 +4,14 @@ import Foundation
 @MainActor
 struct CmuxConfigExecutor {
     enum PreparedShellCommand: Equatable {
-        case ready(String)
+        case ready(String, repoRoot: String?)
         case missingRepoRoot(String)
+    }
+
+    fileprivate static var confirmCommandAlertFactory: () -> NSAlert = { NSAlert() }
+    fileprivate static var repoRootFallbackAlertFactory: () -> NSAlert = { NSAlert() }
+    fileprivate static var commandSender: (TerminalPanel, String) -> Void = { terminal, text in
+        terminal.sendInput(text)
     }
 
     static func execute(
@@ -18,18 +24,22 @@ struct CmuxConfigExecutor {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
         } else if let rawCommand = command.command {
+            let displayCommand = sanitizeForDisplay(rawCommand)
             let preparedCommand = prepareShellCommand(
-                rawCommand,
+                displayCommand,
                 baseCwd: baseCwd,
                 requiresRepoRoot: command.repoRoot ?? false
             )
             let shellCommand: String
+            let repoRoot: String?
             switch preparedCommand {
-            case .ready(let command):
+            case .ready(let command, let resolvedRepoRoot):
                 shellCommand = command
+                repoRoot = resolvedRepoRoot
             case .missingRepoRoot(let command):
                 guard showRepoRootFallbackDialog() else { return }
                 shellCommand = command
+                repoRoot = nil
             }
             let needsConfirm = command.confirm ?? false
             if needsConfirm, let sourcePath = configSourcePath {
@@ -38,11 +48,11 @@ struct CmuxConfigExecutor {
                     globalConfigPath: globalConfigPath
                 )
                 if !trusted {
-                    guard showConfirmDialog(command: shellCommand, configPath: sourcePath) else { return }
+                    guard showConfirmDialog(command: displayCommand, configPath: sourcePath, repoRoot: repoRoot) else { return }
                 }
             }
             guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
-            terminal.sendInput(shellCommand + "\n")
+            commandSender(terminal, shellCommand + "\n")
         }
     }
 
@@ -53,18 +63,18 @@ struct CmuxConfigExecutor {
     ) -> PreparedShellCommand {
         let shellCommand = sanitizeForDisplay(rawCommand)
         guard requiresRepoRoot else {
-            return .ready(shellCommand)
+            return .ready(shellCommand, repoRoot: nil)
         }
         guard let repoRoot = CmuxConfigStore.findGitRoot(from: baseCwd) else {
             return .missingRepoRoot(shellCommand)
         }
-        return .ready("(cd \(shellQuote(repoRoot)) && \(shellCommand))")
+        return .ready("(cd \(shellQuote(repoRoot)) && \(shellCommand))", repoRoot: repoRoot)
     }
 
     /// Show a confirmation dialog with the command text and a "trust this directory" checkbox.
     /// Returns true if the user chose to run, false if cancelled.
-    private static func showConfirmDialog(command: String, configPath: String) -> Bool {
-        let alert = NSAlert()
+    private static func showConfirmDialog(command: String, configPath: String, repoRoot: String?) -> Bool {
+        let alert = confirmCommandAlertFactory()
         alert.messageText = String(
             localized: "dialog.cmuxConfig.confirmCommand.title",
             defaultValue: "Run Command"
@@ -73,7 +83,15 @@ struct CmuxConfigExecutor {
             localized: "dialog.cmuxConfig.confirmCommand.messageWithCommand",
             defaultValue: "This will run the following command:\n\n%@"
         )
-        alert.informativeText = String(format: messageFormat, sanitizeForDisplay(command))
+        var message = String(format: messageFormat, sanitizeForDisplay(command))
+        if let repoRoot {
+            let repoRootFormat = String(
+                localized: "dialog.cmuxConfig.confirmCommand.repoRootNote",
+                defaultValue: "It will run from the current workspace's git repo root:\n\n%@"
+            )
+            message += "\n\n" + String(format: repoRootFormat, repoRoot)
+        }
+        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(
             localized: "dialog.cmuxConfig.confirmCommand.run",
@@ -102,7 +120,7 @@ struct CmuxConfigExecutor {
     }
 
     private static func showRepoRootFallbackDialog() -> Bool {
-        let alert = NSAlert()
+        let alert = repoRootFallbackAlertFactory()
         alert.messageText = String(
             localized: "dialog.cmuxConfig.repoRootFallback.title",
             defaultValue: "Git Repository Not Found"
@@ -186,3 +204,27 @@ struct CmuxConfigExecutor {
         newWorkspace.applyCustomLayout(layout, baseCwd: resolvedCwd)
     }
 }
+
+#if DEBUG
+extension CmuxConfigExecutor {
+    static func configureHooksForTesting(
+        confirmCommandAlertFactory: @escaping () -> NSAlert = { NSAlert() },
+        repoRootFallbackAlertFactory: @escaping () -> NSAlert = { NSAlert() },
+        commandSender: @escaping (TerminalPanel, String) -> Void = { terminal, text in
+            terminal.sendInput(text)
+        }
+    ) {
+        self.confirmCommandAlertFactory = confirmCommandAlertFactory
+        self.repoRootFallbackAlertFactory = repoRootFallbackAlertFactory
+        self.commandSender = commandSender
+    }
+
+    static func resetHooksForTesting() {
+        confirmCommandAlertFactory = { NSAlert() }
+        repoRootFallbackAlertFactory = { NSAlert() }
+        commandSender = { terminal, text in
+            terminal.sendInput(text)
+        }
+    }
+}
+#endif
