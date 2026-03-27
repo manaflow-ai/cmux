@@ -28,7 +28,10 @@ struct ScriptsMenuContent: View, Equatable {
 
     @ViewBuilder
     private var runScriptSubmenu: some View {
-        let isAtPrompt = Self.resolveActiveTabManager()?.selectedTab?.isFocusedPanelAtPrompt ?? false
+        // Read the published snapshot field rather than the live computed property so
+        // this menu builder does not trigger a rebuild — and menu dismissal — on every
+        // unrelated Workspace.objectWillChange during a running terminal process.
+        let isAtPrompt = Self.resolveActiveTabManager()?.selectedTab?.focusedPanelIsAtPrompt ?? false
         Menu(String(localized: "menu.scripts.runScript", defaultValue: "Run Script")) {
             ForEach(scriptNames, id: \.self) { scriptName in
                 Button(scriptName) {

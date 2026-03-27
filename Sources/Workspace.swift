@@ -59,7 +59,7 @@ func cmuxInheritedSurfaceConfig(
     return config
 }
 
-struct SidebarStatusEntry {
+struct SidebarStatusEntry: Equatable {
     let key: String
     let value: String
     let icon: String?
@@ -90,7 +90,7 @@ struct SidebarStatusEntry {
     }
 }
 
-struct SidebarMetadataBlock {
+struct SidebarMetadataBlock: Equatable {
     let key: String
     let markdown: String
     let priority: Int
@@ -4403,19 +4403,19 @@ enum SidebarLogLevel: String {
     case error
 }
 
-struct SidebarLogEntry {
+struct SidebarLogEntry: Equatable {
     let message: String
     let level: SidebarLogLevel
     let source: String?
     let timestamp: Date
 }
 
-struct SidebarProgressState {
+struct SidebarProgressState: Equatable {
     let value: Double
     let label: String?
 }
 
-struct SidebarGitBranchState {
+struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
 }
@@ -5085,6 +5085,16 @@ final class Workspace: Identifiable, ObservableObject {
         return formatter
     }()
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
+    /// Snapshot of isFocusedPanelAtPrompt published for stable menu rendering.
+    /// Updated by refreshFocusedPanelMenuState() at every mutation site that can
+    /// change which panel is focused or whether it is at a shell prompt.
+    @Published private(set) var focusedPanelIsAtPrompt: Bool = false
+    /// Snapshot of (focusedTerminalPanel != nil) published for stable menu rendering.
+    @Published private(set) var focusedPanelHasTerminal: Bool = false
+    /// Change-detected publisher of `TabItemDisplaySnapshot` for this workspace.
+    /// `TabItemView` observes this instead of `Workspace` directly, preventing
+    /// body re-evaluations when unrelated `@Published` properties (e.g. listeningPorts) fire.
+    lazy var displayPublisher: WorkspaceDisplayPublisher = WorkspaceDisplayPublisher(workspace: self)
     /// One-shot callback fired when a panel first reaches promptIdle.
     /// Keyed by panel ID. Removed after firing.
     var onPromptReady: [UUID: () -> Void] = [:]
@@ -5858,6 +5868,10 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+        // Refresh menu snapshot when the focused panel's shell state changes.
+        if panelId == focusedPanelId {
+            refreshFocusedPanelMenuState()
+        }
         // Fire one-shot prompt-ready callback
         if state == .promptIdle, let callback = onPromptReady.removeValue(forKey: panelId) {
             callback()
@@ -5868,6 +5882,14 @@ final class Workspace: Identifiable, ObservableObject {
     var isFocusedPanelAtPrompt: Bool {
         guard let panelId = focusedPanelId else { return false }
         return panelShellActivityStates[panelId] == .promptIdle
+    }
+
+    /// Refreshes the published shadow fields used by menu builders so they read stable
+    /// snapshots rather than live computed state during SwiftUI rendering.
+    /// Call after any mutation that can change the focused panel or its shell-activity state.
+    private func refreshFocusedPanelMenuState() {
+        focusedPanelIsAtPrompt = isFocusedPanelAtPrompt
+        focusedPanelHasTerminal = (focusedTerminalPanel != nil)
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -6071,6 +6093,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
+        refreshFocusedPanelMenuState()
     }
 
     func recomputeListeningPorts() {
@@ -6249,6 +6272,36 @@ final class Workspace: Identifiable, ObservableObject {
 
     var hasActiveRemoteTerminalSessions: Bool {
         activeRemoteTerminalSessionCount > 0
+    }
+
+    func computeDisplaySnapshot() -> TabItemDisplaySnapshot {
+        let panelIds = sidebarOrderedPanelIds()
+        return TabItemDisplaySnapshot(
+            title: title,
+            customTitle: customTitle,
+            isPinned: isPinned,
+            customColor: customColor,
+            hasChildren: hasChildren,
+            isCollapsed: isCollapsed,
+            hasStartupCommand: startupCommand != nil,
+            isAtPrompt: focusedPanelIsAtPrompt,
+            hasFocusedTerminalPanel: focusedPanelHasTerminal,
+            listeningPorts: listeningPorts,
+            orderedPanelIds: panelIds,
+            gitBranches: sidebarGitBranchesInDisplayOrder(orderedPanelIds: panelIds),
+            branchDirectoryEntries: sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: panelIds),
+            directories: sidebarDirectoriesInDisplayOrder(orderedPanelIds: panelIds),
+            pullRequests: sidebarPullRequestsInDisplayOrder(orderedPanelIds: panelIds),
+            statusEntries: sidebarStatusEntriesInDisplayOrder(),
+            metadataBlocks: sidebarMetadataBlocksInDisplayOrder(),
+            logEntries: logEntries,
+            progress: progress,
+            remoteConnectionState: remoteConnectionState,
+            remoteConnectionDetail: remoteConnectionDetail,
+            remoteDisplayTarget: remoteDisplayTarget,
+            hasActiveRemoteTerminalSessions: hasActiveRemoteTerminalSessions,
+            remoteStatusEntry: statusEntries["remote.error"]
+        )
     }
 
     func remoteStatusPayload() -> [String: Any] {
@@ -8260,6 +8313,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         gitBranch = panelGitBranches[targetPanelId]
         pullRequest = panelPullRequests[targetPanelId]
+        refreshFocusedPanelMenuState()
     }
 
     /// Reconcile focus/first-responder convergence.
@@ -9049,14 +9103,10 @@ extension Workspace: BonsplitDelegate {
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
 
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
+        // Mark the Close button as destructive so the system renders it with
+        // red text, fixing a contrast issue in dark mode.
+        if #available(macOS 12.0, *) {
+            alert.buttons[0].hasDestructiveAction = true
         }
 
         // Prefer a sheet if we can find a window, otherwise fall back to modal.
@@ -9285,6 +9335,8 @@ extension Workspace: BonsplitDelegate {
             "prevPanel=\(prevPanelShort)"
         )
 #endif
+        // Keep menu-state snapshots current whenever focused panel changes.
+        refreshFocusedPanelMenuState()
     }
 
     private func activatePanel(

@@ -41,6 +41,8 @@
 	<string></string>
 	<key>NSMainStoryboardFile</key>
 	<string></string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>cmux scans listening ports on your terminal processes to display active servers in the workspace sidebar.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>

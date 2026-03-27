@@ -4772,13 +4772,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         alert.addButton(withTitle: String(localized: "common.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
-        let alertWindow = alert.window
-        if let closeButton = alert.buttons.first {
-            alertWindow.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alertWindow.initialFirstResponder = closeButton
-            DispatchQueue.main.async {
-                _ = alertWindow.makeFirstResponder(closeButton)
-            }
+        // Mark the Close button as destructive so the system renders it with
+        // red text, fixing a contrast issue in dark mode.
+        if #available(macOS 12.0, *) {
+            alert.buttons[0].hasDestructiveAction = true
         }
 
         return alert.runModal() == .alertFirstButtonReturn
