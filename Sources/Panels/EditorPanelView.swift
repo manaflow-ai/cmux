@@ -149,9 +149,10 @@ struct NativeTextEditor: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
-        // Appearance
+        // Appearance — match terminal dark/light mode
         textView.drawsBackground = true
         textView.textContainerInset = NSSize(width: 8, height: 8)
+        applyTheme(to: textView, scrollView: scrollView)
 
         // Set initial content
         textView.string = panel.content
@@ -169,6 +170,38 @@ struct NativeTextEditor: NSViewRepresentable {
         // Only update if text changed externally (not from user typing)
         if textView.string != panel.content && !context.coordinator.isUpdatingFromTextView {
             textView.string = panel.content
+        }
+        // Reapply theme on appearance change (dark/light mode switch)
+        applyTheme(to: textView, scrollView: scrollView)
+    }
+
+    /// Apply theme colors matching the terminal.
+    /// Uses the window's effective appearance (falls back to dark).
+    private func applyTheme(to textView: NSTextView, scrollView: NSScrollView) {
+        let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            || textView.window == nil  // Before window attachment, assume dark (terminal default)
+        let bgColor = isDark
+            ? NSColor(white: 0.12, alpha: 1.0)
+            : NSColor(white: 0.98, alpha: 1.0)
+        let fgColor = isDark
+            ? NSColor(white: 0.9, alpha: 1.0)
+            : NSColor(white: 0.1, alpha: 1.0)
+
+        textView.backgroundColor = bgColor
+        textView.insertionPointColor = isDark ? .white : .black
+        scrollView.backgroundColor = bgColor
+
+        // Update text color for existing content + future typing
+        textView.textColor = fgColor
+        if let font = textView.font {
+            textView.typingAttributes = [.font: font, .foregroundColor: fgColor]
+        }
+        // Recolor existing text
+        if textView.string.count > 0 {
+            textView.textStorage?.addAttribute(
+                .foregroundColor, value: fgColor,
+                range: NSRange(location: 0, length: textView.string.count)
+            )
         }
     }
 
