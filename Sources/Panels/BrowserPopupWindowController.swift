@@ -100,10 +100,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
                 processPool: browserContextSource.processPool
             )
         }
+        openerPanel?.configurePasskeyAuthorizationBridge(on: configuration)
 
         // Create popup web view with WebKit's supplied configuration after
-        // overlaying the opener's browser context so OAuth popups keep cmux's
-        // shared cookie/storage scope and opener linkage.
+        // overlaying the opener's browser context so OAuth/WebAuthn popups keep
+        // cmux's shared cookie/storage scope and opener linkage.
         let webView = CmuxWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {

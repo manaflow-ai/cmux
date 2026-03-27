@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AuthenticationServices
 import WebKit
 import AppKit
 import Bonsplit
@@ -1717,6 +1718,300 @@ final class BrowserPortalAnchorView: NSView {
     }
 }
 
+private struct BrowserPasskeyAuthorizationRequest {
+    private static let allowedPurposes: Set<String> = [
+        "availability",
+        "conditional",
+        "assertion",
+        "registration",
+    ]
+
+    let purpose: String
+    let relyingParty: String?
+
+    init?(messageBody: Any) {
+        guard let body = messageBody as? [String: Any],
+              let rawPurpose = body["purpose"] as? String else {
+            return nil
+        }
+
+        let purpose = rawPurpose.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.allowedPurposes.contains(purpose) else { return nil }
+
+        self.purpose = purpose
+        if let relyingParty = body["relyingParty"] as? String {
+            let trimmed = relyingParty.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.relyingParty = trimmed.isEmpty ? nil : trimmed
+        } else {
+            self.relyingParty = nil
+        }
+    }
+}
+
+private struct BrowserPasskeyAuthorizationReply {
+    let state: String
+    let prompted: Bool
+
+    var authorized: Bool {
+        state == "authorized"
+    }
+
+    var jsValue: [String: Any] {
+        [
+            "state": state,
+            "authorized": authorized,
+            "prompted": prompted,
+        ]
+    }
+}
+
+@MainActor
+private final class BrowserPasskeyAuthorizationManager {
+    static let shared = BrowserPasskeyAuthorizationManager()
+
+    private let credentialManager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
+    private var authorizationTask: Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never>?
+
+    private init() {}
+
+    var authorizationStateForPlatformCredentials: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
+        credentialManager.authorizationStateForPlatformCredentials
+    }
+
+    func requestAuthorizationIfNeeded() async -> ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
+        if let authorizationTask {
+            return await authorizationTask.value
+        }
+
+        let task = Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never> {
+            await withCheckedContinuation { continuation in
+                credentialManager.requestAuthorizationForPublicKeyCredentials { state in
+                    continuation.resume(returning: state)
+                }
+            }
+        }
+
+        authorizationTask = task
+        let state = await task.value
+        authorizationTask = nil
+        return state
+    }
+}
+
+@MainActor
+private final class BrowserPasskeyAuthorizationCoordinator: NSObject, WKScriptMessageHandlerWithReply {
+    weak var panel: BrowserPanel?
+
+    private let authorizationManager = BrowserPasskeyAuthorizationManager.shared
+
+    init(panel: BrowserPanel) {
+        self.panel = panel
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard let request = BrowserPasskeyAuthorizationRequest(messageBody: message.body) else {
+            replyHandler(nil, "Invalid WebAuthn authorization request")
+            return
+        }
+        guard isTrustedAuthorizationRequest(message) else {
+            replyHandler(nil, "WebAuthn authorization is unavailable for this frame")
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else {
+                replyHandler(nil, "Browser panel unavailable")
+                return
+            }
+
+            let reply = await authorizationReply(for: request)
+            replyHandler(reply.jsValue, nil)
+        }
+    }
+
+    private func isTrustedAuthorizationRequest(_ message: WKScriptMessage) -> Bool {
+        let frameOrigin = message.frameInfo.securityOrigin
+        guard isPotentiallyTrustworthy(frameOrigin) else { return false }
+
+        guard let mainDocumentURL = message.frameInfo.request.mainDocumentURL ?? message.webView?.url else {
+            return false
+        }
+        guard isPotentiallyTrustworthy(mainDocumentURL) else { return false }
+        return matchesOrigin(frameOrigin, url: mainDocumentURL)
+    }
+
+    private func isPotentiallyTrustworthy(_ origin: WKSecurityOrigin) -> Bool {
+        let scheme = origin.protocol.lowercased()
+        if scheme == "https" {
+            return true
+        }
+        guard scheme == "http" else { return false }
+        return isLoopbackHost(origin.host)
+    }
+
+    private func isPotentiallyTrustworthy(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if scheme == "https" {
+            return true
+        }
+        guard scheme == "http", let host = url.host else { return false }
+        return isLoopbackHost(host)
+    }
+
+    private func isLoopbackHost(_ host: String) -> Bool {
+        let normalizedHost = normalizedHost(host)
+        let octets = normalizedHost.split(separator: ".", omittingEmptySubsequences: false)
+        let is127Loopback = octets.count == 4
+            && octets[0] == "127"
+            && octets.allSatisfy { component in
+                guard let value = Int(component) else { return false }
+                return (0...255).contains(value)
+            }
+
+        return normalizedHost == "localhost"
+            || normalizedHost.hasSuffix(".localhost")
+            || is127Loopback
+            || normalizedHost == "::1"
+    }
+
+    private func matchesOrigin(_ origin: WKSecurityOrigin, url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(),
+              let host = url.host else {
+            return false
+        }
+        return origin.protocol.lowercased() == scheme
+            && normalizedHost(origin.host) == normalizedHost(host)
+            && normalizedPort(for: origin) == normalizedPort(for: url)
+    }
+
+    private func normalizedHost(_ host: String) -> String {
+        var normalized = host.lowercased()
+        if normalized.hasPrefix("[") && normalized.hasSuffix("]") {
+            normalized.removeFirst()
+            normalized.removeLast()
+        }
+        if normalized.hasSuffix(".") {
+            normalized.removeLast()
+        }
+        return normalized
+    }
+
+    private func normalizedPort(for origin: WKSecurityOrigin) -> Int {
+        if origin.port > 0 {
+            return origin.port
+        }
+        switch origin.protocol.lowercased() {
+        case "http":
+            return 80
+        case "https":
+            return 443
+        default:
+            return origin.port
+        }
+    }
+
+    private func normalizedPort(for url: URL) -> Int {
+        if let port = url.port {
+            return port
+        }
+        switch url.scheme?.lowercased() {
+        case "http":
+            return 80
+        case "https":
+            return 443
+        default:
+            return 0
+        }
+    }
+
+    private func authorizationReply(
+        for request: BrowserPasskeyAuthorizationRequest
+    ) async -> BrowserPasskeyAuthorizationReply {
+        switch authorizationManager.authorizationStateForPlatformCredentials {
+        case .authorized:
+            return makeReply(
+                state: .authorized,
+                prompted: false,
+                request: request
+            )
+        case .denied:
+            return makeReply(
+                state: .denied,
+                prompted: false,
+                request: request
+            )
+        case .notDetermined:
+            let state = await authorizationManager.requestAuthorizationIfNeeded()
+            return makeReply(
+                state: state,
+                prompted: true,
+                request: request
+            )
+        @unknown default:
+            return makeUnknownReply(prompted: false, request: request)
+        }
+    }
+
+    private func makeReply(
+        state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
+        prompted: Bool,
+        request: BrowserPasskeyAuthorizationRequest
+    ) -> BrowserPasskeyAuthorizationReply {
+        let reply = BrowserPasskeyAuthorizationReply(
+            state: authorizationStateLabel(state),
+            prompted: prompted
+        )
+        log(request: request, reply: reply)
+        return reply
+    }
+
+    private func makeUnknownReply(
+        prompted: Bool,
+        request: BrowserPasskeyAuthorizationRequest
+    ) -> BrowserPasskeyAuthorizationReply {
+        let reply = BrowserPasskeyAuthorizationReply(
+            state: "unknown",
+            prompted: prompted
+        )
+        log(request: request, reply: reply)
+        return reply
+    }
+
+    private func authorizationStateLabel(
+        _ state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState
+    ) -> String {
+        switch state {
+        case .authorized:
+            return "authorized"
+        case .denied:
+            return "denied"
+        case .notDetermined:
+            return "notDetermined"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func log(
+        request: BrowserPasskeyAuthorizationRequest,
+        reply: BrowserPasskeyAuthorizationReply
+    ) {
+        #if DEBUG
+        let panelID = panel?.id.uuidString.prefix(5) ?? "nil"
+        let relyingParty = request.relyingParty ?? "nil"
+        dlog(
+            "browser.passkey.auth " +
+            "panel=\(panelID) purpose=\(request.purpose) rp=\(relyingParty) " +
+            "state=\(reply.state) prompted=\(reply.prompted ? 1 : 0)"
+        )
+        #endif
+    }
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
@@ -1729,9 +2024,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private static let passkeyAuthorizationMessageHandlerName = "cmuxPasskeyAuthorization"
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
+    private lazy var passkeyAuthorizationCoordinator = BrowserPasskeyAuthorizationCoordinator(panel: self)
 
     static let telemetryHookBootstrapScriptSource = """
     (() => {
@@ -1788,6 +2085,203 @@ final class BrowserPanel: Panel, ObservableObject {
       return true;
     })()
     """
+
+    // WKWebView resolves WebAuthn challenges itself on macOS, but browser-style
+    // access to passkeys is gated by AuthenticationServices authorization.
+    // Request that authorization before pages probe or invoke WebAuthn so sites
+    // like GitHub stop reporting partial passkey support.
+    private static var passkeyAuthorizationBootstrapScriptSource: String {
+        let handlerName = Self.passkeyAuthorizationMessageHandlerName
+        return """
+    (() => {
+      if (window.__cmuxPasskeyHooksInstalled) return true;
+      window.__cmuxPasskeyHooksInstalled = true;
+
+      const nativeHandler = () => {
+        try {
+          const handlers = window.webkit && window.webkit.messageHandlers;
+          const handler = handlers && handlers["\(handlerName)"];
+          return handler && typeof handler.postMessage === "function" ? handler : null;
+        } catch (_) {
+          return null;
+        }
+      };
+
+      const canRequestPasskeyAuthorization = () => {
+        try {
+          return !!window.isSecureContext && !!location && typeof location.hostname === "string" && location.hostname.length > 0;
+        } catch (_) {
+          return false;
+        }
+      };
+
+      const relyingPartyForOptions = (options) => {
+        try {
+          const publicKey = options && options.publicKey;
+          if (!publicKey || typeof publicKey !== "object") return null;
+          if (typeof publicKey.rpId === "string" && publicKey.rpId.length > 0) return publicKey.rpId;
+          const rp = publicKey.rp;
+          if (rp && typeof rp.id === "string" && rp.id.length > 0) return rp.id;
+        } catch (_) {}
+        return null;
+      };
+
+      const ensureAuthorization = async (purpose, options) => {
+        if (!canRequestPasskeyAuthorization()) {
+          return { state: "skipped", authorized: false, fallback: true };
+        }
+
+        const handler = nativeHandler();
+        if (!handler) {
+          return { state: "unavailable", authorized: false, fallback: true };
+        }
+
+        try {
+          const reply = await handler.postMessage({
+            purpose,
+            relyingParty: relyingPartyForOptions(options) || location.hostname || null
+          });
+          if (!reply || typeof reply !== "object") {
+            return { state: "unknown", authorized: false, fallback: true };
+          }
+          return reply;
+        } catch (_) {
+          return { state: "error", authorized: false, fallback: true };
+        }
+      };
+
+      const requestMayUsePlatformAuthenticator = (purpose, options) => {
+        if (purpose === "availability" || purpose === "conditional") {
+          return true;
+        }
+
+        try {
+          if (purpose === "registration") {
+            const selection = options && options.publicKey && options.publicKey.authenticatorSelection;
+            const attachment = selection && selection.authenticatorAttachment;
+            if (attachment === "cross-platform") return false;
+            return true;
+          }
+
+          if (purpose === "assertion") {
+            if (options && options.mediation === "conditional") {
+              return true;
+            }
+
+            const allowCredentials = options && options.publicKey && options.publicKey.allowCredentials;
+            if (!Array.isArray(allowCredentials) || allowCredentials.length === 0) {
+              return true;
+            }
+
+            return allowCredentials.some((credential) => {
+              const transports = credential && credential.transports;
+              if (!Array.isArray(transports) || transports.length === 0) {
+                return true;
+              }
+              return transports.includes("internal");
+            });
+          }
+        } catch (_) {}
+
+        return true;
+      };
+
+      const requestRequiresPlatformAuthenticator = (purpose, options) => {
+        if (purpose === "availability" || purpose === "conditional") {
+          return true;
+        }
+
+        try {
+          if (purpose === "registration") {
+            const selection = options && options.publicKey && options.publicKey.authenticatorSelection;
+            return !!selection && selection.authenticatorAttachment === "platform";
+          }
+
+          if (purpose === "assertion") {
+            if (options && options.mediation === "conditional") {
+              return true;
+            }
+
+            const allowCredentials = options && options.publicKey && options.publicKey.allowCredentials;
+            if (!Array.isArray(allowCredentials) || allowCredentials.length === 0) {
+              return false;
+            }
+
+            return allowCredentials.every((credential) => {
+              const transports = credential && credential.transports;
+              return Array.isArray(transports)
+                && transports.length > 0
+                && transports.every((transport) => transport === "internal");
+            });
+          }
+        } catch (_) {}
+
+        return false;
+      };
+
+      const throwNotAllowedError = (message) => {
+        if (typeof DOMException === "function") {
+          throw new DOMException(message, "NotAllowedError");
+        }
+        const error = new Error(message);
+        error.name = "NotAllowedError";
+        throw error;
+      };
+
+      if (typeof PublicKeyCredential !== "undefined") {
+        if (typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === "function") {
+          const originalUVPA = PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable.bind(PublicKeyCredential);
+          PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = async function(...args) {
+            const authorization = await ensureAuthorization("availability", null);
+            if (authorization.state === "denied") return false;
+            return await originalUVPA(...args);
+          };
+        }
+
+        if (typeof PublicKeyCredential.isConditionalMediationAvailable === "function") {
+          const originalConditional = PublicKeyCredential.isConditionalMediationAvailable.bind(PublicKeyCredential);
+          PublicKeyCredential.isConditionalMediationAvailable = async function(...args) {
+            const authorization = await ensureAuthorization("conditional", null);
+            if (authorization.state === "denied") return false;
+            return await originalConditional(...args);
+          };
+        }
+      }
+
+      if (navigator.credentials) {
+        if (typeof navigator.credentials.get === "function") {
+          const originalGet = navigator.credentials.get.bind(navigator.credentials);
+          navigator.credentials.get = async function(...args) {
+            const options = args[0];
+            if (options && options.publicKey && requestMayUsePlatformAuthenticator("assertion", options)) {
+              const authorization = await ensureAuthorization("assertion", options);
+              if (authorization.state === "denied" && requestRequiresPlatformAuthenticator("assertion", options)) {
+                throwNotAllowedError("Browser access to passkeys was denied.");
+              }
+            }
+            return await originalGet(...args);
+          };
+        }
+
+        if (typeof navigator.credentials.create === "function") {
+          const originalCreate = navigator.credentials.create.bind(navigator.credentials);
+          navigator.credentials.create = async function(...args) {
+            const options = args[0];
+            if (options && options.publicKey && requestMayUsePlatformAuthenticator("registration", options)) {
+              const authorization = await ensureAuthorization("registration", options);
+              if (authorization.state === "denied" && requestRequiresPlatformAuthenticator("registration", options)) {
+                throwNotAllowedError("Browser access to passkeys was denied.");
+              }
+            }
+            return await originalCreate(...args);
+          };
+        }
+      }
+
+      return true;
+    })();
+    """
+    }
 
     static let dialogTelemetryHookBootstrapScriptSource = """
     (() => {
@@ -2476,6 +2970,28 @@ final class BrowserPanel: Panel, ObservableObject {
         return webView
     }
 
+    func configurePasskeyAuthorizationBridge(on configuration: WKWebViewConfiguration) {
+        let userContentController = configuration.userContentController
+        if !userContentController.userScripts.contains(where: { $0.source == Self.passkeyAuthorizationBootstrapScriptSource }) {
+            userContentController.addUserScript(
+                WKUserScript(
+                    source: Self.passkeyAuthorizationBootstrapScriptSource,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false
+                )
+            )
+        }
+        userContentController.removeScriptMessageHandler(
+            forName: Self.passkeyAuthorizationMessageHandlerName,
+            contentWorld: .page
+        )
+        userContentController.addScriptMessageHandler(
+            passkeyAuthorizationCoordinator,
+            contentWorld: .page,
+            name: Self.passkeyAuthorizationMessageHandlerName
+        )
+    }
+
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore,
@@ -2517,6 +3033,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func bindWebView(_ webView: CmuxWebView) {
+        configurePasskeyAuthorizationBridge(on: webView.configuration)
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
                 self?.beginDownloadActivity()
