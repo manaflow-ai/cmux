@@ -325,9 +325,9 @@
       "fieldKeywords": "命令面板的额外搜索词",
       "fieldCommand": "在聚焦终端中运行的 shell 命令",
       "fieldConfirm": "运行前显示确认对话框",
-      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
-      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
-      "simpleCommandCwdCustomPath": "for any specific directory.",
+      "simpleCommandCwdNote": "简单命令默认会在当前聚焦终端的当前工作目录中运行。设置",
+      "simpleCommandCwdRepoRoot": "后，如可用，将从当前工作区的 git 仓库根目录运行；若要在特定目录中运行，请在命令前加上",
+      "simpleCommandCwdCustomPath": "。",
       "workspaceCommands": "工作区命令",
       "workspaceCommandsDesc": "工作区命令会创建一个新工作区，具有自定义的分屏、终端和浏览器面板布局：",
       "workspaceFields": "工作区字段",
@@ -365,7 +365,7 @@
       "absolutePath": "绝对路径",
       "cwdAbsolute": "按原样使用",
       "fullExample": "完整示例",
-      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
+      "fieldRepoRoot": "在可用时从当前工作区的 git 仓库根目录运行命令"
     },
     "keyboardShortcuts": {
       "title": "快捷键",

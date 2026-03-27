@@ -325,9 +325,9 @@
       "fieldKeywords": "Komut paleti için ekstra arama terimleri",
       "fieldCommand": "Odaklanılan terminalde çalıştırılacak shell komutu",
       "fieldConfirm": "Çalıştırmadan önce onay iletişim kutusu göster",
-      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
-      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
-      "simpleCommandCwdCustomPath": "for any specific directory.",
+      "simpleCommandCwdNote": "Basit komutlar varsayılan olarak odaktaki terminalin geçerli çalışma dizininde çalışır. Şunu ayarlayın:",
+      "simpleCommandCwdRepoRoot": "komutu, varsa geçerli çalışma alanının git depo kökünden çalıştırmak için veya belirli bir dizin için komutunuzun başına",
+      "simpleCommandCwdCustomPath": "ekleyin.",
       "workspaceCommands": "Workspace komutları",
       "workspaceCommandsDesc": "Bir workspace komutu, bölünmeler, terminaller ve tarayıcı panellerinin özel düzeniyle yeni bir workspace oluşturur:",
       "workspaceFields": "Workspace alanları",
@@ -365,7 +365,7 @@
       "absolutePath": "Mutlak yol",
       "cwdAbsolute": "olduğu gibi kullanılır",
       "fullExample": "Tam örnek",
-      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
+      "fieldRepoRoot": "Komutu, varsa geçerli çalışma alanının git depo kökünden çalıştır"
     },
     "keyboardShortcuts": {
       "title": "Klavye Kısayolları",

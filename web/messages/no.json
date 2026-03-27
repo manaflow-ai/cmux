@@ -325,9 +325,9 @@
       "fieldKeywords": "Ekstra søkeord for kommandopaletten",
       "fieldCommand": "Shell-kommando som kjøres i den fokuserte terminalen",
       "fieldConfirm": "Vis en bekreftelsesdialog før kjøring",
-      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
-      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
-      "simpleCommandCwdCustomPath": "for any specific directory.",
+      "simpleCommandCwdNote": "Enkle kommandoer kjører som standard i den gjeldende arbeidskatalogen til den fokuserte terminalen. Sett",
+      "simpleCommandCwdRepoRoot": "for å kjøre den fra git-rotmappen til det gjeldende arbeidsområdet når den er tilgjengelig, eller prefiks kommandoen med",
+      "simpleCommandCwdCustomPath": "for en bestemt katalog.",
       "workspaceCommands": "Workspace-kommandoer",
       "workspaceCommandsDesc": "En workspace-kommando oppretter et nytt workspace med et egendefinert oppsett av delinger, terminaler og nettleserpaneler:",
       "workspaceFields": "Workspace-felter",
@@ -365,7 +365,7 @@
       "absolutePath": "Absolutt sti",
       "cwdAbsolute": "brukes som den er",
       "fullExample": "Fullstendig eksempel",
-      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
+      "fieldRepoRoot": "Kjør kommandoen fra git-rotmappen til det gjeldende arbeidsområdet når den er tilgjengelig"
     },
     "keyboardShortcuts": {
       "title": "Tastatursnarveier",

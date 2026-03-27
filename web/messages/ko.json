@@ -325,9 +325,9 @@
       "fieldKeywords": "명령어 팔레트용 추가 검색어",
       "fieldCommand": "포커스된 터미널에서 실행할 셸 명령어",
       "fieldConfirm": "실행 전 확인 대화상자 표시",
-      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
-      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
-      "simpleCommandCwdCustomPath": "for any specific directory.",
+      "simpleCommandCwdNote": "간단한 명령은 기본적으로 포커스된 터미널의 현재 작업 디렉터리에서 실행됩니다.",
+      "simpleCommandCwdRepoRoot": "을 설정하면 가능할 때 현재 워크스페이스의 git 저장소 루트에서 실행되며, 특정 디렉터리에서 실행하려면 명령 앞에",
+      "simpleCommandCwdCustomPath": "를 붙이세요.",
       "workspaceCommands": "워크스페이스 명령어",
       "workspaceCommandsDesc": "워크스페이스 명령어는 분할, 터미널, 브라우저 패널의 사용자 정의 레이아웃으로 새 워크스페이스를 만듭니다:",
       "workspaceFields": "워크스페이스 필드",
@@ -365,7 +365,7 @@
       "absolutePath": "절대 경로",
       "cwdAbsolute": "있는 그대로 사용",
       "fullExample": "전체 예시",
-      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
+      "fieldRepoRoot": "가능할 때 현재 워크스페이스의 git 저장소 루트에서 명령 실행"
     },
     "keyboardShortcuts": {
       "title": "키보드 단축키",
