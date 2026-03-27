@@ -63,3 +63,46 @@ for entry in manifest["entries"]:
 
 print("PASS: remote daemon release assets include all targets and manifest entries")
 PY
+
+# ------------------------------------------------------------------
+# Test with --asset-suffix (nightly-style immutable asset names)
+# ------------------------------------------------------------------
+SUFFIX_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-remote-assets-suffix-test.XXXXXX")"
+trap 'rm -rf "$OUTPUT_DIR" "$SUFFIX_DIR"' EXIT
+
+"$ROOT_DIR/scripts/build_remote_daemon_release_assets.sh" \
+  --version "0.62.0-nightly.123456" \
+  --release-tag "nightly" \
+  --repo "manaflow-ai/cmux" \
+  --output-dir "$SUFFIX_DIR" \
+  --asset-suffix "123456" >/dev/null
+
+for asset in \
+  cmuxd-remote-darwin-arm64-123456 \
+  cmuxd-remote-darwin-amd64-123456 \
+  cmuxd-remote-linux-arm64-123456 \
+  cmuxd-remote-linux-amd64-123456 \
+  cmuxd-remote-checksums-123456.txt \
+  cmuxd-remote-manifest-123456.json
+do
+  if [[ ! -f "$SUFFIX_DIR/$asset" ]]; then
+    echo "FAIL: missing suffixed asset $asset" >&2
+    exit 1
+  fi
+done
+
+python3 - <<'PY' "$SUFFIX_DIR/cmuxd-remote-manifest-123456.json"
+import json
+import sys
+from pathlib import Path
+
+manifest = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+
+for entry in manifest["entries"]:
+    if not entry["assetName"].endswith("-123456"):
+        raise SystemExit(f"FAIL: suffixed asset name missing suffix: {entry['assetName']}")
+    if not entry["downloadURL"].endswith("/" + entry["assetName"]):
+        raise SystemExit(f"FAIL: downloadURL mismatch for {entry['assetName']}")
+
+print("PASS: --asset-suffix produces correctly suffixed assets and manifest entries")
+PY

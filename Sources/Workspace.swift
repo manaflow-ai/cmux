@@ -4146,7 +4146,29 @@ final class WorkspaceRemoteSessionController {
             .appendingPathComponent("cmuxd-remote", isDirectory: false)
     }
 
-    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String) throws -> URL {
+    /// Fetch the live manifest JSON from the release, returning nil on any failure.
+    private static func fetchRemoteManifestLocked(releaseURL: String, version: String) -> WorkspaceRemoteDaemonManifest? {
+        guard let manifestURL = URL(string: "\(releaseURL)/cmuxd-remote-manifest.json") else { return nil }
+        let request = NSMutableURLRequest(url: manifestURL)
+        request.timeoutInterval = 15
+        request.setValue("cmux/\(version)", forHTTPHeaderField: "User-Agent")
+        let session = URLSession(configuration: .ephemeral)
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultData: Data?
+        session.dataTask(with: request as URLRequest) { data, response, error in
+            defer { semaphore.signal() }
+            guard error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else { return }
+            resultData = data
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 20.0)
+        session.finishTasksAndInvalidate()
+        guard let data = resultData else { return nil }
+        return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
+    }
+
+    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String, releaseURL: String? = nil) throws -> URL {
         guard let url = URL(string: entry.downloadURL) else {
             throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon manifest has an invalid download URL",
@@ -4193,10 +4215,21 @@ final class WorkspaceRemoteSessionController {
         }
 
         let downloadedSHA = try Self.sha256Hex(forFile: downloadedURL)
-        guard downloadedSHA == entry.sha256.lowercased() else {
-            throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
-                NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
-            ])
+        if downloadedSHA != entry.sha256.lowercased() {
+            // The embedded manifest's checksum doesn't match the downloaded binary.
+            // This can happen when a newer nightly overwrites the shared release
+            // asset after this build's manifest was embedded. As a fallback, fetch
+            // the live manifest from the release and verify against that.
+            if let releaseURL,
+               let liveManifest = Self.fetchRemoteManifestLocked(releaseURL: releaseURL, version: version),
+               let liveEntry = liveManifest.entry(goOS: entry.goOS, goArch: entry.goArch),
+               downloadedSHA == liveEntry.sha256.lowercased() {
+                debugLog("remote.download.checksum-fallback: embedded manifest checksum stale, live manifest matched for \(entry.assetName)")
+            } else {
+                throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
+                ])
+            }
         }
 
         let tempURL = cacheURL.deletingLastPathComponent()
@@ -4229,7 +4262,7 @@ final class WorkspaceRemoteSessionController {
                 }
                 try? FileManager.default.removeItem(at: cacheURL)
             }
-            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion)
+            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion, releaseURL: manifest.releaseURL)
             debugLog("remote.build.downloaded path=\(downloadedURL.path)")
             return downloadedURL
         }
