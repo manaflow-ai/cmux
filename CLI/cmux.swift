@@ -10370,15 +10370,18 @@ struct CMUXCLI {
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
             // select-layout -t accepts pane targets (e.g. %1) in real tmux.
-            // Resolve via pane first, fall back to workspace target.
+            // Try pane target first, then workspace target. Only fall back to
+            // the caller's current workspace when no -t was provided; an
+            // explicit -t that fails to resolve should error, not silently
+            // apply to the wrong workspace.
             let workspaceId: String = {
-                if let target = parsed.value("-t"),
-                   let resolved = try? tmuxResolvePaneTarget(target, client: client) {
-                    return resolved.workspaceId
+                if let target = parsed.value("-t") {
+                    if let resolved = try? tmuxResolvePaneTarget(target, client: client) {
+                        return resolved.workspaceId
+                    }
+                    return (try? tmuxResolveWorkspaceTarget(target, client: client)) ?? ""
                 }
-                return (try? tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client))
-                    ?? (try? tmuxResolveWorkspaceTarget(nil, client: client))
-                    ?? ""
+                return (try? tmuxResolveWorkspaceTarget(nil, client: client)) ?? ""
             }()
             guard !workspaceId.isEmpty else {
                 throw CLIError(message: "Could not resolve workspace for select-layout")
