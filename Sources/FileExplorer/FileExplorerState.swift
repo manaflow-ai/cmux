@@ -17,6 +17,9 @@ final class FileExplorerState: ObservableObject {
     /// The top-level nodes of the file tree.
     @Published private(set) var rootNodes: [FileExplorerNode] = []
 
+    /// Git status for files in the current directory (keyed by node.id / relative path).
+    @Published private(set) var gitStatusMap: [String: GitFileStatus] = [:]
+
     /// Whether hidden files are shown.
     @Published var showHidden: Bool {
         didSet {
@@ -147,6 +150,16 @@ final class FileExplorerState: ObservableObject {
 
     private func reload(at url: URL) {
         rootNodes = FileExplorerNode.scanDirectory(at: url, relativeTo: url, showHidden: showHidden)
+        refreshGitStatus(for: url)
+    }
+
+    private func refreshGitStatus(for url: URL) {
+        DispatchQueue.global(qos: .utility).async {
+            let statusMap = GitStatusProvider.fetchStatus(in: url)
+            DispatchQueue.main.async { [weak self] in
+                self?.gitStatusMap = statusMap
+            }
+        }
     }
 
     private func toggleExpandedInPlace(

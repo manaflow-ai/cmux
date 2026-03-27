@@ -196,6 +196,18 @@ private struct FileExplorerRow: View {
         return isHovered ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.15) : .clear
     }
 
+    /// File name color based on git status.
+    private var nameColor: Color {
+        guard let status = state.gitStatusMap[node.id] else { return .primary }
+        switch status {
+        case .modified: return .orange
+        case .added: return .green
+        case .deleted: return .red
+        case .renamed: return .blue
+        case .untracked: return Color(nsColor: NSColor(white: 0.5, alpha: 1.0))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // The row itself
@@ -221,18 +233,22 @@ private struct FileExplorerRow: View {
                     .foregroundStyle(node.isDirectory ? .blue : .secondary)
                     .frame(width: 14)
 
-                // Name
+                // Name (colored by git status)
                 Text(node.name)
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(nameColor)
 
                 Spacer()
             }
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .background(rowBackground)
+            .onDrag {
+                // Drag file URL to terminal — inserts shell-escaped path
+                NSItemProvider(object: node.url as NSURL)
+            }
             .onHover { hovering in
                 isHovered = hovering
             }
