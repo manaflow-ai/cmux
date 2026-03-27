@@ -1127,13 +1127,14 @@ final class TerminalNotificationStore: ObservableObject {
         )
 
         // Italic: *text* or _text_
+        // Word-boundary assertions prevent matching inside identifiers like CMUX_NOTIFICATION_BODY.
         result = result.replacingOccurrences(
-            of: #"\*(.+?)\*"#,
+            of: #"(?<!\w)\*(.+?)\*(?!\w)"#,
             with: "$1",
             options: .regularExpression
         )
         result = result.replacingOccurrences(
-            of: #"_(.+?)_"#,
+            of: #"(?<!\w)_(.+?)_(?!\w)"#,
             with: "$1",
             options: .regularExpression
         )
