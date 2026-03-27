@@ -2543,6 +2543,9 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+        if groupForWorkspace(tabId) != nil {
+            return false
+        }
         guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         if tabs.count <= 1 { return true }
 
@@ -5819,11 +5822,12 @@ extension TabManager {
             // v1 migration: populate sidebarOrder from tabs
             sidebarOrder = tabs.map { .workspace($0.id) }
         } else if snapshot.sidebarOrder.isEmpty {
-            // Has groups but missing sidebarOrder — rebuild from tabs + groups
-            sidebarOrder = tabs.filter { groupForWorkspace($0.id) == nil }.map { .workspace($0.id) }
-            for group in groups {
-                sidebarOrder.append(.group(group.id))
-            }
+            // Has groups but missing sidebarOrder — rebuild top-level placement
+            // from the restored workspace order and first grouped-member occurrence.
+            sidebarOrder = SessionTabManagerSnapshot.reconstructedSidebarOrder(
+                workspaces: Array(workspaceSnapshots),
+                groups: snapshot.groups
+            )
         } else {
             let groupedWsIds = Set(groups.flatMap(\.workspaceIds))
             sidebarOrder = snapshot.sidebarOrder.filter { item in

@@ -8876,6 +8876,14 @@ struct VerticalTabsSidebar: View {
             groupDropIndicator = nil
             interactionController.clearInteractionState()
         }
+        .onReceive(tabManager.$tabs) { tabs in
+            let existingWorkspaceIds = Set(tabs.map(\.id))
+            draggedTabId = draggedTabId.flatMap { existingWorkspaceIds.contains($0) ? $0 : nil }
+        }
+        .onReceive(tabManager.$groups) { groups in
+            let existingGroupIds = Set(groups.map(\.id))
+            draggedGroupId = draggedGroupId.flatMap { existingGroupIds.contains($0) ? $0 : nil }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

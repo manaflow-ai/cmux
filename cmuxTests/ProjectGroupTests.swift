@@ -575,6 +575,21 @@ final class GroupAwareLifecycleTests: XCTestCase {
 
         XCTAssertEqual(group.workspaceIds, [ws2.id, ws3.id, ws1.id])
     }
+
+    func testReorderWorkspaceRejectsGroupedWorkspace() {
+        let manager = TabManager()
+        let group = manager.createGroup(name: "Test")
+        let groupedWorkspace = manager.tabs[0]
+        let trailingWorkspace = manager.addWorkspace(select: false)
+        manager.addWorkspaceToGroup(groupedWorkspace.id, to: group.id)
+
+        let originalTabs = manager.tabs.map(\.id)
+
+        XCTAssertFalse(manager.reorderWorkspace(tabId: groupedWorkspace.id, toIndex: 1))
+        XCTAssertEqual(manager.tabs.map(\.id), originalTabs)
+        XCTAssertEqual(group.workspaceIds, [groupedWorkspace.id])
+        XCTAssertEqual(trailingWorkspace.id, manager.tabs.last?.id)
+    }
 }
 
 // MARK: - Group Session Snapshot Tests
@@ -654,5 +669,97 @@ final class GroupSessionSnapshotTests: XCTestCase {
         manager.restoreSessionSnapshot(snapshot)
         XCTAssertEqual(manager.groups.count, 1, "Group should be restored even with stale workspace IDs")
         XCTAssertTrue(manager.groups[0].workspaceIds.isEmpty, "Stale workspace ID should be pruned")
+    }
+
+    func testDecodeGroupedSnapshotWithoutSidebarOrderPreservesInterleaving() throws {
+        let leadingWorkspace = SessionWorkspaceSnapshot(
+            id: UUID(),
+            processTitle: "Leading",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let groupedWorkspaceA = SessionWorkspaceSnapshot(
+            id: UUID(),
+            processTitle: "Grouped A",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let trailingWorkspace = SessionWorkspaceSnapshot(
+            id: UUID(),
+            processTitle: "Trailing",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let groupedWorkspaceB = SessionWorkspaceSnapshot(
+            id: UUID(),
+            processTitle: "Grouped B",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp",
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        let groupSnapshot = SessionGroupSnapshot(
+            id: UUID(),
+            name: "Backend",
+            color: nil,
+            isCollapsed: false,
+            workspaceIds: [groupedWorkspaceA.id, groupedWorkspaceB.id]
+        )
+        let snapshot = SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [leadingWorkspace, groupedWorkspaceA, trailingWorkspace, groupedWorkspaceB],
+            groups: [groupSnapshot],
+            sidebarOrder: [.workspace(leadingWorkspace.id), .group(groupSnapshot.id), .workspace(trailingWorkspace.id)]
+        )
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        var jsonObject = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        jsonObject.removeValue(forKey: "sidebarOrder")
+        let missingSidebarOrderData = try JSONSerialization.data(withJSONObject: jsonObject)
+
+        let decoded = try JSONDecoder().decode(SessionTabManagerSnapshot.self, from: missingSidebarOrderData)
+        XCTAssertEqual(decoded.sidebarOrder, [.workspace(leadingWorkspace.id), .group(groupSnapshot.id), .workspace(trailingWorkspace.id)])
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(decoded)
+        XCTAssertEqual(restored.sidebarOrder, [.workspace(leadingWorkspace.id), .group(groupSnapshot.id), .workspace(trailingWorkspace.id)])
+        XCTAssertEqual(
+            restored.orderedSidebarWorkspaceIds(),
+            [leadingWorkspace.id, groupedWorkspaceA.id, groupedWorkspaceB.id, trailingWorkspace.id]
+        )
     }
 }

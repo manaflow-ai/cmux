@@ -441,12 +441,47 @@ extension SessionTabManagerSnapshot {
         case sidebarOrder
     }
 
+    static func reconstructedSidebarOrder(
+        workspaces: [SessionWorkspaceSnapshot],
+        groups: [SessionGroupSnapshot]
+    ) -> [SidebarOrderItem] {
+        guard !groups.isEmpty else { return [] }
+
+        let groupIdByWorkspaceId = groups.reduce(into: [UUID: UUID]()) { result, group in
+            for workspaceId in group.workspaceIds {
+                result[workspaceId] = group.id
+            }
+        }
+
+        var sidebarOrder: [SidebarOrderItem] = []
+        var seenGroupIds = Set<UUID>()
+        for workspace in workspaces {
+            if let groupId = groupIdByWorkspaceId[workspace.id] {
+                if seenGroupIds.insert(groupId).inserted {
+                    sidebarOrder.append(.group(groupId))
+                }
+            } else {
+                sidebarOrder.append(.workspace(workspace.id))
+            }
+        }
+
+        for group in groups where seenGroupIds.insert(group.id).inserted {
+            sidebarOrder.append(.group(group.id))
+        }
+
+        return sidebarOrder
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         selectedWorkspaceIndex = try container.decodeIfPresent(Int.self, forKey: .selectedWorkspaceIndex)
         workspaces = try container.decode([SessionWorkspaceSnapshot].self, forKey: .workspaces)
         groups = try container.decodeIfPresent([SessionGroupSnapshot].self, forKey: .groups) ?? []
-        sidebarOrder = try container.decodeIfPresent([SidebarOrderItem].self, forKey: .sidebarOrder) ?? []
+        if let decodedSidebarOrder = try container.decodeIfPresent([SidebarOrderItem].self, forKey: .sidebarOrder) {
+            sidebarOrder = decodedSidebarOrder
+        } else {
+            sidebarOrder = Self.reconstructedSidebarOrder(workspaces: workspaces, groups: groups)
+        }
     }
 }
 
