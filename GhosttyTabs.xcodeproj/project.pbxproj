@@ -145,6 +145,9 @@
 		WG000029A1B2C3D4E5F60001 /* NewWorkspaceDialog.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00002AA1B2C3D4E5F60001 /* NewWorkspaceDialog.swift */; };
 		WG00002BA1B2C3D4E5F60001 /* ScriptsMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00002CA1B2C3D4E5F60001 /* ScriptsMenu.swift */; };
 		WG00000IA1B2C3D4E5F60001 /* TabItemDisplaySnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00001IA1B2C3D4E5F60001 /* TabItemDisplaySnapshot.swift */; };
+		WG00003BA1B2C3D4E5F60001 /* SidebarContextMenuHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00003AA1B2C3D4E5F60001 /* SidebarContextMenuHost.swift */; };
+		WG00003DA1B2C3D4E5F60001 /* SidebarContextMenuController.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00003CA1B2C3D4E5F60001 /* SidebarContextMenuController.swift */; };
+		WG00003FA1B2C3D4E5F60001 /* SidebarContextMenuActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00003EA1B2C3D4E5F60001 /* SidebarContextMenuActions.swift */; };
 		WG00002DA1B2C3D4E5F60001 /* TemplateManagerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG00002EA1B2C3D4E5F60001 /* TemplateManagerWindow.swift */; };
 		WG00002FA1B2C3D4E5F60001 /* TemplateManagerHelpSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG000030A1B2C3D4E5F60001 /* TemplateManagerHelpSidebar.swift */; };
 		WG000031A1B2C3D4E5F60001 /* ScriptManagerWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = WG000032A1B2C3D4E5F60001 /* ScriptManagerWindow.swift */; };
@@ -289,6 +292,9 @@
 		WG00002AA1B2C3D4E5F60001 /* NewWorkspaceDialog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewWorkspaceDialog.swift; sourceTree = "<group>"; };
 		WG00002CA1B2C3D4E5F60001 /* ScriptsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptsMenu.swift; sourceTree = "<group>"; };
 		WG00001IA1B2C3D4E5F60001 /* TabItemDisplaySnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabItemDisplaySnapshot.swift; sourceTree = "<group>"; };
+		WG00003AA1B2C3D4E5F60001 /* SidebarContextMenuHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarContextMenuHost.swift; sourceTree = "<group>"; };
+		WG00003CA1B2C3D4E5F60001 /* SidebarContextMenuController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarContextMenuController.swift; sourceTree = "<group>"; };
+		WG00003EA1B2C3D4E5F60001 /* SidebarContextMenuActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarContextMenuActions.swift; sourceTree = "<group>"; };
 		WG00002EA1B2C3D4E5F60001 /* TemplateManagerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateManagerWindow.swift; sourceTree = "<group>"; };
 		WG000030A1B2C3D4E5F60001 /* TemplateManagerHelpSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TemplateManagerHelpSidebar.swift; sourceTree = "<group>"; };
 		WG000032A1B2C3D4E5F60001 /* ScriptManagerWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScriptManagerWindow.swift; sourceTree = "<group>"; };
@@ -531,6 +537,9 @@
 				WG00002AA1B2C3D4E5F60001 /* NewWorkspaceDialog.swift */,
 				WG00002CA1B2C3D4E5F60001 /* ScriptsMenu.swift */,
 				WG00001IA1B2C3D4E5F60001 /* TabItemDisplaySnapshot.swift */,
+				WG00003AA1B2C3D4E5F60001 /* SidebarContextMenuHost.swift */,
+				WG00003CA1B2C3D4E5F60001 /* SidebarContextMenuController.swift */,
+				WG00003EA1B2C3D4E5F60001 /* SidebarContextMenuActions.swift */,
 				WG00002EA1B2C3D4E5F60001 /* TemplateManagerWindow.swift */,
 				WG000030A1B2C3D4E5F60001 /* TemplateManagerHelpSidebar.swift */,
 				WG000032A1B2C3D4E5F60001 /* ScriptManagerWindow.swift */,
@@ -851,6 +860,9 @@
 				WG000021A1B2C3D4E5F60001 /* TerminalControllerGroupCommands.swift in Sources */,
 				WG000023A1B2C3D4E5F60001 /* TerminalControllerScriptTemplateCommands.swift in Sources */,
 				WG00000IA1B2C3D4E5F60001 /* TabItemDisplaySnapshot.swift in Sources */,
+				WG00003BA1B2C3D4E5F60001 /* SidebarContextMenuHost.swift in Sources */,
+				WG00003DA1B2C3D4E5F60001 /* SidebarContextMenuController.swift in Sources */,
+				WG00003FA1B2C3D4E5F60001 /* SidebarContextMenuActions.swift in Sources */,
 				WG000025A1B2C3D4E5F60001 /* CmuxConfigParserGroups.swift in Sources */,
 				WG000027A1B2C3D4E5F60001 /* TerminalControllerProjectCommands.swift in Sources */,
 				WG000029A1B2C3D4E5F60001 /* NewWorkspaceDialog.swift in Sources */,
