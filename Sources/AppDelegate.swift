@@ -3041,6 +3041,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func resolvedCreateMainWindowFrame(
+        sessionWindowSnapshot: SessionWindowSnapshot?
+    ) -> NSRect? {
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        return Self.resolvedNewMainWindowFrame(
+            sessionWindowSnapshot: sessionWindowSnapshot,
+            persistedFallbackFrame: fallbackGeometry?.frame,
+            persistedFallbackDisplaySnapshot: fallbackGeometry?.display,
+            existingMainWindowCount: mainWindowContexts.count,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        )
+    }
+
     nonisolated static func resolvedStartupPrimaryWindowFrame(
         primarySnapshot: SessionWindowSnapshot?,
         fallbackFrame: SessionRectSnapshot?,
@@ -3060,6 +3075,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return resolvedWindowFrame(
             from: fallbackFrame,
             display: fallbackDisplaySnapshot,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        )
+    }
+
+    nonisolated static func resolvedNewMainWindowFrame(
+        sessionWindowSnapshot: SessionWindowSnapshot?,
+        persistedFallbackFrame: SessionRectSnapshot?,
+        persistedFallbackDisplaySnapshot: SessionDisplaySnapshot?,
+        existingMainWindowCount: Int,
+        availableDisplays: [SessionDisplayGeometry],
+        fallbackDisplay: SessionDisplayGeometry?
+    ) -> CGRect? {
+        if let restored = resolvedWindowFrame(
+            from: sessionWindowSnapshot?.frame,
+            display: sessionWindowSnapshot?.display,
+            availableDisplays: availableDisplays,
+            fallbackDisplay: fallbackDisplay
+        ) {
+            return restored
+        }
+
+        guard existingMainWindowCount == 0 else { return nil }
+        return resolvedWindowFrame(
+            from: persistedFallbackFrame,
+            display: persistedFallbackDisplaySnapshot,
             availableDisplays: availableDisplays,
             fallbackDisplay: fallbackDisplay
         )
@@ -5962,7 +6003,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
         window.isMovable = false
-        let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
+        let restoredFrame = resolvedCreateMainWindowFrame(sessionWindowSnapshot: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
         } else {

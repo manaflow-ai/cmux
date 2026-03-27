@@ -641,6 +641,61 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
     }
 
+    func testResolvedNewMainWindowFrameFallsBackToPersistedGeometryWhenNoWindowsRemain() {
+        let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
+        let fallbackDisplay = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+
+        let restored = AppDelegate.resolvedNewMainWindowFrame(
+            sessionWindowSnapshot: nil,
+            persistedFallbackFrame: fallbackFrame,
+            persistedFallbackDisplaySnapshot: fallbackDisplay,
+            existingMainWindowCount: 0,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 180, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, 140, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 900, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 640, accuracy: 0.001)
+    }
+
+    func testResolvedNewMainWindowFrameSkipsPersistedGeometryWhenOtherWindowsExist() {
+        let fallbackFrame = SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640)
+        let fallbackDisplay = SessionDisplaySnapshot(
+            displayID: 1,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+        let display = AppDelegate.SessionDisplayGeometry(
+            displayID: 1,
+            frame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_600, height: 1_000)
+        )
+
+        let restored = AppDelegate.resolvedNewMainWindowFrame(
+            sessionWindowSnapshot: nil,
+            persistedFallbackFrame: fallbackFrame,
+            persistedFallbackDisplaySnapshot: fallbackDisplay,
+            existingMainWindowCount: 1,
+            availableDisplays: [display],
+            fallbackDisplay: display
+        )
+
+        XCTAssertNil(restored)
+    }
+
     func testResolvedWindowFrameCentersInFallbackDisplayWhenOffscreen() {
         let savedFrame = SessionRectSnapshot(x: 4_000, y: 4_000, width: 900, height: 700)
         let display = AppDelegate.SessionDisplayGeometry(
