@@ -3628,6 +3628,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
                 """)
             }
+
+            // Always prepend our shell-integration dir to XDG_DATA_DIRS so fish
+            // auto-sources vendor_conf.d/*.fish whether it is the primary shell
+            // or launched as a sub-shell (e.g. exec'd from a zsh wrapper script).
+            // Ghostty follows the same pattern via ensureGhosttyEnv().
+            let existingXDG = (initialEnvironmentOverrides["XDG_DATA_DIRS"]?.isEmpty == false ? initialEnvironmentOverrides["XDG_DATA_DIRS"] : nil)
+                ?? (env["XDG_DATA_DIRS"]?.isEmpty == false ? env["XDG_DATA_DIRS"] : nil)
+                ?? getenv("XDG_DATA_DIRS").map({ String(cString: $0) }).flatMap({ $0.isEmpty ? nil : $0 })
+                ?? ProcessInfo.processInfo.environment["XDG_DATA_DIRS"].flatMap({ $0.isEmpty ? nil : $0 })
+            if let existingXDG {
+                env["XDG_DATA_DIRS"] = "\(integrationDir):\(existingXDG)"
+            } else {
+                env["XDG_DATA_DIRS"] = "\(integrationDir):/usr/local/share:/usr/share"
+            }
+            // Protect against initialEnvironmentOverrides overwriting the prepended prefix.
+            protectedStartupEnvironmentKeys.insert("XDG_DATA_DIRS")
         }
         env = Self.mergedStartupEnvironment(
             base: env,
