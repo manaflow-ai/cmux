@@ -170,6 +170,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.newWorkspaceTab.defaultsKey) private var newWorkspaceTabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspaceTab.defaultsKey) private var renameWorkspaceTabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspaceTab.defaultsKey) private var closeWorkspaceTabShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeOtherTabsInPane.defaultsKey) private var closeOtherTabsInPaneShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
@@ -639,10 +640,9 @@ struct cmuxApp: App {
                 }
                 .keyboardShortcut("w", modifiers: .command)
 
-                Button(String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")) {
+                splitCommandButton(title: String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane"), shortcut: closeOtherTabsInPaneMenuShortcut) {
                     closeOtherTabsInFocusedPane()
                 }
-                .keyboardShortcut("t", modifiers: [.command, .option])
                 .disabled(!activeTabManager.canCloseOtherTabsInFocusedPane())
 
                 // Cmd+Shift+W closes the current workspace (with confirmation if needed). If this
@@ -1023,6 +1023,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceTabShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspaceTab.defaultShortcut
+        )
+    }
+
+    private var closeOtherTabsInPaneMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: closeOtherTabsInPaneShortcutData,
+            fallback: KeyboardShortcutSettings.Action.closeOtherTabsInPane.defaultShortcut
         )
     }
 

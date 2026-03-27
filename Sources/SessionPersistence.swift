@@ -331,6 +331,7 @@ struct SessionWorkspaceTabSnapshot: Codable, Sendable {
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]
     var focusedPanelId: UUID?
+    var customTitle: String?
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {

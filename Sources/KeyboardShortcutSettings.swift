@@ -35,6 +35,7 @@ enum KeyboardShortcutSettings {
         case newWorkspaceTab
         case renameWorkspaceTab
         case closeWorkspaceTab
+        case closeOtherTabsInPane
 
         // Panes / splits
         case focusLeft
@@ -90,6 +91,7 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceTab: return String(localized: "shortcut.newWorkspaceTab.label", defaultValue: "New Workspace Tab")
             case .renameWorkspaceTab: return String(localized: "shortcut.renameWorkspaceTab.label", defaultValue: "Rename Workspace Tab")
             case .closeWorkspaceTab: return String(localized: "shortcut.closeWorkspaceTab.label", defaultValue: "Close Workspace Tab")
+            case .closeOtherTabsInPane: return String(localized: "shortcut.closeOtherTabsInPane.label", defaultValue: "Close Other Tabs in Pane")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
@@ -132,6 +134,7 @@ enum KeyboardShortcutSettings {
             case .newWorkspaceTab: return "shortcut.newWorkspaceTab"
             case .renameWorkspaceTab: return "shortcut.renameWorkspaceTab"
             case .closeWorkspaceTab: return "shortcut.closeWorkspaceTab"
+            case .closeOtherTabsInPane: return "shortcut.closeOtherTabsInPane"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -208,6 +211,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
             case .closeWorkspaceTab:
                 return StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+            case .closeOtherTabsInPane:
+                return StoredShortcut(key: "x", command: true, shift: false, option: true, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
@@ -350,6 +355,7 @@ enum KeyboardShortcutSettings {
     static func newWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .newWorkspaceTab) }
     static func renameWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .renameWorkspaceTab) }
     static func closeWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .closeWorkspaceTab) }
+    static func closeOtherTabsInPaneShortcut() -> StoredShortcut { shortcut(for: .closeOtherTabsInPane) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }

@@ -9437,7 +9437,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(
             event: event,
-            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
+            shortcut: KeyboardShortcutSettings.shortcut(for: .closeOtherTabsInPane)
         ) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {

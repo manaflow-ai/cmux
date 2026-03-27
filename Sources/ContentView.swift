@@ -7365,7 +7365,7 @@ struct ContentView: View {
             NSSound.beep()
             return
         }
-        let currentName = wsTab.customTitle ?? ""
+        let currentName = wsTab.customTitle ?? wsTab.derivedTitle
         let target = CommandPaletteRenameTarget(
             kind: .workspaceTab(workspaceId: workspace.id, workspaceTabId: wsTab.id),
             currentName: currentName

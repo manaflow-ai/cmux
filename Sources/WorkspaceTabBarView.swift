@@ -59,31 +59,14 @@ struct WorkspaceTabBarView: View {
     // MARK: - Title Derivation
 
     /// Derive a display title for a workspace tab.
-    /// Uses the first terminal panel's current directory basename, falling back to "New Tab".
+    /// Prefers custom title, then derived title from panel state, falling back to "New Tab".
     private func workspaceTabTitle(for tab: WorkspaceTab) -> String {
-        // Use custom title if set
         if let customTitle = tab.customTitle, !customTitle.isEmpty {
             return customTitle
         }
-        // Try to find the first panel directory in this tab
-        for panelId in tab.panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
-            if let directory = tab.panelDirectories[panelId], !directory.isEmpty {
-                let basename = (directory as NSString).lastPathComponent
-                if !basename.isEmpty {
-                    return basename
-                }
-            }
-        }
-
-        // Try panel titles
-        for panelId in tab.panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
-            if let title = tab.panelTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !title.isEmpty {
-                return title
-            }
-        }
-
-        return "New Tab"
+        let derived = tab.derivedTitle
+        if !derived.isEmpty { return derived }
+        return String(localized: "workspaceTabBar.newTab", defaultValue: "New Tab")
     }
 }
 

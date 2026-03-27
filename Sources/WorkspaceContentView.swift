@@ -256,8 +256,8 @@ struct WorkspaceContentView: View {
             for (tabIndex, wsTab) in workspace.workspaceTabs.enumerated() {
                 let isActive = isWorkspaceInputActive && tabIndex == workspace.selectedWorkspaceTabIndex
                 wsTab.bonsplitController.isInteractive = isActive
-                wsTab.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                    guard let workspace else { return false }
+                wsTab.bonsplitController.onFileDrop = { [weak workspace, weak wsTab] urls, paneId in
+                    guard let workspace, let wsTab else { return false }
                     guard let tabId = wsTab.bonsplitController.selectedTab(inPane: paneId)?.id,
                           let panelId = wsTab.surfaceIdToPanelId[tabId],
                           let panel = wsTab.panels[panelId] as? TerminalPanel else { return false }

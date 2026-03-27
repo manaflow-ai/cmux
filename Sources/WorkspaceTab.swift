@@ -188,6 +188,31 @@ final class WorkspaceTab: Identifiable, ObservableObject {
         return panel
     }
 
+    /// The derived display title for this tab, preferring the focused panel's directory.
+    var derivedTitle: String {
+        // Prefer focused panel
+        if let focusedId = focusedPanelId {
+            if let dir = panelDirectories[focusedId], !dir.isEmpty {
+                let base = (dir as NSString).lastPathComponent
+                if !base.isEmpty { return base }
+            }
+            if let title = panelTitles[focusedId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !title.isEmpty { return title }
+        }
+        // Fall back to any panel
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            if let dir = panelDirectories[panelId], !dir.isEmpty {
+                let base = (dir as NSString).lastPathComponent
+                if !base.isEmpty { return base }
+            }
+        }
+        for panelId in panels.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+            if let title = panelTitles[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !title.isEmpty { return title }
+        }
+        return ""
+    }
+
     // MARK: - Init
 
     init(bonsplitController: BonsplitController) {

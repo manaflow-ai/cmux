@@ -302,7 +302,8 @@ extension Workspace {
         return SessionWorkspaceTabSnapshot(
             layout: layout,
             panels: panelSnapshots,
-            focusedPanelId: focusedPanelId
+            focusedPanelId: focusedPanelId,
+            customTitle: tab.customTitle
         )
     }
 
@@ -385,13 +386,23 @@ extension Workspace {
         // The pass-through properties already point to workspaceTabs[0] since
         // selectedWorkspaceTabIndex starts at 0.
         restoreWorkspaceTabFromSnapshot(tabSnapshots[0])
+        workspaceTabs[0].customTitle = tabSnapshots[0].customTitle
 
         // Create additional workspace tabs for remaining snapshots.
-        for tabSnapshot in tabSnapshots.dropFirst() {
-            _ = createBareWorkspaceTab()
+        for (idx, tabSnapshot) in tabSnapshots.dropFirst().enumerated() {
+            let bareTab = createBareWorkspaceTab()
+            // Capture the Welcome tab IDs that bonsplit auto-creates so we can
+            // remove them after the real panels are restored.
+            let welcomeTabIds = bareTab.bonsplitController.allTabIds
             // Select the newly created tab so pass-through properties point to it.
             selectedWorkspaceTabIndex = workspaceTabs.count - 1
             restoreWorkspaceTabFromSnapshot(tabSnapshot)
+            // The actual workspace tab index is idx+1 (first tab was restored above).
+            workspaceTabs[idx + 1].customTitle = tabSnapshot.customTitle
+            // Close the default Welcome tab(s) now that real panels exist.
+            for welcomeTabId in welcomeTabIds {
+                bareTab.bonsplitController.closeTab(welcomeTabId)
+            }
         }
 
         // Restore the selected tab index.
@@ -5951,9 +5962,40 @@ final class Workspace: Identifiable, ObservableObject {
         reassertWorkspaceTabFocus()
     }
 
-    /// Close the workspace tab at the given index.
+    /// Close the workspace tab at the given index, prompting for confirmation
+    /// if any panel has a running process.
     /// If it's the last tab, don't close it.
     func closeWorkspaceTab(at index: Int) {
+        guard workspaceTabs.count > 1, workspaceTabs.indices.contains(index) else { return }
+
+        let tab = workspaceTabs[index]
+
+        // Check if any terminal in this tab needs close confirmation.
+        let needsConfirm = tab.panels.values.contains { panel in
+            guard let tp = panel as? TerminalPanel else { return false }
+            return Self.resolveCloseConfirmation(
+                shellActivityState: tab.panelShellActivityStates[tp.id],
+                fallbackNeedsConfirmClose: tp.needsConfirmClose()
+            )
+        }
+
+        if needsConfirm {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let confirmed = await self.confirmCloseWorkspaceTab()
+                guard confirmed else { return }
+                // Re-resolve the index in case tabs shifted while the dialog was up.
+                guard let idx = self.workspaceTabs.firstIndex(where: { $0.id == tab.id }) else { return }
+                self.forceCloseWorkspaceTab(at: idx)
+            }
+            return
+        }
+
+        forceCloseWorkspaceTab(at: index)
+    }
+
+    /// Force-close the workspace tab at the given index without confirmation.
+    private func forceCloseWorkspaceTab(at index: Int) {
         guard workspaceTabs.count > 1, workspaceTabs.indices.contains(index) else { return }
 
         let tab = workspaceTabs[index]
@@ -5963,6 +6005,8 @@ final class Workspace: Identifiable, ObservableObject {
         for (panelId, panel) in panelEntries {
             tab.panelSubscriptions.removeValue(forKey: panelId)
             PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+            untrackRemoteTerminalSurface(panelId)
+            AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
             panel.close()
         }
         tab.panels.removeAll(keepingCapacity: false)
@@ -6002,6 +6046,37 @@ final class Workspace: Identifiable, ObservableObject {
         // Either way, sync the panels publisher and reassert focus.
         syncActivePanels()
         reassertWorkspaceTabFocus()
+    }
+
+    @MainActor
+    private func confirmCloseWorkspaceTab() async -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "dialog.closeWorkspaceTab.title", defaultValue: "Close this workspace tab?")
+        alert.informativeText = String(localized: "dialog.closeWorkspaceTab.message", defaultValue: "A running process will be terminated.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(localized: "dialog.closeWorkspaceTab.close", defaultValue: "Close Tab"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        if let closeButton = alert.buttons.first {
+            closeButton.keyEquivalent = "\r"
+            closeButton.keyEquivalentModifierMask = []
+            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
+            alert.window.initialFirstResponder = closeButton
+        }
+        if let cancelButton = alert.buttons.dropFirst().first {
+            cancelButton.keyEquivalent = "\u{1b}"
+        }
+
+        // Prefer a sheet if we can find a window, otherwise fall back to modal.
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            return await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { response in
+                    continuation.resume(returning: response == .alertFirstButtonReturn)
+                }
+            }
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// Close the currently selected workspace tab.
@@ -8061,25 +8136,26 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
-    /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
+    /// Tear down all panels across all workspace tabs, freeing their Ghostty surfaces.
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
-        let panelEntries = Array(panels)
-        for (panelId, panel) in panelEntries {
-            panelSubscriptions.removeValue(forKey: panelId)
-            PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
-            panel.close()
+        for tab in workspaceTabs {
+            let panelEntries = Array(tab.panels)
+            for (panelId, panel) in panelEntries {
+                tab.panelSubscriptions.removeValue(forKey: panelId)
+                PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+                panel.close()
+            }
+            tab.panels.removeAll(keepingCapacity: false)
+            tab.surfaceIdToPanelId.removeAll(keepingCapacity: false)
+            tab.panelSubscriptions.removeAll(keepingCapacity: false)
+            tab.restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+            tab.terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
+            tab.lastTerminalConfigInheritancePanelId = nil
+            tab.lastTerminalConfigInheritanceFontPoints = nil
         }
-
-        panels.removeAll(keepingCapacity: false)
-        surfaceIdToPanelId.removeAll(keepingCapacity: false)
-        panelSubscriptions.removeAll(keepingCapacity: false)
         pruneSurfaceMetadata(validSurfaceIds: [])
-        restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
-        terminalInheritanceFontPointsByPanelId.removeAll(keepingCapacity: false)
-        lastTerminalConfigInheritancePanelId = nil
-        lastTerminalConfigInheritanceFontPoints = nil
     }
 
     /// Close a panel.
@@ -9014,17 +9090,21 @@ final class Workspace: Identifiable, ObservableObject {
     /// Called before the workspace is unmounted to prevent portal-hosted terminal
     /// views from covering browser panes in the newly selected workspace.
     func hideAllTerminalPortalViews() {
-        for panel in panels.values {
-            guard let terminal = panel as? TerminalPanel else { continue }
-            terminal.hostedView.setVisibleInUI(false)
-            TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+        for tab in workspaceTabs {
+            for panel in tab.panels.values {
+                guard let terminal = panel as? TerminalPanel else { continue }
+                terminal.hostedView.setVisibleInUI(false)
+                TerminalWindowPortalRegistry.hideHostedView(terminal.hostedView)
+            }
         }
     }
 
     func hideAllBrowserPortalViews() {
-        for panel in panels.values {
-            guard let browser = panel as? BrowserPanel else { continue }
-            browser.hideBrowserPortalView(source: "workspaceRetire")
+        for tab in workspaceTabs {
+            for panel in tab.panels.values {
+                guard let browser = panel as? BrowserPanel else { continue }
+                browser.hideBrowserPortalView(source: "workspaceRetire")
+            }
         }
     }
 
@@ -9062,12 +9142,17 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    /// Check if any panel needs close confirmation
+    /// Check if any panel across all workspace tabs needs close confirmation
     func needsConfirmClose() -> Bool {
-        for (panelId, panel) in panels {
-            if let terminalPanel = panel as? TerminalPanel,
-               panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
-                return true
+        for tab in workspaceTabs {
+            for (panelId, panel) in tab.panels {
+                if let terminalPanel = panel as? TerminalPanel,
+                   Self.resolveCloseConfirmation(
+                       shellActivityState: tab.panelShellActivityStates[panelId],
+                       fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
+                   ) {
+                    return true
+                }
             }
         }
         return false
@@ -9904,7 +9989,13 @@ extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard panels.count <= 1,
+        // Only consider closing the workspace if this is the last panel in the
+        // active tab AND no other workspace tabs have panels.
+        let otherTabsHavePanels = workspaceTabs.contains { tab in
+            tab !== activeWorkspaceTab && !tab.panels.isEmpty
+        }
+        guard !otherTabsHavePanels,
+              panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
               let manager,
               manager.tabs.contains(where: { $0.id == id }) else {

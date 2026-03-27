@@ -5033,6 +5033,12 @@ extension TabManager {
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
 
+            hasher.combine(workspace.workspaceTabs.count)
+            hasher.combine(workspace.selectedWorkspaceTabIndex)
+            for wsTab in workspace.workspaceTabs {
+                hasher.combine(wsTab.panels.count)
+            }
+
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
                 hasher.combine(progress.label)

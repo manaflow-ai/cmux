@@ -144,10 +144,16 @@ final class SessionPersistenceTests: XCTestCase {
         let tabSnapshot = SessionWorkspaceTabSnapshot(
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [UUID()], selectedPanelId: nil)),
             panels: [],
+            focusedPanelId: nil,
+            customTitle: "My Custom Tab"
+        )
+        let tabSnapshotNoTitle = SessionWorkspaceTabSnapshot(
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [UUID()], selectedPanelId: nil)),
+            panels: [],
             focusedPanelId: nil
         )
         var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
-        snapshot.windows[0].tabManager.workspaces[0].workspaceTabs = [tabSnapshot, tabSnapshot]
+        snapshot.windows[0].tabManager.workspaces[0].workspaceTabs = [tabSnapshot, tabSnapshotNoTitle]
         snapshot.windows[0].tabManager.workspaces[0].selectedWorkspaceTabIndex = 1
 
         let data = try JSONEncoder().encode(snapshot)
@@ -155,6 +161,8 @@ final class SessionPersistenceTests: XCTestCase {
         let workspace = try XCTUnwrap(decoded.windows.first?.tabManager.workspaces.first)
         XCTAssertEqual(workspace.workspaceTabs?.count, 2)
         XCTAssertEqual(workspace.selectedWorkspaceTabIndex, 1)
+        XCTAssertEqual(workspace.workspaceTabs?[0].customTitle, "My Custom Tab")
+        XCTAssertNil(workspace.workspaceTabs?[1].customTitle)
     }
 
     func testLoadRejectsSchemaVersionMismatch() {
