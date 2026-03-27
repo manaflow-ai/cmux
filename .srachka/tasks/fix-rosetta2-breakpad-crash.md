@@ -5,7 +5,7 @@
 Issue: https://github.com/manaflow-ai/cmux/issues/1077
 
 On Apple Silicon Macs, cmux crashes with:
-```
+```text
 assertion failed [lr_abi_info.kind == AbiKind::TranslatedCode]: expected saved LR to be in translated code
 (ThreadContextRegisterState.cpp:443 guest_gpr_state_from_host_state)
 ```
