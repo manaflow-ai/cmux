@@ -1995,11 +1995,13 @@ class GhosttyApp {
         return String(cString: value)
     }
 
-    private func bellFeatures() -> CUnsignedInt {
-        guard let config else { return 0 }
+    private func bellFeatures() -> CUnsignedInt? {
+        guard let config else { return nil }
         var features: CUnsignedInt = 0
         let key = "bell-features"
-        _ = ghostty_config_get(config, &features, key, UInt(key.lengthOfBytes(using: .utf8)))
+        guard ghostty_config_get(config, &features, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+            return nil
+        }
         return features
     }
 
@@ -2024,7 +2026,14 @@ class GhosttyApp {
     }
 
     private func ringBell() {
-        let features = bellFeatures()
+        guard let features = bellFeatures() else {
+            // bell-features is not present in the config. Ghostty's built-in default enables
+            // attention and title features but not system sound, so terminal bell produces no
+            // audio unless the user explicitly sets bell-features = system. Fall back to
+            // NSSound.beep() so the bell works out of the box without requiring configuration.
+            NSSound.beep()
+            return
+        }
 
         if (features & (1 << 0)) != 0 {
             NSSound.beep()
