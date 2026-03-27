@@ -5785,6 +5785,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if handled { return }
         }
 
+        // Fast path for Option+Delete (backward word-delete).
+        // macOS maps Option+Delete to "∂" (U+2202) through AppKit text input.
+        // In terminals, Alt+Backspace should delete the previous word.
+        // Bypass interpretKeyEvents so Ghostty's key encoder receives the raw
+        // Alt+Backspace and generates ESC+DEL.
+        if flags.contains(.option) && !flags.contains(.command) && !flags.contains(.control) && !hasMarkedText(),
+           event.keyCode == 51 {
+            ghostty_surface_set_focus(surface, true)
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = UInt32(event.keyCode)
+            keyEvent.mods = modsFromEvent(event)
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.composing = false
+            keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
+            keyEvent.text = nil
+            #if DEBUG
+            let ghosttySendStart = ProcessInfo.processInfo.systemUptime
+            let handled = sendTimedGhosttyKey(
+                surface,
+                keyEvent,
+                path: "terminal.keyDown.optDeleteGhosttySend",
+                event: event
+            )
+            ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
+            #else
+            let handled = ghostty_surface_key(surface, keyEvent)
+            #endif
+            if handled { return }
+        }
+
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
 
         // Translate mods to respect Ghostty config (e.g., macos-option-as-alt)

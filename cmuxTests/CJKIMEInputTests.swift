@@ -1190,8 +1190,9 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             pressEvent = keyEvent
         }
 
+        // Real macOS produces "∂" (U+2202) for Option+Delete, not "\u{7F}".
         let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
-            characters: "\u{7F}",
+            characters: "\u{2202}",
             charactersIgnoringModifiers: "\u{7F}",
             keyCode: 51,
             modifierFlags: [.option]
