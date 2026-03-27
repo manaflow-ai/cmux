@@ -10362,34 +10362,27 @@ struct CMUXCLI {
                     )
                 }
 
-                if let completion {
-                    // Suppress notification if a tool was used this turn — this indicates
-                    // an auto-continue turn (Claude stopped briefly between tool calls)
-                    // rather than true task completion.
-                    let shouldNotify = !(mappedSession?.toolUsedThisTurn ?? false)
+                // Consume the tool-used flag *before* checking completion so it is
+                // always reset — even when completion is nil (e.g. no cwd/transcript
+                // yet). Without this, a nil-completion stop leaves the flag stuck at
+                // true and the next legitimate completion notification is suppressed.
+                let suppressThisStop = mappedSession?.toolUsedThisTurn ?? false
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: mappedSession?.surfaceId ?? surfaceId,
+                        cwd: parsedInput.cwd,
+                        toolUsedThisTurn: false
+                    )
+                }
 
-                    // Reset the flag immediately after reading it so that a stale `true`
-                    // from this turn cannot suppress the *next* stop in an auto-continue
-                    // chain that does not produce a new tool use. Without this reset, every
-                    // stop after the first tool-using turn would be suppressed until a
-                    // prompt-submit fires (which may never happen for auto-continue turns).
-                    if let sessionId = parsedInput.sessionId {
-                        try? sessionStore.upsert(
-                            sessionId: sessionId,
-                            workspaceId: workspaceId,
-                            surfaceId: mappedSession?.surfaceId ?? surfaceId,
-                            cwd: parsedInput.cwd,
-                            toolUsedThisTurn: false
-                        )
-                    }
-
-                    if shouldNotify {
-                        let title = String(localized: "notification.title.claude-code", defaultValue: "Claude Code")
-                        let subtitle = sanitizeNotificationField(completion.subtitle)
-                        let body = sanitizeNotificationField(completion.body)
-                        let payload = "\(title)|\(subtitle)|\(body)"
-                        _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-                    }
+                if let completion, !suppressThisStop {
+                    let title = String(localized: "notification.title.claude-code", defaultValue: "Claude Code")
+                    let subtitle = sanitizeNotificationField(completion.subtitle)
+                    let body = sanitizeNotificationField(completion.body)
+                    let payload = "\(title)|\(subtitle)|\(body)"
+                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
 
                 try? setClaudeStatus(
