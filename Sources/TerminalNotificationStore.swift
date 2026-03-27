@@ -910,8 +910,9 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: tabId)
         }
 
-        let isActiveTab = AppDelegate.shared?.tabManager?.selectedTabId == tabId
-        let focusedSurfaceId = AppDelegate.shared?.tabManager?.focusedSurfaceId(for: tabId)
+        let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tabId)
+        let isActiveTab = tabManager?.selectedTabId == tabId
+        let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
@@ -921,7 +922,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         if WorkspaceAutoReorderSettings.isEnabled() {
-            AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
+            tabManager?.moveTabToTopForNotification(tabId)
         }
 
         let notification = TerminalNotification(

@@ -11284,6 +11284,13 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                if tab.isMuted {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted"))
+                }
+
                 Text(tab.title)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
