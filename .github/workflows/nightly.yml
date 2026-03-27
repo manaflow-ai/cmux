@@ -336,13 +336,27 @@ jobs:
           plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
           plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
           # Also create unsuffixed "latest" copies for the release page and
-          # any tooling that fetches the generic asset names.
+          # any tooling that fetches the generic asset names. The manifest's
+          # downloadURLs still point to the versioned filenames (intentional:
+          # the live manifest is used by the client-side checksum fallback
+          # which only reads sha256, not downloadURL). The unsuffixed copies
+          # are convenience aliases and don't carry build-provenance
+          # attestation (attested versioned files are canonical).
           for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
             cp "remote-daemon-assets/cmuxd-remote-${platform}-${NIGHTLY_BUILD}" \
                "remote-daemon-assets/cmuxd-remote-${platform}"
           done
-          cp "remote-daemon-assets/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
-             "remote-daemon-assets/cmuxd-remote-checksums.txt"
+          # Regenerate unsuffixed checksums with generic filenames so
+          # `shasum -c cmuxd-remote-checksums.txt` works against the aliases.
+          (
+            cd remote-daemon-assets
+            shasum -a 256 \
+              cmuxd-remote-darwin-arm64 \
+              cmuxd-remote-darwin-amd64 \
+              cmuxd-remote-linux-arm64 \
+              cmuxd-remote-linux-amd64 \
+              > cmuxd-remote-checksums.txt
+          )
           cp "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
              "remote-daemon-assets/cmuxd-remote-manifest.json"
 
