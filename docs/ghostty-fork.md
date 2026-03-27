@@ -102,6 +102,18 @@ The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
 
 The fork branch HEAD is now the section 7 cmux theme picker helper commit.
 
+### 8) inproc sentry backend on Darwin
+
+- Commit: `24894e47d` (Use inproc sentry backend on Darwin to fix Rosetta 2 crash)
+- Files:
+  - `src/build/SharedDeps.zig`
+- Summary:
+  - Switches sentry-native backend from `breakpad` to `inproc` on all Darwin targets (macOS, iOS).
+  - Fixes Rosetta 2 assertion crash in `guest_gpr_state_from_host_state` that occurs when Breakpad's `thread_get_state()` runs on threads executing native arm64 code in universal binary builds.
+  - Linux continues using `breakpad` backend unchanged.
+  - Also skips linking the breakpad static library on Darwin since it is no longer needed.
+  - See: https://github.com/manaflow-ai/cmux/issues/1077
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
