@@ -60,6 +60,13 @@ case "${1:-}" in
     mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
 esac
 
+# Pass through non-interactive (piped/scripted) invocations without injecting
+# hooks. Headless callers like auth-token refreshers have no TTY and should
+# not trigger session-start hooks that create phantom sessions burning API credits.
+if [[ ! -t 0 ]]; then
+    exec "$REAL_CLAUDE" "$@"
+fi
+
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
 unset CLAUDECODE
