@@ -141,11 +141,13 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
     hooks = settings.get("hooks", {})
     expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
-    # PreToolUse should be async to avoid blocking tool execution
+    # PreToolUse must NOT be async — async hooks cause zombie process accumulation
+    # because Claude Code does not reap async hook child processes. The hook uses
+    # availableData (non-blocking stdin read) to avoid latency instead.
     pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        all(h.get("async") is not True for h in pre_tool_use_hooks),
+        f"PreToolUse hook should NOT have async:true (causes zombie leak), got {pre_tool_use_hooks}",
         failures,
     )
     # SessionEnd should have a short timeout (session is exiting)

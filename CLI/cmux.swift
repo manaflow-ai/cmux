@@ -10906,6 +10906,39 @@ struct CMUXCLI {
         }
     }
 
+    /// Read all available stdin data without blocking on EOF.
+    ///
+    /// `readDataToEndOfFile()` waits for the writing end to close, which never
+    /// happens when Claude Code spawns async hooks — leading to zombie processes.
+    /// This helper sets stdin to non-blocking mode, then loops with a short idle
+    /// timeout to drain multi-chunk payloads (e.g. >64 KB) without hanging.
+    private func readStdinWithoutBlocking(idleTimeout: TimeInterval = 0.02, maxWait: TimeInterval = 0.5) -> String {
+        let fd = FileHandle.standardInput.fileDescriptor
+        let originalFlags = fcntl(fd, F_GETFL)
+        fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
+        defer { fcntl(fd, F_SETFL, originalFlags) }
+
+        var accumulated = Data()
+        let deadline = Date().addingTimeInterval(maxWait)
+
+        while Date() < deadline {
+            let chunk = FileHandle.standardInput.availableData
+            if chunk.isEmpty {
+                if accumulated.isEmpty {
+                    break
+                }
+                Thread.sleep(forTimeInterval: idleTimeout)
+                let more = FileHandle.standardInput.availableData
+                if more.isEmpty { break }
+                accumulated.append(more)
+            } else {
+                accumulated.append(chunk)
+            }
+        }
+
+        return String(data: accumulated, encoding: .utf8) ?? ""
+    }
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -10916,7 +10949,7 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let rawInput = readStdinWithoutBlocking()
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         telemetry.breadcrumb(
@@ -12138,7 +12171,7 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let rawInput = readStdinWithoutBlocking()
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore(
             processEnv: env.merging(
