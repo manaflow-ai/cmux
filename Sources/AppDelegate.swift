@@ -9261,10 +9261,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // When the browser address bar is focused, let Cmd+Shift+Arrow through for
-        // text selection (select-to-beginning/end-of-line) instead of consuming it
+        // When a browser text input (address bar or in-page <input>/<textarea>/
+        // contentEditable) has focus, let Cmd+Shift+Arrow through for text
+        // selection (select-to-beginning/end-of-line) instead of consuming it
         // for surface switching.
-        if focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil {
+        if focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+            || browserWebViewIsFirstResponderForShortcutEvent(event) {
             let arrowNormalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
             let isHorizontalArrow = event.keyCode == 123 || event.keyCode == 124
             if isHorizontalArrow && arrowNormalizedFlags == [.command, .shift] {
@@ -10022,6 +10024,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         return panelId
+    }
+
+    /// Returns true when the first responder for the shortcut event's window
+    /// is a `CmuxWebView` or one of its WebKit-internal subviews (i.e., web
+    /// page content has keyboard focus). This is a lightweight AppKit responder
+    /// chain walk — no JavaScript execution — so it is safe on the typing hot
+    /// path.
+    private func browserWebViewIsFirstResponderForShortcutEvent(_ event: NSEvent) -> Bool {
+        let window = event.window ?? NSApp.keyWindow
+        guard let firstResponder = window?.firstResponder else { return false }
+
+        // Walk the responder chain looking for CmuxWebView.
+        if firstResponder is CmuxWebView { return true }
+        var current: NSResponder? = firstResponder
+        while let next = current?.nextResponder {
+            if next is CmuxWebView { return true }
+            current = next
+        }
+
+        return false
     }
 
     @discardableResult
