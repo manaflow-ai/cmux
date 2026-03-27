@@ -5859,14 +5859,17 @@ extension TabManager {
                 case .workspace(let id): return restoredWorkspaceIds.contains(id) && !groupedWsIds.contains(id)
                 }
             }
-            // Orphan recovery: workspaces in tabs but not in sidebarOrder or any group
-            let accountedFor = Set(sidebarOrder.compactMap { item -> UUID? in
-                if case .workspace(let id) = item { return id }
-                return nil
-            }).union(groupedWsIds)
-            for ws in tabs where !accountedFor.contains(ws.id) {
-                sidebarOrder.append(.workspace(ws.id))
-            }
+        }
+
+        // Orphan recovery: workspaces in tabs but not in sidebarOrder or any group.
+        // Runs for all branches so synthesized fallback workspaces are never hidden.
+        let groupedWsIds = Set(groups.flatMap(\.workspaceIds))
+        let accountedFor = Set(sidebarOrder.compactMap { item -> UUID? in
+            if case .workspace(let id) = item { return id }
+            return nil
+        }).union(groupedWsIds)
+        for ws in tabs where !accountedFor.contains(ws.id) {
+            sidebarOrder.append(.workspace(ws.id))
         }
 
         // Ensure every restored group has a header in sidebarOrder (must run
