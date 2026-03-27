@@ -100,7 +100,7 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: warp-macos-26-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout build ref
