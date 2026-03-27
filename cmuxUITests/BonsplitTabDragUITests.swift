@@ -68,11 +68,12 @@ final class BonsplitTabDragUITests: XCTestCase {
             steps: 28,
             dragDuration: 0.45
         )
+        let dropIndicatorAppeared = waitForCondition(timeout: 2.0) { dropIndicator.exists }
+        endMouseDrag(dragSession, atAccessibilityPoint: destination)
         XCTAssertTrue(
-            waitForCondition(timeout: 2.0) { dropIndicator.exists },
+            dropIndicatorAppeared,
             "Expected dragging beta onto alpha to reveal the Bonsplit drop indicator."
         )
-        endMouseDrag(dragSession, atAccessibilityPoint: destination)
 
         XCTAssertTrue(
             waitForJSONKey("trackedPaneTabTitles", equals: reorderedOrder, atPath: dataPath, timeout: 5.0) != nil,
@@ -362,7 +363,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(
             app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
-                || app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0),
+                || app.descendants(matching: .any).matching(identifier: "notificationsPopover.emptyState").firstMatch.waitForExistence(timeout: 6.0),
             "Expected notifications popover to open."
         )
 

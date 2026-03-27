@@ -191,4 +191,34 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         XCTAssertTrue(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.pillGroup.config))
         XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.softButtons.config))
     }
+
+    func testPopoverVisibilityNotificationsAreScopedToMatchingWindow() {
+        let window = NSWindow()
+        let otherWindow = NSWindow()
+
+        XCTAssertFalse(
+            titlebarControlsShouldHandlePopoverVisibilityChange(
+                hostWindowNumber: nil,
+                notificationObject: window
+            )
+        )
+        XCTAssertTrue(
+            titlebarControlsShouldHandlePopoverVisibilityChange(
+                hostWindowNumber: window.windowNumber,
+                notificationObject: window
+            )
+        )
+        XCTAssertFalse(
+            titlebarControlsShouldHandlePopoverVisibilityChange(
+                hostWindowNumber: window.windowNumber,
+                notificationObject: otherWindow
+            )
+        )
+        XCTAssertFalse(
+            titlebarControlsShouldHandlePopoverVisibilityChange(
+                hostWindowNumber: window.windowNumber,
+                notificationObject: nil
+            )
+        )
+    }
 }

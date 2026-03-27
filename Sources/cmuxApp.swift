@@ -31,11 +31,22 @@ enum WorkspacePresentationModeSettings {
     }
 
     static func mode(defaults: UserDefaults = .standard) -> Mode {
-        mode(for: defaults.string(forKey: modeKey))
+        if let storedMode = defaults.string(forKey: modeKey) {
+            return mode(for: storedMode)
+        }
+        if WorkspaceTitlebarSettings.isVisible(defaults: defaults) == false {
+            return .minimal
+        }
+        return defaultMode
     }
 
     static func isMinimal(defaults: UserDefaults = .standard) -> Bool {
         mode(defaults: defaults) == .minimal
+    }
+
+    static func initializeStoredModeIfNeeded(defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: modeKey) == nil else { return }
+        defaults.set(mode(defaults: defaults).rawValue, forKey: modeKey)
     }
 }
 
@@ -190,8 +201,9 @@ struct cmuxApp: App {
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
         _tabManager = StateObject(wrappedValue: TabManager())
-        // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
+        WorkspacePresentationModeSettings.initializeStoredModeIfNeeded(defaults: defaults)
+        // Migrate legacy and old-format socket mode values to the new enum.
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
             let migrated = SocketControlSettings.migrateMode(stored)
             if migrated.rawValue != stored {

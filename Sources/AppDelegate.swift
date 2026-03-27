@@ -7238,11 +7238,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
-            if startWithHiddenSidebar {
-                self.sidebarState?.isVisible = false
-            }
+            self.sidebarState?.isVisible = !startWithHiddenSidebar
             self.writeBonsplitTabDragUITestData([
                 "ready": "1",
+                "setupError": "",
                 "sidebarVisible": startWithHiddenSidebar ? "0" : "1",
                 "workspaceId": workspace.id.uuidString,
                 "workspaceTitle": workspaceTitle,
@@ -8729,6 +8728,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func isNotificationsPopoverShown() -> Bool {
         titlebarAccessoryController.isNotificationsPopoverShown()
+    }
+
+    func isNotificationsPopoverShown(in window: NSWindow?) -> Bool {
+        titlebarAccessoryController.isNotificationsPopoverShown(in: window)
     }
 
     func jumpToLatestUnread() {

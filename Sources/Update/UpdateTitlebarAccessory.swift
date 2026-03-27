@@ -117,6 +117,14 @@ struct TitlebarControlsStyleConfig {
 
 final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
+    private(set) weak var hostWindow: NSWindow?
+    @Published private(set) var hostWindowNumber: Int?
+
+    func setHostWindow(_ window: NSWindow?) {
+        guard hostWindow !== window else { return }
+        hostWindow = window
+        hostWindowNumber = window?.windowNumber
+    }
 }
 
 extension Notification.Name {
@@ -127,12 +135,23 @@ private enum NotificationsPopoverVisibilityUserInfoKey {
     static let isShown = "isShown"
 }
 
-private func postNotificationsPopoverVisibilityDidChange(isShown: Bool) {
+private func postNotificationsPopoverVisibilityDidChange(isShown: Bool, window: NSWindow?) {
     NotificationCenter.default.post(
         name: .cmuxNotificationsPopoverVisibilityDidChange,
-        object: nil,
+        object: window,
         userInfo: [NotificationsPopoverVisibilityUserInfoKey.isShown: isShown]
     )
+}
+
+func titlebarControlsShouldHandlePopoverVisibilityChange(
+    hostWindowNumber: Int?,
+    notificationObject: Any?
+) -> Bool {
+    guard let hostWindowNumber,
+          let notificationWindow = notificationObject as? NSWindow else {
+        return false
+    }
+    return notificationWindow.windowNumber == hostWindowNumber
 }
 
 struct NotificationsAnchorView: NSViewRepresentable {
@@ -320,6 +339,7 @@ struct TitlebarControlsView: View {
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
                 WindowAccessor { window in
+                    viewModel.setHostWindow(window)
                     modifierKeyMonitor.setHostWindow(window)
                 }
                 .frame(width: 0, height: 0)
@@ -331,10 +351,19 @@ struct TitlebarControlsView: View {
                 shortcutRefreshTick &+= 1
             }
             .onAppear {
-                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown() ?? false
+                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown(in: viewModel.hostWindow) ?? false
             }
             .onReceive(NotificationCenter.default.publisher(for: .cmuxNotificationsPopoverVisibilityDidChange)) { notification in
+                guard titlebarControlsShouldHandlePopoverVisibilityChange(
+                    hostWindowNumber: viewModel.hostWindowNumber,
+                    notificationObject: notification.object
+                ) else {
+                    return
+                }
                 isNotificationsPopoverShown = (notification.userInfo?[NotificationsPopoverVisibilityUserInfoKey.isShown] as? Bool) ?? false
+            }
+            .onReceive(viewModel.$hostWindowNumber.removeDuplicates()) { _ in
+                isNotificationsPopoverShown = AppDelegate.shared?.isNotificationsPopoverShown(in: viewModel.hostWindow) ?? false
             }
             .onAppear {
                 modifierKeyMonitor.start()
@@ -551,7 +580,6 @@ struct HiddenTitlebarSidebarControlsView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
     @StateObject private var viewModel = TitlebarControlsViewModel()
 
-    private let hostWidth: CGFloat = 124
     private let hostHeight: CGFloat = 28
 
     var body: some View {
@@ -568,7 +596,8 @@ struct HiddenTitlebarSidebarControlsView: View {
             onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
             visibilityMode: .onHover
         )
-        .frame(width: hostWidth, height: hostHeight, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
+        .frame(height: hostHeight, alignment: .leading)
     }
 }
 
@@ -780,6 +809,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var cachedFittingSize: NSSize?
     private var lastObservedViewSize: NSSize = .zero
     private var lastAppliedLayoutSnapshot: TitlebarControlsLayoutSnapshot?
+    private weak var popoverHostWindow: NSWindow?
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
@@ -923,6 +953,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             preferredContentSize = .zero
             containerView.frame = .zero
             hostingView.frame = .zero
+            lastAppliedLayoutSnapshot = nil
+            lastObservedViewSize = .zero
+            cachedFittingSize = nil
+            fittingSizeNeedsRefresh = true
         }
     }
 
@@ -957,9 +991,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             externalAnchor.superview?.layoutSubtreeIfNeeded()
             let anchorRect = externalAnchor.convert(externalAnchor.bounds, to: contentView)
             if !anchorRect.isEmpty {
+                popoverHostWindow = window
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true)
+                postNotificationsPopoverVisibilityDidChange(isShown: true, window: window)
                 return
             }
         }
@@ -968,9 +1003,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             anchorView.superview?.layoutSubtreeIfNeeded()
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
+                popoverHostWindow = window
                 notificationsPopover.animates = animated
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-                postNotificationsPopoverVisibilityDidChange(isShown: true)
+                postNotificationsPopoverVisibilityDidChange(isShown: true, window: window)
                 return
             }
         }
@@ -978,9 +1014,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         // Fallback: position near top-left of the window content.
         let bounds = contentView.bounds
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
+        popoverHostWindow = window
         notificationsPopover.animates = animated
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
-        postNotificationsPopoverVisibilityDidChange(isShown: true)
+        postNotificationsPopoverVisibilityDidChange(isShown: true, window: window)
     }
 
     func dismissNotificationsPopover() {
@@ -1002,8 +1039,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     func popoverDidClose(_ notification: Notification) {
         // Clear the content view controller to stop SwiftUI observers when popover is hidden
+        let hostWindow = popoverHostWindow
         notificationsPopover.contentViewController = nil
-        postNotificationsPopoverVisibilityDidChange(isShown: false)
+        popoverHostWindow = nil
+        postNotificationsPopoverVisibilityDidChange(isShown: false, window: hostWindow)
     }
 }
 
@@ -1057,6 +1096,7 @@ private struct NotificationsPopoverView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                 }
+                .accessibilityIdentifier("notificationsPopover.emptyState")
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
                 ScrollView {
@@ -1427,6 +1467,15 @@ final class UpdateTitlebarAccessoryController {
 
     func isNotificationsPopoverShown() -> Bool {
         controlsControllers.allObjects.contains(where: { $0.popoverIsShownForTesting })
+    }
+
+    func isNotificationsPopoverShown(in window: NSWindow?) -> Bool {
+        guard let window else {
+            return isNotificationsPopoverShown()
+        }
+        return controlsControllers.allObjects.contains { controller in
+            controller.popoverIsShownForTesting && controller.view.window === window
+        }
     }
 
     @discardableResult

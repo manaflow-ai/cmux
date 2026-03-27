@@ -199,7 +199,8 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         _ = socketCommand("clear_notifications")
 
         app.typeKey("i", modifierFlags: [.command])
-        XCTAssertTrue(app.staticTexts["No notifications yet"].waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
+        let emptyState = app.descendants(matching: .any).matching(identifier: "notificationsPopover.emptyState").firstMatch
+        XCTAssertTrue(emptyState.waitForExistence(timeout: 6.0), "Expected empty notifications popover state")
         let jumpButton = app.buttons["notificationsPopover.jumpToLatest"]
         XCTAssertTrue(jumpButton.waitForExistence(timeout: 2.0), "Expected Jump to Latest button in empty notifications popover")
         XCTAssertFalse(jumpButton.isEnabled, "Expected Jump to Latest button to be disabled with no notifications")
