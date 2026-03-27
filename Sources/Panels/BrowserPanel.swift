@@ -527,6 +527,9 @@ enum BrowserLinkOpenSettings {
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
 
+    static let openSidebarPortLinksInCmuxBrowserKey = "browserOpenSidebarPortLinksInCmuxBrowser"
+    static let defaultOpenSidebarPortLinksInCmuxBrowser: Bool = true
+
     static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
     static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
 
@@ -547,6 +550,13 @@ enum BrowserLinkOpenSettings {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openSidebarPullRequestLinksInCmuxBrowserKey)
+    }
+
+    static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
+            return defaultOpenSidebarPortLinksInCmuxBrowser
+        }
+        return defaults.bool(forKey: openSidebarPortLinksInCmuxBrowserKey)
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
