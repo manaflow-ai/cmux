@@ -16,16 +16,30 @@ struct FileExplorerView: View {
             FileExplorerHeader(
                 rootURL: state.rootURL,
                 showHidden: $state.showHidden,
+                searchQuery: $state.searchQuery,
                 onRefresh: { state.refresh() },
                 onSyncToCwd: onSyncToCwd
             )
 
-            if state.rootNodes.isEmpty {
-                FileExplorerEmptyState()
+            if state.displayNodes.isEmpty {
+                if !state.searchQuery.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.tertiary)
+                        Text("No matches")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding()
+                } else {
+                    FileExplorerEmptyState()
+                }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(state.rootNodes) { node in
+                        ForEach(state.displayNodes) { node in
                             FileExplorerRow(
                                 node: node,
                                 depth: 0,
@@ -48,10 +62,13 @@ struct FileExplorerView: View {
 private struct FileExplorerHeader: View {
     let rootURL: URL?
     @Binding var showHidden: Bool
+    @Binding var searchQuery: String
     let onRefresh: () -> Void
     let onSyncToCwd: () -> Void
+    @State private var showSearchField = false
 
     var body: some View {
+        VStack(spacing: 0) {
         HStack(spacing: 4) {
             Text("FILES")
                 .font(.system(size: 10, weight: .semibold))
@@ -75,6 +92,14 @@ private struct FileExplorerHeader: View {
             }
             .buttonStyle(.plain)
             .help("Refresh file tree")
+
+            Button(action: { withAnimation { showSearchField.toggle() } }) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(showSearchField ? .primary : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Search files")
 
             Menu {
                 Toggle("Show Hidden Files", isOn: $showHidden)
@@ -100,6 +125,32 @@ private struct FileExplorerHeader: View {
         }
         .frame(height: 24)
         .background(Color(nsColor: .separatorColor).opacity(0.1))
+
+        if showSearchField {
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                TextField("Search files...", text: $searchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                if !searchQuery.isEmpty {
+                    Button(action: { searchQuery = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .separatorColor).opacity(0.05))
+        }
+        }
+        .onChange(of: showSearchField) { visible in
+            if !visible { searchQuery = "" }
+        }
     }
 }
 
@@ -133,6 +184,17 @@ private struct FileExplorerRow: View {
 
     private let indentWidth: CGFloat = 16
     private let rowHeight: CGFloat = 22
+
+    private var isCurrentFile: Bool {
+        !node.isDirectory && node.url.path == state.currentEditingFilePath
+    }
+
+    private var rowBackground: Color {
+        if isCurrentFile {
+            return Color.accentColor.opacity(isHovered ? 0.25 : 0.15)
+        }
+        return isHovered ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.15) : .clear
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -170,7 +232,7 @@ private struct FileExplorerRow: View {
             }
             .frame(height: rowHeight)
             .contentShape(Rectangle())
-            .background(isHovered ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.15) : .clear)
+            .background(rowBackground)
             .onHover { hovering in
                 isHovered = hovering
             }

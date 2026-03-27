@@ -115,7 +115,6 @@ struct EditorPanelView: View {
 // MARK: - Native NSTextView wrapper
 
 /// Wraps an NSTextView in SwiftUI for code editing.
-/// Supports monospace font, Cmd+S save, and two-way text binding.
 struct NativeTextEditor: NSViewRepresentable {
     @ObservedObject var panel: EditorPanel
 
@@ -156,12 +155,12 @@ struct NativeTextEditor: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 
-        // Appearance — match terminal dark/light mode
+        // Appearance
         textView.drawsBackground = true
         textView.textContainerInset = NSSize(width: 8, height: 8)
         applyTheme(to: textView, scrollView: scrollView)
 
-        // Set initial content with syntax highlighting
+        // Set content with syntax highlighting
         let fileExt = (panel.filePath as NSString).pathExtension
         let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             || textView.window == nil
@@ -169,21 +168,17 @@ struct NativeTextEditor: NSViewRepresentable {
         textView.textStorage?.setAttributedString(highlighted)
 
         textView.delegate = context.coordinator
-        context.coordinator.fileExtension = fileExt
-
-        scrollView.documentView = textView
         context.coordinator.textView = textView
 
+        scrollView.documentView = textView
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        // Only update if text changed externally (not from user typing)
         if textView.string != panel.content && !context.coordinator.isUpdatingFromTextView {
             textView.string = panel.content
         }
-        // Reapply theme on appearance change (dark/light mode switch)
         applyTheme(to: textView, scrollView: scrollView)
     }
 
@@ -207,7 +202,6 @@ struct NativeTextEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         var isUpdatingFromTextView = false
         var isHighlighting = false
-        var fileExtension: String = ""
         private var highlightWorkItem: DispatchWorkItem?
 
         init(panel: EditorPanel) {
@@ -215,7 +209,6 @@ struct NativeTextEditor: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
-            // Skip if this was triggered by syntax re-highlighting (not user typing)
             guard !isHighlighting else { return }
             guard let textView = notification.object as? NSTextView else { return }
             isUpdatingFromTextView = true
@@ -225,13 +218,13 @@ struct NativeTextEditor: NSViewRepresentable {
                 self.panel.textDidChange()
                 self.isUpdatingFromTextView = false
             }
-            // Debounced re-highlight (300ms after last keystroke)
             scheduleHighlight(for: textView)
         }
 
+        /// Debounced syntax re-highlighting (300ms after last keystroke).
         private func scheduleHighlight(for textView: NSTextView) {
             highlightWorkItem?.cancel()
-            let ext = fileExtension
+            let fileExt = (panel.filePath as NSString).pathExtension
             let workItem = DispatchWorkItem { [weak self, weak textView] in
                 guard let textView else { return }
                 Task { @MainActor in
@@ -239,14 +232,12 @@ struct NativeTextEditor: NSViewRepresentable {
                     let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                         || textView.window == nil
                     let selectedRange = textView.selectedRange()
-                    let highlighted = SyntaxHighlighter.highlight(textView.string, fileExtension: ext, isDark: isDark)
-                    // Mark as highlighting so textDidChange ignores this mutation
+                    let highlighted = SyntaxHighlighter.highlight(textView.string, fileExtension: fileExt, isDark: isDark)
                     self.isHighlighting = true
                     textView.textStorage?.beginEditing()
                     textView.textStorage?.setAttributedString(highlighted)
                     textView.textStorage?.endEditing()
                     self.isHighlighting = false
-                    // Restore cursor position
                     let safeRange = NSRange(
                         location: min(selectedRange.location, textView.string.count),
                         length: 0
@@ -257,45 +248,5 @@ struct NativeTextEditor: NSViewRepresentable {
             highlightWorkItem = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
         }
-    }
-}
-
-// MARK: - NSTextView subclass with Cmd+S
-
-/// NSTextView subclass that intercepts Cmd+S to trigger save.
-/// Uses both performKeyEquivalent AND a local event monitor to catch
-/// Cmd+S even when CMUX's menu system consumes key equivalents.
-final class SaveableTextView: NSTextView {
-    var onSave: (() -> Void)?
-    private var eventMonitor: Any?
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window != nil && eventMonitor == nil {
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      self.window?.firstResponder === self,
-                      event.modifierFlags.contains(.command),
-                      event.charactersIgnoringModifiers == "s" else {
-                    return event
-                }
-                self.onSave?()
-                return nil  // Consume the event
-            }
-        }
-    }
-
-    deinit {
-        if let monitor = eventMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {
-            onSave?()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
     }
 }

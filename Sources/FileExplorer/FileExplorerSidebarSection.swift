@@ -102,6 +102,7 @@ struct FileExplorerSidebarSection: View {
         guard let paneId = focusedPaneId else { return }
         // Open in native NSTextView editor (editable, Cmd+S to save)
         workspace.newEditorSurface(inPane: paneId, filePath: url.path, focus: true)
+        explorerState.currentEditingFilePath = url.path
     }
 
     /// Double-click: open in Sublime Text, fall back to system default.
