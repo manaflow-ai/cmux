@@ -13744,6 +13744,7 @@ private struct SidebarBackdrop: View {
     @State private var refreshGeneration = 0
 
     var body: some View {
+        let _ = refreshGeneration  // explicit dependency for notification-driven re-renders
         let preferredColorScheme: GhosttyConfig.ColorSchemePreference = colorScheme == .dark ? .dark : .light
         let ghosttyConfig = GhosttyConfig.load(preferredColorScheme: preferredColorScheme)
         let selectedSidebarTheme = SidebarThemeSettings.mode(for: sidebarTheme)
@@ -13759,7 +13760,9 @@ private struct SidebarBackdrop: View {
         }()
         let customTintColor = (NSColor(hex: resolvedCustomHex) ?? NSColor(hex: sidebarTintHex) ?? .black)
             .withAlphaComponent(sidebarTintOpacity)
+        let usesGhosttyTheme = selectedSidebarTheme == .matchGhostty
         let explicitSidebarBackground: NSColor? = {
+            guard usesGhosttyTheme else { return nil }
             if colorScheme == .dark, let dark = ghosttyConfig.sidebarBackgroundDark {
                 return dark
             } else if colorScheme == .light, let light = ghosttyConfig.sidebarBackgroundLight {
@@ -13769,9 +13772,8 @@ private struct SidebarBackdrop: View {
         }()
         let hasExplicitSidebarBackground = ghosttyConfig.rawSidebarBackground != nil && explicitSidebarBackground != nil
         let tintColor: NSColor = {
-            guard let explicitSidebarBackground else {
-                return customTintColor
-            }
+            guard usesGhosttyTheme else { return customTintColor }
+            guard let explicitSidebarBackground else { return .clear }
             let resolvedOpacity = ghosttyConfig.sidebarTintOpacity ?? sidebarTintOpacity
             return explicitSidebarBackground.withAlphaComponent(resolvedOpacity)
         }()
@@ -13826,7 +13828,11 @@ private struct SidebarBackdrop: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
             refreshGeneration &+= 1
         }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+        .onReceive(
+            NotificationCenter.default
+                .publisher(for: .ghosttyConfigDidReload)
+                .receive(on: RunLoop.main)
+        ) { _ in
             GhosttyConfig.invalidateLoadCache()
             refreshGeneration &+= 1
         }
@@ -13834,9 +13840,9 @@ private struct SidebarBackdrop: View {
 }
 
 /// Renders a solid color using the same compositing path as the terminal's
-/// CAMetalLayer (bgra8Unorm / sRGB blending). Uses a display link callback
-/// to re-apply layer.backgroundColor after makeViewHierarchyTransparent
-/// clears it on transparent windows.
+/// CAMetalLayer (bgra8Unorm / sRGB blending). Uses `viewDidMoveToWindow` with a
+/// deferred main-queue dispatch to re-apply `layer.backgroundColor` after
+/// `makeViewHierarchyTransparent` clears it on transparent windows.
 private struct SidebarSolidColorBackground: NSViewRepresentable {
     let color: NSColor
 
