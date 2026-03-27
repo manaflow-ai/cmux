@@ -1109,7 +1109,7 @@ final class TerminalNotificationStore: ObservableObject {
             options: .regularExpression
         )
         result = result.replacingOccurrences(
-            of: #"_{3}(.+?)_{3}"#,
+            of: #"(?<!\w)_{3}(.+?)_{3}(?!\w)"#,
             with: "$1",
             options: .regularExpression
         )
@@ -1121,7 +1121,7 @@ final class TerminalNotificationStore: ObservableObject {
             options: .regularExpression
         )
         result = result.replacingOccurrences(
-            of: #"_{2}(.+?)_{2}"#,
+            of: #"(?<!\w)_{2}(.+?)_{2}(?!\w)"#,
             with: "$1",
             options: .regularExpression
         )
