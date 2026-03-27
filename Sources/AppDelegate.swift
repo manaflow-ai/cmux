@@ -10671,24 +10671,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
-        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
-        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
-        // charactersIgnoringModifiers returns non-ASCII characters that can never match
-        // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
         let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
-        if hasEventChars,
-           eventCharsAreASCII,
-           flags.contains(.command),
-           !flags.contains(.control),
-           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
-            return false
-        }
 
         // Match using the current keyboard layout so Command shortcuts stay character-based
         // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        // This also provides a reliable fallback when the kitty keyboard protocol is active:
+        // in that mode, charactersIgnoringModifiers may be empty or carry a synthetic value
+        // that does not match the shortcut key, but the keyCode-based layout translation
+        // still correctly identifies the physical key (e.g. keyCode 32 → "u").
         let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
         if shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
@@ -10697,6 +10688,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             eventKeyCode: event.keyCode
         ) {
             return true
+        }
+
+        // For command-based shortcuts, once both character sources have been tried, block
+        // further keyCode fallback for letter shortcuts to avoid physical-key collisions
+        // across layouts. Non-ASCII characters (Russian, Korean, CJK, etc.) cannot match
+        // a Latin shortcut key, so always allow keyCode fallback in that case.
+        if hasEventChars,
+           eventCharsAreASCII,
+           flags.contains(.command),
+           !flags.contains(.control),
+           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
+            return false
         }
 
         // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
@@ -10709,7 +10712,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // physical key code is the definitive identifier for the intended shortcut.
         // For empty-character events (synthetic/browser key equivalents), preserve the original
         // behavior: only fall back when the layout translation also failed.
-        let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
