@@ -5346,7 +5346,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5397,7 +5406,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5431,7 +5449,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5482,7 +5509,16 @@ class TerminalController {
                 return
             }
 
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -13284,6 +13320,23 @@ class TerminalController {
         }
     }
 
+    private func keycodeForNamedKey(_ name: String) -> UInt32? {
+        switch name {
+        case "enter", "return": return UInt32(kVK_Return)
+        case "tab": return UInt32(kVK_Tab)
+        case "escape", "esc": return UInt32(kVK_Escape)
+        case "backspace": return UInt32(kVK_Delete)
+        case "delete": return UInt32(kVK_ForwardDelete)
+        case "space": return UInt32(kVK_Space)
+        case "up": return UInt32(kVK_UpArrow)
+        case "down": return UInt32(kVK_DownArrow)
+        case "left": return UInt32(kVK_LeftArrow)
+        case "right": return UInt32(kVK_RightArrow)
+        case "\\": return UInt32(kVK_ANSI_Backslash)
+        default: return nil
+        }
+    }
+
     private func sendNamedKey(_ surface: ghostty_surface_t, keyName: String) -> Bool {
         switch keyName.lowercased() {
         case "ctrl-c", "ctrl+c", "sigint":
@@ -13341,12 +13394,43 @@ class TerminalController {
             sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageDown))
             return true
         default:
-            if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
-                let letter = keyName.dropFirst(5)
-                if letter.count == 1, let char = letter.first, let keycode = keycodeForLetter(char) {
-                    sendKeyEvent(surface: surface, keycode: keycode, mods: GHOSTTY_MODS_CTRL)
+            // Parse modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
+            // "ctrl+shift+a") or standalone named keys (e.g. "space", "up").
+            // Separators: '+' or '-'.
+            let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init).filter { !$0.isEmpty }
+            guard let baseKey = parts.last else { return false }
+
+            // Single named key without modifiers (e.g. "space", "up", "delete")
+            if parts.count == 1 {
+                if let keycode = keycodeForNamedKey(baseKey) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
                     return true
                 }
+                if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
+                    return true
+                }
+                return false
+            }
+
+            var mods = GHOSTTY_MODS_NONE
+            for mod in parts.dropLast() {
+                switch mod {
+                case "ctrl", "control": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_CTRL.rawValue)
+                case "shift": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
+                case "alt", "opt", "option": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_ALT.rawValue)
+                case "cmd", "command", "super": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+                default: return false
+                }
+            }
+
+            if let keycode = keycodeForNamedKey(baseKey) {
+                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
+                return true
+            }
+            if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
+                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
+                return true
             }
             return false
         }
