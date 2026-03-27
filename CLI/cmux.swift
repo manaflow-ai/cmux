@@ -9305,7 +9305,7 @@ struct CMUXCLI {
         return ordered.joined(separator: ":")
     }
 
-    private struct ClaudeTeamsFocusedContext {
+    private struct TmuxCompatFocusedContext {
         let socketPath: String
         let workspaceId: String
         let windowId: String?
@@ -9314,7 +9314,7 @@ struct CMUXCLI {
         let surfaceId: String?
     }
 
-    private func claudeTeamsResolvedSocketPath(processEnvironment: [String: String]) -> String {
+    private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) -> String {
         let envSocketPath: String? = {
             for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET"] {
                 guard let raw = processEnvironment[key] else { continue }
@@ -9341,11 +9341,11 @@ struct CMUXCLI {
         )
     }
 
-    private func claudeTeamsFocusedContext(
+    private func tmuxCompatFocusedContext(
         processEnvironment: [String: String],
         explicitPassword: String?
-    ) -> ClaudeTeamsFocusedContext? {
-        let socketPath = claudeTeamsResolvedSocketPath(processEnvironment: processEnvironment)
+    ) -> TmuxCompatFocusedContext? {
+        let socketPath = tmuxCompatResolvedSocketPath(processEnvironment: processEnvironment)
         let client = SocketClient(path: socketPath)
 
         do {
@@ -9379,7 +9379,7 @@ struct CMUXCLI {
             let surfaceId = (focused["surface_id"] as? String)
                 ?? (focused["surface_ref"] as? String)
 
-            return ClaudeTeamsFocusedContext(
+            return TmuxCompatFocusedContext(
                 socketPath: socketPath,
                 workspaceId: workspaceId,
                 windowId: windowId,
@@ -9400,17 +9400,29 @@ struct CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    private func resolveClaudeExecutable(searchPath: String?) -> String? {
+    private func resolveExecutableInSearchPath(
+        _ name: String,
+        searchPath: String?,
+        skip: ((String) -> Bool)? = nil
+    ) -> String? {
         let entries = searchPath?.split(separator: ":").map(String.init) ?? []
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent("claude", isDirectory: false)
+                .appendingPathComponent(name, isDirectory: false)
                 .path
             guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
-            guard !isCmuxClaudeWrapper(at: candidate) else { continue }
+            if let skip, skip(candidate) { continue }
             return candidate
         }
         return nil
+    }
+
+    private func resolveClaudeExecutable(searchPath: String?) -> String? {
+        resolveExecutableInSearchPath(
+            "claude",
+            searchPath: searchPath,
+            skip: { self.isCmuxClaudeWrapper(at: $0) }
+        )
     }
 
     private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
@@ -9426,13 +9438,17 @@ struct CMUXCLI {
         return ["--teammate-mode", "auto"] + commandArgs
     }
 
-    private func configureClaudeTeamsEnvironment(
+    private func configureTmuxCompatEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: ClaudeTeamsFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?,
+        tmuxPathPrefix: String,
+        cmuxBinEnvVar: String,
+        termOverrideEnvVar: String,
+        extraEnvVars: [(key: String, value: String)] = []
     ) {
         let updatedPath = prependPathEntries(
             [shimDirectory.path],
@@ -9441,17 +9457,16 @@ struct CMUXCLI {
         let fakeTmuxValue: String = {
             if let focusedContext {
                 let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
-                return "/tmp/cmux-claude-teams/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
+                return "/tmp/\(tmuxPathPrefix)/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
             }
-            return processEnvironment["TMUX"] ?? "/tmp/cmux-claude-teams/default,0,0"
+            return processEnvironment["TMUX"] ?? "/tmp/\(tmuxPathPrefix)/default,0,0"
         }()
         let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
             ?? processEnvironment["TMUX_PANE"]
             ?? "%1"
-        let fakeTerm = processEnvironment["CMUX_CLAUDE_TEAMS_TERM"] ?? "screen-256color"
+        let fakeTerm = processEnvironment[termOverrideEnvVar] ?? "screen-256color"
 
-        setenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "1", 1)
-        setenv("CMUX_CLAUDE_TEAMS_CMUX_BIN", executablePath, 1)
+        setenv(cmuxBinEnvVar, executablePath, 1)
         setenv("PATH", updatedPath, 1)
         setenv("TMUX", fakeTmuxValue, 1)
         setenv("TMUX_PANE", fakeTmuxPane, 1)
@@ -9463,6 +9478,9 @@ struct CMUXCLI {
             setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
         }
         unsetenv("TERM_PROGRAM")
+        for envVar in extraEnvVars {
+            setenv(envVar.key, envVar.value, 1)
+        }
         if let focusedContext {
             setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
             if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
@@ -9471,27 +9489,54 @@ struct CMUXCLI {
         }
     }
 
-    private func createClaudeTeamsShimDirectory() throws -> URL {
+    private func configureClaudeTeamsEnvironment(
+        processEnvironment: [String: String],
+        shimDirectory: URL,
+        executablePath: String,
+        socketPath: String,
+        explicitPassword: String?,
+        focusedContext: TmuxCompatFocusedContext?
+    ) {
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-claude-teams",
+            cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
+            termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
+            extraEnvVars: [
+                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
+            ]
+        )
+    }
+
+    private func createTmuxCompatShimDirectory(
+        directoryName: String,
+        tmuxShimScript: String
+    ) throws -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        let rootPath = URL(fileURLWithPath: homePath, isDirectory: true)
+        let root = URL(fileURLWithPath: homePath, isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("claude-teams-bin", isDirectory: true)
-            .path
-        let root = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
+        try writeShimIfChanged(tmuxShimScript, to: tmuxURL)
+        return root
+    }
+
+    private func createClaudeTeamsShimDirectory() throws -> URL {
         let script = """
         #!/usr/bin/env bash
         set -euo pipefail
         exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
-        let normalizedScript = script.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existingScript = try? String(contentsOf: tmuxURL, encoding: .utf8)
-        if existingScript?.trimmingCharacters(in: .whitespacesAndNewlines) != normalizedScript {
-            try script.write(to: tmuxURL, atomically: false, encoding: .utf8)
-        }
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tmuxURL.path)
-        return root
+        return try createTmuxCompatShimDirectory(
+            directoryName: "claude-teams-bin",
+            tmuxShimScript: script
+        )
     }
 
     private func runClaudeTeams(
@@ -9509,7 +9554,7 @@ struct CMUXCLI {
         }
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = claudeTeamsFocusedContext(
+        let focusedContext = tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
@@ -9554,27 +9599,12 @@ struct CMUXCLI {
     // MARK: - cmux omo (OpenCode + oh-my-openagent)
 
     private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
-        let entries = searchPath?.split(separator: ":").map(String.init) ?? []
-        for entry in entries where !entry.isEmpty {
-            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent("opencode", isDirectory: false)
-                .path
-            guard FileManager.default.isExecutableFile(atPath: candidate) else { continue }
-            return candidate
-        }
-        return nil
+        resolveExecutableInSearchPath("opencode", searchPath: searchPath)
     }
 
     private func createOMOShimDirectory() throws -> URL {
-        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        let root = URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent(".cmuxterm", isDirectory: true)
-            .appendingPathComponent("omo-bin", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
-
         // tmux shim: redirects tmux commands to cmux __tmux-compat
         // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
-        let tmuxURL = root.appendingPathComponent("tmux", isDirectory: false)
         let tmuxScript = """
         #!/usr/bin/env bash
         set -euo pipefail
@@ -9585,7 +9615,10 @@ struct CMUXCLI {
         esac
         exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
-        try writeShimIfChanged(tmuxScript, to: tmuxURL)
+        let root = try createTmuxCompatShimDirectory(
+            directoryName: "omo-bin",
+            tmuxShimScript: tmuxScript
+        )
 
         // terminal-notifier shim: intercepts macOS notifications and routes to cmux notify
         let notifierURL = root.appendingPathComponent("terminal-notifier", isDirectory: false)
@@ -9831,46 +9864,25 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: ClaudeTeamsFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?
     ) {
-        let updatedPath = prependPathEntries(
-            [shimDirectory.path],
-            to: processEnvironment["PATH"]
-        )
-        let fakeTmuxValue: String = {
-            if let focusedContext {
-                let windowToken = focusedContext.windowId ?? focusedContext.workspaceId
-                return "/tmp/cmux-omo/\(focusedContext.workspaceId),\(windowToken),\(focusedContext.paneHandle)"
-            }
-            return processEnvironment["TMUX"] ?? "/tmp/cmux-omo/default,0,0"
-        }()
-        let fakeTmuxPane = focusedContext.map { "%\($0.paneHandle)" }
-            ?? processEnvironment["TMUX_PANE"]
-            ?? "%1"
-        let fakeTerm = processEnvironment["CMUX_OMO_TERM"] ?? "screen-256color"
-
-        setenv("CMUX_OMO_CMUX_BIN", executablePath, 1)
-        setenv("PATH", updatedPath, 1)
-        setenv("TMUX", fakeTmuxValue, 1)
-        setenv("TMUX_PANE", fakeTmuxPane, 1)
-        setenv("TERM", fakeTerm, 1)
-        setenv("CMUX_SOCKET_PATH", socketPath, 1)
-        setenv("CMUX_SOCKET", socketPath, 1)
-        if let explicitPassword,
-           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
-        }
-        unsetenv("TERM_PROGRAM")
         // Tell oh-my-opencode the API server port so subagent attach works
+        var extraEnvVars: [(key: String, value: String)] = []
         if processEnvironment["OPENCODE_PORT"] == nil {
-            setenv("OPENCODE_PORT", "4096", 1)
+            extraEnvVars.append((key: "OPENCODE_PORT", value: "4096"))
         }
-        if let focusedContext {
-            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
-            if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
-                setenv("CMUX_SURFACE_ID", surfaceId, 1)
-            }
-        }
+        configureTmuxCompatEnvironment(
+            processEnvironment: processEnvironment,
+            shimDirectory: shimDirectory,
+            executablePath: executablePath,
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            focusedContext: focusedContext,
+            tmuxPathPrefix: "cmux-omo",
+            cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
+            termOverrideEnvVar: "CMUX_OMO_TERM",
+            extraEnvVars: extraEnvVars
+        )
     }
 
     private func runOMO(
@@ -9891,7 +9903,7 @@ struct CMUXCLI {
         }
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-        let focusedContext = claudeTeamsFocusedContext(
+        let focusedContext = tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
@@ -10032,10 +10044,14 @@ struct CMUXCLI {
             // Claude's agent teams targets arbitrary panes (from list-panes),
             // not necessarily the leader pane from TMUX_PANE. Override the
             // target to anchor all teammate splits to the leader surface.
-            let store = loadTmuxCompatStore()
+            // Only apply caller anchoring when the caller's workspace resolves
+            // successfully. Falling back to target.workspaceId would pair
+            // the caller's surface with a different workspace, creating an
+            // invalid cross-workspace split.
             if let callerSurface = tmuxCallerSurfaceHandle(),
-               let callerWorkspace = tmuxCallerWorkspaceHandle() {
-                let wsId = (try? resolveWorkspaceId(callerWorkspace, client: client)) ?? target.workspaceId
+               let callerWorkspace = tmuxCallerWorkspaceHandle(),
+               let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
+                let store = loadTmuxCompatStore()
                 if let mvState = store.mainVerticalLayouts[wsId],
                    let lastColumn = mvState.lastColumnSurfaceId {
                     // Main-vertical active: stack in right column.
@@ -10078,6 +10094,14 @@ struct CMUXCLI {
                 }
                 try saveTmuxCompatStore(updatedStore)
             }
+
+            // Equalize vertical splits so teammate panes are evenly distributed.
+            // Use orientation: "vertical" to only equalize the agent column,
+            // preserving the leader/column horizontal divider position.
+            _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                "workspace_id": target.workspaceId,
+                "orientation": "vertical"
+            ])
 
             if let text = tmuxShellCommandText(commandTokens: parsed.positional, cwd: parsed.value("-c")) {
                 _ = try client.sendV2(method: "surface.send_text", params: [
@@ -10345,7 +10369,23 @@ struct CMUXCLI {
         case "select-layout":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            // select-layout -t accepts pane targets (e.g. %1) in real tmux.
+            // Try pane target first, then workspace target. Only fall back to
+            // the caller's current workspace when no -t was provided; an
+            // explicit -t that fails to resolve should error, not silently
+            // apply to the wrong workspace.
+            let workspaceId: String = {
+                if let target = parsed.value("-t") {
+                    if let resolved = try? tmuxResolvePaneTarget(target, client: client) {
+                        return resolved.workspaceId
+                    }
+                    return (try? tmuxResolveWorkspaceTarget(target, client: client)) ?? ""
+                }
+                return (try? tmuxResolveWorkspaceTarget(nil, client: client)) ?? ""
+            }()
+            guard !workspaceId.isEmpty else {
+                throw CLIError(message: "Could not resolve workspace for select-layout")
+            }
             if layoutName == "main-vertical" || layoutName == "main-horizontal" {
                 // For main-* layouts, only equalize the agent column (vertical splits),
                 // not the top-level horizontal split between main and agents.
@@ -10367,6 +10407,15 @@ struct CMUXCLI {
                         mainSurfaceId: callerSurface,
                         lastColumnSurfaceId: seedColumn
                     )
+                    try saveTmuxCompatStore(store)
+                }
+            } else if !layoutName.isEmpty {
+                // Non-main-vertical layout selected: clear stale state so
+                // future splits don't incorrectly redirect to the old column.
+                var store = loadTmuxCompatStore()
+                let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
+                let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
+                if removedLayout || removedSplit {
                     try saveTmuxCompatStore(store)
                 }
             }
@@ -10400,6 +10449,19 @@ struct CMUXCLI {
         /// Used to seed lastColumnSurfaceId when select-layout main-vertical
         /// is called after the first split.
         var lastSplitSurface: [String: String] = [:]
+
+        /// Custom decoder so older store files missing newer keys
+        /// (mainVerticalLayouts, lastSplitSurface) decode gracefully
+        /// instead of throwing and resetting the entire store.
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            buffers = try container.decodeIfPresent([String: String].self, forKey: .buffers) ?? [:]
+            hooks = try container.decodeIfPresent([String: String].self, forKey: .hooks) ?? [:]
+            mainVerticalLayouts = try container.decodeIfPresent([String: MainVerticalState].self, forKey: .mainVerticalLayouts) ?? [:]
+            lastSplitSurface = try container.decodeIfPresent([String: String].self, forKey: .lastSplitSurface) ?? [:]
+        }
+
+        init() {}
     }
 
     private func tmuxCompatStoreURL() -> URL {
