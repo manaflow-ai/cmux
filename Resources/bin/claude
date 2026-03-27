@@ -6,15 +6,52 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
-# Find the real claude binary, skipping our own directory.
+# Return 0 if the given path is a real claude binary (not another cmux wrapper).
+is_real_claude() {
+    local file="$1"
+    # cmux wrappers contain a marker string in the first 512 bytes.
+    local header
+    header="$(head -c 512 "$file" 2>/dev/null)" || return 0
+    [[ "$header" != *"cmux claude wrapper"* ]]
+}
+
+# Find the real claude binary.
+# 1) Search $PATH, skipping our own directory and other cmux wrappers.
+# 2) Fall back to well-known installation paths.
+# 3) Fall back to the Claude Desktop App bundle (latest version).
 find_real_claude() {
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
+
+    # Search PATH.
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
+        [[ -x "$d/claude" ]] && is_real_claude "$d/claude" && printf '%s' "$d/claude" && return 0
     done
+
+    # Well-known installation paths.
+    local candidate
+    for candidate in \
+        "$HOME/.local/bin/claude" \
+        "/usr/local/bin/claude"; do
+        [[ -x "$candidate" ]] && is_real_claude "$candidate" && printf '%s' "$candidate" && return 0
+    done
+
+    # Claude Desktop App bundle (newest version first via reverse-sorted glob).
+    local app_support="$HOME/Library/Application Support/Claude/claude-code"
+    if [[ -d "$app_support" ]]; then
+        local -a bundles=()
+        for candidate in "$app_support"/*/claude.app/Contents/MacOS/claude; do
+            [[ -x "$candidate" ]] && bundles+=("$candidate")
+        done
+        # Try newest version first (highest version directory sorts last, so reverse).
+        local i
+        for (( i=${#bundles[@]}-1; i>=0; i-- )); do
+            printf '%s' "${bundles[$i]}" && return 0
+        done
+    fi
+
     return 1
 }
 
@@ -48,12 +85,12 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     if [[ "$IN_CMUX" == "1" ]]; then
         unset CLAUDECODE
     fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH or well-known locations. Install Claude Code (https://docs.anthropic.com/s/claude-code) or add it to your PATH." >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi
 
 # Find real claude.
-REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH or well-known locations. Install Claude Code (https://docs.anthropic.com/s/claude-code) or add it to your PATH." >&2; exit 127; }
 
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
