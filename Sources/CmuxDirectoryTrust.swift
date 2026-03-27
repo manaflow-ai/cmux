@@ -82,26 +82,10 @@ final class CmuxDirectoryTrust {
     /// otherwise the cmux.json's parent directory.
     static func trustKey(for configPath: String) -> String {
         let configDir = (configPath as NSString).deletingLastPathComponent
-        if let gitRoot = findGitRoot(from: configDir) {
+        if let gitRoot = CmuxConfigStore.findGitRoot(from: configDir) {
             return gitRoot
         }
         return configDir
-    }
-
-    /// Walk up from `directory` looking for a `.git` directory or file.
-    private static func findGitRoot(from directory: String) -> String? {
-        let fm = FileManager.default
-        var current = directory
-        while true {
-            let gitPath = (current as NSString).appendingPathComponent(".git")
-            if fm.fileExists(atPath: gitPath) {
-                return current
-            }
-            let parent = (current as NSString).deletingLastPathComponent
-            if parent == current { break }
-            current = parent
-        }
-        return nil
     }
 
     private func save() {

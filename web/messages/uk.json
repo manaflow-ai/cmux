@@ -325,9 +325,9 @@
       "fieldKeywords": "Додаткові пошукові терміни для палітри команд",
       "fieldCommand": "Shell-команда для виконання в активному терміналі",
       "fieldConfirm": "Показати діалог підтвердження перед виконанням",
-      "simpleCommandCwdNote": "Прості команди виконуються в поточній робочій директорії активного терміналу. Якщо ваша команда залежить від шляхів відносно проєкту, додайте префікс",
-      "simpleCommandCwdRepoRoot": "для виконання з кореня репозиторію, або",
-      "simpleCommandCwdCustomPath": "для будь-якої конкретної директорії.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Команди робочого простору",
       "workspaceCommandsDesc": "Команда робочого простору створює новий робочий простір з користувацьким макетом розділень, терміналів та панелей браузера:",
       "workspaceFields": "Поля робочого простору",
@@ -364,7 +364,8 @@
       "cwdHome": "розкривається до домашньої директорії",
       "absolutePath": "Абсолютний шлях",
       "cwdAbsolute": "використовується як є",
-      "fullExample": "Повний приклад"
+      "fullExample": "Повний приклад",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Клавіатурні скорочення",

@@ -325,9 +325,9 @@
       "fieldKeywords": "Dodatni pojmovi za pretraživanje u paleti komandi",
       "fieldCommand": "Shell komanda za pokretanje u fokusiranom terminalu",
       "fieldConfirm": "Prikaži dijalog za potvrdu prije pokretanja",
-      "simpleCommandCwdNote": "Jednostavne komande se pokreću u trenutnom radnom direktoriju fokusiranog terminala. Ako vaša komanda zavisi od putanja relativnih projektu, dodajte prefiks",
-      "simpleCommandCwdRepoRoot": "za pokretanje iz korijena repozitorija, ili",
-      "simpleCommandCwdCustomPath": "za bilo koji specifični direktorij.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Komande radnog prostora",
       "workspaceCommandsDesc": "Komanda radnog prostora kreira novi radni prostor s prilagođenim rasporedom podjela, terminala i panela preglednika:",
       "workspaceFields": "Polja radnog prostora",
@@ -364,7 +364,8 @@
       "cwdHome": "prošireno na kućni direktorij",
       "absolutePath": "Apsolutna putanja",
       "cwdAbsolute": "koristi se kao takvo",
-      "fullExample": "Potpuni primjer"
+      "fullExample": "Potpuni primjer",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Prečice na tastaturi",

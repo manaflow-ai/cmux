@@ -325,9 +325,9 @@
       "fieldKeywords": "คำค้นหาเพิ่มเติมสำหรับแผงคำสั่ง",
       "fieldCommand": "คำสั่ง shell ที่จะรันในเทอร์มินัลที่โฟกัส",
       "fieldConfirm": "แสดงกล่องโต้ตอบยืนยันก่อนรัน",
-      "simpleCommandCwdNote": "คำสั่งแบบง่ายจะรันในไดเรกทอรีการทำงานปัจจุบันของเทอร์มินัลที่โฟกัสอยู่ หากคำสั่งของคุณใช้พาธสัมพัทธ์กับโปรเจกต์ ให้เพิ่มนำหน้าด้วย",
-      "simpleCommandCwdRepoRoot": "เพื่อรันจากรูทของ repo หรือ",
-      "simpleCommandCwdCustomPath": "สำหรับไดเรกทอรีที่ต้องการ",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "คำสั่ง workspace",
       "workspaceCommandsDesc": "คำสั่ง workspace สร้าง workspace ใหม่ที่มีเลย์เอาต์กำหนดเองของการแบ่ง เทอร์มินัล และแผงเบราว์เซอร์:",
       "workspaceFields": "ฟิลด์ workspace",
@@ -364,7 +364,8 @@
       "cwdHome": "ขยายไปยังไดเรกทอรีหลัก",
       "absolutePath": "พาธสัมบูรณ์",
       "cwdAbsolute": "ใช้ตามที่เป็น",
-      "fullExample": "ตัวอย่างเต็ม"
+      "fullExample": "ตัวอย่างเต็ม",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "คีย์ลัด",

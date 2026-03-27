@@ -325,9 +325,9 @@
       "fieldKeywords": "コマンドパレット用の追加検索キーワード",
       "fieldCommand": "フォーカスされたターミナルで実行するシェルコマンド",
       "fieldConfirm": "実行前に確認ダイアログを表示する",
-      "simpleCommandCwdNote": "シンプルコマンドはフォーカスされたターミナルの現在の作業ディレクトリで実行されます。プロジェクト相対パスに依存するコマンドの場合は、先頭に",
-      "simpleCommandCwdRepoRoot": "を付けてリポジトリのルートから実行するか、",
-      "simpleCommandCwdCustomPath": "で任意のディレクトリを指定できます。",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "ワークスペースコマンド",
       "workspaceCommandsDesc": "ワークスペースコマンドは、分割、ターミナル、ブラウザペインのカスタムレイアウトで新しいワークスペースを作成します：",
       "workspaceFields": "ワークスペースフィールド",
@@ -364,7 +364,8 @@
       "cwdHome": "ホームディレクトリに展開",
       "absolutePath": "絶対パス",
       "cwdAbsolute": "そのまま使用",
-      "fullExample": "完全な例"
+      "fullExample": "完全な例",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "キーボードショートカット",

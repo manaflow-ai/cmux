@@ -325,9 +325,9 @@
       "fieldKeywords": "Дополнительные поисковые термины для палитры команд",
       "fieldCommand": "Команда shell для выполнения в сфокусированном терминале",
       "fieldConfirm": "Показать диалог подтверждения перед выполнением",
-      "simpleCommandCwdNote": "Простые команды выполняются в текущей рабочей директории активного терминала. Если команда использует пути относительно проекта, добавьте префикс",
-      "simpleCommandCwdRepoRoot": "для запуска из корня репозитория, или",
-      "simpleCommandCwdCustomPath": "для любой конкретной директории.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Команды рабочего пространства",
       "workspaceCommandsDesc": "Команда рабочего пространства создаёт новое рабочее пространство с настраиваемым макетом из разделений, терминалов и панелей браузера:",
       "workspaceFields": "Поля рабочего пространства",
@@ -364,7 +364,8 @@
       "cwdHome": "расширено до домашнего каталога",
       "absolutePath": "Абсолютный путь",
       "cwdAbsolute": "используется как есть",
-      "fullExample": "Полный пример"
+      "fullExample": "Полный пример",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Горячие клавиши",

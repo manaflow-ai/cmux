@@ -41,7 +41,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
             "description": "Deploy to production",
             "keywords": ["ship", "release"],
             "command": "make deploy",
-            "confirm": true
+            "confirm": true,
+            "repoRoot": true
           }]
         }
         """
@@ -52,6 +53,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(cmd.keywords, ["ship", "release"])
         XCTAssertEqual(cmd.command, "make deploy")
         XCTAssertEqual(cmd.confirm, true)
+        XCTAssertEqual(cmd.repoRoot, true)
     }
 
     func testDecodeMultipleCommands() throws {
@@ -98,6 +100,27 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(ws?.name, "Development")
         XCTAssertEqual(ws?.cwd, "~/projects/app")
         XCTAssertEqual(ws?.color, "#FF5733")
+    }
+
+    func testDecodeWorkspaceCommandRejectsRepoRoot() {
+        let json = """
+        {
+          "commands": [{
+            "name": "Dev env",
+            "repoRoot": true,
+            "workspace": {
+              "name": "Development"
+            }
+          }]
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json)) { error in
+            guard case DecodingError.dataCorrupted(let context) = error else {
+                return XCTFail("Expected dataCorrupted, got \(error)")
+            }
+            XCTAssertTrue(context.debugDescription.contains("must not define 'repoRoot'"))
+        }
     }
 
     func testDecodeRestartBehaviors() throws {
@@ -646,6 +669,108 @@ final class CmuxConfigCwdResolutionTests: XCTestCase {
         XCTAssertEqual(
             CmuxConfigStore.resolveCwd("src", relativeTo: baseCwd),
             "/Users/test/project/src"
+        )
+    }
+}
+
+// MARK: - Git root resolution
+
+final class CmuxConfigGitRootResolutionTests: XCTestCase {
+    private var tempDirectory: URL!
+
+    override func setUpWithError() throws {
+        tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let tempDirectory {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+    }
+
+    func testFindGitRootReturnsRepositoryRootForNestedDirectory() throws {
+        let repoRoot = tempDirectory.appendingPathComponent("repo", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: repoRoot.appendingPathComponent(".git").path, contents: Data())
+
+        let nestedDirectory = repoRoot
+            .appendingPathComponent("apps", isDirectory: true)
+            .appendingPathComponent("api", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            CmuxConfigStore.findGitRoot(from: nestedDirectory.path),
+            repoRoot.path
+        )
+    }
+
+    func testFindGitRootReturnsNilOutsideRepository() throws {
+        let directory = tempDirectory.appendingPathComponent("scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        XCTAssertNil(CmuxConfigStore.findGitRoot(from: directory.path))
+    }
+}
+
+// MARK: - Command preparation
+
+final class CmuxConfigExecutorTests: XCTestCase {
+    private var tempDirectory: URL!
+
+    override func setUpWithError() throws {
+        tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let tempDirectory {
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+    }
+
+    func testPrepareShellCommandLeavesRegularCommandUnchanged() {
+        XCTAssertEqual(
+            CmuxConfigExecutor.prepareShellCommand(
+                "npm test",
+                baseCwd: "/tmp/project",
+                requiresRepoRoot: false
+            ),
+            .ready("npm test")
+        )
+    }
+
+    func testPrepareShellCommandWrapsRepoRootCommand() throws {
+        let repoRoot = tempDirectory.appendingPathComponent("repo root", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: repoRoot.appendingPathComponent(".git").path, contents: Data())
+
+        let nestedDirectory = repoRoot.appendingPathComponent("frontend", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            CmuxConfigExecutor.prepareShellCommand(
+                "pnpm test",
+                baseCwd: nestedDirectory.path,
+                requiresRepoRoot: true
+            ),
+            .ready("(cd '\(repoRoot.path)' && pnpm test)")
+        )
+    }
+
+    func testPrepareShellCommandReportsMissingRepoRoot() throws {
+        let directory = tempDirectory.appendingPathComponent("scratch", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        XCTAssertEqual(
+            CmuxConfigExecutor.prepareShellCommand(
+                "pnpm test",
+                baseCwd: directory.path,
+                requiresRepoRoot: true
+            ),
+            .missingRepoRoot("pnpm test")
         )
     }
 }

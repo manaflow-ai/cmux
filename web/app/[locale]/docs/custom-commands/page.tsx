@@ -47,6 +47,7 @@ export default function CustomCommandsPage() {
     {
       "name": "Run Tests",
       "command": "npm test",
+      "repoRoot": true,
       "confirm": true
     }
   ]
@@ -60,6 +61,7 @@ export default function CustomCommandsPage() {
       "name": "Run Tests",
       "keywords": ["test", "check"],
       "command": "npm test",
+      "repoRoot": true,
       "confirm": true
     }
   ]
@@ -71,9 +73,10 @@ export default function CustomCommandsPage() {
         <li><code>description</code> &mdash; {t("fieldDescription")}</li>
         <li><code>keywords</code> &mdash; {t("fieldKeywords")}</li>
         <li><code>command</code> &mdash; {t("fieldCommand")}</li>
+        <li><code>repoRoot</code> &mdash; {t("fieldRepoRoot")}</li>
         <li><code>confirm</code> &mdash; {t("fieldConfirm")}</li>
       </ul>
-      <p>{t("simpleCommandCwdNote")} <code>{"cd \"$(git rev-parse --show-toplevel)\" &&"}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
+      <p>{t("simpleCommandCwdNote")} <code>{`"repoRoot": true`}</code> {t("simpleCommandCwdRepoRoot")} <code>{"cd /your/path &&"}</code> {t("simpleCommandCwdCustomPath")}</p>
 
       <h2>{t("workspaceCommands")}</h2>
       <p>{t("workspaceCommandsDesc")}</p>

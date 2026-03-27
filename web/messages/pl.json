@@ -325,9 +325,9 @@
       "fieldKeywords": "Dodatkowe terminy wyszukiwania dla palety poleceń",
       "fieldCommand": "Polecenie shell do uruchomienia w sfokusowanym terminalu",
       "fieldConfirm": "Pokaż okno dialogowe potwierdzenia przed uruchomieniem",
-      "simpleCommandCwdNote": "Proste polecenia są uruchamiane w bieżącym katalogu roboczym aktywnego terminala. Jeśli polecenie wymaga ścieżek względnych do projektu, dodaj prefiks",
-      "simpleCommandCwdRepoRoot": "aby uruchomić z katalogu głównego repozytorium, lub",
-      "simpleCommandCwdCustomPath": "dla dowolnego konkretnego katalogu.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Polecenia workspace",
       "workspaceCommandsDesc": "Polecenie workspace tworzy nowy workspace z niestandardowym układem podziałów, terminali i paneli przeglądarki:",
       "workspaceFields": "Pola workspace",
@@ -364,7 +364,8 @@
       "cwdHome": "rozwinięty do katalogu domowego",
       "absolutePath": "Ścieżka bezwzględna",
       "cwdAbsolute": "używana bez zmian",
-      "fullExample": "Pełny przykład"
+      "fullExample": "Pełny przykład",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Skróty klawiszowe",

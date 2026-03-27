@@ -325,9 +325,9 @@
       "fieldKeywords": "Termes de recherche supplémentaires pour la palette de commandes",
       "fieldCommand": "Commande shell à exécuter dans le terminal focalisé",
       "fieldConfirm": "Afficher une boîte de dialogue de confirmation avant l'exécution",
-      "simpleCommandCwdNote": "Les commandes simples s'exécutent dans le répertoire de travail actuel du terminal ciblé. Si votre commande utilise des chemins relatifs au projet, préfixez avec",
-      "simpleCommandCwdRepoRoot": "pour exécuter depuis la racine du dépôt, ou",
-      "simpleCommandCwdCustomPath": "pour n'importe quel répertoire spécifique.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Commandes d'espace de travail",
       "workspaceCommandsDesc": "Une commande d'espace de travail crée un nouvel espace de travail avec une mise en page personnalisée de divisions, terminaux et panneaux de navigateur :",
       "workspaceFields": "Champs de l'espace de travail",
@@ -364,7 +364,8 @@
       "cwdHome": "développé vers le répertoire personnel",
       "absolutePath": "Chemin absolu",
       "cwdAbsolute": "utilisé tel quel",
-      "fullExample": "Exemple complet"
+      "fullExample": "Exemple complet",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Raccourcis clavier",

@@ -325,9 +325,9 @@
       "fieldKeywords": "Zusätzliche Suchbegriffe für die Befehlspalette",
       "fieldCommand": "Shell-Befehl, der im fokussierten Terminal ausgeführt wird",
       "fieldConfirm": "Bestätigungsdialog vor der Ausführung anzeigen",
-      "simpleCommandCwdNote": "Einfache Befehle werden im aktuellen Arbeitsverzeichnis des fokussierten Terminals ausgeführt. Wenn Ihr Befehl projektrelative Pfade benötigt, stellen Sie",
-      "simpleCommandCwdRepoRoot": "voran, um vom Repository-Stammverzeichnis auszuführen, oder",
-      "simpleCommandCwdCustomPath": "für ein beliebiges Verzeichnis.",
+      "simpleCommandCwdNote": "Simple commands run in the focused terminal's current working directory by default. Set",
+      "simpleCommandCwdRepoRoot": "to run from the current workspace's git repo root when available, or prefix your command with",
+      "simpleCommandCwdCustomPath": "for any specific directory.",
       "workspaceCommands": "Workspace-Befehle",
       "workspaceCommandsDesc": "Ein Workspace-Befehl erstellt einen neuen Workspace mit einem benutzerdefinierten Layout aus Aufteilungen, Terminals und Browser-Fenstern:",
       "workspaceFields": "Workspace-Felder",
@@ -364,7 +364,8 @@
       "cwdHome": "auf Home-Verzeichnis erweitert",
       "absolutePath": "Absoluter Pfad",
       "cwdAbsolute": "wird unverändert verwendet",
-      "fullExample": "Vollständiges Beispiel"
+      "fullExample": "Vollständiges Beispiel",
+      "fieldRepoRoot": "Run the command from the current workspace's git repo root when available"
     },
     "keyboardShortcuts": {
       "title": "Tastaturkürzel",

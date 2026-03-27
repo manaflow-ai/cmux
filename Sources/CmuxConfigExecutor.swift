@@ -3,6 +3,10 @@ import Foundation
 
 @MainActor
 struct CmuxConfigExecutor {
+    enum PreparedShellCommand: Equatable {
+        case ready(String)
+        case missingRepoRoot(String)
+    }
 
     static func execute(
         command: CmuxCommandDefinition,
@@ -14,7 +18,19 @@ struct CmuxConfigExecutor {
         if let workspace = command.workspace {
             executeWorkspaceCommand(command: command, workspace: workspace, tabManager: tabManager, baseCwd: baseCwd)
         } else if let rawCommand = command.command {
-            let shellCommand = sanitizeForDisplay(rawCommand)
+            let preparedCommand = prepareShellCommand(
+                rawCommand,
+                baseCwd: baseCwd,
+                requiresRepoRoot: command.repoRoot ?? false
+            )
+            let shellCommand: String
+            switch preparedCommand {
+            case .ready(let command):
+                shellCommand = command
+            case .missingRepoRoot(let command):
+                guard showRepoRootFallbackDialog() else { return }
+                shellCommand = command
+            }
             let needsConfirm = command.confirm ?? false
             if needsConfirm, let sourcePath = configSourcePath {
                 let trusted = CmuxDirectoryTrust.shared.isTrusted(
@@ -28,6 +44,21 @@ struct CmuxConfigExecutor {
             guard let terminal = tabManager.selectedWorkspace?.focusedTerminalPanel else { return }
             terminal.sendInput(shellCommand + "\n")
         }
+    }
+
+    static func prepareShellCommand(
+        _ rawCommand: String,
+        baseCwd: String,
+        requiresRepoRoot: Bool
+    ) -> PreparedShellCommand {
+        let shellCommand = sanitizeForDisplay(rawCommand)
+        guard requiresRepoRoot else {
+            return .ready(shellCommand)
+        }
+        guard let repoRoot = CmuxConfigStore.findGitRoot(from: baseCwd) else {
+            return .missingRepoRoot(shellCommand)
+        }
+        return .ready("(cd \(shellQuote(repoRoot)) && \(shellCommand))")
     }
 
     /// Show a confirmation dialog with the command text and a "trust this directory" checkbox.
@@ -70,6 +101,28 @@ struct CmuxConfigExecutor {
         return true
     }
 
+    private static func showRepoRootFallbackDialog() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = String(
+            localized: "dialog.cmuxConfig.repoRootFallback.title",
+            defaultValue: "Git Repository Not Found"
+        )
+        alert.informativeText = String(
+            localized: "dialog.cmuxConfig.repoRootFallback.message",
+            defaultValue: "This command is configured to run from the project repo root, but the current workspace is not inside a git repository. Run it in the current terminal directory instead?"
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.repoRootFallback.runHere",
+            defaultValue: "Run in Current Directory"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "dialog.cmuxConfig.confirmCommand.cancel",
+            defaultValue: "Cancel"
+        ))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     private static func sanitizeForDisplay(_ text: String) -> String {
         let dangerous: Set<Unicode.Scalar> = [
             "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
@@ -79,6 +132,10 @@ struct CmuxConfigExecutor {
         ]
         let filtered = String(text.unicodeScalars.filter { !dangerous.contains($0) })
         return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func shellQuote(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func executeWorkspaceCommand(
