@@ -5577,8 +5577,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // These keys are terminal control input, not text composition, so we bypass
         // AppKit text interpretation and send a single deterministic Ghostty key event.
         // This avoids intermittent drops after rapid split close/reparent transitions.
+        //
+        // Note: we intentionally do NOT check hasMarkedText() here. Ctrl combinations
+        // (Ctrl+C, Ctrl+D, etc.) are never part of IME candidate sequences, so they
+        // must always be forwarded to the terminal regardless of IME state. CJK input
+        // methods (e.g. Korean) can leave an empty marked-text state even when no
+        // candidate is being composed, which would otherwise cause Ctrl shortcuts to
+        // be silently dropped. (#2197)
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) && !hasMarkedText() {
+        if flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option) {
             terminalSurface?.recordExternalFocusState(true)
             ghostty_surface_set_focus(surface, true)
             var keyEvent = ghostty_input_key_s()
