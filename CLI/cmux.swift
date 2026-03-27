@@ -10365,9 +10365,24 @@ struct CMUXCLI {
                 if let completion {
                     // Suppress notification if a tool was used this turn — this indicates
                     // an auto-continue turn (Claude stopped briefly between tool calls)
-                    // rather than true task completion. The flag is reset to false on each
-                    // prompt-submit so it only reflects activity within the current turn.
+                    // rather than true task completion.
                     let shouldNotify = !(mappedSession?.toolUsedThisTurn ?? false)
+
+                    // Reset the flag immediately after reading it so that a stale `true`
+                    // from this turn cannot suppress the *next* stop in an auto-continue
+                    // chain that does not produce a new tool use. Without this reset, every
+                    // stop after the first tool-using turn would be suppressed until a
+                    // prompt-submit fires (which may never happen for auto-continue turns).
+                    if let sessionId = parsedInput.sessionId {
+                        try? sessionStore.upsert(
+                            sessionId: sessionId,
+                            workspaceId: workspaceId,
+                            surfaceId: mappedSession?.surfaceId ?? surfaceId,
+                            cwd: parsedInput.cwd,
+                            toolUsedThisTurn: false
+                        )
+                    }
+
                     if shouldNotify {
                         let title = String(localized: "notification.title.claude-code", defaultValue: "Claude Code")
                         let subtitle = sanitizeNotificationField(completion.subtitle)
