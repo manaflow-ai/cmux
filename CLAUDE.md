@@ -1,5 +1,22 @@
 # cmux agent notes
 
+## Fork: File Explorer + Editor (feat/file-explorer)
+
+This fork adds a file explorer sidebar and native text editor to CMUX. See `Sources/FileExplorer/CLAUDE.md` for detailed architecture.
+
+**Features:**
+- Split sidebar: file tree below workspace tabs with draggable divider
+- CWD auto-sync: file tree follows terminal's working directory (1s polling)
+- File search: magnifying glass filters tree recursively by name
+- Native editor: NSTextView with syntax highlighting, Cmd+S save, dark mode
+- Bracket matching, tab-to-spaces (2), auto-indent on Enter
+- Double-click opens in Sublime Text; single-click opens inline editor
+- Current file highlighted in explorer
+
+**New directories:** `Sources/FileExplorer/` (6 files), plus `EditorPanel.swift`, `EditorPanelView.swift`, `SaveableTextView.swift` in `Sources/Panels/`
+
+**Modified files:** `Panel.swift` (added `.editor` type), `PanelContentView.swift` (routing), `Workspace.swift` (factory + subscriptions), `ContentView.swift` (sidebar integration), `SessionPersistence.swift` (editor snapshot), `UpdateTitlebarAccessory.swift` (toggle button)
+
 ## Initial setup
 
 Run the setup script to initialize submodules and build GhosttyKit:
