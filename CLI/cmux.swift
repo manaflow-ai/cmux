@@ -10978,27 +10978,36 @@ struct CMUXCLI {
             // Turn ended. Don't consume session or clear PID — Claude is still alive.
             // Notification hook handles user-facing notifications; SessionEnd handles cleanup.
             //
-            // Use try? for workspace/surface resolution: during app teardown the TabManager
-            // may already be nil, causing these calls to throw "TabManager not available".
-            // That is expected and harmless — we simply skip the status update and exit cleanly.
+            // During app teardown the TabManager may already be nil, causing resolution
+            // calls to throw "TabManager not available". We selectively ignore known
+            // teardown errors via shouldIgnoreClaudeHookTeardownError and rethrow
+            // unexpected errors so they surface through the outer failure telemetry path.
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            guard let workspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
-                preferred: mappedSession?.workspaceId,
-                fallback: workspaceArg,
-                client: client
-            ) else {
-                telemetry.breadcrumb("claude-hook.stop.no-workspace")
+            let workspaceId: String
+            do {
+                workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                    preferred: mappedSession?.workspaceId,
+                    fallback: workspaceArg,
+                    client: client
+                )
+            } catch {
+                guard shouldIgnoreClaudeHookTeardownError(error) else { throw error }
+                telemetry.breadcrumb("claude-hook.stop.no-workspace", data: ["error": String(describing: error)])
                 print("OK")
                 return
             }
-            let surfaceId = try? resolvePreferredSurfaceIdForClaudeHook(
-                preferred: mappedSession?.surfaceId,
-                fallback: surfaceArg,
-                workspaceId: workspaceId,
-                client: client
-            )
-            if surfaceId == nil {
-                telemetry.breadcrumb("claude-hook.stop.no-surface")
+            let surfaceId: String?
+            do {
+                surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+            } catch {
+                guard shouldIgnoreClaudeHookTeardownError(error) else { throw error }
+                telemetry.breadcrumb("claude-hook.stop.no-surface", data: ["error": String(describing: error)])
+                surfaceId = nil
             }
 
             // Update session with transcript summary and send completion notification.
@@ -11007,14 +11016,18 @@ struct CMUXCLI {
                 sessionRecord: mappedSession
             )
             if let sessionId = parsedInput.sessionId, let completion, let surfaceId {
-                try? sessionStore.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    lastSubtitle: completion.subtitle,
-                    lastBody: completion.body
-                )
+                do {
+                    try sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        lastSubtitle: completion.subtitle,
+                        lastBody: completion.body
+                    )
+                } catch {
+                    guard shouldIgnoreClaudeHookTeardownError(error) else { throw error }
+                }
             }
 
             if let completion, let surfaceId {
@@ -11022,16 +11035,24 @@ struct CMUXCLI {
                 let subtitle = sanitizeNotificationField(completion.subtitle)
                 let body = sanitizeNotificationField(completion.body)
                 let payload = "\(title)|\(subtitle)|\(body)"
-                _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                do {
+                    _ = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                } catch {
+                    guard shouldIgnoreClaudeHookTeardownError(error) else { throw error }
+                }
             }
 
-            try? setClaudeStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Idle",
-                icon: "pause.circle.fill",
-                color: "#8E8E93"
-            )
+            do {
+                try setClaudeStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93"
+                )
+            } catch {
+                guard shouldIgnoreClaudeHookTeardownError(error) else { throw error }
+            }
             print("OK")
 
         case "prompt-submit":
