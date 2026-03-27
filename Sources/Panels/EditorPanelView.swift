@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
-import WebKit
 
-/// SwiftUI view that renders an EditorPanel's WKWebView with CodeMirror.
+/// SwiftUI view that renders an EditorPanel using a native NSTextView.
 struct EditorPanelView: View {
     @ObservedObject var panel: EditorPanel
     let isFocused: Bool
@@ -12,13 +11,18 @@ struct EditorPanelView: View {
 
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Group {
             if panel.isFileUnavailable {
                 fileUnavailableView
             } else {
-                EditorWebViewRepresentable(webView: panel.webView)
+                VStack(spacing: 0) {
+                    editorHeader
+                    Divider()
+                    NativeTextEditor(panel: panel)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -34,15 +38,40 @@ struct EditorPanelView: View {
         }
     }
 
-    // MARK: - Unavailable state
+    // MARK: - Header
+
+    private var editorHeader: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc.text")
+                .foregroundColor(.secondary)
+                .font(.system(size: 12))
+            Text(panel.filePath)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer()
+            if panel.isDirty {
+                Text("Modified")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(colorScheme == .dark
+            ? Color(nsColor: NSColor(white: 0.15, alpha: 1.0))
+            : Color(nsColor: NSColor(white: 0.96, alpha: 1.0)))
+    }
+
+    // MARK: - Unavailable
 
     private var fileUnavailableView: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.questionmark")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary)
-            Text(String(localized: "editor.fileUnavailable.title",
-                        defaultValue: "File unavailable"))
+            Text("File unavailable")
                 .font(.headline)
                 .foregroundColor(.primary)
             Text(panel.filePath)
@@ -50,12 +79,7 @@ struct EditorPanelView: View {
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
-            Text(String(localized: "editor.fileUnavailable.message",
-                        defaultValue: "The file may have been moved or deleted."))
-                .font(.caption)
-                .foregroundColor(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -81,23 +105,109 @@ struct EditorPanelView: View {
     }
 }
 
-// MARK: - WebView wrapper
+// MARK: - Native NSTextView wrapper
 
-struct EditorWebViewRepresentable: NSViewRepresentable {
-    let webView: WKWebView
+/// Wraps an NSTextView in SwiftUI for code editing.
+/// Supports monospace font, Cmd+S save, and two-way text binding.
+struct NativeTextEditor: NSViewRepresentable {
+    @ObservedObject var panel: EditorPanel
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: container.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        return container
+    func makeCoordinator() -> Coordinator {
+        Coordinator(panel: panel)
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+
+        let textView = SaveableTextView()
+        textView.onSave = { [weak panel] in
+            panel?.save()
+        }
+
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.allowsUndo = true
+        textView.isRichText = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.usesFindBar = true
+
+        // Monospace font
+        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = font
+        textView.typingAttributes = [.font: font]
+
+        // No line wrapping — horizontal scroll
+        textView.isHorizontallyResizable = true
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+        // Appearance
+        textView.drawsBackground = true
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+
+        // Set initial content
+        textView.string = panel.content
+        textView.delegate = context.coordinator
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+
+        NSLog("EditorPanel: NSTextView created, content length: \(panel.content.count)")
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        // Only update if text changed externally (not from user typing)
+        if textView.string != panel.content && !context.coordinator.isUpdatingFromTextView {
+            textView.string = panel.content
+        }
+    }
+
+    // MARK: - Coordinator
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        let panel: EditorPanel
+        weak var textView: NSTextView?
+        var isUpdatingFromTextView = false
+
+        init(panel: EditorPanel) {
+            self.panel = panel
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            isUpdatingFromTextView = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.panel.content = textView.string
+                self.panel.textDidChange()
+                self.isUpdatingFromTextView = false
+            }
+        }
+    }
+}
+
+// MARK: - NSTextView subclass with Cmd+S
+
+/// NSTextView subclass that intercepts Cmd+S to trigger save.
+final class SaveableTextView: NSTextView {
+    var onSave: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {
+            NSLog("EditorPanel: Cmd+S pressed")
+            onSave?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
