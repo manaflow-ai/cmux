@@ -208,15 +208,15 @@ struct CmuxConfigExecutor {
 #if DEBUG
 extension CmuxConfigExecutor {
     static func configureHooksForTesting(
-        confirmCommandAlertFactory: @escaping () -> NSAlert = { NSAlert() },
-        repoRootFallbackAlertFactory: @escaping () -> NSAlert = { NSAlert() },
-        commandSender: @escaping (TerminalPanel, String) -> Void = { terminal, text in
+        confirmCommandAlertFactory: (() -> NSAlert)? = nil,
+        repoRootFallbackAlertFactory: (() -> NSAlert)? = nil,
+        commandSender: ((TerminalPanel, String) -> Void)? = nil
+    ) {
+        self.confirmCommandAlertFactory = confirmCommandAlertFactory ?? { NSAlert() }
+        self.repoRootFallbackAlertFactory = repoRootFallbackAlertFactory ?? { NSAlert() }
+        self.commandSender = commandSender ?? { terminal, text in
             terminal.sendInput(text)
         }
-    ) {
-        self.confirmCommandAlertFactory = confirmCommandAlertFactory
-        self.repoRootFallbackAlertFactory = repoRootFallbackAlertFactory
-        self.commandSender = commandSender
     }
 
     static func resetHooksForTesting() {

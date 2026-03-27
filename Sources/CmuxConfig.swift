@@ -612,7 +612,7 @@ final class CmuxConfigStore: ObservableObject {
 }
 
 extension CmuxConfigStore {
-    static func findGitRoot(from directory: String) -> String? {
+    nonisolated static func findGitRoot(from directory: String) -> String? {
         let fm = FileManager.default
         var current = directory
         while true {
@@ -627,7 +627,7 @@ extension CmuxConfigStore {
         return nil
     }
 
-    static func resolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {
+    nonisolated static func resolveCwd(_ cwd: String?, relativeTo baseCwd: String) -> String {
         guard let cwd, !cwd.isEmpty, cwd != "." else {
             return baseCwd
         }
