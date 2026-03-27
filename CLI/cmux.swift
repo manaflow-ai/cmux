@@ -10916,7 +10916,12 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        // Use availableData instead of readDataToEndOfFile to prevent indefinite
+        // blocking when the parent process (Claude Code) spawns async hooks without
+        // closing the stdin pipe. readDataToEndOfFile waits for EOF which never
+        // arrives for async hooks, causing zombie process accumulation.
+        // See: https://github.com/manaflow-ai/cmux/issues/2248
+        let rawInput = String(data: FileHandle.standardInput.availableData, encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         telemetry.breadcrumb(
@@ -12138,7 +12143,8 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        // See runClaudeHook comment — availableData prevents async hook zombie leak
+        let rawInput = String(data: FileHandle.standardInput.availableData, encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore(
             processEnv: env.merging(
