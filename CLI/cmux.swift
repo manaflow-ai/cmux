@@ -3576,6 +3576,7 @@ struct CMUXCLI {
         let port: Int?
         let identityFile: String?
         let workspaceName: String?
+        let noFocus: Bool
         let sshOptions: [String]
         let extraArguments: [String]
         let localSocketPath: String
@@ -3761,8 +3762,10 @@ struct CMUXCLI {
             }
             // `cmux ssh` is an explicit "open this remote workspace now" action,
             // so we intentionally select the newly created workspace after wiring
-            // up the remote connection.
-            _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            // up the remote connection — unless --no-focus is passed.
+            if !sshOptions.noFocus {
+                _ = try client.sendV2(method: "workspace.select", params: selectParams)
+            }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
             cliDebugLog(
                 "cli.ssh.remote.configure.ok workspace=\(String(workspaceId.prefix(8))) state=\(remoteState)"
@@ -3810,6 +3813,7 @@ struct CMUXCLI {
         var port: Int?
         var identityFile: String?
         var workspaceName: String?
+        var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
 
@@ -3848,6 +3852,9 @@ struct CMUXCLI {
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
+            case "--no-focus":
+                noFocus = true
+                index += 1
             case "--ssh-option":
                 guard index + 1 < commandArgs.count else {
                     throw CLIError(message: "ssh: --ssh-option requires a value")
@@ -3883,6 +3890,7 @@ struct CMUXCLI {
             port: port,
             identityFile: identityFile,
             workspaceName: workspaceName,
+            noFocus: noFocus,
             sshOptions: sshOptions,
             extraArguments: extraArguments,
             localSocketPath: localSocketPath,
@@ -6410,6 +6418,7 @@ struct CMUXCLI {
               --port <n>              SSH port
               --identity <path>       SSH identity file path
               --ssh-option <opt>      Extra SSH -o option (repeatable)
+              --no-focus              Create workspace without switching to it
 
             Example:
               cmux ssh dev@my-host
@@ -12670,7 +12679,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
           list-workspaces
           new-workspace [--name <title>] [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]
