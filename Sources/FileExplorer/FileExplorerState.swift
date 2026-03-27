@@ -106,6 +106,45 @@ final class FileExplorerState: ObservableObject {
         reload(at: rootURL)
     }
 
+    /// Expand all parent directories to reveal a file by its absolute path.
+    func revealFile(at absolutePath: String) {
+        guard let rootURL else { return }
+        let rootPath = rootURL.path
+        guard absolutePath.hasPrefix(rootPath + "/") else { return }
+
+        // Get the path components between root and the file
+        let relativePath = String(absolutePath.dropFirst(rootPath.count))
+        let components = relativePath.split(separator: "/").dropLast() // directories only
+
+        // Expand each directory level
+        var dirPath = ""
+        for component in components {
+            dirPath += "/" + component
+            expandIfCollapsed(nodeId: dirPath, nodes: &rootNodes, root: rootURL)
+        }
+        currentEditingFilePath = absolutePath
+    }
+
+    /// Expand a directory if it's currently collapsed (and lazy-load children).
+    private func expandIfCollapsed(nodeId: String, nodes: inout [FileExplorerNode], root: URL) {
+        for index in nodes.indices {
+            if nodes[index].id == nodeId && nodes[index].isDirectory {
+                if !nodes[index].isExpanded {
+                    nodes[index].isExpanded = true
+                    if nodes[index].children == nil {
+                        nodes[index].children = FileExplorerNode.scanDirectory(
+                            at: nodes[index].url, relativeTo: root, showHidden: showHidden
+                        )
+                    }
+                }
+                return
+            }
+            if nodes[index].isDirectory, nodes[index].isExpanded, nodes[index].children != nil {
+                expandIfCollapsed(nodeId: nodeId, nodes: &nodes[index].children!, root: root)
+            }
+        }
+    }
+
     /// Refresh only git status (lightweight, safe to call frequently).
     func refreshGitStatusOnly() {
         guard let rootURL else { return }

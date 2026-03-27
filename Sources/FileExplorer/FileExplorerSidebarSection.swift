@@ -23,7 +23,12 @@ struct FileExplorerSidebarSection: View {
                 openFileInExternalEditor(url)
             },
             onSyncToCwd: {
-                syncToWorkingDirectory()
+                // If a file is open, reveal it in the tree. Otherwise sync to cwd.
+                if let filePath = explorerState.currentEditingFilePath {
+                    explorerState.revealFile(at: filePath)
+                } else {
+                    syncToWorkingDirectory()
+                }
             }
         )
         .frame(height: height)
