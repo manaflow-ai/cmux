@@ -113,6 +113,14 @@ private struct FileExplorerHeader: View {
                         NSPasteboard.general.setString(rootURL.path, forType: .string)
                     }
                 }
+                Divider()
+                Text("Git Status Colors")
+                    .font(.system(size: 11, weight: .semibold))
+                Button {} label: { Label("Modified", systemImage: "circle.fill").foregroundColor(.orange) }.disabled(true)
+                Button {} label: { Label("Added", systemImage: "circle.fill").foregroundColor(.green) }.disabled(true)
+                Button {} label: { Label("Deleted", systemImage: "circle.fill").foregroundColor(.red) }.disabled(true)
+                Button {} label: { Label("Renamed", systemImage: "circle.fill").foregroundColor(.blue) }.disabled(true)
+                Button {} label: { Label("Untracked", systemImage: "circle.fill").foregroundColor(.gray) }.disabled(true)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 10))
@@ -197,8 +205,25 @@ private struct FileExplorerRow: View {
     }
 
     /// File name color based on git status.
+    /// Checks the node's own status and inherits from parent directories
+    /// (e.g., files inside an untracked directory are also untracked).
     private var nameColor: Color {
-        guard let status = state.gitStatusMap[node.id] else { return .primary }
+        if let status = state.gitStatusMap[node.id] {
+            return colorForStatus(status)
+        }
+        // Check parent directories — untracked dirs mean all children are untracked
+        var components = node.id.split(separator: "/")
+        while !components.isEmpty {
+            components.removeLast()
+            let parentPath = "/" + components.joined(separator: "/")
+            if let parentStatus = state.gitStatusMap[parentPath] {
+                return colorForStatus(parentStatus)
+            }
+        }
+        return .primary
+    }
+
+    private func colorForStatus(_ status: GitFileStatus) -> Color {
         switch status {
         case .modified: return .orange
         case .added: return .green
