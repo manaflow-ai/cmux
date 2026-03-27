@@ -1339,7 +1339,7 @@ class TabManager: ObservableObject {
             }
         }
 
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in
@@ -3611,6 +3611,28 @@ class TabManager: ObservableObject {
         selectedWorkspace?.newTerminalSurfaceInFocusedPane(focus: true)
     }
 
+    // MARK: - Workspace Tab Navigation
+
+    /// Select the next workspace tab in the selected workspace
+    func selectNextWorkspaceTab() {
+        selectedWorkspace?.selectNextWorkspaceTab()
+    }
+
+    /// Select the previous workspace tab in the selected workspace
+    func selectPreviousWorkspaceTab() {
+        selectedWorkspace?.selectPreviousWorkspaceTab()
+    }
+
+    /// Create a new workspace tab in the selected workspace
+    func createWorkspaceTabInSelectedWorkspace() {
+        selectedWorkspace?.createWorkspaceTab()
+    }
+
+    /// Close the selected workspace tab
+    func closeSelectedWorkspaceTab() {
+        selectedWorkspace?.closeSelectedWorkspaceTab()
+    }
+
     // MARK: - Split Creation
 
     /// Create a new split in the current tab
@@ -4256,7 +4278,7 @@ class TabManager: ObservableObject {
                 }
             }
 
-            cancellable = tab.$panels
+            cancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in evaluate() }
 
@@ -4312,7 +4334,7 @@ class TabManager: ObservableObject {
                 }
             }
 
-            panelsCancellable = tab.$panels
+            panelsCancellable = tab.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in
@@ -5027,7 +5049,7 @@ class TabManager: ObservableObject {
                         cont.resume(returning: value)
                     }
 
-                    cancellable = tab.$panels
+                    cancellable = tab.panelsPublisher
                         .map { $0.count }
                         .removeDuplicates()
                         .sink { count in
@@ -5294,7 +5316,7 @@ class TabManager: ObservableObject {
                 self.uiTestCancellables.removeAll()
             }
 
-            tab.$panels
+            tab.panelsPublisher
                 .map { $0.count }
                 .removeDuplicates()
                 .sink { [weak self, weak tab] count in
@@ -5458,6 +5480,12 @@ extension TabManager {
             hasher.combine(workspace.panelPullRequests.count)
             hasher.combine(workspace.panelGitBranches.count)
             hasher.combine(workspace.surfaceListeningPorts.count)
+
+            hasher.combine(workspace.workspaceTabs.count)
+            hasher.combine(workspace.selectedWorkspaceTabIndex)
+            for wsTab in workspace.workspaceTabs {
+                hasher.combine(wsTab.panels.count)
+            }
 
             if let progress = workspace.progress {
                 hasher.combine(Int((progress.value * 1000).rounded()))
@@ -5658,6 +5686,7 @@ extension Notification.Name {
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteRenameWorkspaceTabRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceTabRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")
