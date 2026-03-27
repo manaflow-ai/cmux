@@ -100,8 +100,8 @@ struct FileExplorerSidebarSection: View {
         let focusedPaneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
         guard let paneId = focusedPaneId else { return }
-        // Use MarkdownPanel for reliable file preview
-        workspace.newMarkdownSurface(inPane: paneId, filePath: url.path, focus: true)
+        // Open in native NSTextView editor (editable, Cmd+S to save)
+        workspace.newEditorSurface(inPane: paneId, filePath: url.path, focus: true)
     }
 
     /// Double-click: open in Sublime Text, fall back to system default.
