@@ -45,14 +45,6 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
         return nil
     }
 
-    // Best-effort check: reject unretained font pointers that no longer belong
-    // to a live malloc allocation. This does not prove the object is still a
-    // valid CTFont, but it filters out the common fully-freed/unmapped cases
-    // that previously crashed on Intel Macs (#1496, #1870).
-    guard cmuxPointerAppearsLive(quicklookFont) else {
-        return nil
-    }
-
     let ctFont = Unmanaged<CTFont>.fromOpaque(quicklookFont).takeUnretainedValue()
     let points = Float(CTFontGetSize(ctFont))
     guard points > 0 else { return nil }
@@ -4155,7 +4147,29 @@ final class WorkspaceRemoteSessionController {
             .appendingPathComponent("cmuxd-remote", isDirectory: false)
     }
 
-    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String) throws -> URL {
+    /// Fetch the live manifest JSON from the release, returning nil on any failure.
+    private static func fetchRemoteManifestLocked(releaseURL: String, version: String) -> WorkspaceRemoteDaemonManifest? {
+        guard let manifestURL = URL(string: "\(releaseURL)/cmuxd-remote-manifest.json") else { return nil }
+        let request = NSMutableURLRequest(url: manifestURL)
+        request.timeoutInterval = 15
+        request.setValue("cmux/\(version)", forHTTPHeaderField: "User-Agent")
+        let session = URLSession(configuration: .ephemeral)
+        let semaphore = DispatchSemaphore(value: 0)
+        var resultData: Data?
+        session.dataTask(with: request as URLRequest) { data, response, error in
+            defer { semaphore.signal() }
+            guard error == nil,
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else { return }
+            resultData = data
+        }.resume()
+        _ = semaphore.wait(timeout: .now() + 20.0)
+        session.finishTasksAndInvalidate()
+        guard let data = resultData else { return nil }
+        return try? JSONDecoder().decode(WorkspaceRemoteDaemonManifest.self, from: data)
+    }
+
+    private func downloadRemoteDaemonBinaryLocked(entry: WorkspaceRemoteDaemonManifest.Entry, version: String, releaseURL: String? = nil) throws -> URL {
         guard let url = URL(string: entry.downloadURL) else {
             throw NSError(domain: "cmux.remote.daemon", code: 25, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon manifest has an invalid download URL",
@@ -4202,10 +4216,21 @@ final class WorkspaceRemoteSessionController {
         }
 
         let downloadedSHA = try Self.sha256Hex(forFile: downloadedURL)
-        guard downloadedSHA == entry.sha256.lowercased() else {
-            throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
-                NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
-            ])
+        if downloadedSHA != entry.sha256.lowercased() {
+            // The embedded manifest's checksum doesn't match the downloaded binary.
+            // This can happen when a newer nightly overwrites the shared release
+            // asset after this build's manifest was embedded. As a fallback, fetch
+            // the live manifest from the release and verify against that.
+            if let releaseURL,
+               let liveManifest = Self.fetchRemoteManifestLocked(releaseURL: releaseURL, version: version),
+               let liveEntry = liveManifest.entry(goOS: entry.goOS, goArch: entry.goArch),
+               downloadedSHA == liveEntry.sha256.lowercased() {
+                debugLog("remote.download.checksum-fallback: embedded manifest checksum stale, live manifest matched for \(entry.assetName)")
+            } else {
+                throw NSError(domain: "cmux.remote.daemon", code: 28, userInfo: [
+                    NSLocalizedDescriptionKey: "remote daemon checksum mismatch for \(entry.assetName)",
+                ])
+            }
         }
 
         let tempURL = cacheURL.deletingLastPathComponent()
@@ -4238,7 +4263,7 @@ final class WorkspaceRemoteSessionController {
                 }
                 try? FileManager.default.removeItem(at: cacheURL)
             }
-            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion)
+            let downloadedURL = try downloadRemoteDaemonBinaryLocked(entry: entry, version: manifest.appVersion, releaseURL: manifest.releaseURL)
             debugLog("remote.build.downloaded path=\(downloadedURL.path)")
             return downloadedURL
         }
@@ -7227,9 +7252,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
-        if let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-            reason: "workspace.rememberConfigInheritanceSource"
-        ),
+        if let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
@@ -7321,25 +7344,13 @@ final class Workspace: Identifiable, ObservableObject {
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
     ) -> ghostty_surface_config_s? {
-        var staleRootedFontFallback: Float?
-
-        // Walk candidates in priority order and use the first panel with a live surface.
-        // This avoids returning nil when the top candidate exists but is not attached yet.
+        // Walk candidates in priority order and use the first panel that still exposes
+        // a runtime surface pointer.
         for terminalPanel in terminalPanelConfigInheritanceCandidates(
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
         ) {
-            let rootedFontFallback = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            guard let sourceSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
-                reason: "workspace.inheritedTerminalConfig"
-            ) else {
-                if staleRootedFontFallback == nil,
-                   let rootedFontFallback,
-                   rootedFontFallback > 0 {
-                    staleRootedFontFallback = rootedFontFallback
-                }
-                continue
-            }
+            guard let sourceSurface = terminalPanel.surface.surface else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -7359,13 +7370,12 @@ final class Workspace: Identifiable, ObservableObject {
             return config
         }
 
-        if let fallbackFontPoints = staleRootedFontFallback ?? lastTerminalConfigInheritanceFontPoints {
+        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
             var config = ghostty_surface_config_new()
             config.font_size = fallbackFontPoints
 #if DEBUG
-            let fallbackSource = staleRootedFontFallback != nil ? "quarantinedRootedFont" : "lastKnownFont"
             dlog(
-                "zoom.inherit fallback=\(fallbackSource) context=split font=\(String(format: "%.2f", fallbackFontPoints))"
+                "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"
             )
 #endif
             return config

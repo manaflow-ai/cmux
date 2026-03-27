@@ -1406,12 +1406,6 @@ class GhosttyApp {
         "U+30A0-U+30FF",  // Katakana
     ]
 
-    /// Unicode ranges specific to Korean (Hangul).
-    private static let koreanRanges = [
-        "U+AC00-U+D7AF",  // Hangul Syllables
-        "U+1100-U+11FF",  // Hangul Jamo
-    ]
-
     private struct UserFontConfigSummary {
         var containsCodepointMap = false
         var effectiveFontFamilies: [String] = []
@@ -2474,7 +2468,7 @@ class GhosttyApp {
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
             let pwd = action.action.pwd.pwd.flatMap { String(cString: $0) } ?? ""
             DispatchQueue.main.async {
-                AppDelegate.shared?.tabManager?.updateSurfaceDirectory(
+                AppDelegate.shared?.tabManagerFor(tabId: tabId)?.updateSurfaceDirectory(
                     tabId: tabId,
                     surfaceId: surfaceId,
                     directory: pwd

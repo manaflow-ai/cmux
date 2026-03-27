@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Nyt workspace",
+        "ws-prev": "Forrige workspace",
+        "ws-next": "Næste workspace",
         "ws-jump-1-8": "Spring til workspace 1–8",
         "ws-jump-last": "Spring til sidste workspace",
         "ws-close": "Luk workspace",
@@ -554,6 +556,9 @@
       "createHookScript": "1. Opret hook-scriptet",
       "configureClaude": "2. Konfigurér Claude Code",
       "restartNote": "Genstart Claude Code for at anvende hooks.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI understøtter <link>hooks</link>, der kører shell-kommandoer ved livscyklushændelser som prompt-indsendelse, agent-stop og fejl.",
+      "copilotCliRepoHooks": "For hooks på repo-niveau, opret en .github/hooks/notify.json-fil med samme struktur:",
       "integrationExamples": "Integrationseksempler",
       "notifyAfterLong": "Notificér efter lang kommando",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "API-reference",
       "browserAutomation": "Browserautomatisering",
       "notifications": "Notifikationer",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Ændringslog"
     }
   },

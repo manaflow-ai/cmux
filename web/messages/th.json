@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Workspace ใหม่",
+        "ws-prev": "Workspace ก่อนหน้า",
+        "ws-next": "Workspace ถัดไป",
         "ws-jump-1-8": "ไปยัง workspace 1–8",
         "ws-jump-last": "ไปยัง workspace สุดท้าย",
         "ws-close": "ปิด workspace",
@@ -554,6 +556,9 @@
       "createHookScript": "1. สร้าง hook script",
       "configureClaude": "2. ตั้งค่า Claude Code",
       "restartNote": "รีสตาร์ท Claude Code เพื่อใช้ hooks",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI รองรับ<link>hooks</link> ที่รันคำสั่ง shell ในเหตุการณ์วงจรชีวิต เช่น การส่ง prompt, การหยุด agent และข้อผิดพลาด",
+      "copilotCliRepoHooks": "สำหรับ hooks ระดับ repo ให้สร้างไฟล์ .github/hooks/notify.json ด้วยโครงสร้างเดียวกัน:",
       "integrationExamples": "ตัวอย่าง integration",
       "notifyAfterLong": "แจ้งเตือนหลังคำสั่งที่ใช้เวลานาน",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "เอกสาร API",
       "browserAutomation": "Browser Automation",
       "notifications": "การแจ้งเตือน",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog"
     }
   },
