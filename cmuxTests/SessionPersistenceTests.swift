@@ -148,6 +148,50 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(path?.path.contains("com.example_unsafe_id") == true)
     }
 
+    func testDefaultWindowGeometryPathSanitizesBundleIdentifier() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let path = SessionPersistenceStore.defaultWindowGeometryFileURL(
+            bundleIdentifier: "com.example/unsafe id",
+            appSupportDirectory: tempDir
+        )
+
+        XCTAssertNotNil(path)
+        XCTAssertTrue(path?.path.contains("com.example_unsafe_id") == true)
+        XCTAssertTrue(path?.lastPathComponent.hasPrefix("window-geometry-") == true)
+    }
+
+    func testWindowGeometryStoreRoundTripWithCustomPath() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-window-geometry-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fileURL = tempDir.appendingPathComponent("window-geometry.json", isDirectory: false)
+        let snapshot = SessionWindowGeometrySnapshot(
+            frame: SessionRectSnapshot(x: 10, y: 20, width: 900, height: 700),
+            display: SessionDisplaySnapshot(
+                displayID: 42,
+                frame: SessionRectSnapshot(x: 0, y: 0, width: 1440, height: 900),
+                visibleFrame: SessionRectSnapshot(x: 0, y: 25, width: 1440, height: 875)
+            )
+        )
+
+        XCTAssertTrue(SessionWindowGeometryStore.save(snapshot, fileURL: fileURL))
+
+        let loaded = try XCTUnwrap(SessionWindowGeometryStore.load(fileURL: fileURL))
+        XCTAssertEqual(loaded.frame.x, 10, accuracy: 0.001)
+        XCTAssertEqual(loaded.frame.y, 20, accuracy: 0.001)
+        XCTAssertEqual(loaded.frame.width, 900, accuracy: 0.001)
+        XCTAssertEqual(loaded.frame.height, 700, accuracy: 0.001)
+        XCTAssertEqual(loaded.display?.displayID, 42)
+        let visibleFrame = try XCTUnwrap(loaded.display?.visibleFrame)
+        XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
+    }
+
     func testRestorePolicySkipsWhenLaunchHasExplicitArguments() {
         let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
             arguments: ["/Applications/cmux.app/Contents/MacOS/cmux", "--window", "window:1"],
@@ -164,6 +208,35 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         XCTAssertTrue(shouldRestore)
+    }
+
+    func testRestorePolicyAllowsMacOSRelaunchArgumentsOnly() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: [
+                "/Applications/cmux.app/Contents/MacOS/cmux",
+                "-ApplePersistenceIgnoreState",
+                "YES",
+                "-psn_0_12345"
+            ],
+            environment: [:]
+        )
+
+        XCTAssertTrue(shouldRestore)
+    }
+
+    func testRestorePolicySkipsWhenExplicitArgumentsFollowMacOSRelaunchArguments() {
+        let shouldRestore = SessionRestorePolicy.shouldAttemptRestore(
+            arguments: [
+                "/Applications/cmux.app/Contents/MacOS/cmux",
+                "-ApplePersistenceIgnoreState",
+                "YES",
+                "--window",
+                "window:1"
+            ],
+            environment: [:]
+        )
+
+        XCTAssertFalse(shouldRestore)
     }
 
     func testRestorePolicySkipsWhenRunningUnderXCTest() {

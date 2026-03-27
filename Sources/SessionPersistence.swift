@@ -127,12 +127,52 @@ enum SessionRestorePolicy {
             return false
         }
 
-        let extraArgs = arguments
-            .dropFirst()
-            .filter { !$0.hasPrefix("-psn_") }
+        return explicitOpenArguments(from: Array(arguments.dropFirst())).isEmpty
+    }
 
-        // Any explicit launch argument is treated as an explicit open intent.
-        return extraArgs.isEmpty
+    private static func explicitOpenArguments(from extraArgs: [String]) -> [String] {
+        var explicitArgs: [String] = []
+        var index = 0
+
+        while index < extraArgs.count {
+            let argument = extraArgs[index]
+            if argument.hasPrefix("-psn_") {
+                index += 1
+                continue
+            }
+
+            // macOS relaunches apps after restart/system update with LaunchServices /
+            // Cocoa arguments such as -ApplePersistenceIgnoreState YES. These are
+            // not user open intents and should not suppress cmux's own session restore.
+            if isSystemManagedLaunchArgument(argument) {
+                index = nextArgumentIndex(afterSystemManagedArgumentAt: index, in: extraArgs)
+                continue
+            }
+
+            explicitArgs.append(argument)
+            index += 1
+        }
+
+        return explicitArgs
+    }
+
+    private static func isSystemManagedLaunchArgument(_ argument: String) -> Bool {
+        argument.hasPrefix("-Apple") || argument.hasPrefix("-NS")
+    }
+
+    private static func nextArgumentIndex(
+        afterSystemManagedArgumentAt index: Int,
+        in extraArgs: [String]
+    ) -> Int {
+        let nextIndex = index + 1
+        guard nextIndex < extraArgs.count else { return nextIndex }
+
+        // Treat the following token as the system flag's value only when it is not
+        // another option, so explicit app arguments still suppress restore.
+        if extraArgs[nextIndex].hasPrefix("-") {
+            return nextIndex
+        }
+        return nextIndex + 1
     }
 }
 
@@ -354,6 +394,11 @@ struct SessionWindowSnapshot: Codable, Sendable {
     var sidebar: SessionSidebarSnapshot
 }
 
+struct SessionWindowGeometrySnapshot: Codable, Sendable {
+    var frame: SessionRectSnapshot
+    var display: SessionDisplaySnapshot?
+}
+
 struct AppSessionSnapshot: Codable, Sendable {
     var version: Int
     var createdAt: TimeInterval
@@ -399,10 +444,7 @@ enum SessionPersistenceStore {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
-    static func defaultSnapshotFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        appSupportDirectory: URL? = nil
-    ) -> URL? {
+    static func defaultStateDirectoryURL(appSupportDirectory: URL? = nil) -> URL? {
         let resolvedAppSupport: URL
         if let appSupportDirectory {
             resolvedAppSupport = appSupportDirectory
@@ -411,17 +453,72 @@ enum SessionPersistenceStore {
         } else {
             return nil
         }
+
+        return resolvedAppSupport.appendingPathComponent("cmux", isDirectory: true)
+    }
+
+    static func defaultSnapshotFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        guard let stateDirectory = defaultStateDirectoryURL(appSupportDirectory: appSupportDirectory) else {
+            return nil
+        }
+        let safeBundleId = safeBundleNamespace(bundleIdentifier: bundleIdentifier)
+        return stateDirectory
+            .appendingPathComponent("session-\(safeBundleId).json", isDirectory: false)
+    }
+
+    static func defaultWindowGeometryFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil
+    ) -> URL? {
+        guard let stateDirectory = defaultStateDirectoryURL(appSupportDirectory: appSupportDirectory) else {
+            return nil
+        }
+        let safeBundleId = safeBundleNamespace(bundleIdentifier: bundleIdentifier)
+        return stateDirectory
+            .appendingPathComponent("window-geometry-\(safeBundleId).json", isDirectory: false)
+    }
+
+    private static func safeBundleNamespace(bundleIdentifier: String?) -> String {
         let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
             ? bundleIdentifier!
             : "com.cmuxterm.app"
-        let safeBundleId = bundleId.replacingOccurrences(
+        return bundleId.replacingOccurrences(
             of: "[^A-Za-z0-9._-]",
             with: "_",
             options: .regularExpression
         )
-        return resolvedAppSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("session-\(safeBundleId).json", isDirectory: false)
+    }
+}
+
+enum SessionWindowGeometryStore {
+    static func load(fileURL: URL? = nil) -> SessionWindowGeometrySnapshot? {
+        guard let fileURL = fileURL ?? SessionPersistenceStore.defaultWindowGeometryFileURL() else {
+            return nil
+        }
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        return try? JSONDecoder().decode(SessionWindowGeometrySnapshot.self, from: data)
+    }
+
+    @discardableResult
+    static func save(_ snapshot: SessionWindowGeometrySnapshot, fileURL: URL? = nil) -> Bool {
+        guard let fileURL = fileURL ?? SessionPersistenceStore.defaultWindowGeometryFileURL() else {
+            return false
+        }
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let data = try JSONEncoder().encode(snapshot)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return true
+            }
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 }
 

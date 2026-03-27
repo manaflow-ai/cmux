@@ -2042,10 +2042,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let visibleFrame: CGRect
     }
 
-    private struct PersistedWindowGeometry: Codable, Sendable {
-        let frame: SessionRectSnapshot
-        let display: SessionDisplaySnapshot?
-    }
+    private typealias PersistedWindowGeometry = SessionWindowGeometrySnapshot
 
     private static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v1"
 
@@ -2875,10 +2872,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func persistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) -> PersistedWindowGeometry? {
-        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
+        if let persisted = SessionWindowGeometryStore.load() {
+            return persisted
+        }
+
+        guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey),
+              let persisted = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data) else {
             return nil
         }
-        return try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data)
+
+        if SessionWindowGeometryStore.save(persisted) {
+            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
+        }
+        return persisted
     }
 
     private func persistWindowGeometry(
@@ -2886,19 +2892,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?,
         defaults: UserDefaults = .standard
     ) {
-        guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
+        guard let frame else {
             return
         }
-        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
-    }
 
-    private nonisolated static func encodedPersistedWindowGeometryData(
-        frame: SessionRectSnapshot?,
-        display: SessionDisplaySnapshot?
-    ) -> Data? {
-        guard let frame else { return nil }
-        let payload = PersistedWindowGeometry(frame: frame, display: display)
-        return try? JSONEncoder().encode(payload)
+        let persisted = PersistedWindowGeometry(frame: frame, display: display)
+        if SessionWindowGeometryStore.save(persisted) {
+            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
+            return
+        }
+
+        guard let data = try? JSONEncoder().encode(persisted) else { return }
+        defaults.set(data, forKey: Self.persistedWindowGeometryDefaultsKey)
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -3550,17 +3555,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistSessionSnapshot(
                 nil,
                 removeWhenEmpty: removeWhenEmpty,
-                persistedGeometryData: nil,
+                persistedGeometry: nil,
                 synchronously: writeSynchronously
             )
             return false
         }
 
-        let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
-            Self.encodedPersistedWindowGeometryData(
-                frame: primaryWindow.frame,
-                display: primaryWindow.display
-            )
+        let persistedGeometry = snapshot.windows.first.flatMap { primaryWindow in
+            primaryWindow.frame.map { frame in
+                PersistedWindowGeometry(frame: frame, display: primaryWindow.display)
+            }
         }
 
 #if DEBUG
@@ -3569,7 +3573,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         persistSessionSnapshot(
             snapshot,
             removeWhenEmpty: false,
-            persistedGeometryData: persistedGeometryData,
+            persistedGeometry: persistedGeometry,
             synchronously: writeSynchronously
         )
         return true
@@ -3754,17 +3758,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
-        persistedGeometryData: Data?,
+        persistedGeometry: PersistedWindowGeometry?,
         synchronously: Bool
     ) {
-        guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
+        guard snapshot != nil || removeWhenEmpty || persistedGeometry != nil else { return }
 
         let writeBlock = {
-            if let persistedGeometryData {
-                UserDefaults.standard.set(
-                    persistedGeometryData,
-                    forKey: Self.persistedWindowGeometryDefaultsKey
-                )
+            if let persistedGeometry {
+                if SessionWindowGeometryStore.save(persistedGeometry) {
+                    UserDefaults.standard.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
+                } else if let persistedGeometryData = try? JSONEncoder().encode(persistedGeometry) {
+                    UserDefaults.standard.set(
+                        persistedGeometryData,
+                        forKey: Self.persistedWindowGeometryDefaultsKey
+                    )
+                }
             }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
