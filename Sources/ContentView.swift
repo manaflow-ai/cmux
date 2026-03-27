@@ -10856,7 +10856,7 @@ enum SidebarPathFormatter {
     static let homeDirectoryPath: String = FileManager.default.homeDirectoryForCurrentUser.path
 
     /// Maximum number of path segments shown before adding a leading ellipsis.
-    /// e.g. `~/a/b/c/d` → `…/c/d` when maxSegments == 2.
+    /// e.g. `~/a/b/c/d` → `…/b/c/d` when maxSegments == 3.
     static let maxDisplaySegments: Int = 3
 
     static func shortenedPath(
