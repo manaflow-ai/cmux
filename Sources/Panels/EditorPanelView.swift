@@ -52,9 +52,16 @@ struct EditorPanelView: View {
                 .truncationMode(.middle)
             Spacer()
             if panel.isDirty {
-                Text("Modified")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.orange)
+                Button(action: { panel.save() }) {
+                    Text("Save")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.accentColor))
+                }
+                .buttonStyle(.plain)
+                .help("Save file (Cmd+S)")
             }
         }
         .padding(.horizontal, 12)
@@ -199,6 +206,7 @@ struct NativeTextEditor: NSViewRepresentable {
         let panel: EditorPanel
         weak var textView: NSTextView?
         var isUpdatingFromTextView = false
+        var isHighlighting = false
         var fileExtension: String = ""
         private var highlightWorkItem: DispatchWorkItem?
 
@@ -207,6 +215,8 @@ struct NativeTextEditor: NSViewRepresentable {
         }
 
         func textDidChange(_ notification: Notification) {
+            // Skip if this was triggered by syntax re-highlighting (not user typing)
+            guard !isHighlighting else { return }
             guard let textView = notification.object as? NSTextView else { return }
             isUpdatingFromTextView = true
             Task { @MainActor [weak self] in
@@ -230,9 +240,12 @@ struct NativeTextEditor: NSViewRepresentable {
                         || textView.window == nil
                     let selectedRange = textView.selectedRange()
                     let highlighted = SyntaxHighlighter.highlight(textView.string, fileExtension: ext, isDark: isDark)
+                    // Mark as highlighting so textDidChange ignores this mutation
+                    self.isHighlighting = true
                     textView.textStorage?.beginEditing()
                     textView.textStorage?.setAttributedString(highlighted)
                     textView.textStorage?.endEditing()
+                    self.isHighlighting = false
                     // Restore cursor position
                     let safeRange = NSRange(
                         location: min(selectedRange.location, textView.string.count),
@@ -250,12 +263,36 @@ struct NativeTextEditor: NSViewRepresentable {
 // MARK: - NSTextView subclass with Cmd+S
 
 /// NSTextView subclass that intercepts Cmd+S to trigger save.
+/// Uses both performKeyEquivalent AND a local event monitor to catch
+/// Cmd+S even when CMUX's menu system consumes key equivalents.
 final class SaveableTextView: NSTextView {
     var onSave: (() -> Void)?
+    private var eventMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil && eventMonitor == nil {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      self.window?.firstResponder === self,
+                      event.modifierFlags.contains(.command),
+                      event.charactersIgnoringModifiers == "s" else {
+                    return event
+                }
+                self.onSave?()
+                return nil  // Consume the event
+            }
+        }
+    }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "s" {
-            NSLog("EditorPanel: Cmd+S pressed")
             onSave?()
             return true
         }
