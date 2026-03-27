@@ -2109,8 +2109,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
         let fonts = Set(mappings!.map { $0.1 })
         XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
         let ranges = mappings!.map { $0.0 }
-        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"))
+        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
         XCTAssertTrue(ranges.contains("U+3130-U+318F"), "Should include Hangul Compatibility Jamo")
+        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
@@ -2137,8 +2138,9 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertTrue(fonts.contains("Apple SD Gothic Neo"))
         // Regression: Korean ranges must not leak into the Japanese (Hiragino) font entries
         let hiraginoRanges = mappings!.filter { $0.1 == "Hiragino Sans" }.map(\.0)
-        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul Syllables must not bleed into Hiragino")
+        XCTAssertFalse(hiraginoRanges.contains("U+1100-U+11FF"), "Hangul Jamo must not bleed into Hiragino")
         XCTAssertFalse(hiraginoRanges.contains("U+3130-U+318F"), "Hangul Compat Jamo must not bleed into Hiragino")
+        XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul Syllables must not bleed into Hiragino")
     }
 
     // MARK: userConfigContainsCJKCodepointMap
