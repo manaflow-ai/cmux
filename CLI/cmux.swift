@@ -10906,6 +10906,48 @@ struct CMUXCLI {
         }
     }
 
+    /// Reads stdin without waiting for EOF, draining all available data with a
+    /// short idle timeout. This prevents zombie processes when the parent
+    /// (Claude Code) spawns async hooks without closing the stdin pipe, while
+    /// still supporting payloads larger than the OS pipe buffer (~64 KB).
+    /// See: https://github.com/manaflow-ai/cmux/issues/2248
+    private func readStdinWithoutWaitingForEOF(idleTimeoutMs: Int = 20, maxWaitMs: Int = 200) -> String {
+        let handle = FileHandle.standardInput
+        let fd = handle.fileDescriptor
+
+        // Set stdin to non-blocking mode
+        let originalFlags = fcntl(fd, F_GETFL)
+        fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
+        defer { fcntl(fd, F_SETFL, originalFlags) }
+
+        var accumulated = Data()
+        let startTime = DispatchTime.now()
+        var lastReadTime = startTime
+
+        while true {
+            let chunk = handle.availableData
+            if !chunk.isEmpty {
+                accumulated.append(chunk)
+                lastReadTime = DispatchTime.now()
+                continue
+            }
+
+            let now = DispatchTime.now()
+            let idleNs = now.uptimeNanoseconds - lastReadTime.uptimeNanoseconds
+            let totalNs = now.uptimeNanoseconds - startTime.uptimeNanoseconds
+
+            // Stop if idle too long (no more data coming) or total wait exceeded
+            if idleNs > UInt64(idleTimeoutMs) * 1_000_000 ||
+               totalNs > UInt64(maxWaitMs) * 1_000_000 {
+                break
+            }
+
+            usleep(1000) // 1ms poll interval
+        }
+
+        return String(data: accumulated, encoding: .utf8) ?? ""
+    }
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -10916,12 +10958,7 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        // Use availableData instead of readDataToEndOfFile to prevent indefinite
-        // blocking when the parent process (Claude Code) spawns async hooks without
-        // closing the stdin pipe. readDataToEndOfFile waits for EOF which never
-        // arrives for async hooks, causing zombie process accumulation.
-        // See: https://github.com/manaflow-ai/cmux/issues/2248
-        let rawInput = String(data: FileHandle.standardInput.availableData, encoding: .utf8) ?? ""
+        let rawInput = readStdinWithoutWaitingForEOF()
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
         telemetry.breadcrumb(
@@ -12143,8 +12180,7 @@ struct CMUXCLI {
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
         let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
-        // See runClaudeHook comment — availableData prevents async hook zombie leak
-        let rawInput = String(data: FileHandle.standardInput.availableData, encoding: .utf8) ?? ""
+        let rawInput = readStdinWithoutWaitingForEOF()
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore(
             processEnv: env.merging(
