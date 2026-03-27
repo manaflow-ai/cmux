@@ -1642,6 +1642,7 @@ struct ContentView: View {
         enum Kind: Equatable {
             case workspace(workspaceId: UUID)
             case tab(workspaceId: UUID, panelId: UUID)
+            case workspaceTab(workspaceId: UUID, workspaceTabId: UUID)
         }
 
         let kind: Kind
@@ -1653,6 +1654,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
             case .tab:
                 return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
+            case .workspaceTab:
+                return String(localized: "commandPalette.rename.workspaceTabTitle", defaultValue: "Rename Workspace Tab")
             }
         }
 
@@ -1662,6 +1665,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
             case .tab:
                 return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
+            case .workspaceTab:
+                return String(localized: "commandPalette.rename.workspaceTabDescription", defaultValue: "Choose a custom workspace tab name.")
             }
         }
 
@@ -1671,6 +1676,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name")
             case .tab:
                 return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
+            case .workspaceTab:
+                return String(localized: "commandPalette.rename.workspaceTabPlaceholder", defaultValue: "Tab name")
             }
         }
     }
@@ -1918,6 +1925,8 @@ struct ContentView: View {
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
+
+        static let workspaceHasMultipleTabs = "workspace.hasMultipleTabs"
 
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
@@ -2953,6 +2962,17 @@ struct ContentView: View {
             openCommandPaletteRenameWorkspaceInput()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWorkspaceTabRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openCommandPaletteRenameWorkspaceTabInput()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .commands = commandPaletteMode else { return }
@@ -3331,7 +3351,7 @@ struct ContentView: View {
             }
 
             if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
-                workspacePanelsCancellable = workspace.$panels
+                workspacePanelsCancellable = workspace.panelsPublisher
                     .map { _ in () }
                     .sink { _ in
                         Task { @MainActor in
@@ -4098,7 +4118,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
+        case .tab, .workspaceTab:
             return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
         }
     }
@@ -4107,7 +4127,7 @@ struct ContentView: View {
         switch target.kind {
         case .workspace:
             return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
+        case .tab, .workspaceTab:
             return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         }
     }
@@ -5218,6 +5238,10 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasRead,
                 notificationStore.notifications.contains { $0.tabId == workspace.id && $0.isRead }
             )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceHasMultipleTabs,
+                workspace.workspaceTabs.count > 1
+            )
         }
 
         if let panelContext = focusedPanelContext {
@@ -5278,6 +5302,11 @@ struct ContentView: View {
         func terminalPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
             return String(localized: "commandPalette.subtitle.terminalWithName", defaultValue: "Terminal • \(name)")
+        }
+
+        func workspaceTabSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
+            let name = context.string(CommandPaletteContextKeys.workspaceName) ?? String(localized: "commandPalette.subtitle.workspaceFallback", defaultValue: "Workspace")
+            return String(localized: "commandPalette.subtitle.workspaceTabWithName", defaultValue: "Workspace Tab • \(name)")
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
@@ -5960,6 +5989,69 @@ struct ContentView: View {
             )
         )
 
+        // MARK: Workspace Tab Commands
+
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newWorkspaceTab",
+                title: constant(String(localized: "command.newWorkspaceTab.title", defaultValue: "New Workspace Tab")),
+                subtitle: workspaceTabSubtitle,
+                shortcutHint: "⌥⌘T",
+                keywords: ["new", "workspace", "tab", "create"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.closeWorkspaceTab",
+                title: constant(String(localized: "command.closeWorkspaceTab.title", defaultValue: "Close Workspace Tab")),
+                subtitle: workspaceTabSubtitle,
+                shortcutHint: "⌥⌘W",
+                keywords: ["close", "workspace", "tab"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultipleTabs)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.nextWorkspaceTab",
+                title: constant(String(localized: "command.nextWorkspaceTab.title", defaultValue: "Next Workspace Tab")),
+                subtitle: workspaceTabSubtitle,
+                shortcutHint: "⌥⌘]",
+                keywords: ["next", "workspace", "tab", "navigate"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultipleTabs)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.previousWorkspaceTab",
+                title: constant(String(localized: "command.previousWorkspaceTab.title", defaultValue: "Previous Workspace Tab")),
+                subtitle: workspaceTabSubtitle,
+                shortcutHint: "⌥⌘[",
+                keywords: ["previous", "workspace", "tab", "navigate"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasMultipleTabs)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.renameWorkspaceTab",
+                title: constant(String(localized: "command.renameWorkspaceTab.title", defaultValue: "Rename Workspace Tab\u{2026}")),
+                subtitle: workspaceTabSubtitle,
+                shortcutHint: "⌥⌘R",
+                keywords: ["rename", "workspace", "tab", "title"],
+                dismissOnRun: false,
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+
         return contributions
     }
 
@@ -6290,6 +6382,24 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
+        }
+
+        // MARK: Workspace Tab Handlers
+
+        registry.register(commandId: "palette.newWorkspaceTab") {
+            tabManager.createWorkspaceTabInSelectedWorkspace()
+        }
+        registry.register(commandId: "palette.closeWorkspaceTab") {
+            tabManager.closeSelectedWorkspaceTab()
+        }
+        registry.register(commandId: "palette.nextWorkspaceTab") {
+            tabManager.selectNextWorkspaceTab()
+        }
+        registry.register(commandId: "palette.previousWorkspaceTab") {
+            tabManager.selectPreviousWorkspaceTab()
+        }
+        registry.register(commandId: "palette.renameWorkspaceTab") {
+            beginRenameWorkspaceTabFlow()
         }
     }
 
@@ -6689,6 +6799,13 @@ struct ContentView: View {
             presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
         }
         beginRenameWorkspaceFlow()
+    }
+
+    private func openCommandPaletteRenameWorkspaceTabInput() {
+        if !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        beginRenameWorkspaceTabFlow()
     }
 
     private func presentFeedbackComposer() {
@@ -7242,6 +7359,20 @@ struct ContentView: View {
         startRenameFlow(target)
     }
 
+    private func beginRenameWorkspaceTabFlow() {
+        guard let workspace = tabManager.selectedWorkspace,
+              let wsTab = workspace.selectedWorkspaceTab else {
+            NSSound.beep()
+            return
+        }
+        let currentName = wsTab.customTitle ?? ""
+        let target = CommandPaletteRenameTarget(
+            kind: .workspaceTab(workspaceId: workspace.id, workspaceTabId: wsTab.id),
+            currentName: currentName
+        )
+        startRenameFlow(target)
+    }
+
     private func beginRenameTabFlow() {
         guard let panelContext = focusedPanelContext else {
             NSSound.beep()
@@ -7285,6 +7416,13 @@ struct ContentView: View {
                 return
             }
             workspace.setPanelCustomTitle(panelId: panelId, title: normalizedName)
+        case .workspaceTab(let workspaceId, let workspaceTabId):
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
+                  let wsTab = workspace.workspaceTabs.first(where: { $0.id == workspaceTabId }) else {
+                NSSound.beep()
+                return
+            }
+            wsTab.customTitle = normalizedName
         }
 
         dismissCommandPalette()

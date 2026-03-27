@@ -4399,6 +4399,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func requestCommandPaletteRenameWorkspaceTab(
+        preferredWindow: NSWindow? = nil,
+        source: String = "shortcut.renameWorkspaceTab"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteRenameWorkspaceTabRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
     private func clearCommandPalettePendingOpen(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
@@ -6169,7 +6181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             terminalPanel.sendText(text)
         }
 
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in finishIfReady() }
         readyObserver = NotificationCenter.default.addObserver(
@@ -7302,7 +7314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == browserPanelId else { return }
             recordFocusedState()
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in recordFocusedState() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
@@ -7442,7 +7454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   surfaceId == panelId else { return }
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = tab.$panels
+        panelsCancellable = tab.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -8032,7 +8044,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { _ in
             Task { @MainActor in evaluate() }
         })
-        panelsCancellable = workspace.$panels
+        panelsCancellable = workspace.panelsPublisher
             .map { _ in () }
             .sink { _ in
                 Task { @MainActor in evaluate() }
@@ -8171,7 +8183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                    observedWorkspaceId != workspace.id {
                     observedWorkspaceId = workspace.id
                     panelsCancellable?.cancel()
-                    panelsCancellable = workspace.$panels
+                    panelsCancellable = workspace.panelsPublisher
                         .map { _ in () }
                         .sink { _ in attemptResolve() }
                 }
@@ -8318,7 +8330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
             panelsCancellable?.cancel()
-            panelsCancellable = workspace.$panels
+            panelsCancellable = workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in attemptFocus() }
             guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else {
@@ -9386,6 +9398,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
             tabManager?.selectPreviousTab()
+            return true
+        }
+
+        // Workspace tab navigation: Cmd+Opt+] / Cmd+Opt+[ / Cmd+Shift+T
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextWorkspaceTab)) {
+            tabManager?.selectNextWorkspaceTab()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevWorkspaceTab)) {
+            tabManager?.selectPreviousWorkspaceTab()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newWorkspaceTab)) {
+            tabManager?.createWorkspaceTabInSelectedWorkspace()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspaceTab)) {
+            requestCommandPaletteRenameWorkspaceTab(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspaceTab)) {
+            tabManager?.closeSelectedWorkspaceTab()
             return true
         }
 
@@ -11330,7 +11370,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor in finishIfFocused() }
         })
         if let workspace = tabManager.tabs.first(where: { $0.id == tabId }) {
-            cancellables.append(workspace.$panels
+            cancellables.append(workspace.panelsPublisher
                 .map { _ in () }
                 .sink { _ in
                     Task { @MainActor in finishIfFocused() }

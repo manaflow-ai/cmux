@@ -121,6 +121,42 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertNil(decoded.windows.first?.tabManager.workspaces.first?.customColor)
     }
 
+    func testWorkspaceTabsDecodeSupportsMissingLegacyField() throws {
+        // Snapshots created before multi-tab support should decode with
+        // workspaceTabs == nil and selectedWorkspaceTabIndex == nil.
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        XCTAssertNil(snapshot.windows[0].tabManager.workspaces[0].workspaceTabs)
+        XCTAssertNil(snapshot.windows[0].tabManager.workspaces[0].selectedWorkspaceTabIndex)
+
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(snapshot)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(json.contains("\"workspaceTabs\""))
+        XCTAssertFalse(json.contains("\"selectedWorkspaceTabIndex\""))
+
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+        let workspace = try XCTUnwrap(decoded.windows.first?.tabManager.workspaces.first)
+        XCTAssertNil(workspace.workspaceTabs)
+        XCTAssertNil(workspace.selectedWorkspaceTabIndex)
+    }
+
+    func testWorkspaceTabsSnapshotRoundTrip() throws {
+        let tabSnapshot = SessionWorkspaceTabSnapshot(
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [UUID()], selectedPanelId: nil)),
+            panels: [],
+            focusedPanelId: nil
+        )
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].workspaceTabs = [tabSnapshot, tabSnapshot]
+        snapshot.windows[0].tabManager.workspaces[0].selectedWorkspaceTabIndex = 1
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+        let workspace = try XCTUnwrap(decoded.windows.first?.tabManager.workspaces.first)
+        XCTAssertEqual(workspace.workspaceTabs?.count, 2)
+        XCTAssertEqual(workspace.selectedWorkspaceTabIndex, 1)
+    }
+
     func testLoadRejectsSchemaVersionMismatch() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

@@ -165,6 +165,11 @@ struct cmuxApp: App {
     private var showBrowserJavaScriptConsoleShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.nextWorkspaceTab.defaultsKey) private var nextWorkspaceTabShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.prevWorkspaceTab.defaultsKey) private var prevWorkspaceTabShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.newWorkspaceTab.defaultsKey) private var newWorkspaceTabShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.renameWorkspaceTab.defaultsKey) private var renameWorkspaceTabShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.closeWorkspaceTab.defaultsKey) private var closeWorkspaceTabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
@@ -782,6 +787,28 @@ struct cmuxApp: App {
 
                 Divider()
 
+                splitCommandButton(title: String(localized: "menu.view.nextWorkspaceTab", defaultValue: "Next Workspace Tab"), shortcut: nextWorkspaceTabMenuShortcut) {
+                    activeTabManager.selectNextWorkspaceTab()
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.previousWorkspaceTab", defaultValue: "Previous Workspace Tab"), shortcut: prevWorkspaceTabMenuShortcut) {
+                    activeTabManager.selectPreviousWorkspaceTab()
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.newWorkspaceTab", defaultValue: "New Workspace Tab"), shortcut: newWorkspaceTabMenuShortcut) {
+                    activeTabManager.createWorkspaceTabInSelectedWorkspace()
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.renameWorkspaceTab", defaultValue: "Rename Workspace Tab…"), shortcut: renameWorkspaceTabMenuShortcut) {
+                    AppDelegate.shared?.requestCommandPaletteRenameWorkspaceTab()
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.closeWorkspaceTab", defaultValue: "Close Workspace Tab"), shortcut: closeWorkspaceTabMenuShortcut) {
+                    activeTabManager.closeSelectedWorkspaceTab()
+                }
+
+                Divider()
+
                 splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: splitRightMenuShortcut) {
                     performSplitFromMenu(direction: .right)
                 }
@@ -961,6 +988,41 @@ struct cmuxApp: App {
         decodeShortcut(
             from: splitBrowserDownShortcutData,
             fallback: KeyboardShortcutSettings.Action.splitBrowserDown.defaultShortcut
+        )
+    }
+
+    private var nextWorkspaceTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: nextWorkspaceTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.nextWorkspaceTab.defaultShortcut
+        )
+    }
+
+    private var prevWorkspaceTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: prevWorkspaceTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.prevWorkspaceTab.defaultShortcut
+        )
+    }
+
+    private var newWorkspaceTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: newWorkspaceTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.newWorkspaceTab.defaultShortcut
+        )
+    }
+
+    private var renameWorkspaceTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: renameWorkspaceTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.renameWorkspaceTab.defaultShortcut
+        )
+    }
+
+    private var closeWorkspaceTabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: closeWorkspaceTabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.closeWorkspaceTab.defaultShortcut
         )
     }
 

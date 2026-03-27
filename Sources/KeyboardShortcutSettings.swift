@@ -30,6 +30,11 @@ enum KeyboardShortcutSettings {
         case closeWorkspace
         case newSurface
         case toggleTerminalCopyMode
+        case nextWorkspaceTab
+        case prevWorkspaceTab
+        case newWorkspaceTab
+        case renameWorkspaceTab
+        case closeWorkspaceTab
 
         // Panes / splits
         case focusLeft
@@ -80,6 +85,11 @@ enum KeyboardShortcutSettings {
             case .toggleSplitZoom: return String(localized: "shortcut.togglePaneZoom.label", defaultValue: "Toggle Pane Zoom")
             case .splitBrowserRight: return String(localized: "shortcut.splitBrowserRight.label", defaultValue: "Split Browser Right")
             case .splitBrowserDown: return String(localized: "shortcut.splitBrowserDown.label", defaultValue: "Split Browser Down")
+            case .nextWorkspaceTab: return String(localized: "shortcut.nextWorkspaceTab.label", defaultValue: "Next Workspace Tab")
+            case .prevWorkspaceTab: return String(localized: "shortcut.previousWorkspaceTab.label", defaultValue: "Previous Workspace Tab")
+            case .newWorkspaceTab: return String(localized: "shortcut.newWorkspaceTab.label", defaultValue: "New Workspace Tab")
+            case .renameWorkspaceTab: return String(localized: "shortcut.renameWorkspaceTab.label", defaultValue: "Rename Workspace Tab")
+            case .closeWorkspaceTab: return String(localized: "shortcut.closeWorkspaceTab.label", defaultValue: "Close Workspace Tab")
             case .openBrowser: return String(localized: "shortcut.openBrowser.label", defaultValue: "Open Browser")
             case .toggleBrowserDeveloperTools: return String(localized: "shortcut.toggleBrowserDevTools.label", defaultValue: "Toggle Browser Developer Tools")
             case .showBrowserJavaScriptConsole: return String(localized: "shortcut.showBrowserJSConsole.label", defaultValue: "Show Browser JavaScript Console")
@@ -117,6 +127,11 @@ enum KeyboardShortcutSettings {
             case .selectSurfaceByNumber: return "shortcut.selectSurfaceByNumber"
             case .newSurface: return "shortcut.newSurface"
             case .toggleTerminalCopyMode: return "shortcut.toggleTerminalCopyMode"
+            case .nextWorkspaceTab: return "shortcut.nextWorkspaceTab"
+            case .prevWorkspaceTab: return "shortcut.prevWorkspaceTab"
+            case .newWorkspaceTab: return "shortcut.newWorkspaceTab"
+            case .renameWorkspaceTab: return "shortcut.renameWorkspaceTab"
+            case .closeWorkspaceTab: return "shortcut.closeWorkspaceTab"
             case .openBrowser: return "shortcut.openBrowser"
             case .toggleBrowserDeveloperTools: return "shortcut.toggleBrowserDeveloperTools"
             case .showBrowserJavaScriptConsole: return "shortcut.showBrowserJavaScriptConsole"
@@ -183,6 +198,16 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
             case .selectWorkspaceByNumber:
                 return StoredShortcut(key: "1", command: true, shift: false, option: false, control: false)
+            case .nextWorkspaceTab:
+                return StoredShortcut(key: "]", command: true, shift: false, option: true, control: false)
+            case .prevWorkspaceTab:
+                return StoredShortcut(key: "[", command: true, shift: false, option: true, control: false)
+            case .newWorkspaceTab:
+                return StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
+            case .renameWorkspaceTab:
+                return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
+            case .closeWorkspaceTab:
+                return StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
             case .openBrowser:
                 return StoredShortcut(key: "l", command: true, shift: true, option: false, control: false)
             case .toggleBrowserDeveloperTools:
@@ -319,6 +344,12 @@ enum KeyboardShortcutSettings {
     static func selectSurfaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectSurfaceByNumber) }
     static func newSurfaceShortcut() -> StoredShortcut { shortcut(for: .newSurface) }
     static func selectWorkspaceByNumberShortcut() -> StoredShortcut { shortcut(for: .selectWorkspaceByNumber) }
+
+    static func nextWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .nextWorkspaceTab) }
+    static func prevWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .prevWorkspaceTab) }
+    static func newWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .newWorkspaceTab) }
+    static func renameWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .renameWorkspaceTab) }
+    static func closeWorkspaceTabShortcut() -> StoredShortcut { shortcut(for: .closeWorkspaceTab) }
 
     static func openBrowserShortcut() -> StoredShortcut { shortcut(for: .openBrowser) }
     static func toggleBrowserDeveloperToolsShortcut() -> StoredShortcut { shortcut(for: .toggleBrowserDeveloperTools) }

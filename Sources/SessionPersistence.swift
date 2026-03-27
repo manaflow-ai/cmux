@@ -327,6 +327,12 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
     }
 }
 
+struct SessionWorkspaceTabSnapshot: Codable, Sendable {
+    var layout: SessionWorkspaceLayoutSnapshot
+    var panels: [SessionPanelSnapshot]
+    var focusedPanelId: UUID?
+}
+
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
@@ -340,6 +346,12 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var logEntries: [SessionLogEntrySnapshot]
     var progress: SessionProgressSnapshot?
     var gitBranch: SessionGitBranchSnapshot?
+
+    // Multi-tab workspace support (added in schema v1, optional for backward compat).
+    // When present, these fields take precedence over the top-level layout/panels/focusedPanelId
+    // which represent the legacy single-tab format.
+    var workspaceTabs: [SessionWorkspaceTabSnapshot]?
+    var selectedWorkspaceTabIndex: Int?
 }
 
 struct SessionTabManagerSnapshot: Codable, Sendable {
