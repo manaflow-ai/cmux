@@ -115,12 +115,18 @@ private struct FileExplorerHeader: View {
                 }
                 Divider()
                 Text("Git Status Colors")
-                    .font(.system(size: 11, weight: .semibold))
-                Button {} label: { Label("Modified", systemImage: "circle.fill").foregroundColor(.orange) }.disabled(true)
-                Button {} label: { Label("Added", systemImage: "circle.fill").foregroundColor(.green) }.disabled(true)
-                Button {} label: { Label("Deleted", systemImage: "circle.fill").foregroundColor(.red) }.disabled(true)
-                Button {} label: { Label("Renamed", systemImage: "circle.fill").foregroundColor(.blue) }.disabled(true)
-                Button {} label: { Label("Untracked", systemImage: "circle.fill").foregroundColor(.gray) }.disabled(true)
+                Button("🟠 Modified") {}
+                Button("🟢 Added") {}
+                Button("🔴 Deleted") {}
+                Button("🔵 Renamed") {}
+                Button("⚪ Untracked") {}
+                Divider()
+                Text("Tips")
+                Button("📁 Drag file → terminal to paste path") {}
+                Button("🔍 Click magnifying glass to search") {}
+                Button("📍 Click location to reveal open file") {}
+                Button("✏️ Click file to edit, Cmd+S to save") {}
+                Button("👆 Double-click to open in Sublime") {}
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 10))
