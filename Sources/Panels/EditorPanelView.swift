@@ -208,6 +208,11 @@ struct NativeTextEditor: NSViewRepresentable {
             self.panel = panel
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            BracketMatcher.highlightMatchingBrackets(in: textView)
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isHighlighting else { return }
             guard let textView = notification.object as? NSTextView else { return }
