@@ -134,6 +134,7 @@
 					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */; };
 			FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */; };
 			FE000017A1B2C3D4E5F60007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = FE000007A1B2C3D4E5F60007 /* editor.html */; };
+					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -314,6 +315,7 @@
 			FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanel.swift; sourceTree = "<group>"; };
 			FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanelView.swift; sourceTree = "<group>"; };
 			FE000007A1B2C3D4E5F60007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
+			FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -587,6 +589,7 @@
 				FE000001A1B2C3D4E5F60001 /* FileExplorerNode.swift */,
 				FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */,
 				FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */,
+				FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */,
 				FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */,
 			);
 			path = FileExplorer;
@@ -740,6 +743,7 @@
 				files = (
 					A5001001 /* cmuxApp.swift in Sources */,
 					A5001002 /* ContentView.swift in Sources */,
+					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */,
 					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */,
 					FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */,
 

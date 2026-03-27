@@ -154,14 +154,19 @@ struct NativeTextEditor: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 8, height: 8)
         applyTheme(to: textView, scrollView: scrollView)
 
-        // Set initial content
-        textView.string = panel.content
+        // Set initial content with syntax highlighting
+        let fileExt = (panel.filePath as NSString).pathExtension
+        let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            || textView.window == nil
+        let highlighted = SyntaxHighlighter.highlight(panel.content, fileExtension: fileExt, isDark: isDark)
+        textView.textStorage?.setAttributedString(highlighted)
+
         textView.delegate = context.coordinator
+        context.coordinator.fileExtension = fileExt
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
 
-        NSLog("EditorPanel: NSTextView created, content length: \(panel.content.count)")
         return scrollView
     }
 
@@ -175,34 +180,17 @@ struct NativeTextEditor: NSViewRepresentable {
         applyTheme(to: textView, scrollView: scrollView)
     }
 
-    /// Apply theme colors matching the terminal.
-    /// Uses the window's effective appearance (falls back to dark).
+    /// Apply background/insertion point colors (not text — syntax highlighter handles that).
     private func applyTheme(to textView: NSTextView, scrollView: NSScrollView) {
         let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            || textView.window == nil  // Before window attachment, assume dark (terminal default)
+            || textView.window == nil
         let bgColor = isDark
             ? NSColor(white: 0.12, alpha: 1.0)
             : NSColor(white: 0.98, alpha: 1.0)
-        let fgColor = isDark
-            ? NSColor(white: 0.9, alpha: 1.0)
-            : NSColor(white: 0.1, alpha: 1.0)
 
         textView.backgroundColor = bgColor
         textView.insertionPointColor = isDark ? .white : .black
         scrollView.backgroundColor = bgColor
-
-        // Update text color for existing content + future typing
-        textView.textColor = fgColor
-        if let font = textView.font {
-            textView.typingAttributes = [.font: font, .foregroundColor: fgColor]
-        }
-        // Recolor existing text
-        if textView.string.count > 0 {
-            textView.textStorage?.addAttribute(
-                .foregroundColor, value: fgColor,
-                range: NSRange(location: 0, length: textView.string.count)
-            )
-        }
     }
 
     // MARK: - Coordinator
@@ -211,6 +199,8 @@ struct NativeTextEditor: NSViewRepresentable {
         let panel: EditorPanel
         weak var textView: NSTextView?
         var isUpdatingFromTextView = false
+        var fileExtension: String = ""
+        private var highlightWorkItem: DispatchWorkItem?
 
         init(panel: EditorPanel) {
             self.panel = panel
@@ -225,6 +215,34 @@ struct NativeTextEditor: NSViewRepresentable {
                 self.panel.textDidChange()
                 self.isUpdatingFromTextView = false
             }
+            // Debounced re-highlight (300ms after last keystroke)
+            scheduleHighlight(for: textView)
+        }
+
+        private func scheduleHighlight(for textView: NSTextView) {
+            highlightWorkItem?.cancel()
+            let ext = fileExtension
+            let workItem = DispatchWorkItem { [weak self, weak textView] in
+                guard let textView else { return }
+                Task { @MainActor in
+                    guard let self else { return }
+                    let isDark = textView.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                        || textView.window == nil
+                    let selectedRange = textView.selectedRange()
+                    let highlighted = SyntaxHighlighter.highlight(textView.string, fileExtension: ext, isDark: isDark)
+                    textView.textStorage?.beginEditing()
+                    textView.textStorage?.setAttributedString(highlighted)
+                    textView.textStorage?.endEditing()
+                    // Restore cursor position
+                    let safeRange = NSRange(
+                        location: min(selectedRange.location, textView.string.count),
+                        length: 0
+                    )
+                    textView.setSelectedRange(safeRange)
+                }
+            }
+            highlightWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
         }
     }
 }
