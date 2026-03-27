@@ -10048,10 +10048,10 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
-            let store = loadTmuxCompatStore()
             if let callerSurface = tmuxCallerSurfaceHandle(),
                let callerWorkspace = tmuxCallerWorkspaceHandle(),
                let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
+                let store = loadTmuxCompatStore()
                 if let mvState = store.mainVerticalLayouts[wsId],
                    let lastColumn = mvState.lastColumnSurfaceId {
                     // Main-vertical active: stack in right column.
@@ -10369,7 +10369,20 @@ struct CMUXCLI {
         case "select-layout":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-t"], boolFlags: [])
             let layoutName = parsed.positional.first ?? ""
-            let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
+            // select-layout -t accepts pane targets (e.g. %1) in real tmux.
+            // Resolve via pane first, fall back to workspace target.
+            let workspaceId: String = {
+                if let target = parsed.value("-t"),
+                   let resolved = try? tmuxResolvePaneTarget(target, client: client) {
+                    return resolved.workspaceId
+                }
+                return (try? tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client))
+                    ?? (try? tmuxResolveWorkspaceTarget(nil, client: client))
+                    ?? ""
+            }()
+            guard !workspaceId.isEmpty else {
+                throw CLIError(message: "Could not resolve workspace for select-layout")
+            }
             if layoutName == "main-vertical" || layoutName == "main-horizontal" {
                 // For main-* layouts, only equalize the agent column (vertical splits),
                 // not the top-level horizontal split between main and agents.
@@ -10396,9 +10409,10 @@ struct CMUXCLI {
             } else if !layoutName.isEmpty {
                 // Non-main-vertical layout selected: clear stale state so
                 // future splits don't incorrectly redirect to the old column.
-                let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
                 var store = loadTmuxCompatStore()
-                if store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil {
+                let removedLayout = store.mainVerticalLayouts.removeValue(forKey: workspaceId) != nil
+                let removedSplit = store.lastSplitSurface.removeValue(forKey: workspaceId) != nil
+                if removedLayout || removedSplit {
                     try saveTmuxCompatStore(store)
                 }
             }
