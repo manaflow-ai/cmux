@@ -977,7 +977,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
     private var installConstraints: [NSLayoutConstraint] = []
     private weak var installedThemeFrame: NSView?
-    private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
@@ -1064,9 +1063,14 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
         // SwiftUI text fields can keep a field editor delegate that isn't an NSView.
         // Fall back to validating editor ownership from the mounted palette text field.
-        if let textField = firstEditableTextField(in: hostingView),
-           textField.currentEditor() === textView {
-            return true
+        if let textInputView = firstEditableTextInputView(in: hostingView) {
+            if textInputView === textView {
+                return true
+            }
+            if let textField = textInputView as? NSTextField,
+               textField.currentEditor() === textView {
+                return true
+            }
         }
 
         return false
@@ -1076,7 +1080,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         guard let responder else { return false }
 
         if let textView = responder as? NSTextView {
-            return isPaletteFieldEditor(textView)
+            if textView.isFieldEditor {
+                return isPaletteFieldEditor(textView)
+            }
+            return textView.isEditable && textView.isDescendant(of: containerView)
         }
 
         if let textField = responder as? NSTextField {
@@ -1086,7 +1093,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         return false
     }
 
-    private func firstEditableTextField(in view: NSView) -> NSTextField? {
+    private func firstEditableTextInputView(in view: NSView) -> NSView? {
         if let textField = view as? NSTextField,
            textField.isEditable,
            textField.isEnabled,
@@ -1094,8 +1101,15 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             return textField
         }
 
+        if let textView = view as? NSTextView,
+           !textView.isFieldEditor,
+           textView.isEditable,
+           !textView.isHiddenOrHasHiddenAncestor {
+            return textView
+        }
+
         for subview in view.subviews {
-            if let match = firstEditableTextField(in: subview) {
+            if let match = firstEditableTextInputView(in: subview) {
                 return match
             }
         }
@@ -1118,16 +1132,16 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             return
         }
 
-        if let textField = firstEditableTextField(in: hostingView),
-           window.makeFirstResponder(textField),
+        if let textInputView = firstEditableTextInputView(in: hostingView),
+           window.makeFirstResponder(textInputView),
            isPaletteTextInputFirstResponder(window.firstResponder) {
             normalizeSelectionAfterProgrammaticFocus()
             return
         }
 
         if window.makeFirstResponder(containerView) {
-            if let textField = firstEditableTextField(in: hostingView),
-               window.makeFirstResponder(textField),
+            if let textInputView = firstEditableTextInputView(in: hostingView),
+               window.makeFirstResponder(textInputView),
                isPaletteTextInputFirstResponder(window.firstResponder) {
                 normalizeSelectionAfterProgrammaticFocus()
                 return
@@ -1164,58 +1178,35 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     private func updateFocusLockForWindowState() {
         guard let window else {
-            stopFocusLockTimer()
+            scheduledFocusWorkItem?.cancel()
+            scheduledFocusWorkItem = nil
             return
         }
         guard isPaletteVisible else {
-            stopFocusLockTimer()
+            scheduledFocusWorkItem?.cancel()
+            scheduledFocusWorkItem = nil
             return
         }
 
         guard window.isKeyWindow else {
-            stopFocusLockTimer()
-            if isPaletteResponder(window.firstResponder) {
-                _ = window.makeFirstResponder(nil)
-            }
+            // Keep the field editor stable while the window is backgrounded or
+            // while a transient system panel is interacting with the palette.
+            // Clearing/reasserting first responder here can detach the emoji
+            // picker from the field and steal its keyboard focus.
+            scheduledFocusWorkItem?.cancel()
+            scheduledFocusWorkItem = nil
             return
         }
 
-        startFocusLockTimer()
         if !isPaletteTextInputFirstResponder(window.firstResponder) {
             scheduleFocusIntoPalette(retries: 8)
         }
     }
 
-    private func startFocusLockTimer() {
-        guard focusLockTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now(), repeating: .milliseconds(80), leeway: .milliseconds(12))
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            guard let window = self.window else {
-                self.stopFocusLockTimer()
-                return
-            }
-            if self.isPaletteTextInputFirstResponder(window.firstResponder) {
-                return
-            }
-            self.focusIntoPalette(retries: 1)
-        }
-        focusLockTimer = timer
-        timer.resume()
-    }
-
-    private func stopFocusLockTimer() {
-        focusLockTimer?.cancel()
-        focusLockTimer = nil
-        scheduledFocusWorkItem?.cancel()
-        scheduledFocusWorkItem = nil
-    }
-
     private func normalizeSelectionAfterProgrammaticFocus() {
         guard let window,
               let editor = window.firstResponder as? NSTextView,
-              editor.isFieldEditor else { return }
+              isPaletteTextInputFirstResponder(editor) else { return }
 
         let text = editor.string
         let length = (text as NSString).length
@@ -1228,6 +1219,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         // so the next keystroke appends instead of replacing and switching modes.
         guard text.hasPrefix(">") else { return }
         editor.setSelectedRange(NSRange(location: length, length: 0))
+    }
+
+    func ownsTextInputResponder(_ responder: NSResponder?) -> Bool {
+        isPaletteTextInputFirstResponder(responder)
     }
 
     func update(rootView: AnyView, isVisible: Bool) {
@@ -1247,7 +1242,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             }
             updateFocusLockForWindowState()
         } else {
-            stopFocusLockTimer()
+            scheduledFocusWorkItem?.cancel()
+            scheduledFocusWorkItem = nil
             if let window, isPaletteResponder(window.firstResponder) {
                 _ = window.makeFirstResponder(nil)
             }
@@ -2836,10 +2832,11 @@ struct ContentView: View {
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSText.didBeginEditingNotification)) { notification in
             guard commandPalettePendingTextSelectionBehavior != nil else { return }
-            guard let editor = notification.object as? NSTextView,
-                  editor.isFieldEditor else { return }
             guard let observedWindow else { return }
+            guard let editor = notification.object as? NSTextView else { return }
             guard editor.window === observedWindow else { return }
+            let overlayController = commandPaletteWindowOverlayController(for: observedWindow)
+            guard overlayController.ownsTextInputResponder(editor) else { return }
             attemptCommandPaletteTextSelectionIfNeeded()
         })
 
@@ -3799,23 +3796,26 @@ struct ContentView: View {
 
     private func commandPaletteRenameInputView(target: CommandPaletteRenameTarget) -> some View {
         VStack(spacing: 0) {
-            TextField(target.placeholder, text: $commandPaletteRenameDraft)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .regular))
-                .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
-                .focused($isCommandPaletteRenameFocused)
-                .accessibilityIdentifier("CommandPaletteRenameField")
-                .backport.onKeyPress(.delete) { modifiers in
-                    handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
-                }
-                .onSubmit {
-                    continueRenameFlow(target: target)
-                }
-                .onTapGesture {
-                    handleCommandPaletteRenameInputInteraction()
-                }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
+            HStack(spacing: 0) {
+                CommandPaletteRenameFieldRepresentable(
+                    text: $commandPaletteRenameDraft,
+                    isFocused: Binding(
+                        get: { isCommandPaletteRenameFocused },
+                        set: { isCommandPaletteRenameFocused = $0 }
+                    ),
+                    tintColor: sidebarActiveForegroundNSColor(opacity: 1.0),
+                    onSubmit: { continueRenameFlow(target: target) },
+                    onEscape: { dismissCommandPalette() },
+                    onDeleteEmpty: {
+                        commandPaletteMode = .commands
+                        resetCommandPaletteSearchFocus()
+                        syncCommandPaletteDebugStateForObservedWindow()
+                    }
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
 
             Divider()
 
@@ -3881,9 +3881,322 @@ struct ContentView: View {
         }
     }
 
-    private final class CommandPaletteNativeTextField: NSTextField {
-        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+    private final class CommandPaletteNativeTextView: NSTextView {
+        override var acceptsFirstResponder: Bool { true }
 
+        override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+            super.init(frame: frameRect, textContainer: container)
+            drawsBackground = false
+            isRichText = false
+            importsGraphics = false
+            isAutomaticQuoteSubstitutionEnabled = false
+            isAutomaticDashSubstitutionEnabled = false
+            isAutomaticDataDetectionEnabled = false
+            isAutomaticLinkDetectionEnabled = false
+            isAutomaticTextCompletionEnabled = false
+            isAutomaticSpellingCorrectionEnabled = false
+            allowsUndo = true
+            focusRingType = .none
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+    }
+
+    private final class CommandPaletteNativeTextInputView: NSView {
+        let scrollView = NSScrollView()
+        let textView: CommandPaletteNativeTextView
+        private let textStorage: NSTextStorage
+        private let layoutManager: NSLayoutManager
+        private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
+
+        var placeholder: String = "" {
+            didSet {
+                placeholderField.stringValue = placeholder
+                updatePlaceholderVisibility()
+            }
+        }
+
+        private var singleLineHeight: CGFloat {
+            let font = textView.font ?? .systemFont(ofSize: 13)
+            return ceil(layoutManager.defaultLineHeight(for: font))
+        }
+
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: singleLineHeight)
+        }
+
+        override init(frame frameRect: NSRect) {
+            let textContainer = NSTextContainer()
+            layoutManager = NSLayoutManager()
+            textStorage = NSTextStorage()
+            layoutManager.addTextContainer(textContainer)
+            textStorage.addLayoutManager(layoutManager)
+            textView = CommandPaletteNativeTextView(frame: .zero, textContainer: textContainer)
+            super.init(frame: frameRect)
+
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            scrollView.borderType = .noBorder
+            scrollView.drawsBackground = false
+            scrollView.automaticallyAdjustsContentInsets = false
+            scrollView.hasVerticalScroller = false
+            scrollView.hasHorizontalScroller = false
+            scrollView.autohidesScrollers = true
+
+            textView.translatesAutoresizingMaskIntoConstraints = false
+            textView.isEditable = true
+            textView.isSelectable = true
+            textView.isHorizontallyResizable = true
+            textView.isVerticallyResizable = false
+            textView.autoresizingMask = [.height]
+            textView.font = .systemFont(ofSize: 13)
+            textView.textColor = .labelColor
+            textView.insertionPointColor = .labelColor
+            textView.textContainerInset = .zero
+            textView.textContainer?.lineFragmentPadding = 0
+            textView.textContainer?.lineBreakMode = .byClipping
+            textView.textContainer?.widthTracksTextView = false
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.minSize = .zero
+            textView.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.setContentHuggingPriority(.required, for: .vertical)
+            textView.setContentCompressionResistancePriority(.required, for: .vertical)
+
+            scrollView.documentView = textView
+            scrollView.setContentHuggingPriority(.required, for: .vertical)
+            scrollView.setContentCompressionResistancePriority(.required, for: .vertical)
+            addSubview(scrollView)
+            setContentHuggingPriority(.required, for: .vertical)
+            setContentCompressionResistancePriority(.required, for: .vertical)
+
+            placeholderField.translatesAutoresizingMaskIntoConstraints = false
+            placeholderField.font = .systemFont(ofSize: 13)
+            placeholderField.textColor = .secondaryLabelColor
+            placeholderField.lineBreakMode = .byClipping
+            scrollView.contentView.addSubview(placeholderField)
+
+            NSLayoutConstraint.activate([
+                scrollView.topAnchor.constraint(equalTo: topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                placeholderField.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+                placeholderField.centerYAnchor.constraint(equalTo: scrollView.contentView.centerYAnchor),
+                placeholderField.trailingAnchor.constraint(
+                    lessThanOrEqualTo: scrollView.contentView.trailingAnchor
+                ),
+            ])
+
+            updatePlaceholderVisibility()
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func layout() {
+            super.layout()
+            syncTextViewFrameToContentSize()
+        }
+
+        func syncTextViewFrameToContentSize() {
+            let contentSize = scrollView.contentSize
+            guard contentSize.width > 0,
+                  let textContainer = textView.textContainer,
+                  let layoutManager = textView.layoutManager else { return }
+
+            textContainer.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let targetWidth = max(contentSize.width, ceil(usedRect.width) + 4)
+            let targetHeight = max(singleLineHeight, ceil(usedRect.height))
+            let targetFrame = NSRect(origin: .zero, size: NSSize(width: targetWidth, height: targetHeight))
+            if textView.frame != targetFrame {
+                textView.frame = targetFrame
+            }
+            updatePlaceholderVisibility()
+            invalidateIntrinsicContentSize()
+        }
+
+        private func updatePlaceholderVisibility() {
+            placeholderField.isHidden = !textView.string.isEmpty
+        }
+    }
+
+    private struct CommandPaletteTextInputRepresentable: NSViewRepresentable {
+        let placeholder: String
+        let accessibilityIdentifier: String
+        @Binding var text: String
+        @Binding var isFocused: Bool
+        let insertionPointColor: NSColor
+        let onSubmit: () -> Void
+        let onEscape: () -> Void
+        let onMoveSelection: ((Int) -> Void)?
+        let onDeleteEmpty: (() -> Void)?
+
+        final class Coordinator: NSObject, NSTextViewDelegate {
+            var parent: CommandPaletteTextInputRepresentable
+            var isProgrammaticMutation = false
+            var pendingFocusRequest: Bool?
+
+            init(parent: CommandPaletteTextInputRepresentable) {
+                self.parent = parent
+            }
+
+            private func enclosingInputView(for textView: NSTextView) -> CommandPaletteNativeTextInputView? {
+                var current: NSView? = textView
+                while let candidate = current {
+                    if let inputView = candidate as? CommandPaletteNativeTextInputView {
+                        return inputView
+                    }
+                    current = candidate.superview
+                }
+                return nil
+            }
+
+            func textDidChange(_ notification: Notification) {
+                guard !isProgrammaticMutation,
+                      let textView = notification.object as? NSTextView else { return }
+                parent.text = textView.string
+                if let container = enclosingInputView(for: textView) {
+                    container.syncTextViewFrameToContentSize()
+                }
+                invalidateTextInputGeometry(for: textView, reason: "textDidChange")
+            }
+
+            func textDidBeginEditing(_ notification: Notification) {
+                guard let textView = notification.object as? NSTextView else { return }
+                textView.insertionPointColor = parent.insertionPointColor
+                if let container = enclosingInputView(for: textView) {
+                    container.syncTextViewFrameToContentSize()
+                }
+                invalidateTextInputGeometry(for: textView, reason: "beginEditing")
+                if !parent.isFocused {
+                    DispatchQueue.main.async {
+                        self.parent.isFocused = true
+                    }
+                }
+            }
+
+            func textDidEndEditing(_ notification: Notification) {
+                if !(NSApp.isActive && NSApp.keyWindow is NSPanel), parent.isFocused {
+                    DispatchQueue.main.async {
+                        self.parent.isFocused = false
+                    }
+                }
+            }
+
+            func textViewDidChangeSelection(_ notification: Notification) {
+                guard let textView = notification.object as? NSTextView else { return }
+                invalidateTextInputGeometry(for: textView, reason: "selectionDidChange")
+            }
+
+            func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+                switch commandSelector {
+                case #selector(NSResponder.moveDown(_:)):
+                    guard let onMoveSelection = parent.onMoveSelection else { return false }
+                    onMoveSelection(1)
+                    return true
+                case #selector(NSResponder.moveUp(_:)):
+                    guard let onMoveSelection = parent.onMoveSelection else { return false }
+                    onMoveSelection(-1)
+                    return true
+                case #selector(NSResponder.insertNewline(_:)):
+                    guard !textView.hasMarkedText() else { return false }
+                    parent.onSubmit()
+                    return true
+                case #selector(NSResponder.cancelOperation(_:)):
+                    guard !textView.hasMarkedText() else { return false }
+                    parent.onEscape()
+                    return true
+                case #selector(NSResponder.deleteBackward(_:)):
+                    if textView.string.isEmpty, let onDeleteEmpty = parent.onDeleteEmpty {
+                        onDeleteEmpty()
+                        return true
+                    }
+                    return false
+                default:
+                    return false
+                }
+            }
+
+            func invalidateTextInputGeometry(for textView: NSTextView, reason: String) {
+                textView.inputContext?.invalidateCharacterCoordinates()
+                if #available(macOS 15.4, *) {
+                    textView.inputContext?.textInputClientDidUpdateSelection()
+                }
+            }
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(parent: self)
+        }
+
+        func makeNSView(context: Context) -> CommandPaletteNativeTextInputView {
+            let view = CommandPaletteNativeTextInputView()
+            view.placeholder = placeholder
+            view.textView.string = text
+            view.textView.delegate = context.coordinator
+            view.textView.insertionPointColor = insertionPointColor
+            view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+            view.setAccessibilityIdentifier(accessibilityIdentifier)
+            return view
+        }
+
+        func updateNSView(_ nsView: CommandPaletteNativeTextInputView, context: Context) {
+            context.coordinator.parent = self
+            nsView.placeholder = placeholder
+            nsView.textView.insertionPointColor = insertionPointColor
+            nsView.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+            nsView.setAccessibilityIdentifier(accessibilityIdentifier)
+
+            if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
+                context.coordinator.isProgrammaticMutation = true
+                nsView.textView.string = text
+                nsView.syncTextViewFrameToContentSize()
+                context.coordinator.isProgrammaticMutation = false
+                context.coordinator.invalidateTextInputGeometry(
+                    for: nsView.textView,
+                    reason: "updateNSView.textSync"
+                )
+            } else {
+                nsView.syncTextViewFrameToContentSize()
+            }
+
+            guard let window = nsView.window else { return }
+            let isFirstResponder = window.firstResponder === nsView.textView
+
+            let systemPanelActive = NSApp.isActive && NSApp.keyWindow is NSPanel
+            if isFocused, !isFirstResponder, !systemPanelActive,
+               context.coordinator.pendingFocusRequest != true {
+                context.coordinator.pendingFocusRequest = true
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    coordinator?.pendingFocusRequest = nil
+                    guard let coordinator, coordinator.parent.isFocused else { return }
+                    guard let nsView, let window = nsView.window else { return }
+                    if NSApp.isActive, NSApp.keyWindow is NSPanel { return }
+                    guard window.firstResponder !== nsView.textView else { return }
+                    window.makeFirstResponder(nsView.textView)
+                }
+            }
+        }
+
+        static func dismantleNSView(_ nsView: CommandPaletteNativeTextInputView, coordinator: Coordinator) {
+            nsView.textView.delegate = nil
+        }
+    }
+
+    private final class CommandPaletteNativeTextField: NSTextField {
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
             isBordered = false
@@ -3896,31 +4209,8 @@ struct ContentView: View {
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
-
-        override func keyDown(with event: NSEvent) {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                super.keyDown(with: event)
-                return
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return
-            }
-            super.keyDown(with: event)
-        }
-
-        override func performKeyEquivalent(with event: NSEvent) -> Bool {
-            if (currentEditor() as? NSTextView)?.hasMarkedText() == true {
-                return super.performKeyEquivalent(with: event)
-            }
-            if onHandleKeyEvent?(event, currentEditor() as? NSTextView) == true {
-                return true
-            }
-            return super.performKeyEquivalent(with: event)
-        }
     }
 
-    // Keep navigation on the AppKit field editor so deleting the ">" prefix
-    // cannot drop the palette's arrow-key handlers during the scope switch.
     private struct CommandPaletteSearchFieldRepresentable: NSViewRepresentable {
         let placeholder: String
         @Binding var text: String
@@ -3988,38 +4278,6 @@ struct ContentView: View {
                 }
             }
 
-            func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
-                guard !(editor?.hasMarkedText() ?? false) else { return false }
-
-                if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
-                    flags: event.modifierFlags,
-                    chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                    keyCode: event.keyCode
-                ) {
-                    parent.onMoveSelection(delta)
-                    return true
-                }
-
-                if shouldSubmitCommandPaletteWithReturn(
-                    keyCode: event.keyCode,
-                    flags: event.modifierFlags
-                ) {
-                    parent.onSubmit()
-                    return true
-                }
-
-                if event.keyCode == 53,
-                   event.modifierFlags
-                    .intersection(.deviceIndependentFlagsMask)
-                    .subtracting([.numericPad, .function, .capsLock])
-                    .isEmpty {
-                    parent.onEscape()
-                    return true
-                }
-
-                return false
-            }
-
             func attachEditorTextDidChangeObserverIfNeeded(_ editor: NSTextView) {
                 if observedEditor !== editor {
                     detachEditorTextDidChangeObserver()
@@ -4059,9 +4317,6 @@ struct ContentView: View {
             field.isEditable = true
             field.isSelectable = true
             field.isEnabled = true
-            field.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
-                coordinator?.handleKeyEvent(event, editor: editor) ?? false
-            }
             context.coordinator.parentField = field
             return field
         }
@@ -4092,13 +4347,15 @@ struct ContentView: View {
                 firstResponder === nsView ||
                 nsView.currentEditor() != nil ||
                 ((firstResponder as? NSTextView)?.delegate as? NSTextField) === nsView
-
-            if isFocused, !isFirstResponder, context.coordinator.pendingFocusRequest != true {
+            let systemPanelActive = NSApp.isActive && NSApp.keyWindow is NSPanel
+            if isFocused, !isFirstResponder, !systemPanelActive,
+               context.coordinator.pendingFocusRequest != true {
                 context.coordinator.pendingFocusRequest = true
                 DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
                     coordinator?.pendingFocusRequest = nil
                     guard let coordinator, coordinator.parent.isFocused else { return }
                     guard let nsView, let window = nsView.window else { return }
+                    if NSApp.isActive, NSApp.keyWindow is NSPanel { return }
                     let firstResponder = window.firstResponder
                     let alreadyFocused =
                         firstResponder === nsView ||
@@ -4112,9 +4369,108 @@ struct ContentView: View {
 
         static func dismantleNSView(_ nsView: CommandPaletteNativeTextField, coordinator: Coordinator) {
             nsView.delegate = nil
-            nsView.onHandleKeyEvent = nil
             coordinator.detachEditorTextDidChangeObserver()
             coordinator.parentField = nil
+        }
+    }
+
+    private struct CommandPaletteRenameFieldRepresentable: NSViewRepresentable {
+        @Binding var text: String
+        @Binding var isFocused: Bool
+        let tintColor: NSColor
+        let onSubmit: () -> Void
+        let onEscape: () -> Void
+        let onDeleteEmpty: () -> Void
+
+        func makeCoordinator() -> CommandPaletteTextInputRepresentable.Coordinator {
+            CommandPaletteTextInputRepresentable(
+                placeholder: "",
+                accessibilityIdentifier: "CommandPaletteRenameField",
+                text: $text,
+                isFocused: $isFocused,
+                insertionPointColor: tintColor,
+                onSubmit: onSubmit,
+                onEscape: onEscape,
+                onMoveSelection: nil,
+                onDeleteEmpty: onDeleteEmpty
+            ).makeCoordinator()
+        }
+
+        func makeNSView(context: Context) -> CommandPaletteNativeTextInputView {
+            let configuration = CommandPaletteTextInputRepresentable(
+                placeholder: "",
+                accessibilityIdentifier: "CommandPaletteRenameField",
+                text: $text,
+                isFocused: $isFocused,
+                insertionPointColor: tintColor,
+                onSubmit: onSubmit,
+                onEscape: onEscape,
+                onMoveSelection: nil,
+                onDeleteEmpty: onDeleteEmpty
+            )
+            let view = CommandPaletteNativeTextInputView()
+            view.placeholder = configuration.placeholder
+            view.textView.string = text
+            view.textView.delegate = context.coordinator
+            view.textView.insertionPointColor = configuration.insertionPointColor
+            view.textView.setAccessibilityIdentifier(configuration.accessibilityIdentifier)
+            view.setAccessibilityIdentifier(configuration.accessibilityIdentifier)
+            return view
+        }
+
+        func updateNSView(_ nsView: CommandPaletteNativeTextInputView, context: Context) {
+            let configuration = CommandPaletteTextInputRepresentable(
+                placeholder: "",
+                accessibilityIdentifier: "CommandPaletteRenameField",
+                text: $text,
+                isFocused: $isFocused,
+                insertionPointColor: tintColor,
+                onSubmit: onSubmit,
+                onEscape: onEscape,
+                onMoveSelection: nil,
+                onDeleteEmpty: onDeleteEmpty
+            )
+            context.coordinator.parent = configuration
+            nsView.placeholder = configuration.placeholder
+            nsView.textView.insertionPointColor = configuration.insertionPointColor
+            nsView.textView.setAccessibilityIdentifier(configuration.accessibilityIdentifier)
+            nsView.setAccessibilityIdentifier(configuration.accessibilityIdentifier)
+
+            if nsView.textView.string != text, !nsView.textView.hasMarkedText() {
+                context.coordinator.isProgrammaticMutation = true
+                nsView.textView.string = text
+                nsView.syncTextViewFrameToContentSize()
+                context.coordinator.isProgrammaticMutation = false
+                context.coordinator.invalidateTextInputGeometry(
+                    for: nsView.textView,
+                    reason: "updateNSView.textSync"
+                )
+            } else {
+                nsView.syncTextViewFrameToContentSize()
+            }
+
+            guard let window = nsView.window else { return }
+            let isFirstResponder = window.firstResponder === nsView.textView
+            let systemPanelActive = NSApp.isActive && NSApp.keyWindow is NSPanel
+            if isFocused, !isFirstResponder, !systemPanelActive,
+               context.coordinator.pendingFocusRequest != true {
+                context.coordinator.pendingFocusRequest = true
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    coordinator?.pendingFocusRequest = nil
+                    guard let coordinator, coordinator.parent.isFocused else { return }
+                    guard let nsView, let window = nsView.window else { return }
+                    if NSApp.isActive, NSApp.keyWindow is NSPanel { return }
+                    guard window.firstResponder !== nsView.textView else { return }
+                    window.makeFirstResponder(nsView.textView)
+                }
+            }
+        }
+
+        static func dismantleNSView(
+            _ nsView: CommandPaletteNativeTextInputView,
+            coordinator: CommandPaletteTextInputRepresentable.Coordinator
+        ) {
+            nsView.textView.delegate = nil
         }
     }
 
@@ -6612,8 +6968,7 @@ struct ContentView: View {
         }
 
         if let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let editor = window.firstResponder as? NSTextView,
-           editor.isFieldEditor {
+           let editor = window.firstResponder as? NSTextView {
             editor.deleteBackward(nil)
             commandPaletteRenameDraft = editor.string
         } else if !commandPaletteRenameDraft.isEmpty {
@@ -7165,9 +7520,9 @@ struct ContentView: View {
             }
         }
         guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
-
+        let overlayController = commandPaletteWindowOverlayController(for: window)
         guard let editor = window.firstResponder as? NSTextView,
-              editor.isFieldEditor else {
+              overlayController.ownsTextInputResponder(editor) else {
             return
         }
         let length = (editor.string as NSString).length
@@ -7176,6 +7531,10 @@ struct ContentView: View {
             editor.setSelectedRange(NSRange(location: 0, length: length))
         case .caretAtEnd:
             editor.setSelectedRange(NSRange(location: length, length: 0))
+        }
+        editor.inputContext?.invalidateCharacterCoordinates()
+        if #available(macOS 15.4, *) {
+            editor.inputContext?.textInputClientDidUpdateSelection()
         }
         commandPalettePendingTextSelectionBehavior = nil
     }
