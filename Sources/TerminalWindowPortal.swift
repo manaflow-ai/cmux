@@ -587,7 +587,8 @@ final class WindowTerminalPortal: NSObject {
     private weak var installedReferenceView: NSView?
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
-    private var hasExternalGeometrySyncScheduled = false
+    private var pendingGeometrySyncAsyncTurns: Int?
+    private var pendingGeometrySyncSequence: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
@@ -680,23 +681,43 @@ final class WindowTerminalPortal: NSObject {
         geometryObservers.removeAll()
     }
 
-    fileprivate func scheduleExternalGeometrySynchronize() {
-        guard !hasExternalGeometrySyncScheduled else { return }
-        hasExternalGeometrySyncScheduled = true
-        let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
-        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let performSync = {
-                self.hasExternalGeometrySyncScheduled = false
+    private func scheduleGeometrySynchronize(afterAsyncTurns asyncTurns: Int) {
+        let requestedTurns = max(1, asyncTurns)
+        if let pendingTurns = pendingGeometrySyncAsyncTurns,
+           pendingTurns <= requestedTurns {
+            return
+        }
+
+        pendingGeometrySyncAsyncTurns = requestedTurns
+        pendingGeometrySyncSequence &+= 1
+        let sequence = pendingGeometrySyncSequence
+
+        func scheduleRemainingTurns(_ remainingTurns: Int) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard self.pendingGeometrySyncSequence == sequence else { return }
+
+                if remainingTurns > 1 {
+                    scheduleRemainingTurns(remainingTurns - 1)
+                    return
+                }
+
+                self.pendingGeometrySyncAsyncTurns = nil
                 self.synchronizeAllEntriesFromExternalGeometryChange()
             }
-            if requiresSettledLayout {
-                DispatchQueue.main.async(execute: performSync)
-            } else {
-                performSync()
-            }
         }
+
+        scheduleRemainingTurns(requestedTurns)
+    }
+
+    fileprivate func scheduleExternalGeometrySynchronize() {
+        let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
+        let requiresSettledLayout = !(hostView.inLiveResize || window?.inLiveResize == true || isDragEvent)
+        scheduleGeometrySynchronize(afterAsyncTurns: requiresSettledLayout ? 2 : 1)
+    }
+
+    fileprivate func schedulePostLayoutGeometrySynchronize() {
+        scheduleGeometrySynchronize(afterAsyncTurns: 1)
     }
 
     private func synchronizeLayoutHierarchy() {
@@ -1831,6 +1852,10 @@ enum TerminalWindowPortalRegistry {
 
     static func scheduleExternalGeometrySynchronize(for window: NSWindow) {
         existingPortal(for: window)?.scheduleExternalGeometrySynchronize()
+    }
+
+    static func schedulePostLayoutGeometrySynchronize(for window: NSWindow) {
+        existingPortal(for: window)?.schedulePostLayoutGeometrySynchronize()
     }
 
     static func beginInteractiveGeometryResize() {

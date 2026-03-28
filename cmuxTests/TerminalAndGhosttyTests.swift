@@ -3205,6 +3205,88 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testPostLayoutSidebarGeometrySyncPromotesShiftAndResizeIntoFirstPass() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: shiftedContainer.bounds)
+        anchor.autoresizingMask = [.width, .height]
+        shiftedContainer.addSubview(anchor)
+
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        let originalHostedFrame = hosted.frame
+
+        shiftedContainer.frame.origin.x += 72
+        shiftedContainer.frame.size.width -= 72
+        contentView.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+
+        // Host geometry observers take the conservative external path. Sidebar
+        // visibility changes should promote that to a next-turn post-layout sync.
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        TerminalWindowPortalRegistry.schedulePostLayoutGeometrySynchronize(for: window)
+
+        drainMainQueue()
+
+        let firstPassHostedFrame = hosted.frame
+        XCTAssertGreaterThan(
+            firstPassHostedFrame.minX,
+            originalHostedFrame.minX + 1,
+            "Sidebar visibility changes should shift the hosted terminal on the first promoted sync pass"
+        )
+        XCTAssertLessThan(
+            firstPassHostedFrame.width,
+            originalHostedFrame.width - 1,
+            "Sidebar visibility changes should resize the hosted terminal on the first promoted sync pass"
+        )
+
+        drainMainQueue()
+
+        let secondPassHostedFrame = hosted.frame
+        XCTAssertEqual(
+            secondPassHostedFrame.minX,
+            firstPassHostedFrame.minX,
+            accuracy: 0.5,
+            "Promoted sidebar geometry sync should not land a second delayed horizontal terminal shift"
+        )
+        XCTAssertEqual(
+            secondPassHostedFrame.width,
+            firstPassHostedFrame.width,
+            accuracy: 0.5,
+            "Promoted sidebar geometry sync should not land a second delayed terminal resize"
+        )
+    }
+
     func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
         let firstWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),

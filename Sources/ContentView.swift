@@ -2083,6 +2083,22 @@ struct ContentView: View {
         Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
     }
 
+    private func scheduleSidebarPortalGeometrySynchronize() {
+        guard let observedWindow else {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            return
+        }
+
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+        } else {
+            // Sidebar show/hide and non-drag width changes are known local layout
+            // mutations. Promote the portal sync to the next turn so the hosted
+            // terminal snaps to final geometry before slower external syncs land.
+            TerminalWindowPortalRegistry.schedulePostLayoutGeometrySynchronize(for: observedWindow)
+        }
+    }
+
     private func activateSidebarResizerCursor() {
         sidebarResizerCursorReleaseWorkItem?.cancel()
         sidebarResizerCursorReleaseWorkItem = nil
@@ -3079,20 +3095,12 @@ struct ContentView: View {
             }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals need an explicit post-layout geometry resync.
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            scheduleSidebarPortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
-            if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            }
+            scheduleSidebarPortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
