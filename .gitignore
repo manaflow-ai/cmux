@@ -1,6 +1,5 @@
 # Xcode
 .build/
-build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
@@ -47,6 +46,5 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
-build/
 vendor/lib/
 GhosttyKit.xcframework
