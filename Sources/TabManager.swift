@@ -1155,7 +1155,7 @@ class TabManager: ObservableObject {
         title: String,
         workingDirectory: String?,
         portOrdinal: Int,
-        configTemplate: CmuxSurfaceConfigTemplate?,
+        configTemplate: ghostty_surface_config_s?,
         initialTerminalCommand: String?,
         initialTerminalEnvironment: [String: String]
     ) -> Workspace {
@@ -2281,13 +2281,13 @@ class TabManager: ObservableObject {
         return candidates.first
     }
 
-    private func inheritedTerminalConfigForNewWorkspace() -> CmuxSurfaceConfigTemplate? {
+    private func inheritedTerminalConfigForNewWorkspace() -> ghostty_surface_config_s? {
         inheritedTerminalConfigForNewWorkspace(workspace: selectedWorkspace)
     }
 
     func inheritedTerminalConfigForNewWorkspace(
         workspace: Workspace?
-    ) -> CmuxSurfaceConfigTemplate? {
+    ) -> ghostty_surface_config_s? {
         if let panel = terminalPanelForWorkspaceConfigInheritanceSource(workspace: workspace),
            let sourceSurface = panel.surface.surface {
             return cmuxInheritedSurfaceConfig(
@@ -2296,8 +2296,8 @@ class TabManager: ObservableObject {
             )
         }
         if let fallbackFontPoints = workspace?.lastRememberedTerminalFontPointsForConfigInheritance() {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fallbackFontPoints
+            var config = ghostty_surface_config_new()
+            config.font_size = fallbackFontPoints
             return config
         }
         return nil
@@ -2311,22 +2311,23 @@ class TabManager: ObservableObject {
         workspace: Workspace?
     ) -> Float? {
         guard let inheritedConfig = inheritedTerminalConfigForNewWorkspace(workspace: workspace),
-              inheritedConfig.fontSize > 0 else {
+              inheritedConfig.font_size > 0 else {
             return nil
         }
-        return inheritedConfig.fontSize
+        return inheritedConfig.font_size
     }
 
     private func workspaceCreationConfigTemplate(
         inheritedTerminalFontPoints: Float?
-    ) -> CmuxSurfaceConfigTemplate? {
+    ) -> ghostty_surface_config_s? {
         guard let inheritedTerminalFontPoints, inheritedTerminalFontPoints > 0 else {
             return nil
         }
-        // Rebuild a clean Swift-owned template instead of carrying over any pointer-backed
-        // inherited config state from the source workspace.
-        var config = CmuxSurfaceConfigTemplate()
-        config.fontSize = inheritedTerminalFontPoints
+        // ghostty_surface_config_s can carry raw C pointers owned by the source surface.
+        // New workspace creation only needs the inherited zoom level, so rebuild a clean
+        // config instead of snapshotting pointer-backed fields across workspace creation.
+        var config = ghostty_surface_config_new()
+        config.font_size = inheritedTerminalFontPoints
         return config
     }
 

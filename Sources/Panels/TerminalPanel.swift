@@ -90,7 +90,7 @@ final class TerminalPanel: Panel, ObservableObject {
     convenience init(
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
-        configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        configTemplate: ghostty_surface_config_s? = nil,
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,

@@ -2870,7 +2870,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return val > 0 ? val : 10
     }()
     private let surfaceContext: ghostty_surface_context_e
-    private let configTemplate: CmuxSurfaceConfigTemplate?
+    private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
     private let initialCommand: String?
     private let initialEnvironmentOverrides: [String: String]
@@ -2958,7 +2958,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
-        configTemplate: CmuxSurfaceConfigTemplate?,
+        configTemplate: ghostty_surface_config_s?,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
@@ -3482,10 +3482,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let scaleFactors = scaleFactors(for: view)
 
-        let baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
-        var surfaceConfig = ghostty_surface_config_new()
-        surfaceConfig.font_size = baseConfig.fontSize
-        surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
+        var surfaceConfig = configTemplate ?? ghostty_surface_config_new()
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
             nsview: Unmanaged.passUnretained(view).toOpaque()
@@ -3512,7 +3509,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        var env = baseConfig.environmentVariables
+        var env: [String: String] = [:]
+        if surfaceConfig.env_var_count > 0, let existingEnv = surfaceConfig.env_vars {
+            let count = Int(surfaceConfig.env_var_count)
+            if count > 0 {
+                for i in 0..<count {
+                    let item = existingEnv[i]
+                    if let key = String(cString: item.key, encoding: .utf8),
+                       let value = String(cString: item.value, encoding: .utf8) {
+                        env[key] = value
+                    }
+                }
+            }
+        }
 
         var protectedStartupEnvironmentKeys: Set<String> = []
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
@@ -3650,36 +3659,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        let resolvedWorkingDirectory: String? = {
-            if let workingDirectory, !workingDirectory.isEmpty {
-                return workingDirectory
-            }
-            return baseConfig.workingDirectory
-        }()
-        let resolvedCommand: String? = {
+        let createWithCommandAndWorkingDirectory = { [self] in
             if let initialCommand, !initialCommand.isEmpty {
-                return initialCommand
-            }
-            return baseConfig.command
-        }()
-        let resolvedInitialInput = baseConfig.initialInput
-        func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
-            guard let value else {
-                return body(nil)
-            }
-            return value.withCString(body)
-        }
-
-        let createWithCommandAndWorkingDirectory = {
-            withOptionalCString(resolvedCommand) { cCommand in
-                surfaceConfig.command = cCommand
-                withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
-                    surfaceConfig.working_directory = cWorkingDir
-                    withOptionalCString(resolvedInitialInput) { cInitialInput in
-                        surfaceConfig.initial_input = cInitialInput
+                initialCommand.withCString { cCommand in
+                    surfaceConfig.command = cCommand
+                    if let workingDirectory, !workingDirectory.isEmpty {
+                        workingDirectory.withCString { cWorkingDir in
+                            surfaceConfig.working_directory = cWorkingDir
+                            createSurface()
+                        }
+                    } else {
                         createSurface()
                     }
                 }
+            } else if let workingDirectory, !workingDirectory.isEmpty {
+                workingDirectory.withCString { cWorkingDir in
+                    surfaceConfig.working_directory = cWorkingDir
+                    createSurface()
+                }
+            } else {
+                createSurface()
             }
         }
 
@@ -3742,7 +3741,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // config/scale reconciliation. If runtime points don't match the inherited
         // template points, re-apply via binding action so all creation paths
         // (new surface, split, new workspace) preserve zoom from the source terminal.
-        if let inheritedFontPoints = configTemplate?.fontSize,
+        if let inheritedFontPoints = configTemplate?.font_size,
            inheritedFontPoints > 0 {
             let currentFontPoints = cmuxCurrentSurfaceFontSizePoints(createdSurface)
             let shouldReapply = {

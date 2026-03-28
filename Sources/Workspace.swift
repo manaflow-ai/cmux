@@ -8,40 +8,6 @@ import Darwin
 import Network
 import CoreText
 
-struct CmuxSurfaceConfigTemplate {
-    var fontSize: Float32 = 0
-    var workingDirectory: String?
-    var command: String?
-    var environmentVariables: [String: String] = [:]
-    var initialInput: String?
-    var waitAfterCommand: Bool = false
-
-    init() {}
-
-    init(cConfig: ghostty_surface_config_s) {
-        fontSize = cConfig.font_size
-        if let workingDirectory = cConfig.working_directory {
-            self.workingDirectory = String(cString: workingDirectory, encoding: .utf8)
-        }
-        if let command = cConfig.command {
-            self.command = String(cString: command, encoding: .utf8)
-        }
-        if let initialInput = cConfig.initial_input {
-            self.initialInput = String(cString: initialInput, encoding: .utf8)
-        }
-        if cConfig.env_var_count > 0, let envVars = cConfig.env_vars {
-            for index in 0..<Int(cConfig.env_var_count) {
-                let envVar = envVars[index]
-                if let key = String(cString: envVar.key, encoding: .utf8),
-                   let value = String(cString: envVar.value, encoding: .utf8) {
-                    environmentVariables[key] = value
-                }
-            }
-        }
-        waitAfterCommand = cConfig.wait_after_command
-    }
-}
-
 func cmuxSurfaceContextName(_ context: ghostty_surface_context_e) -> String {
     switch context {
     case GHOSTTY_SURFACE_CONTEXT_WINDOW:
@@ -88,21 +54,21 @@ func cmuxCurrentSurfaceFontSizePoints(_ surface: ghostty_surface_t) -> Float? {
 func cmuxInheritedSurfaceConfig(
     sourceSurface: ghostty_surface_t,
     context: ghostty_surface_context_e
-) -> CmuxSurfaceConfigTemplate {
+) -> ghostty_surface_config_s {
     let inherited = ghostty_surface_inherited_config(sourceSurface, context)
-    var config = CmuxSurfaceConfigTemplate(cConfig: inherited)
+    var config = inherited
 
     // Make runtime zoom inheritance explicit, even when Ghostty's
     // inherit-font-size config is disabled.
     let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
     if let points = runtimePoints {
-        config.fontSize = points
+        config.font_size = points
     }
 
 #if DEBUG
     let inheritedText = String(format: "%.2f", inherited.font_size)
     let runtimeText = runtimePoints.map { String(format: "%.2f", $0) } ?? "nil"
-    let finalText = String(format: "%.2f", config.fontSize)
+    let finalText = String(format: "%.2f", config.font_size)
     dlog(
         "zoom.inherit context=\(cmuxSurfaceContextName(context)) " +
         "inherited=\(inheritedText) runtime=\(runtimeText) final=\(finalText)"
@@ -5698,7 +5664,7 @@ final class Workspace: Identifiable, ObservableObject {
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
-        configTemplate: CmuxSurfaceConfigTemplate? = nil,
+        configTemplate: ghostty_surface_config_s? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
@@ -7255,9 +7221,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func seedTerminalInheritanceFontPoints(
         panelId: UUID,
-        configTemplate: CmuxSurfaceConfigTemplate?
+        configTemplate: ghostty_surface_config_s?
     ) {
-        guard let fontPoints = configTemplate?.fontSize, fontPoints > 0 else { return }
+        guard let fontPoints = configTemplate?.font_size, fontPoints > 0 else { return }
         terminalInheritanceFontPointsByPanelId[panelId] = fontPoints
         lastTerminalConfigInheritanceFontPoints = fontPoints
     }
@@ -7265,7 +7231,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func resolvedTerminalInheritanceFontPoints(
         for terminalPanel: TerminalPanel,
         sourceSurface: ghostty_surface_t,
-        inheritedConfig: CmuxSurfaceConfigTemplate
+        inheritedConfig: ghostty_surface_config_s
     ) -> Float? {
         let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
@@ -7276,8 +7242,8 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return rooted
         }
-        if inheritedConfig.fontSize > 0 {
-            return inheritedConfig.fontSize
+        if inheritedConfig.font_size > 0 {
+            return inheritedConfig.font_size
         }
         return runtimePoints
     }
@@ -7375,11 +7341,9 @@ final class Workspace: Identifiable, ObservableObject {
     private func inheritedTerminalConfig(
         preferredPanelId: UUID? = nil,
         inPane preferredPaneId: PaneID? = nil
-    ) -> CmuxSurfaceConfigTemplate? {
-        var staleRootedFontFallback: Float?
-
-        // Walk candidates in priority order and use the first panel with a live surface.
-        // This avoids returning nil when the top candidate exists but is not attached yet.
+    ) -> ghostty_surface_config_s? {
+        // Walk candidates in priority order and use the first panel that still exposes
+        // a runtime surface pointer.
         for terminalPanel in terminalPanelConfigInheritanceCandidates(
             preferredPanelId: preferredPanelId,
             inPane: preferredPaneId
@@ -7394,19 +7358,19 @@ final class Workspace: Identifiable, ObservableObject {
                 sourceSurface: sourceSurface,
                 inheritedConfig: config
             ), rootedFontPoints > 0 {
-                config.fontSize = rootedFontPoints
+                config.font_size = rootedFontPoints
                 terminalInheritanceFontPointsByPanelId[terminalPanel.id] = rootedFontPoints
             }
             rememberTerminalConfigInheritanceSource(terminalPanel)
-            if config.fontSize > 0 {
-                lastTerminalConfigInheritanceFontPoints = config.fontSize
+            if config.font_size > 0 {
+                lastTerminalConfigInheritanceFontPoints = config.font_size
             }
             return config
         }
 
-        if let fallbackFontPoints = staleRootedFontFallback ?? lastTerminalConfigInheritanceFontPoints {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fallbackFontPoints
+        if let fallbackFontPoints = lastTerminalConfigInheritanceFontPoints {
+            var config = ghostty_surface_config_new()
+            config.font_size = fallbackFontPoints
 #if DEBUG
             dlog(
                 "zoom.inherit fallback=lastKnownFont context=split font=\(String(format: "%.2f", fallbackFontPoints))"

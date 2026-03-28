@@ -306,7 +306,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            configTemplate: ghostty_surface_config_s?,
             initialTerminalCommand: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
@@ -543,21 +543,47 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
     private final class UnsafeConfigSnapshotTabManager: TabManager {
-        private var injectedConfig: CmuxSurfaceConfigTemplate?
-        var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
+        private var retainedCStringPointers: [UnsafeMutablePointer<CChar>] = []
+        private var retainedEnvVars: UnsafeMutablePointer<ghostty_env_var_s>?
+        private var injectedConfig: ghostty_surface_config_s?
+        var capturedConfigTemplate: ghostty_surface_config_s?
+
+        deinit {
+            retainedEnvVars?.deinitialize(count: 1)
+            retainedEnvVars?.deallocate()
+            for pointer in retainedCStringPointers {
+                free(pointer)
+            }
+        }
 
         func installInjectedConfig(fontSize: Float) {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fontSize
-            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
-            config.command = "echo snapshot"
-            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
+            let workingDirectory = strdup("/tmp/cmux-workspace-snapshot")
+            let command = strdup("echo snapshot")
+            let envKey = strdup("CMUX_INHERITED_ENV")
+            let envValue = strdup("1")
+            let envVars = UnsafeMutablePointer<ghostty_env_var_s>.allocate(capacity: 1)
+            envVars.initialize(
+                to: ghostty_env_var_s(
+                    key: UnsafePointer(envKey),
+                    value: UnsafePointer(envValue)
+                )
+            )
+
+            retainedCStringPointers = [workingDirectory, command, envKey, envValue].compactMap { $0 }
+            retainedEnvVars = envVars
+
+            var config = ghostty_surface_config_new()
+            config.font_size = fontSize
+            config.working_directory = UnsafePointer(workingDirectory)
+            config.command = UnsafePointer(command)
+            config.env_vars = envVars
+            config.env_var_count = 1
             injectedConfig = config
         }
 
         override func inheritedTerminalConfigForNewWorkspace(
             workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
+        ) -> ghostty_surface_config_s? {
             injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
         }
 
@@ -565,7 +591,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
-            configTemplate: CmuxSurfaceConfigTemplate?,
+            configTemplate: ghostty_surface_config_s?,
             initialTerminalCommand: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
@@ -592,10 +618,11 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(capturedConfig.fontSize, 19, accuracy: 0.001)
-        XCTAssertNil(capturedConfig.workingDirectory)
+        XCTAssertEqual(capturedConfig.font_size, 19, accuracy: 0.001)
+        XCTAssertNil(capturedConfig.working_directory)
         XCTAssertNil(capturedConfig.command)
-        XCTAssertTrue(capturedConfig.environmentVariables.isEmpty)
+        XCTAssertNil(capturedConfig.env_vars)
+        XCTAssertEqual(capturedConfig.env_var_count, 0)
     }
 }
 
