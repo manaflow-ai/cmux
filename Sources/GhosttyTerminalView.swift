@@ -7650,6 +7650,12 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             dlog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(searchActive) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
+            if self.isCommandPaletteVisible(in: window) {
+#if DEBUG
+                dlog("find.window.didBecomeKey.skip surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") reason=commandPaletteVisible")
+#endif
+                return
+            }
             self.scheduleAutomaticFirstResponderApply(reason: "didBecomeKey")
         })
         windowObservers.append(NotificationCenter.default.addObserver(
@@ -8712,6 +8718,12 @@ final class GhosttySurfaceScrollView: NSView {
             let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
             dlog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
 #endif
+            if let window = self.window, self.isCommandPaletteVisible(in: window) {
+#if DEBUG
+                dlog("find.applyFirstResponder.skip surface=\(surfaceShort) reason=commandPaletteVisible")
+#endif
+                return
+            }
             self.applyFirstResponderIfNeeded()
         }
     }
@@ -8763,6 +8775,12 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         guard let window, window.isKeyWindow else { return }
+        if isCommandPaletteVisible(in: window) {
+#if DEBUG
+            dlog("focus.apply.skip surface=\(surfaceShort) reason=commandPaletteVisible")
+#endif
+            return
+        }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
               matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
@@ -8801,6 +8819,12 @@ final class GhosttySurfaceScrollView: NSView {
     /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
     private func restoreSearchFocus(window: NSWindow) {
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        if isCommandPaletteVisible(in: window) {
+#if DEBUG
+            dlog("find.restoreSearchFocus.skip surface=\(surfaceShort) reason=commandPaletteVisible")
+#endif
+            return
+        }
         switch searchFocusTarget {
         case .searchField:
             if let firstResponder = window.firstResponder,
@@ -8849,6 +8873,10 @@ final class GhosttySurfaceScrollView: NSView {
             )
 #endif
         }
+    }
+
+    private func isCommandPaletteVisible(in window: NSWindow) -> Bool {
+        AppDelegate.shared?.isCommandPaletteVisible(for: window) == true
     }
 
     func capturePanelFocusIntent(in window: NSWindow?) -> TerminalPanelFocusIntent {
