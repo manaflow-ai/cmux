@@ -143,8 +143,18 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     # PreToolUse must NOT be async — async hooks cause zombie process accumulation
     # because Claude Code does not reap async hook child processes. The hook uses
-    # availableData (non-blocking stdin read) to avoid latency instead.
-    pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
+    # non-blocking stdin reads to avoid latency instead.
+    # Flatten all PreToolUse matcher entries to catch async in any position.
+    pre_tool_use_hooks = [
+        hook
+        for matcher in hooks.get("PreToolUse", [])
+        for hook in matcher.get("hooks", [])
+    ]
+    expect(
+        len(pre_tool_use_hooks) > 0,
+        f"PreToolUse hook should be present, got {hooks.get('PreToolUse')}",
+        failures,
+    )
     expect(
         all(h.get("async") is not True for h in pre_tool_use_hooks),
         f"PreToolUse hook should NOT have async:true (causes zombie leak), got {pre_tool_use_hooks}",

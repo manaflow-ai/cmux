@@ -10912,7 +10912,7 @@ struct CMUXCLI {
     /// happens when Claude Code spawns async hooks — leading to zombie processes.
     /// This helper sets stdin to non-blocking mode, then loops with a short idle
     /// timeout to drain multi-chunk payloads (e.g. >64 KB) without hanging.
-    private func readStdinWithoutBlocking(idleTimeout: TimeInterval = 0.02, maxWait: TimeInterval = 0.5) -> String {
+    private func readStdinWithoutBlocking(retryInterval: TimeInterval = 0.01, idleTimeout: TimeInterval = 0.02, maxWait: TimeInterval = 0.5) -> String {
         let fd = FileHandle.standardInput.fileDescriptor
         let originalFlags = fcntl(fd, F_GETFL)
         fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK)
@@ -10925,8 +10925,11 @@ struct CMUXCLI {
             let chunk = FileHandle.standardInput.availableData
             if chunk.isEmpty {
                 if accumulated.isEmpty {
-                    break
+                    // No data yet — parent may not have written. Retry until deadline.
+                    Thread.sleep(forTimeInterval: retryInterval)
+                    continue
                 }
+                // Had data before, wait briefly to confirm no more is coming.
                 Thread.sleep(forTimeInterval: idleTimeout)
                 let more = FileHandle.standardInput.availableData
                 if more.isEmpty { break }
