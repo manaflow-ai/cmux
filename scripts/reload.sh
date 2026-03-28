@@ -14,6 +14,27 @@ CMUX_DEBUG_LOG=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+AUTO_SKIP_ZIG_BUILD_REASON=""
+
+should_skip_ghostty_cli_helper_zig_build() {
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
+    return 0
+  fi
+
+  local product_version zig_version major_version
+  product_version="$(sw_vers -productVersion 2>/dev/null || true)"
+  zig_version="$(zig version 2>/dev/null || true)"
+  major_version="${product_version%%.*}"
+
+  if [[ "$zig_version" == "0.15.2" ]] && [[ "$major_version" =~ ^[0-9]+$ ]] && (( major_version >= 26 )); then
+    AUTO_SKIP_ZIG_BUILD_REASON="macOS ${product_version} + zig ${zig_version}"
+    return 0
+  fi
+
+  AUTO_SKIP_ZIG_BUILD_REASON=""
+  return 1
+}
 
 write_dev_cli_shim() {
   local target="$1"
@@ -258,6 +279,13 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+if should_skip_ghostty_cli_helper_zig_build; then
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
+    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
+  fi
+  export CMUX_SKIP_ZIG_BUILD=1
+fi
+
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
@@ -427,7 +455,11 @@ if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
 fi
 if [[ -d "$PWD/ghostty" ]]; then
-  (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    echo "Skipping direct ghostty CLI helper zig build (CMUX_SKIP_ZIG_BUILD=1)"
+  else
+    (cd "$PWD/ghostty" && zig build cli-helper -Dapp-runtime=none -Demit-macos-app=false -Demit-xcframework=false -Doptimize=ReleaseFast)
+  fi
 fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"

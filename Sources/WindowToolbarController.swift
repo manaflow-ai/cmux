@@ -11,6 +11,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
     override init() {
         super.init()
@@ -61,6 +62,48 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 self?.attach(to: window)
             }
         })
+
+        observers.append(center.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateToolbarVisibilityIfNeeded()
+            }
+        })
+    }
+
+    private func updateToolbarVisibilityIfNeeded() {
+        let currentMode = WorkspacePresentationModeSettings.mode()
+        guard currentMode != lastKnownPresentationMode else { return }
+        lastKnownPresentationMode = currentMode
+        let isMinimal = currentMode == .minimal
+        for window in NSApp.windows {
+            if isMinimal {
+                window.toolbar = nil
+            } else {
+                attach(to: window)
+            }
+        }
+        // After toolbar changes, force titlebar accessories to recalculate.
+        // Toolbar removal/re-addition changes the titlebar geometry, and
+        // accessories hidden via isHidden need a layout pass to reappear.
+        if !isMinimal {
+            DispatchQueue.main.async {
+                for window in NSApp.windows {
+                    for accessory in window.titlebarAccessoryViewControllers {
+                        if !accessory.isHidden {
+                            accessory.view.needsLayout = true
+                            accessory.view.superview?.needsLayout = true
+                        }
+                    }
+                    window.contentView?.needsLayout = true
+                    window.contentView?.superview?.needsLayout = true
+                    window.invalidateShadow()
+                }
+            }
+        }
     }
 
     private func attachToExistingWindows() {
@@ -71,6 +114,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func attach(to window: NSWindow) {
         guard window.toolbar == nil else { return }
+        guard !WorkspacePresentationModeSettings.isMinimal() else { return }
         let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly

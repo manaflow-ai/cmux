@@ -4,6 +4,7 @@ import AppKit
 import Metal
 import QuartzCore
 import Combine
+import CoreText
 import Darwin
 import Sentry
 import Bonsplit
@@ -897,6 +898,11 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
+    /// thousands of times per second during bulk output.  We only need one
+    /// pending tick on the main queue at any time.
+    private var _tickScheduled = false
+    private let _tickLock = NSLock()
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private static func resolveBackgroundLogURL(
@@ -1091,9 +1097,7 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            DispatchQueue.main.async {
-                GhosttyApp.shared.tick()
-            }
+            GhosttyApp.shared.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
             return GhosttyApp.shared.handleAction(target: target, action: action)
@@ -1362,15 +1366,12 @@ class GhosttyApp {
     /// monospace attributes (e.g. AB_appare from Adobe CC, or LingWai) can be
     /// selected depending on what is installed. This injects a sensible
     /// default based on the system's preferred languages without overriding
-    /// user-managed fallback chains.
+    /// user-managed fallback chains or configured fonts that already cover
+    /// the affected CJK ranges.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
-        let userFontConfig = Self.userFontConfigSummary()
-        if userFontConfig.containsCodepointMap { return }
-        if userFontConfig.hasExplicitFontFamilyFallbackChain { return }
-
-        guard let mappings = Self.cjkFontMappings() else { return }
+        guard let mappings = Self.autoInjectedCJKFontMappings() else { return }
 
         let lines = mappings.map { range, font in
             "font-codepoint-map = \(range)=\(font)"
@@ -1404,6 +1405,21 @@ class GhosttyApp {
     private static let japaneseRanges = [
         "U+3040-U+309F",  // Hiragana
         "U+30A0-U+30FF",  // Katakana
+    ]
+
+    /// Representative scalars used to detect whether the configured primary
+    /// font already covers the ranges cmux would otherwise auto-map.
+    private static let cjkCoverageSampleCharactersByRange: [String: [UniChar]] = [
+        "U+3000-U+303F": [0x3001, 0x300C],
+        "U+4E00-U+9FFF": [0x4E00, 0x65E5, 0x6C34],
+        "U+F900-U+FAFF": [0xF900],
+        "U+FF00-U+FFEF": [0xFF10, 0xFF21],
+        "U+3400-U+4DBF": [0x3400],
+        "U+1100-U+11FF": [0x1100, 0x1161],
+        "U+3130-U+318F": [0x3131, 0x314F],
+        "U+3040-U+309F": [0x3042, 0x3093],
+        "U+30A0-U+30FF": [0x30A2, 0x30F3],
+        "U+AC00-U+D7AF": [0xAC00, 0xD55C],
     ]
 
     private struct UserFontConfigSummary {
@@ -1482,6 +1498,38 @@ class GhosttyApp {
         return mappings.isEmpty ? nil : mappings
     }
 
+    /// Returns only the CJK mappings cmux should auto-inject after respecting
+    /// explicit user overrides and the glyph coverage of the configured
+    /// primary font family.
+    static func autoInjectedCJKFontMappings(
+        preferredLanguages: [String] = Locale.preferredLanguages,
+        configPaths: [String] = loadedCJKScanPaths(),
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
+    ) -> [(String, String)]? {
+        guard var mappings = cjkFontMappings(preferredLanguages: preferredLanguages) else { return nil }
+
+        let summary = userFontConfigSummary(configPaths: configPaths)
+        if summary.containsCodepointMap || summary.hasExplicitFontFamilyFallbackChain {
+            return nil
+        }
+
+        guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
+            return mappings
+        }
+
+        if let rangeCoverageProbe {
+            mappings.removeAll { range, _ in
+                rangeCoverageProbe(configuredFontFamily, range)
+            }
+        } else if let configuredFont = configuredCTFont(named: configuredFontFamily) {
+            mappings.removeAll { range, _ in
+                fontContainsGlyphs(configuredFont, forRange: range)
+            }
+        }
+
+        return mappings.isEmpty ? nil : mappings
+    }
+
     /// Checks whether the user's Ghostty config files already contain
     /// a `font-codepoint-map` entry covering CJK ranges. Also checks
     /// application-support config paths that cmux may load at runtime.
@@ -1499,11 +1547,58 @@ class GhosttyApp {
 
     static func shouldInjectCJKFontFallback(
         preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String] = loadedCJKScanPaths()
+        configPaths: [String] = loadedCJKScanPaths(),
+        rangeCoverageProbe: ((String, String) -> Bool)? = nil
     ) -> Bool {
-        guard cjkFontMappings(preferredLanguages: preferredLanguages) != nil else { return false }
-        let summary = userFontConfigSummary(configPaths: configPaths)
-        return !summary.containsCodepointMap && !summary.hasExplicitFontFamilyFallbackChain
+        autoInjectedCJKFontMappings(
+            preferredLanguages: preferredLanguages,
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
+        ) != nil
+    }
+
+    private static func configuredCTFont(
+        named name: String,
+        size: CGFloat = 12
+    ) -> CTFont? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let font = CTFontCreateWithName(trimmed as CFString, size, nil)
+        let normalizedRequestedName = normalizedFontName(trimmed)
+        let resolvedNames = [
+            kCTFontFamilyNameKey,
+            kCTFontFullNameKey,
+            kCTFontPostScriptNameKey,
+        ].compactMap { CTFontCopyName(font, $0) as String? }
+
+        guard resolvedNames.contains(where: { normalizedFontName($0) == normalizedRequestedName }) else {
+            return nil
+        }
+
+        return font
+    }
+
+    private static func fontContainsGlyphs(
+        _ font: CTFont,
+        forRange range: String
+    ) -> Bool {
+        guard let characters = cjkCoverageSampleCharactersByRange[range] else {
+            return false
+        }
+
+        var glyphs = Array(repeating: CGGlyph(), count: characters.count)
+        let hasGlyphs = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
+        return hasGlyphs && !glyphs.contains(0)
+    }
+
+    private static func normalizedFontName(_ name: String) -> String {
+        name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
     }
 
     private static func userFontConfigSummary(
@@ -1816,7 +1911,22 @@ class GhosttyApp {
         #endif
     }
 
+    /// Schedule a single tick on the main queue, coalescing multiple wakeups.
+    func scheduleTick() {
+        _tickLock.lock()
+        defer { _tickLock.unlock() }
+        guard !_tickScheduled else { return }
+        _tickScheduled = true
+        DispatchQueue.main.async {
+            self.tick()
+        }
+    }
+
     func tick() {
+        _tickLock.lock()
+        _tickScheduled = false
+        _tickLock.unlock()
+
         guard let app = app else { return }
 
         let start = CACurrentMediaTime()
@@ -2386,14 +2496,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            DispatchQueue.main.async {
-                surfaceView.scrollbar = scrollbar
-                NotificationCenter.default.post(
-                    name: .ghosttyDidUpdateScrollbar,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
-                )
-            }
+            surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -4256,7 +4359,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
+    /// Pending scrollbar value written from the action callback thread;
+    /// read and cleared on the main thread by `flushPendingScrollbar()`.
+    /// Access is guarded by `_scrollbarLock` because the action callback
+    /// fires on Ghostty's I/O thread while the flush runs on main.
+    private var _pendingScrollbar: GhosttyScrollbar?
+    private var _scrollbarFlushScheduled = false
+    private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
+
+    /// Coalesce high-frequency scrollbar updates into a single main-thread
+    /// dispatch.  The action callback (which may fire thousands of times per
+    /// second during bulk output like `seq 1 100000`) stores the latest value
+    /// and schedules exactly one async flush.
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+        _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
+        // Store the latest value (always overwrites — only the newest matters).
+        _pendingScrollbar = newValue
+        let needsSchedule = !_scrollbarFlushScheduled
+        if needsSchedule { _scrollbarFlushScheduled = true }
+
+        // If a flush is already scheduled, skip the dispatch — the scheduled
+        // block will pick up the latest value.
+        guard needsSchedule else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.flushPendingScrollbar()
+        }
+    }
+
+    private func flushPendingScrollbar() {
+        _scrollbarLock.lock()
+        _scrollbarFlushScheduled = false
+        let pending = _pendingScrollbar
+        _pendingScrollbar = nil
+        _scrollbarLock.unlock()
+
+        guard let pending else { return }
+        scrollbar = pending
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: self,
+            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+        )
+    }
+
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?

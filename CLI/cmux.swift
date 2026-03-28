@@ -9688,6 +9688,163 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
+    private func omoFileType(at url: URL) -> FileAttributeType? {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        return attrs?[.type] as? FileAttributeType
+    }
+
+    private func omoEnsureShadowPackageManifest(at shadowPackageURL: URL) throws {
+        let fm = FileManager.default
+        if omoFileType(at: shadowPackageURL) == .typeSymbolicLink {
+            try? fm.removeItem(at: shadowPackageURL)
+        }
+
+        // Keep the shadow package isolated from stale/yanked pins in the user's
+        // opencode package.json. bun will update this manifest with the resolved
+        // oh-my-opencode version when installation succeeds.
+        let packageManifest: [String: Any] = [
+            "dependencies": [
+                Self.omoPluginName: "latest"
+            ],
+            "name": "cmux-omo-shadow",
+            "private": true
+        ]
+        let output = try JSONSerialization.data(withJSONObject: packageManifest, options: [.prettyPrinted, .sortedKeys])
+        let existing = try? Data(contentsOf: shadowPackageURL)
+        if existing != output {
+            try output.write(to: shadowPackageURL, options: .atomic)
+        }
+    }
+
+    private func omoEnsureShadowNodeModulesSymlink(
+        shadowNodeModules: URL,
+        userNodeModules: URL
+    ) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: userNodeModules.path) else { return }
+
+        if let type = omoFileType(at: shadowNodeModules) {
+            if type == .typeSymbolicLink {
+                let target = try? fm.destinationOfSymbolicLink(atPath: shadowNodeModules.path)
+                if target != userNodeModules.path {
+                    try? fm.removeItem(at: shadowNodeModules)
+                } else {
+                    return
+                }
+            } else {
+                return
+            }
+        }
+
+        if !fm.fileExists(atPath: shadowNodeModules.path) {
+            try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
+        }
+    }
+
+    private func omoRunPackageInstall(
+        executablePath: String,
+        arguments: [String],
+        currentDirectoryURL: URL
+    ) throws -> Int32 {
+        let process = Process()
+        process.currentDirectoryURL = currentDirectoryURL
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.standardError
+        process.standardError = FileHandle.standardError
+        try process.run()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    private func omoRequestedPort(from commandArgs: [String]) -> String? {
+        for (index, arg) in commandArgs.enumerated() {
+            if arg == "--port" {
+                let nextIndex = commandArgs.index(after: index)
+                guard nextIndex < commandArgs.endIndex else { return nil }
+                let value = commandArgs[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+
+            if arg.hasPrefix("--port=") {
+                let value = String(arg.dropFirst("--port=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return value.isEmpty ? nil : value
+            }
+        }
+
+        return nil
+    }
+
+    private func omoBindableLoopbackPort(_ port: UInt16) -> UInt16? {
+        let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketDescriptor >= 0 else { return nil }
+        defer { close(socketDescriptor) }
+
+        var reuseAddress: Int32 = 1
+        _ = setsockopt(
+            socketDescriptor,
+            SOL_SOCKET,
+            SO_REUSEADDR,
+            &reuseAddress,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+        let bindResult = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(socketDescriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        guard bindResult == 0 else { return nil }
+
+        if port != 0 {
+            return port
+        }
+
+        var boundAddress = address
+        var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.stride)
+        let nameResult = withUnsafeMutablePointer(to: &boundAddress) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                getsockname(socketDescriptor, $0, &boundAddressLength)
+            }
+        }
+        guard nameResult == 0 else { return nil }
+
+        return UInt16(bigEndian: boundAddress.sin_port)
+    }
+
+    private func omoResolvedPort(
+        commandArgs: [String],
+        processEnvironment: [String: String]
+    ) -> String {
+        if let requestedPort = omoRequestedPort(from: commandArgs) {
+            return requestedPort
+        }
+
+        if let environmentPort = processEnvironment["OPENCODE_PORT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           let parsedEnvironmentPort = UInt16(environmentPort),
+           parsedEnvironmentPort != 0,
+           omoBindableLoopbackPort(parsedEnvironmentPort) != nil {
+            return environmentPort
+        }
+
+        if let preferredPort = omoBindableLoopbackPort(4096) {
+            return String(preferredPort)
+        }
+
+        if let fallbackPort = omoBindableLoopbackPort(0) {
+            return String(fallbackPort)
+        }
+
+        return "4096"
+    }
+
     /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
@@ -9727,27 +9884,15 @@ struct CMUXCLI {
         // Symlink node_modules from the user's config dir so installed packages resolve
         let shadowNodeModules = shadowDir.appendingPathComponent("node_modules")
         let userNodeModules = userDir.appendingPathComponent("node_modules")
-        if fm.fileExists(atPath: userNodeModules.path) {
-            // Remove stale symlink or directory if it exists
-            if let attrs = try? fm.attributesOfItem(atPath: shadowNodeModules.path),
-               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
-                let target = try? fm.destinationOfSymbolicLink(atPath: shadowNodeModules.path)
-                if target != userNodeModules.path {
-                    try? fm.removeItem(at: shadowNodeModules)
-                }
-            }
-            if !fm.fileExists(atPath: shadowNodeModules.path) {
-                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
-            }
-        }
+        try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
 
-        // Symlink package.json and bun.lock so bun/npm can resolve in the shadow dir
-        for filename in ["package.json", "bun.lock"] {
-            let userFile = userDir.appendingPathComponent(filename)
-            let shadowFile = shadowDir.appendingPathComponent(filename)
-            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
-                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
-            }
+        // The shadow config owns its own package metadata so yanked/stale pins in the
+        // user's opencode package.json/bun.lock cannot poison plugin installation.
+        let shadowPackageURL = shadowDir.appendingPathComponent("package.json")
+        let shadowBunLockURL = shadowDir.appendingPathComponent("bun.lock")
+        try omoEnsureShadowPackageManifest(at: shadowPackageURL)
+        if omoFileType(at: shadowBunLockURL) == .typeSymbolicLink {
+            try? fm.removeItem(at: shadowBunLockURL)
         }
 
         // Copy oh-my-opencode plugin config (jsonc) if the user has one
@@ -9762,37 +9907,43 @@ struct CMUXCLI {
         // Install the package if not available via the symlinked node_modules
         let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
         if !fm.fileExists(atPath: pluginPackageDir.path) {
-            // Need to install into the real user config dir so the symlink picks it up
-            let installDir = fm.fileExists(atPath: userNodeModules.path) ? userDir : shadowDir
-            // If installing into shadow dir, remove the symlink first
-            if installDir == shadowDir {
-                try? fm.removeItem(at: shadowNodeModules)
-            }
-            let process = Process()
-            process.currentDirectoryURL = installDir
+            let installDir = shadowDir
             if let bunPath = resolveExecutableInPath("bun") {
-                process.executableURL = URL(fileURLWithPath: bunPath)
-                process.arguments = ["add", Self.omoPluginName]
+                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                let installArguments = ["add", Self.omoPluginName]
+                let firstAttemptStatus = try omoRunPackageInstall(
+                    executablePath: bunPath,
+                    arguments: installArguments,
+                    currentDirectoryURL: installDir
+                )
+                if firstAttemptStatus != 0 {
+                    FileHandle.standardError.write("Retrying oh-my-opencode install with a clean shadow package state...\n".data(using: .utf8)!)
+                    try? fm.removeItem(at: shadowBunLockURL)
+                    try? fm.removeItem(at: shadowNodeModules)
+                    try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
+                    let retryStatus = try omoRunPackageInstall(
+                        executablePath: bunPath,
+                        arguments: installArguments,
+                        currentDirectoryURL: installDir
+                    )
+                    if retryStatus != 0 {
+                        throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                    }
+                }
             } else if let npmPath = resolveExecutableInPath("npm") {
-                process.executableURL = URL(fileURLWithPath: npmPath)
-                process.arguments = ["install", Self.omoPluginName]
+                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                let status = try omoRunPackageInstall(
+                    executablePath: npmPath,
+                    arguments: ["install", Self.omoPluginName],
+                    currentDirectoryURL: installDir
+                )
+                if status != 0 {
+                    throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                }
             } else {
                 throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
             }
-            // Show install output directly so the user sees progress (npm can take 30s+)
-            process.standardOutput = FileHandle.standardError
-            process.standardError = FileHandle.standardError
-            FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
-            try process.run()
-            process.waitUntilExit()
-            if process.terminationStatus != 0 {
-                throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
-            }
             FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
-            // Re-create symlink if we installed into user dir
-            if installDir == userDir && !fm.fileExists(atPath: shadowNodeModules.path) {
-                try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
-            }
         }
 
         // Ensure tmux mode is enabled in oh-my-opencode config.
@@ -9857,13 +10008,9 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?,
+        openCodePort: String
     ) {
-        // Tell oh-my-opencode the API server port so subagent attach works
-        var extraEnvVars: [(key: String, value: String)] = []
-        if processEnvironment["OPENCODE_PORT"] == nil {
-            extraEnvVars.append((key: "OPENCODE_PORT", value: "4096"))
-        }
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
             shimDirectory: shimDirectory,
@@ -9874,7 +10021,7 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-omo",
             cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
             termOverrideEnvVar: "CMUX_OMO_TERM",
-            extraEnvVars: extraEnvVars
+            extraEnvVars: [(key: "OPENCODE_PORT", value: openCodePort)]
         )
     }
 
@@ -9916,23 +10063,29 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        let openCodePort = omoResolvedPort(
+            commandArgs: commandArgs,
+            processEnvironment: launcherEnvironment
+        )
+        launcherEnvironment["OPENCODE_PORT"] = openCodePort
         configureOMOEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            focusedContext: focusedContext,
+            openCodePort: openCodePort
         )
 
         let launchPath = openCodeExecutablePath ?? "opencode"
         // oh-my-openagent needs the OpenCode API server running to attach
-        // subagent sessions to tmux panes. Inject --port 4096 unless the
-        // user already specified a port.
+        // subagent sessions to tmux panes. Prefer the historic default port
+        // when it is available, otherwise fall back to a free loopback port.
         var effectiveArgs = commandArgs
-        if !commandArgs.contains("--port") {
+        if omoRequestedPort(from: commandArgs) == nil {
             effectiveArgs.append("--port")
-            effectiveArgs.append("4096")
+            effectiveArgs.append(openCodePort)
         }
         var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
         defer {
