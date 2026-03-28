@@ -1476,18 +1476,49 @@ struct CMUXCLI {
         // Codex hooks management (no socket needed)
         if command == "codex" {
             let sub = commandArgs.first?.lowercased() ?? "help"
-            if sub == "install-hooks" {
+            if sub == "help" || sub == "--help" || sub == "-h" {
+                print(subcommandUsage("codex") ?? "Usage: cmux codex <install-hooks|uninstall-hooks>")
+                return
+            } else if sub == "install-hooks" {
                 try runCodexInstallHooks()
                 return
             } else if sub == "uninstall-hooks" {
                 try runCodexUninstallHooks()
                 return
+            } else {
+                throw CLIError(message: "Unknown codex subcommand: \(sub). Usage: cmux codex <install-hooks|uninstall-hooks>")
+            }
+        }
+
+        // Droid hooks management (no socket needed)
+        if command == "droid" {
+            let sub = commandArgs.first?.lowercased() ?? "help"
+            if sub == "help" || sub == "--help" || sub == "-h" {
+                print(subcommandUsage("droid") ?? "Usage: cmux droid <install-hooks|uninstall-hooks>")
+                return
+            } else if sub == "install-hooks" {
+                try runDroidInstallHooks()
+                return
+            } else if sub == "uninstall-hooks" {
+                try runDroidUninstallHooks()
+                return
+            } else {
+                throw CLIError(message: "Unknown droid subcommand: \(sub). Usage: cmux droid <install-hooks|uninstall-hooks>")
             }
         }
 
         // Codex hook handler: gracefully no-op when not inside cmux
         // (before socket connection, so it doesn't fail when no socket exists)
         if command == "codex-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+                print("{}")
+                return
+            }
+        }
+
+        // Droid hook handler: gracefully no-op when not inside cmux
+        // (before socket connection, so it doesn't fail when no socket exists)
+        if command == "droid-hook" {
             guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
                 print("{}")
                 return
@@ -2288,6 +2319,17 @@ struct CMUXCLI {
             } catch {
                 cliTelemetry.breadcrumb("codex-hook.failure")
                 cliTelemetry.captureError(stage: "codex_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "droid-hook":
+            cliTelemetry.breadcrumb("droid-hook.dispatch")
+            do {
+                try runDroidHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("droid-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("droid-hook.failure")
+                cliTelemetry.captureError(stage: "droid_hook_dispatch", error: error)
                 throw error
             }
 
@@ -7169,6 +7211,34 @@ struct CMUXCLI {
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
             """
+        case "droid":
+            return """
+            Usage: cmux droid <install-hooks|uninstall-hooks>
+
+            Manage Factory Droid hooks integration.
+
+            Subcommands:
+              install-hooks     Install cmux hooks into ~/.factory/settings.json
+              uninstall-hooks   Remove cmux hooks from ~/.factory/settings.json
+            """
+        case "droid-hook":
+            return """
+            Usage: cmux droid-hook <session-start|notification|prompt-submit|stop|session-end> [flags]
+
+            Hook for Factory Droid integration. Reads JSON from stdin.
+            Gracefully no-ops when not running inside cmux.
+
+            Subcommands:
+              session-start   Register a Droid session
+              notification    Forward a Droid notification / attention request
+              prompt-submit   Set Running status on user prompt
+              stop            Send completion notification, set Idle
+              session-end     Clear final status/notifications on teardown
+
+            Flags:
+              --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+            """
         case "browser":
             return """
             Usage: cmux browser [--surface <id|ref|index> | <surface>] <subcommand> [args]
@@ -11145,9 +11215,10 @@ struct CMUXCLI {
                 )
 
                 // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
+                let completion = summarizeHookStop(
                     parsedInput: parsedInput,
-                    sessionRecord: mappedSession
+                    sessionRecord: mappedSession,
+                    defaultCompletionBody: "Claude session completed"
                 )
                 if let sessionId = parsedInput.sessionId, let completion {
                     try? sessionStore.upsert(
@@ -11242,7 +11313,7 @@ struct CMUXCLI {
                 )
             }
 
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -11709,9 +11780,10 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookStop(
+    private func summarizeHookStop(
         parsedInput: ClaudeHookParsedInput,
-        sessionRecord: ClaudeHookSessionRecord?
+        sessionRecord: ClaudeHookSessionRecord?,
+        defaultCompletionBody: String
     ) -> (subtitle: String, body: String)? {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
@@ -11739,7 +11811,7 @@ struct CMUXCLI {
         let hasContext = cwd != nil || lastMessage != nil
         guard hasContext else { return nil }
 
-        var body = "Claude session completed"
+        var body = defaultCompletionBody
         if let projectName, !projectName.isEmpty {
             body += " in \(projectName)"
         }
@@ -11823,11 +11895,47 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let session = firstString(in: object, keys: ["session_id", "sessionId"])
         let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
+
+        classified.body = truncate(classified.body, maxLength: 180)
+        return classified
+    }
+
+    private func summarizeDroidHookNotification(
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?
+    ) -> (subtitle: String, body: String) {
+        guard let object = parsedInput.object else {
+            if let savedBody = sessionRecord?.lastBody, !savedBody.isEmpty {
+                return (sessionRecord?.lastSubtitle ?? "Attention", savedBody)
+            }
+            return ("Attention", "Droid needs your attention")
+        }
+
+        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
+        let signalParts = [
+            firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
+            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
+            firstString(in: nested, keys: ["type", "kind", "reason"])
+        ]
+        let messageCandidates = [
+            firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
+            firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
+        ]
+        let message = messageCandidates.compactMap { $0 }.first
+            ?? sessionRecord?.lastBody
+            ?? "Droid needs your input"
+        let signal = signalParts.compactMap { $0 }.joined(separator: " ")
+        var classified = classifyClaudeNotification(signal: signal, message: normalizedSingleLine(message))
+
+        if classified.body == "Claude reported an error" {
+            classified.body = "Droid reported an error"
+        } else if classified.body == "Claude needs your attention" {
+            classified.body = "Droid needs your attention"
+        }
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
@@ -12433,6 +12541,465 @@ struct CMUXCLI {
         _ = try client.send(command: cmd)
     }
 
+    // MARK: - Droid hooks
+
+    /// The hooks content that cmux installs into ~/.factory/settings.json.
+    /// Each hook calls `cmux droid-hook <event>` which gracefully no-ops
+    /// when not running inside cmux. The command checks for cmux on PATH
+    /// first so it silently succeeds even when cmux is not installed.
+    private static func droidHookCommand(_ event: String) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && command -v cmux >/dev/null 2>&1 && cmux droid-hook \(event) || echo '{}'"
+    }
+
+    private static let droidHooksJSON: [String: Any] = [
+        "hooks": [
+            "SessionStart": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("session-start"),
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "UserPromptSubmit": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("prompt-submit"),
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "Notification": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("notification"),
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "Stop": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("stop"),
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
+            "SessionEnd": [[
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("session-end"),
+                    "timeout": 5
+                ] as [String: Any]]
+            ] as [String: Any]]
+        ] as [String: Any]
+    ]
+
+    /// Identifier used to detect cmux-owned Droid hooks during uninstall.
+    private static let droidHookCommandMarker = "cmux droid-hook"
+
+    private func parseJSONDictionaryContent(_ content: String, path: String) throws -> [String: Any] {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [:] }
+        guard let data = trimmed.data(using: .utf8) else {
+            throw CLIError(message: "Invalid UTF-8 in \(path)")
+        }
+        let parsed = try JSONSerialization.jsonObject(with: data, options: [])
+        guard let object = parsed as? [String: Any] else {
+            throw CLIError(message: "Expected a JSON object in \(path)")
+        }
+        return object
+    }
+
+    private func managedHookGroup(_ group: [String: Any], marker: String) -> Bool {
+        guard let groupHooks = group["hooks"] as? [[String: Any]], !groupHooks.isEmpty else {
+            return false
+        }
+        return groupHooks.allSatisfy { hook in
+            (hook["command"] as? String)?.contains(marker) == true
+        }
+    }
+
+    private func mergeManagedHooks(
+        into settings: [String: Any],
+        cmuxHooks: [String: Any],
+        marker: String
+    ) -> [String: Any] {
+        var updatedSettings = settings
+        var hooks = updatedSettings["hooks"] as? [String: Any] ?? [:]
+        let hookGroups = cmuxHooks["hooks"] as? [String: Any] ?? [:]
+
+        for (eventName, groups) in hookGroups {
+            guard let managedGroups = groups as? [[String: Any]] else { continue }
+            var eventGroups = hooks[eventName] as? [[String: Any]] ?? []
+            eventGroups.removeAll { managedHookGroup($0, marker: marker) }
+            eventGroups.append(contentsOf: managedGroups)
+            hooks[eventName] = eventGroups
+        }
+
+        if hooks.isEmpty {
+            updatedSettings.removeValue(forKey: "hooks")
+        } else {
+            updatedSettings["hooks"] = hooks
+        }
+        return updatedSettings
+    }
+
+    private func removeManagedHooks(
+        from settings: [String: Any],
+        marker: String
+    ) -> (updatedSettings: [String: Any], removedCount: Int) {
+        var updatedSettings = settings
+        guard var hooks = updatedSettings["hooks"] as? [String: Any] else {
+            return (updatedSettings, 0)
+        }
+
+        var removedCount = 0
+        for eventName in hooks.keys {
+            guard var eventGroups = hooks[eventName] as? [[String: Any]] else { continue }
+            let before = eventGroups.count
+            eventGroups.removeAll { managedHookGroup($0, marker: marker) }
+            removedCount += before - eventGroups.count
+            if eventGroups.isEmpty {
+                hooks.removeValue(forKey: eventName)
+            } else {
+                hooks[eventName] = eventGroups
+            }
+        }
+
+        if hooks.isEmpty {
+            updatedSettings.removeValue(forKey: "hooks")
+        } else {
+            updatedSettings["hooks"] = hooks
+        }
+
+        return (updatedSettings, removedCount)
+    }
+
+    private func runDroidInstallHooks() throws {
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let homePath = ProcessInfo.processInfo.environment["HOME"]
+            ?? NSString(string: "~").expandingTildeInPath
+        let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME"]
+            ?? (homePath as NSString).appendingPathComponent(".factory")
+        let settingsPath = (factoryHome as NSString).appendingPathComponent("settings.json")
+        let fm = FileManager.default
+
+        try fm.createDirectory(atPath: factoryHome, withIntermediateDirectories: true, attributes: nil)
+
+        let existingSettingsContent: String? = fm.fileExists(atPath: settingsPath)
+            ? (try? String(contentsOfFile: settingsPath, encoding: .utf8))
+            : nil
+        let existingSettings = try parseJSONDictionaryContent(existingSettingsContent ?? "", path: settingsPath)
+        let newSettings = mergeManagedHooks(
+            into: existingSettings,
+            cmuxHooks: Self.droidHooksJSON,
+            marker: Self.droidHookCommandMarker
+        )
+        let newJSONData = try JSONSerialization.data(withJSONObject: newSettings, options: [.prettyPrinted, .sortedKeys])
+        let newSettingsContent = String(data: newJSONData, encoding: .utf8) ?? "{}"
+
+        if existingSettingsContent == newSettingsContent {
+            print("cmux hooks are already installed. Nothing to change.")
+            return
+        }
+
+        print("  \(settingsPath):")
+        if let existingSettingsContent {
+            printSimpleDiff(old: existingSettingsContent, new: newSettingsContent)
+        } else {
+            print("    (new file)")
+            let lines = newSettingsContent.components(separatedBy: "\n")
+            for (i, line) in lines.enumerated() {
+                let lineLabel = String(format: "%3d", i + 1)
+                print("    \u{001B}[32m\(lineLabel) +\(line)\u{001B}[0m")
+            }
+        }
+        print("")
+
+        if !skipConfirm {
+            print("Apply these changes? [Y/n] ", terminator: "")
+            if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               !response.isEmpty && response != "y" && response != "yes" {
+                print("Aborted.")
+                return
+            }
+        }
+
+        try newJSONData.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
+        print("")
+        print("Installed. Hooks activate inside cmux and silently no-op elsewhere.")
+        print("To remove: cmux droid uninstall-hooks")
+    }
+
+    private func runDroidUninstallHooks() throws {
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let homePath = ProcessInfo.processInfo.environment["HOME"]
+            ?? NSString(string: "~").expandingTildeInPath
+        let factoryHome = ProcessInfo.processInfo.environment["FACTORY_HOME"]
+            ?? (homePath as NSString).appendingPathComponent(".factory")
+        let settingsPath = (factoryHome as NSString).appendingPathComponent("settings.json")
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: settingsPath) else {
+            print("No settings.json found at \(settingsPath)")
+            return
+        }
+
+        let existingSettingsContent = try String(contentsOfFile: settingsPath, encoding: .utf8)
+        let existingSettings = try parseJSONDictionaryContent(existingSettingsContent, path: settingsPath)
+        let removal = removeManagedHooks(from: existingSettings, marker: Self.droidHookCommandMarker)
+
+        if removal.removedCount == 0 {
+            print("No cmux Droid hooks found.")
+            return
+        }
+
+        let newJSONData = try JSONSerialization.data(withJSONObject: removal.updatedSettings, options: [.prettyPrinted, .sortedKeys])
+        let newSettingsContent = String(data: newJSONData, encoding: .utf8) ?? "{}"
+
+        print("  \(settingsPath):")
+        printSimpleDiff(old: existingSettingsContent, new: newSettingsContent)
+        print("")
+
+        if !skipConfirm {
+            print("Apply these changes? [Y/n] ", terminator: "")
+            if let response = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               !response.isEmpty && response != "y" && response != "yes" {
+                print("Aborted.")
+                return
+            }
+        }
+
+        try newJSONData.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
+        print("Removed cmux Droid hooks.")
+    }
+
+    private func runDroidHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
+        let env = ProcessInfo.processInfo.environment
+
+        guard env["CMUX_SURFACE_ID"] != nil else {
+            print("{}")
+            return
+        }
+
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let hookArgs = Array(commandArgs.dropFirst())
+        let hookWsFlag = optionValue(hookArgs, name: "--workspace")
+        let workspaceArg = hookWsFlag ?? env["CMUX_WORKSPACE_ID"]
+        let surfaceArg = optionValue(hookArgs, name: "--surface") ?? (hookWsFlag == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let parsedInput = parseClaudeHookInput(rawInput: rawInput)
+        let statePath = env["CMUX_DROID_HOOK_STATE_PATH"] ?? "~/.cmuxterm/droid-hook-sessions.json"
+        let sessionStore = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": statePath],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+        telemetry.breadcrumb(
+            "droid-hook.input",
+            data: [
+                "subcommand": subcommand,
+                "has_session_id": parsedInput.sessionId != nil
+            ]
+        )
+
+        switch subcommand {
+        case "session-start":
+            telemetry.breadcrumb("droid-hook.session-start")
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: nil,
+                fallback: workspaceArg,
+                client: client
+            )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: nil,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd
+                )
+            }
+            print("{}")
+
+        case "prompt-submit":
+            telemetry.breadcrumb("droid-hook.prompt-submit")
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
+            )
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            try setDroidStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            print("{}")
+
+        case "notification":
+            telemetry.breadcrumb("droid-hook.notification")
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
+            )
+            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                preferred: mappedSession?.surfaceId,
+                fallback: surfaceArg,
+                workspaceId: workspaceId,
+                client: client
+            )
+            let summary = summarizeDroidHookNotification(
+                parsedInput: parsedInput,
+                sessionRecord: mappedSession
+            )
+
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: summary.subtitle,
+                    lastBody: summary.body
+                )
+            }
+
+            let payload = "Droid|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
+            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            try? setDroidStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Needs input",
+                icon: "bell.fill",
+                color: "#4C8DFF"
+            )
+            print(response)
+
+        case "stop":
+            telemetry.breadcrumb("droid-hook.stop")
+            do {
+                let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                    preferred: mappedSession?.workspaceId,
+                    fallback: workspaceArg,
+                    client: client
+                )
+                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: workspaceId,
+                    client: client
+                )
+                let completion = summarizeHookStop(
+                    parsedInput: parsedInput,
+                    sessionRecord: mappedSession,
+                    defaultCompletionBody: "Droid session completed"
+                )
+
+                if let sessionId = parsedInput.sessionId, let completion {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd,
+                        lastSubtitle: completion.subtitle,
+                        lastBody: completion.body
+                    )
+                }
+
+                if let completion {
+                    let payload = "Droid|\(sanitizeNotificationField(completion.subtitle))|\(sanitizeNotificationField(completion.body))"
+                    _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
+                }
+
+                try? setDroidStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93"
+                )
+                print("{}")
+            } catch {
+                if shouldIgnoreClaudeHookTeardownError(error) {
+                    telemetry.breadcrumb("droid-hook.stop.ignored", data: ["error": String(describing: error)])
+                    print("{}")
+                    return
+                }
+                throw error
+            }
+
+        case "session-end":
+            telemetry.breadcrumb("droid-hook.session-end")
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let fallbackWorkspaceId = try? resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
+            )
+            let fallbackSurfaceId: String? = {
+                guard let fallbackWorkspaceId else { return nil }
+                return try? resolvePreferredSurfaceIdForClaudeHook(
+                    preferred: mappedSession?.surfaceId,
+                    fallback: surfaceArg,
+                    workspaceId: fallbackWorkspaceId,
+                    client: client
+                )
+            }()
+            let consumedSession = try? sessionStore.consume(
+                sessionId: parsedInput.sessionId,
+                workspaceId: fallbackWorkspaceId,
+                surfaceId: fallbackSurfaceId
+            )
+            if let consumedSession {
+                let workspaceId = consumedSession.workspaceId
+                _ = try? clearDroidStatus(client: client, workspaceId: workspaceId)
+                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            }
+            print("{}")
+
+        case "help", "--help", "-h":
+            print(
+                """
+                cmux droid-hook <session-start|notification|prompt-submit|stop|session-end> [--workspace <id>] [--surface <id>]
+                """
+            )
+
+        default:
+            throw CLIError(message: "Unknown droid-hook subcommand: \(subcommand)")
+        }
+    }
+
+    private func setDroidStatus(
+        client: SocketClient,
+        workspaceId: String,
+        value: String,
+        icon: String,
+        color: String
+    ) throws {
+        let cmd = "set_status droid \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
+        _ = try client.send(command: cmd)
+    }
+
+    private func clearDroidStatus(client: SocketClient, workspaceId: String) throws {
+        _ = try client.send(command: "clear_status droid --tab=\(workspaceId)")
+    }
+
     private func versionSummary() -> String {
         let info = resolvedVersionInfo()
         let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
@@ -12817,6 +13384,7 @@ struct CMUXCLI {
           claude-teams [claude-args...]
           omo [opencode-args...]
           codex <install-hooks|uninstall-hooks>
+          droid <install-hooks|uninstall-hooks>
           ping
           version
           capabilities

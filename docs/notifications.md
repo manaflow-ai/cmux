@@ -130,6 +130,35 @@ Then use:
 notify = ["bash", "~/.local/bin/codex-notify.sh"]
 ```
 
+### Factory Droid
+
+Install the built-in cmux hook integration:
+
+```bash
+cmux droid install-hooks
+```
+
+This merges cmux-managed hooks into `~/.factory/settings.json` for:
+
+- `SessionStart`
+- `UserPromptSubmit`
+- `Notification`
+- `Stop`
+- `SessionEnd`
+
+The installed hooks:
+
+- map Droid `session_id` values to the current cmux workspace/surface
+- set sidebar status to `Running`, `Needs input`, and `Idle`
+- route Droid attention notifications into the cmux notification panel
+- clear the saved mapping on `SessionEnd`
+
+To remove the integration:
+
+```bash
+cmux droid uninstall-hooks
+```
+
 ### OpenCode Plugin
 
 Create `.opencode/plugins/cmux-notify.js`:
