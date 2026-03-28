@@ -5,8 +5,9 @@ E2E regression test for Droid hook session mapping.
 Validates:
 1) session-start records session_id -> workspace/surface mapping on disk
 2) notification targets the mapped surface and stores last context
-3) stop emits a completion notification with project and last-message context
-4) session-end consumes the saved session mapping without clearing the completion notification
+3) stop with stop_hook_active=true keeps Droid in Running and suppresses completion
+4) final stop emits a completion notification with project and last-message context
+5) session-end consumes the saved session mapping without clearing the completion notification
 """
 
 from __future__ import annotations
@@ -60,6 +61,17 @@ def wait_for_notification_count(client: cmux, minimum: int, timeout: float = 4.0
     return items
 
 
+def wait_for_notifications_empty(client: cmux, timeout: float = 4.0) -> list[dict]:
+    start = time.time()
+    items: list[dict] = []
+    while time.time() - start < timeout:
+        items = client.list_notifications()
+        if not items:
+            return items
+        time.sleep(0.05)
+    return items
+
+
 def latest_notification_with_subtitle(items: list[dict], subtitle: str) -> dict | None:
     for item in items:
         if item.get("subtitle") == subtitle:
@@ -85,6 +97,37 @@ def wait_for_workspace_surface(
             return focused[1]
         time.sleep(0.05)
     return None
+
+
+def wait_for_sidebar_status(
+    client: cmux,
+    workspace_id: str,
+    key: str,
+    value: str,
+    timeout: float = 4.0,
+) -> str | None:
+    needle = f"  {key}={value}"
+    start = time.time()
+    while time.time() - start < timeout:
+        sidebar_state = client.sidebar_state(workspace_id)
+        if needle in sidebar_state:
+            return sidebar_state
+        time.sleep(0.05)
+    return None
+
+
+def notification_appeared_with_subtitle(
+    client: cmux,
+    subtitle: str,
+    timeout: float = 0.75,
+) -> bool:
+    start = time.time()
+    while time.time() - start < timeout:
+        items = client.list_notifications()
+        if latest_notification_with_subtitle(items, subtitle) is not None:
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def fail(message: str) -> int:
@@ -180,6 +223,45 @@ def main() -> int:
             run_droid_hook(
                 cli_path,
                 client.socket_path,
+                "prompt-submit",
+                {
+                    "session_id": session_id,
+                    "cwd": str(project_dir),
+                },
+                hook_env,
+            )
+
+            if wait_for_sidebar_status(client, workspace_id, "droid", "Running") is None:
+                return fail("Expected Droid status to become Running after prompt-submit")
+            remaining_notifications = wait_for_notifications_empty(client)
+            if remaining_notifications:
+                return fail("Expected prompt-submit to clear queued notifications before Droid resumes")
+
+            run_droid_hook(
+                cli_path,
+                client.socket_path,
+                "stop",
+                {
+                    "session_id": session_id,
+                    "cwd": str(project_dir),
+                    "stop_hook_active": True,
+                },
+                hook_env,
+            )
+
+            if wait_for_sidebar_status(client, workspace_id, "droid", "Running") is None:
+                return fail("Expected stop_hook_active stop to keep Droid status Running")
+            if notification_appeared_with_subtitle(client, "Completed"):
+                return fail("Did not expect a Completed notification while stop_hook_active is true")
+
+            with state_path.open("r", encoding="utf-8") as handle:
+                mid_mission_state = json.load(handle)
+            if session_id not in (mid_mission_state.get("sessions") or {}):
+                return fail("Expected session mapping to remain while mission-mode stop continues")
+
+            run_droid_hook(
+                cli_path,
+                client.socket_path,
                 "stop",
                 {
                     "session_id": session_id,
@@ -188,7 +270,7 @@ def main() -> int:
                 hook_env,
             )
 
-            items = wait_for_notification_count(client, minimum=2)
+            items = wait_for_notification_count(client, minimum=1)
             completed_notification = latest_notification_with_subtitle(items, "Completed")
             if completed_notification is None:
                 return fail("Expected a Completed subtitle notification on stop")
@@ -201,6 +283,8 @@ def main() -> int:
                 return fail("Expected stop notification body to include last Droid message context")
             if completed_notification.get("surface_id") != surface_id:
                 return fail("Expected stop notification to target mapped surface")
+            if wait_for_sidebar_status(client, workspace_id, "droid", "Idle") is None:
+                return fail("Expected final stop to set Droid status to Idle")
 
             with state_path.open("r", encoding="utf-8") as handle:
                 post_stop_state = json.load(handle)
