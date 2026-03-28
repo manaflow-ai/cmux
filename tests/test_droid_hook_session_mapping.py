@@ -5,9 +5,11 @@ E2E regression test for Droid hook session mapping.
 Validates:
 1) session-start records session_id -> workspace/surface mapping on disk
 2) notification targets the mapped surface and stores last context
-3) stop with stop_hook_active=true keeps Droid in Running and suppresses completion
-4) final stop emits a completion notification with project and last-message context
-5) session-end consumes the saved session mapping without clearing the completion notification
+3) pre-tool-use clears waiting notifications and restores Running
+4) another mission session ending does not clear the active workspace status
+5) stop with stop_hook_active=true keeps Droid in Running and suppresses completion
+6) final stop emits a completion notification with project and last-message context
+7) session-end consumes the saved session mapping without clearing the completion notification
 """
 
 from __future__ import annotations
@@ -154,6 +156,7 @@ def main() -> int:
     project_dir = Path(tempfile.gettempdir()) / f"cmux_droid_map_project_{os.getpid()}"
     project_dir.mkdir(parents=True, exist_ok=True)
     session_id = f"droid-{uuid.uuid4().hex}"
+    worker_session_id = f"droid-worker-{uuid.uuid4().hex}"
     last_message = "Please approve deploy migration"
 
     try:
@@ -183,6 +186,17 @@ def main() -> int:
                 hook_env,
             )
 
+            run_droid_hook(
+                cli_path,
+                client.socket_path,
+                "session-start",
+                {
+                    "session_id": worker_session_id,
+                    "cwd": str(project_dir),
+                },
+                hook_env,
+            )
+
             if not state_path.exists():
                 return fail(f"Expected state file at {state_path}")
 
@@ -195,6 +209,9 @@ def main() -> int:
                 return fail("Mapped workspaceId did not match active workspace")
             if session_row.get("surfaceId") != surface_id:
                 return fail("Mapped surfaceId did not match active surface")
+            worker_row = (state_data.get("sessions") or {}).get(worker_session_id)
+            if not worker_row:
+                return fail("Expected worker mission session row after session-start")
 
             run_droid_hook(
                 cli_path,
@@ -219,23 +236,40 @@ def main() -> int:
                 return fail("Expected notification to route to mapped surface")
             if last_message not in permission_notification.get("body", ""):
                 return fail("Expected notification body to include the Droid message")
+            if wait_for_sidebar_status(client, workspace_id, "droid", "Permission") is None:
+                return fail("Expected Droid status to become Permission after a permission notification")
 
             run_droid_hook(
                 cli_path,
                 client.socket_path,
-                "prompt-submit",
+                "pre-tool-use",
                 {
                     "session_id": session_id,
                     "cwd": str(project_dir),
+                    "tool_name": "Execute",
+                    "tool_input": {"command": "echo resume mission"},
                 },
                 hook_env,
             )
 
             if wait_for_sidebar_status(client, workspace_id, "droid", "Running") is None:
-                return fail("Expected Droid status to become Running after prompt-submit")
+                return fail("Expected Droid status to become Running after pre-tool-use")
             remaining_notifications = wait_for_notifications_empty(client)
             if remaining_notifications:
-                return fail("Expected prompt-submit to clear queued notifications before Droid resumes")
+                return fail("Expected pre-tool-use to clear queued notifications before Droid resumes")
+
+            run_droid_hook(
+                cli_path,
+                client.socket_path,
+                "session-end",
+                {
+                    "session_id": worker_session_id,
+                },
+                hook_env,
+            )
+
+            if wait_for_sidebar_status(client, workspace_id, "droid", "Running") is None:
+                return fail("Expected another mission session ending not to clear the active Droid status")
 
             run_droid_hook(
                 cli_path,
@@ -258,6 +292,8 @@ def main() -> int:
                 mid_mission_state = json.load(handle)
             if session_id not in (mid_mission_state.get("sessions") or {}):
                 return fail("Expected session mapping to remain while mission-mode stop continues")
+            if worker_session_id in (mid_mission_state.get("sessions") or {}):
+                return fail("Expected worker mission session mapping to be consumed on session-end")
 
             run_droid_hook(
                 cli_path,
@@ -310,7 +346,7 @@ def main() -> int:
             if completed_after_end is None:
                 return fail("Expected completion notification to remain after session-end")
 
-            print("PASS: Droid hook session mapping, notification routing, and teardown cleanup")
+            print("PASS: Droid hook mission status stays coherent across resume, stop, and session teardown")
             return 0
 
     except (cmuxError, RuntimeError) as exc:

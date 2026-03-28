@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from claude_teams_test_utils import resolve_cmux_cli
 
 
-EXPECTED_EVENTS = ["SessionStart", "UserPromptSubmit", "Notification", "Stop", "SessionEnd"]
+EXPECTED_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "Notification", "Stop", "SessionEnd"]
 
 
 def fail(message: str) -> int:
@@ -108,6 +108,7 @@ def main() -> int:
         command_map = {
             "SessionStart": "cmux droid-hook session-start",
             "UserPromptSubmit": "cmux droid-hook prompt-submit",
+            "PreToolUse": "cmux droid-hook pre-tool-use",
             "Notification": "cmux droid-hook notification",
             "Stop": "cmux droid-hook stop",
             "SessionEnd": "cmux droid-hook session-end",
@@ -151,7 +152,7 @@ def main() -> int:
         if not group_contains_command(removed_hooks.get("Stop") or [], "echo keep-stop"):
             return fail("uninstall-hooks removed non-cmux Stop hooks")
 
-        if "SessionStart" in removed_hooks or "UserPromptSubmit" in removed_hooks or "SessionEnd" in removed_hooks:
+        if "SessionStart" in removed_hooks or "UserPromptSubmit" in removed_hooks or "PreToolUse" in removed_hooks or "SessionEnd" in removed_hooks:
             return fail("uninstall-hooks left empty Droid-only hook events behind")
 
         print("PASS: droid install-hooks/uninstall-hooks merges and removes only cmux-managed hooks")
