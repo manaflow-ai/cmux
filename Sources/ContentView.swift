@@ -2254,8 +2254,28 @@ struct ContentView: View {
             .onDisappear {
                 hoveredResizerHandles.remove(handle)
                 if isResizerDragging {
-                    TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                    let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                    TerminalWindowPortalRegistry.endInteractiveGeometryResize(reason: "sidebar")
                     isResizerDragging = false
+#if DEBUG
+                    dlog(
+                        "sidebar.resize.cancel width=\(String(format: "%.1f", sidebarWidth)) " +
+                        "visible=\(sidebarState.isVisible ? 1 : 0)"
+                    )
+                    dlog(
+                        "sizing.sidebar.cancel window=\(observedWindow?.windowNumber ?? -1) " +
+                        "start=\(String(format: "%.1f", startWidth)) " +
+                        "width=\(String(format: "%.1f", sidebarWidth)) " +
+                        "delta=\(String(format: "%.1f", sidebarWidth - startWidth)) " +
+                        "visible=\(sidebarState.isVisible ? 1 : 0)"
+                    )
+#endif
+                    if let observedWindow {
+                        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+                            for: observedWindow,
+                            reason: "sidebar.cancel"
+                        )
+                    }
                 }
                 sidebarDragStartWidth = nil
                 isResizerBandActive = false
@@ -2265,9 +2285,17 @@ struct ContentView: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { value in
                         if !isResizerDragging {
-                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+                            TerminalWindowPortalRegistry.beginInteractiveGeometryResize(reason: "sidebar")
                             isResizerDragging = true
                             sidebarDragStartWidth = sidebarWidth
+#if DEBUG
+                            dlog(
+                                "sizing.sidebar.begin window=\(observedWindow?.windowNumber ?? -1) " +
+                                "start=\(String(format: "%.1f", sidebarWidth)) " +
+                                "available=\(String(format: "%.1f", availableWidth)) " +
+                                "visible=\(sidebarState.isVisible ? 1 : 0)"
+                            )
+#endif
                         }
 
                         activateSidebarResizerCursor()
@@ -2282,8 +2310,28 @@ struct ContentView: View {
                     }
                     .onEnded { _ in
                         if isResizerDragging {
-                            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                            let startWidth = sidebarDragStartWidth ?? sidebarWidth
+                            TerminalWindowPortalRegistry.endInteractiveGeometryResize(reason: "sidebar")
                             isResizerDragging = false
+#if DEBUG
+                            dlog(
+                                "sidebar.resize.end width=\(String(format: "%.1f", sidebarWidth)) " +
+                                "visible=\(sidebarState.isVisible ? 1 : 0)"
+                            )
+                            dlog(
+                                "sizing.sidebar.end window=\(observedWindow?.windowNumber ?? -1) " +
+                                "start=\(String(format: "%.1f", startWidth)) " +
+                                "width=\(String(format: "%.1f", sidebarWidth)) " +
+                                "delta=\(String(format: "%.1f", sidebarWidth - startWidth)) " +
+                                "visible=\(sidebarState.isVisible ? 1 : 0)"
+                            )
+#endif
+                            if let observedWindow {
+                                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+                                    for: observedWindow,
+                                    reason: "sidebar.end"
+                                )
+                            }
                             sidebarDragStartWidth = nil
                         }
                         activateSidebarResizerCursor()
@@ -3072,21 +3120,45 @@ struct ContentView: View {
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
+#if DEBUG
+            dlog(
+                "sidebar.resize.change width=\(String(format: "%.1f", sanitized)) " +
+                "dragging=\(isResizerDragging ? 1 : 0) visible=\(sidebarState.isVisible ? 1 : 0)"
+            )
+            let startWidth = sidebarDragStartWidth ?? sanitized
+            dlog(
+                "sizing.sidebar.change window=\(observedWindow?.windowNumber ?? -1) " +
+                "start=\(String(format: "%.1f", startWidth)) " +
+                "width=\(String(format: "%.1f", sanitized)) " +
+                "delta=\(String(format: "%.1f", sanitized - startWidth)) " +
+                "dragging=\(isResizerDragging ? 1 : 0) visible=\(sidebarState.isVisible ? 1 : 0)"
+            )
+#endif
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals need an explicit post-layout geometry resync.
             if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+                    for: observedWindow,
+                    reason: "sidebar.widthChange"
+                )
             } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows(
+                    reason: "sidebar.widthChange"
+                )
             }
             updateSidebarResizerBandState()
         })
 
         view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
             if let observedWindow {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+                    for: observedWindow,
+                    reason: "sidebar.visibility"
+                )
             } else {
-                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows(
+                    reason: "sidebar.visibility"
+                )
             }
             updateSidebarResizerBandState()
             syncTrafficLightInset()
@@ -3115,7 +3187,7 @@ struct ContentView: View {
 
         view = AnyView(view.onDisappear {
             if isResizerDragging {
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(reason: "sidebar")
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
             }

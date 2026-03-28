@@ -3171,6 +3171,99 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testCoalescedWindowScopedDragSyncKeepsImmediateFollowUpAfterDragEnds() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: shiftedContainer.bounds)
+        anchor.autoresizingMask = [.width, .height]
+        shiftedContainer.addSubview(anchor)
+
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+
+        let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+
+        TerminalWindowPortalRegistry.isPointerDragActiveForTesting = true
+        defer {
+            TerminalWindowPortalRegistry.isPointerDragActiveForTesting = false
+        }
+
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+        DispatchQueue.main.async {
+            shiftedContainer.frame.origin.x += 72
+            contentView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+        TerminalWindowPortalRegistry.isPointerDragActiveForTesting = false
+
+        drainMainQueue()
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        let retiredStaleWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        let shiftedWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "After the first queue drain, the coalesced follow-up should still be pending"
+        )
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "The shifted portal location should not be visible until the coalesced follow-up runs"
+        )
+
+        drainMainQueue()
+
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "The coalesced follow-up should stay on the immediate drag path even after the drag flag clears"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "The coalesced follow-up should move the hosted terminal on the next queue turn"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testWindowScopedExternalGeometrySyncDoesNotRefreshOtherWindows() {
         let firstWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
