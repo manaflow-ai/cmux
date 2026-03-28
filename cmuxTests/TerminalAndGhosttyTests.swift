@@ -1731,6 +1731,31 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         return false
     }
 
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                if Thread.isMainThread {
+                    return condition()
+                }
+                return DispatchQueue.main.sync(execute: condition)
+            },
+            object: NSObject()
+        )
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        guard result == .completed else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
+    }
+
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -2045,11 +2070,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let searchState = TerminalSurface.SearchState(needle: "example")
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         hostedView.setSearchOverlay(searchState: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to unmount") {
+            !hostedView.debugHasSearchOverlay()
+        }
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 
@@ -2342,12 +2371,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
             weakSurface = surface
             let hostedView = surface.hostedView
-            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
-            return hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
+        return hostedView
         }()
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
+        waitUntil(description: "terminal surface to deallocate after search overlay mount") {
+            weakSurface == nil
+        }
         XCTAssertNil(weakSurface, "Mounted search overlay must not retain TerminalSurface")
     }
 
