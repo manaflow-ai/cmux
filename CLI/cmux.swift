@@ -7232,7 +7232,7 @@ struct CMUXCLI {
               session-start   Register a Droid session
               notification    Forward a Droid notification / attention request
               prompt-submit   Set Running status on user prompt
-              stop            Send completion notification, set Idle
+              stop            Send completion notification, set Idle when Droid fully stops
               session-end     Clear final status and stale notifications on teardown
 
             Flags:
@@ -11987,6 +11987,40 @@ struct CMUXCLI {
         return nil
     }
 
+    private func firstBool(in object: [String: Any], keys: [String]) -> Bool? {
+        for key in keys {
+            guard let value = object[key] else { continue }
+            if let bool = value as? Bool {
+                return bool
+            }
+            if let number = value as? NSNumber {
+                return number.boolValue
+            }
+            if let string = value as? String,
+               let bool = parseBoolString(string.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                return bool
+            }
+        }
+        return nil
+    }
+
+    private func isDroidStopHookContinuationActive(_ parsedInput: ClaudeHookParsedInput) -> Bool {
+        guard let object = parsedInput.object else { return false }
+        let keys = ["stop_hook_active", "stopHookActive"]
+        if let active = firstBool(in: object, keys: keys) {
+            return active
+        }
+        if let nested = object["data"] as? [String: Any],
+           let active = firstBool(in: nested, keys: keys) {
+            return active
+        }
+        if let context = object["context"] as? [String: Any],
+           let active = firstBool(in: context, keys: keys) {
+            return active
+        }
+        return false
+    }
+
     private func normalizedSingleLine(_ value: String) -> String {
         let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12913,6 +12947,30 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     client: client
                 )
+                let stopHookActive = isDroidStopHookContinuationActive(parsedInput)
+
+                if let sessionId = parsedInput.sessionId {
+                    try? sessionStore.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: parsedInput.cwd
+                    )
+                }
+
+                if stopHookActive {
+                    telemetry.breadcrumb("droid-hook.stop.continuing")
+                    try? setDroidStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        value: "Running",
+                        icon: "bolt.fill",
+                        color: "#4C8DFF"
+                    )
+                    print("{}")
+                    return
+                }
+
                 let completion = summarizeHookStop(
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession,
