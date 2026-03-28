@@ -2424,6 +2424,7 @@ struct ContentView: View {
     }
 
     @AppStorage("sidebarBlendMode") private var sidebarBlendMode = SidebarBlendModeOption.withinWindow.rawValue
+    @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     // Background glass settings
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
@@ -2601,7 +2602,11 @@ struct ContentView: View {
 
     private var contentAndSidebarLayout: AnyView {
         let layout: AnyView
-        if sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue {
+        // When matching terminal background, use HStack so both sidebar and terminal
+        // sit directly on the window background with no intermediate layers.
+        let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
+            && !sidebarMatchTerminalBackground
+        if useWithinWindow {
             // Overlay mode: terminal extends full width, sidebar on top
             // This allows withinWindow blur to see the terminal content
             layout = AnyView(
@@ -8648,6 +8653,9 @@ struct VerticalTabsSidebar: View {
         .accessibilityIdentifier("Sidebar")
         .ignoresSafeArea()
         .background(SidebarBackdrop().ignoresSafeArea())
+        .overlay(alignment: .trailing) {
+            SidebarTrailingBorder()
+        }
         .background(
             WindowAccessor { window in
                 modifierKeyMonitor.setHostWindow(window)
@@ -13760,7 +13768,70 @@ private struct TitlebarLeadingInsetReader: NSViewRepresentable {
     }
 }
 
+/// 1px trailing border on the sidebar, derived from the terminal chrome background
+/// using the same logic as bonsplit's TabBarColors.nsColorSeparator:
+/// dark bg → lighten RGB by 0.16 at 0.36 alpha; light bg → darken by 0.12 at 0.26 alpha.
+private struct SidebarTrailingBorder: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
+    @State private var separatorColor: NSColor = chromeSeparatorColor()
+
+    var body: some View {
+        if matchTerminalBackground {
+            Rectangle()
+                .fill(Color(nsColor: separatorColor))
+                .frame(width: 1)
+                .ignoresSafeArea()
+                .onAppear {
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    separatorColor = Self.chromeSeparatorColor()
+                }
+        }
+    }
+
+    /// Replicates bonsplit TabBarColors.nsColorSeparator derivation from chrome background.
+    private static func chromeSeparatorColor() -> NSColor {
+        let chrome = GhosttyBackgroundTheme.currentColor()
+        let srgb = chrome.usingColorSpace(.sRGB) ?? chrome
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        srgb.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.299 * r + 0.587 * g + 0.114 * b
+        let isLight = luminance > 0.5
+        let amount: CGFloat = isLight ? -0.12 : 0.16
+        let alpha: CGFloat = isLight ? 0.26 : 0.36
+        return NSColor(
+            red: min(1.0, max(0.0, r + amount)),
+            green: min(1.0, max(0.0, g + amount)),
+            blue: min(1.0, max(0.0, b + amount)),
+            alpha: alpha
+        )
+    }
+}
+
+/// Sidebar background that uses the same technique as TitlebarLayerBackground:
+/// fully opaque layer color + layer-level opacity. This matches how the terminal's
+/// Metal surface composites its background.
+private struct SidebarTerminalBackgroundView: NSViewRepresentable {
+    let backgroundColor: NSColor
+    let opacity: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        view.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        view.layer?.opacity = Float(opacity)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        nsView.layer?.backgroundColor = backgroundColor.withAlphaComponent(1.0).cgColor
+        nsView.layer?.opacity = Float(opacity)
+    }
+}
+
 private struct SidebarBackdrop: View {
+    @AppStorage("sidebarMatchTerminalBackground") private var matchTerminalBackground = false
     @AppStorage("sidebarTintOpacity") private var sidebarTintOpacity = SidebarTintDefaults.opacity
     @AppStorage("sidebarTintHex") private var sidebarTintHex = SidebarTintDefaults.hex
     @AppStorage("sidebarTintHexLight") private var sidebarTintHexLight: String?
@@ -13771,8 +13842,28 @@ private struct SidebarBackdrop: View {
     @AppStorage("sidebarCornerRadius") private var sidebarCornerRadius = 0.0
     @AppStorage("sidebarBlurOpacity") private var sidebarBlurOpacity = 1.0
     @Environment(\.colorScheme) private var colorScheme
+    @State private var terminalBackgroundColor: NSColor = GhosttyBackgroundTheme.currentColor()
 
     var body: some View {
+        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
+
+        if matchTerminalBackground {
+            // The terminal area has two stacked semi-transparent layers (Bonsplit chrome +
+            // Ghostty Metal background). Compute the effective composited opacity to match.
+            let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
+            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
+            return AnyView(
+                SidebarTerminalBackgroundView(
+                    backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
+                    opacity: effective
+                )
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                    terminalBackgroundColor = GhosttyBackgroundTheme.currentColor()
+                }
+            )
+        }
+
         let materialOption = SidebarMaterialOption(rawValue: sidebarMaterial)
         let blendingMode = SidebarBlendModeOption(rawValue: sidebarBlendMode)?.mode ?? .behindWindow
         let state = SidebarStateOption(rawValue: sidebarState)?.state ?? .active
@@ -13785,33 +13876,34 @@ private struct SidebarBackdrop: View {
             return sidebarTintHex
         }()
         let tintColor = (NSColor(hex: resolvedHex) ?? NSColor(hex: sidebarTintHex) ?? .black).withAlphaComponent(sidebarTintOpacity)
-        let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
         let useLiquidGlass = materialOption?.usesLiquidGlass ?? false
         let useWindowLevelGlass = useLiquidGlass && blendingMode == .behindWindow
 
-        return ZStack {
-            if let material = materialOption?.material {
-                // When using liquidGlass + behindWindow, window handles glass + tint
-                // Sidebar is fully transparent
-                if !useWindowLevelGlass {
-                    SidebarVisualEffectBackground(
-                        material: material,
-                        blendingMode: blendingMode,
-                        state: state,
-                        opacity: sidebarBlurOpacity,
-                        tintColor: tintColor,
-                        cornerRadius: cornerRadius,
-                        preferLiquidGlass: useLiquidGlass
-                    )
-                    // Tint overlay for NSVisualEffectView fallback
-                    if !useLiquidGlass {
-                        Color(nsColor: tintColor)
+        return AnyView(
+            ZStack {
+                if let material = materialOption?.material {
+                    // When using liquidGlass + behindWindow, window handles glass + tint
+                    // Sidebar is fully transparent
+                    if !useWindowLevelGlass {
+                        SidebarVisualEffectBackground(
+                            material: material,
+                            blendingMode: blendingMode,
+                            state: state,
+                            opacity: sidebarBlurOpacity,
+                            tintColor: tintColor,
+                            cornerRadius: cornerRadius,
+                            preferLiquidGlass: useLiquidGlass
+                        )
+                        // Tint overlay for NSVisualEffectView fallback
+                        if !useLiquidGlass {
+                            Color(nsColor: tintColor)
+                        }
                     }
                 }
+                // When material is none or useWindowLevelGlass, render nothing
             }
-            // When material is none or useWindowLevelGlass, render nothing
-        }
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        )
     }
 }
 

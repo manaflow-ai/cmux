@@ -83198,6 +83198,40 @@
         }
       }
     },
+    "settings.sidebarAppearance.matchTerminalBackground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Match Terminal Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの背景に合わせる"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.matchTerminalBackground.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the same background color and transparency as the terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルと同じ背景色と透明度を使用します。"
+          }
+        }
+      }
+    },
     "settings.sidebarAppearance.tintColorLight": {
       "extractionState": "manual",
       "localizations": {
