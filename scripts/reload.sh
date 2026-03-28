@@ -347,6 +347,16 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
   exit 1
 fi
 
+# Embed CEF framework and helper if available
+EMBED_CEF_SCRIPT="$(dirname "$0")/embed-cef.sh"
+if [[ -x "$EMBED_CEF_SCRIPT" ]]; then
+  CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$HOME/.cache/cmux/cef}"
+  CEF_FW_PROBE="$CEF_CACHE_DIR/extracted/cef_binary_146.0.6+g68649e2+chromium-146.0.7680.154_macosarm64_minimal/Release/Chromium Embedded Framework.framework"
+  if [[ -d "$CEF_FW_PROBE" ]]; then
+    "$EMBED_CEF_SCRIPT" "$APP_PATH" || echo "warning: CEF embedding failed (non-fatal)"
+  fi
+fi
+
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then

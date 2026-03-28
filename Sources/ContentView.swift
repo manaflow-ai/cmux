@@ -5352,6 +5352,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.newChromiumBrowserTab",
+                title: constant(String(localized: "command.newChromiumBrowserTab.title", defaultValue: "New Tab (Chromium Browser)")),
+                subtitle: constant(String(localized: "command.newChromiumBrowserTab.subtitle", defaultValue: "Tab")),
+                keywords: ["new", "chromium", "browser", "tab", "web", "chrome", "extension"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.closeTab",
                 title: constant(String(localized: "command.closeTab.title", defaultValue: "Close Tab")),
                 subtitle: constant(String(localized: "command.closeTab.subtitle", defaultValue: "Tab")),
@@ -6034,6 +6042,11 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newChromiumBrowserTab") {
+            DispatchQueue.main.async {
+                _ = AppDelegate.shared?.openChromiumBrowserAndFocusAddressBar()
             }
         }
         registry.register(commandId: "palette.closeTab") {

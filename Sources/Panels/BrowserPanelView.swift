@@ -1117,7 +1117,9 @@ struct BrowserPanelView: View {
             isCurrentPaneOwner
 
         return Group {
-            if panel.shouldRenderWebView {
+            if panel.engineType == .chromium {
+                chromiumWebView
+            } else if panel.shouldRenderWebView {
                 WebViewRepresentable(
                     panel: panel,
                     paneId: paneId,
@@ -1189,6 +1191,43 @@ struct BrowserPanelView: View {
         .zIndex(0)
     }
 
+    /// View for Chromium-engine browser panels. Shows the CEFBrowserView
+    /// if CEF is initialized, or the download/error UI otherwise.
+    @ViewBuilder
+    private var chromiumWebView: some View {
+        if let cefView = panel.cefBrowserView, CEFRuntime.shared.isInitialized {
+            ZStack(alignment: .bottomTrailing) {
+                CEFBrowserViewRepresentable(cefBrowserView: cefView)
+                    .accessibilityIdentifier("ChromiumBrowserView")
+                Text("Chromium")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
+                    .padding(8)
+            }
+        } else if !CEFRuntime.shared.isInitialized {
+            CEFDownloadView {
+                // User cancelled, nothing to do
+            }
+        } else {
+            VStack {
+                Text(String(
+                    localized: "cef.error.title",
+                    defaultValue: "Chromium engine unavailable"
+                ))
+                .font(.headline)
+                if let error = CEFRuntime.shared.initError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
@@ -1256,6 +1295,15 @@ struct BrowserPanelView: View {
     }
 
     private func setAddressBarFocused(_ focused: Bool, reason: String) {
+        // For Chromium panels, never auto-focus the address bar.
+        // Only allow explicit user actions (omnibar tap, Cmd+L).
+        if focused, panel.engineType == .chromium,
+           reason != "omnibar.tap" {
+#if DEBUG
+            dlog("cef.focus.blocked reason=\(reason) — suppressing address bar focus for Chromium panel")
+#endif
+            return
+        }
 #if DEBUG
         if addressBarFocused == focused {
             logBrowserFocusState(
@@ -1612,6 +1660,9 @@ struct BrowserPanelView: View {
     }
 
     private func autoFocusOmnibarIfBlank() {
+        // Chromium panels manage their own focus via CEF.
+        // Don't auto-steal focus to the omnibar.
+        guard panel.engineType != .chromium else { return }
         guard isFocused else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=panel_not_focused")
@@ -1683,8 +1734,13 @@ struct BrowserPanelView: View {
 
     private func openDevTools() {
         #if DEBUG
-        dlog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5))")
+        dlog("browser.toggleDevTools panel=\(panel.id.uuidString.prefix(5)) engine=\(panel.engineType)")
         #endif
+        if panel.engineType == .chromium {
+            // CEF DevTools opens in a separate window via Chromium's built-in inspector
+            panel.cefBrowserView?.showDevTools()
+            return
+        }
         if !panel.toggleDeveloperTools() {
             NSSound.beep()
         }

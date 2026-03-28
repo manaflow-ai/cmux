@@ -322,6 +322,7 @@ struct BrowserProfileDefinition: Codable, Hashable, Identifiable, Sendable {
     var displayName: String
     let createdAt: Date
     let isBuiltInDefault: Bool
+    var engineType: BrowserEngineType = .webkit
 
     var slug: String {
         if isBuiltInDefault {
@@ -374,14 +375,15 @@ final class BrowserProfileStore: ObservableObject {
         ?? String(localized: "browser.profile.default", defaultValue: "Default")
     }
 
-    func createProfile(named rawName: String) -> BrowserProfileDefinition? {
+    func createProfile(named rawName: String, engineType: BrowserEngineType = .webkit) -> BrowserProfileDefinition? {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         let profile = BrowserProfileDefinition(
             id: UUID(),
             displayName: name,
             createdAt: Date(),
-            isBuiltInDefault: false
+            isBuiltInDefault: false,
+            engineType: engineType
         )
         profiles.append(profile)
         profiles.sort {
@@ -1875,9 +1877,16 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var profileID: UUID
     @Published private(set) var historyStore: BrowserHistoryStore
 
+    /// The browser engine type for this panel.
+    let engineType: BrowserEngineType
+
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+
+    /// The underlying CEF browser view (Chromium engine only, nil for WebKit).
+    private(set) var cefBrowserView: CEFBrowserView?
+    private var cefCancellables = Set<AnyCancellable>()
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2590,6 +2599,11 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
+
+        // Resolve engine type from the profile definition
+        let profileDef = BrowserProfileStore.shared.profileDefinition(id: resolvedProfileID)
+        self.engineType = profileDef?.engineType ?? .webkit
+
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -2602,6 +2616,52 @@ final class BrowserPanel: Panel, ObservableObject {
         self.insecureHTTPAlertFactory = { NSAlert() }
         applyRemoteProxyConfigurationIfAvailable()
         BrowserProfileStore.shared.noteUsed(resolvedProfileID)
+
+        // For Chromium profiles, also create a CEFBrowserView.
+        // The view layer will display it instead of the WKWebView.
+        if engineType == .chromium {
+            let cefView = CEFBrowserView(frame: .zero)
+            self.cefBrowserView = cefView
+
+            if !CEFRuntime.shared.isInitialized {
+                CEFRuntime.shared.initialize()
+            }
+
+            if CEFRuntime.shared.isInitialized {
+                // Use the default request context (no per-profile isolation yet).
+                // Per-profile CEF cache paths require Chrome-style profile
+                // management which we'll add in a later phase.
+                let url = initialURL?.absoluteString ?? "https://www.google.com"
+                cefView.createBrowser(initialURL: url, cachePath: nil)
+                shouldRenderWebView = true
+            }
+
+            // Subscribe to CEF URL/title changes to update the panel's state
+            cefView.$currentURL
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] urlStr in
+                    guard let self, !urlStr.isEmpty else { return }
+                    self.currentURL = URL(string: urlStr)
+                }
+                .store(in: &cefCancellables)
+            cefView.$currentTitle
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] title in
+                    guard let self, !title.isEmpty else { return }
+                    self.pageTitle = title
+                }
+                .store(in: &cefCancellables)
+            cefView.$canGoBack
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] val in self?.canGoBack = val }
+                .store(in: &cefCancellables)
+            cefView.$canGoForward
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] val in self?.canGoForward = val }
+                .store(in: &cefCancellables)
+        } else {
+            self.cefBrowserView = nil
+        }
 
         // Set up navigation delegate
         let navDelegate = BrowserNavigationDelegate()
@@ -3642,6 +3702,12 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Navigate to a URL
     func navigate(to url: URL, recordTypedNavigation: Bool = false) {
+        // For Chromium panels, navigate via CEF instead of WebKit
+        if engineType == .chromium, let cefView = cefBrowserView {
+            shouldRenderWebView = true
+            cefView.loadURL(url.absoluteString)
+            return
+        }
         let request = URLRequest(url: url)
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(for: request, intent: .currentTab, recordTypedNavigation: recordTypedNavigation)
@@ -4057,6 +4123,7 @@ extension BrowserPanel {
 
     /// Go back in history
     func goBack() {
+        if engineType == .chromium { cefBrowserView?.goBack(); return }
         guard canGoBack else { return }
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
@@ -4090,6 +4157,7 @@ extension BrowserPanel {
 
     /// Go forward in history
     func goForward() {
+        if engineType == .chromium { cefBrowserView?.goForward(); return }
         guard canGoForward else { return }
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()

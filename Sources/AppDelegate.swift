@@ -10090,6 +10090,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return panelId
     }
 
+    /// Open a browser tab using the Chromium engine. Creates a Chromium
+    /// profile if none exists, then opens a browser tab with that profile.
+    @discardableResult
+    func openChromiumBrowserAndFocusAddressBar(url: URL? = nil) -> UUID? {
+        let store = BrowserProfileStore.shared
+        // Find or create a Chromium profile
+        let chromiumProfile: BrowserProfileDefinition
+        if let existing = store.profiles.first(where: { $0.engineType == .chromium }) {
+            chromiumProfile = existing
+        } else {
+            guard let created = store.createProfile(named: "Chromium", engineType: .chromium) else {
+                return nil
+            }
+            chromiumProfile = created
+        }
+
+        guard let panelId = tabManager?.openBrowser(
+            url: url,
+            preferredProfileID: chromiumProfile.id,
+            insertAtEnd: true
+        ) else { return nil }
+
+        _ = focusBrowserAddressBar(panelId: panelId)
+        return panelId
+    }
+
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
 #if DEBUG
         let requestId = panel.requestAddressBarFocus()
