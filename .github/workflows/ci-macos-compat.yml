@@ -15,10 +15,17 @@ jobs:
           - os: warp-macos-15-arm64-6x
             timeout: 30
             smoke: true
+            ui_smoke_test: ""
+            skip_zig: false
+          - os: macos-15-intel
+            timeout: 35
+            smoke: false
+            ui_smoke_test: IntelCmdDSmokeUITests
             skip_zig: false
           - os: warp-macos-26-arm64-6x
             timeout: 30
             smoke: false
+            ui_smoke_test: ""
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
@@ -72,12 +79,22 @@ jobs:
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
             echo "zig ${ZIG_REQUIRED} already installed"
           else
+            ARCH="$(uname -m)"
+            case "$ARCH" in
+              arm64) ZIG_ARCH="aarch64" ;;
+              x86_64) ZIG_ARCH="x86_64" ;;
+              *)
+                echo "Unsupported macOS runner architecture: $ARCH" >&2
+                exit 1
+                ;;
+            esac
+            ARCHIVE="zig-${ZIG_ARCH}-macos-${ZIG_REQUIRED}"
             echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/${ARCHIVE}.tar.xz" -o /tmp/zig.tar.xz
             tar xf /tmp/zig.tar.xz -C /tmp
             sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            sudo cp -f "/tmp/${ARCHIVE}/zig" /usr/local/bin/zig
+            sudo cp -rf "/tmp/${ARCHIVE}/lib" /usr/local/lib/zig
             export PATH="/usr/local/bin:$PATH"
             zig version
           fi
@@ -164,7 +181,7 @@ jobs:
           fi
 
       - name: Create virtual display
-        if: matrix.smoke
+        if: matrix.smoke || matrix.ui_smoke_test != ''
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -195,3 +212,16 @@ jobs:
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh
           scripts/smoke-test-ci.sh
+
+      - name: Run Intel Cmd+D smoke UI test
+        if: matrix.ui_smoke_test != ''
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            -maximum-test-execution-time-allowance 120 \
+            -only-testing:cmuxUITests/${{ matrix.ui_smoke_test }} \
+            test

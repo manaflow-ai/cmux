@@ -254,17 +254,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
-    private func waitForSocket(at path: String, timeout: TimeInterval = 2.0) throws {
-        let expectation = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                FileManager.default.fileExists(atPath: path)
-            },
-            object: NSObject()
-        )
-        if XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed {
-            return
+    private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+
+        // File-system predicate expectations proved flaky on Intel runners even
+        // after the listener had already bound and started accepting.
+        while true {
+            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+            if health.socketPathExists {
+                return
+            }
+            if Date() >= deadline {
+                XCTFail(
+                    "Timed out waiting for socket at \(path), " +
+                    "isRunning=\(health.isRunning), " +
+                    "acceptLoopAlive=\(health.acceptLoopAlive), " +
+                    "socketPathMatches=\(health.socketPathMatches), " +
+                    "socketPathExists=\(health.socketPathExists)"
+                )
+                break
+            }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
-        XCTFail("Timed out waiting for socket at \(path)")
+
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
     }
 

@@ -16,6 +16,7 @@ REF=""
 WAIT=false
 RECORD_VIDEO=true
 TIMEOUT=120
+RUNNER=""
 
 usage() {
   cat <<EOF
@@ -28,6 +29,7 @@ Options:
   --ref <ref>      Branch or SHA to test (default: current branch)
   --wait           Wait for the run to complete and print result
   --no-video       Disable video recording
+  --runner <name>  Runner label (e.g. macos-15-intel)
   --timeout <sec>  Per-test timeout in seconds (default: 120)
   -h, --help       Show this help
 EOF
@@ -55,6 +57,10 @@ while [ $# -gt 0 ]; do
       RECORD_VIDEO=false
       shift
       ;;
+    --runner)
+      RUNNER="$2"
+      shift 2
+      ;;
     --timeout)
       TIMEOUT="$2"
       shift 2
@@ -71,8 +77,11 @@ FIELDS=(-f "test_filter=$TEST_FILTER" -f "record_video=$RECORD_VIDEO" -f "test_t
 if [ -n "$REF" ]; then
   FIELDS+=(-f "ref=$REF")
 fi
+if [ -n "$RUNNER" ]; then
+  FIELDS+=(-f "runner=$RUNNER")
+fi
 
-echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${REF:-<default>} video=$RECORD_VIDEO timeout=$TIMEOUT"
+echo "Triggering $WORKFLOW with test_filter=$TEST_FILTER ref=${REF:-<default>} runner=${RUNNER:-<default>} video=$RECORD_VIDEO timeout=$TIMEOUT"
 gh workflow run "$WORKFLOW" --repo "$REPO" "${FIELDS[@]}"
 
 # Wait a moment for the run to register
