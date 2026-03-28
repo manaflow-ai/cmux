@@ -897,6 +897,11 @@ class GhosttyApp {
 
     private(set) var app: ghostty_app_t?
     private(set) var config: ghostty_config_t?
+    /// Coalesce wakeup → tick dispatches.  The I/O thread may fire wakeup_cb
+    /// thousands of times per second during bulk output.  We only need one
+    /// pending tick on the main queue at any time.
+    private var _tickScheduled = false
+    private let _tickLock = NSLock()
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private static func resolveBackgroundLogURL(
@@ -1091,9 +1096,7 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            DispatchQueue.main.async {
-                GhosttyApp.shared.tick()
-            }
+            GhosttyApp.shared.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
             return GhosttyApp.shared.handleAction(target: target, action: action)
@@ -1816,7 +1819,22 @@ class GhosttyApp {
         #endif
     }
 
+    /// Schedule a single tick on the main queue, coalescing multiple wakeups.
+    func scheduleTick() {
+        _tickLock.lock()
+        defer { _tickLock.unlock() }
+        guard !_tickScheduled else { return }
+        _tickScheduled = true
+        DispatchQueue.main.async {
+            self.tick()
+        }
+    }
+
     func tick() {
+        _tickLock.lock()
+        _tickScheduled = false
+        _tickLock.unlock()
+
         guard let app = app else { return }
 
         let start = CACurrentMediaTime()
@@ -2386,14 +2404,7 @@ class GhosttyApp {
             }
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
-            DispatchQueue.main.async {
-                surfaceView.scrollbar = scrollbar
-                NotificationCenter.default.post(
-                    name: .ghosttyDidUpdateScrollbar,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
-                )
-            }
+            surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
             let cellSize = CGSize(
@@ -4255,7 +4266,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     weak var terminalSurface: TerminalSurface?
     var scrollbar: GhosttyScrollbar?
+    /// Pending scrollbar value written from the action callback thread;
+    /// read and cleared on the main thread by `flushPendingScrollbar()`.
+    /// Access is guarded by `_scrollbarLock` because the action callback
+    /// fires on Ghostty's I/O thread while the flush runs on main.
+    private var _pendingScrollbar: GhosttyScrollbar?
+    private var _scrollbarFlushScheduled = false
+    private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
+
+    /// Coalesce high-frequency scrollbar updates into a single main-thread
+    /// dispatch.  The action callback (which may fire thousands of times per
+    /// second during bulk output like `seq 1 100000`) stores the latest value
+    /// and schedules exactly one async flush.
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar) {
+        _scrollbarLock.lock()
+        defer { _scrollbarLock.unlock() }
+        // Store the latest value (always overwrites — only the newest matters).
+        _pendingScrollbar = newValue
+        let needsSchedule = !_scrollbarFlushScheduled
+        if needsSchedule { _scrollbarFlushScheduled = true }
+
+        // If a flush is already scheduled, skip the dispatch — the scheduled
+        // block will pick up the latest value.
+        guard needsSchedule else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.flushPendingScrollbar()
+        }
+    }
+
+    private func flushPendingScrollbar() {
+        _scrollbarLock.lock()
+        _scrollbarFlushScheduled = false
+        let pending = _pendingScrollbar
+        _pendingScrollbar = nil
+        _scrollbarLock.unlock()
+
+        guard let pending else { return }
+        scrollbar = pending
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: self,
+            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+        )
+    }
+
     var desiredFocus: Bool = false
     var suppressingReparentFocus: Bool = false
     var tabId: UUID?
