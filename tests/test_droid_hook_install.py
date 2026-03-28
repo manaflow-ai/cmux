@@ -105,20 +105,19 @@ def main() -> int:
             return fail("install-hooks changed unrelated settings")
 
         hooks = installed.get("hooks") or {}
+        command_map = {
+            "SessionStart": "cmux droid-hook session-start",
+            "UserPromptSubmit": "cmux droid-hook prompt-submit",
+            "Notification": "cmux droid-hook notification",
+            "Stop": "cmux droid-hook stop",
+            "SessionEnd": "cmux droid-hook session-end",
+        }
         for event in EXPECTED_EVENTS:
             groups = hooks.get(event) or []
             if not groups:
                 return fail(f"Expected {event} hooks after install")
-            if not group_contains_command(groups, f"cmux droid-hook {event.lower().replace('_', '-')}"):
-                command_map = {
-                    "SessionStart": "cmux droid-hook session-start",
-                    "UserPromptSubmit": "cmux droid-hook prompt-submit",
-                    "Notification": "cmux droid-hook notification",
-                    "Stop": "cmux droid-hook stop",
-                    "SessionEnd": "cmux droid-hook session-end",
-                }
-                if not group_contains_command(groups, command_map[event]):
-                    return fail(f"Expected cmux-managed hook command for {event}")
+            if not group_contains_command(groups, command_map[event]):
+                return fail(f"Expected cmux-managed hook command for {event}")
 
         if not group_contains_command(hooks.get("Notification") or [], "echo keep-notification"):
             return fail("install-hooks removed existing Notification hooks")

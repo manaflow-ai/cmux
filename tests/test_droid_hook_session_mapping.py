@@ -6,7 +6,7 @@ Validates:
 1) session-start records session_id -> workspace/surface mapping on disk
 2) notification targets the mapped surface and stores last context
 3) stop emits a completion notification with project and last-message context
-4) session-end consumes the saved session mapping
+4) session-end consumes the saved session mapping without clearing the completion notification
 """
 
 from __future__ import annotations
@@ -221,6 +221,10 @@ def main() -> int:
                 post_end_state = json.load(handle)
             if session_id in (post_end_state.get("sessions") or {}):
                 return fail("Expected session mapping to be consumed on session-end")
+            items = client.list_notifications()
+            completed_after_end = latest_notification_with_subtitle(items, "Completed")
+            if completed_after_end is None:
+                return fail("Expected completion notification to remain after session-end")
 
             print("PASS: Droid hook session mapping, notification routing, and teardown cleanup")
             return 0

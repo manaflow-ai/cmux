@@ -7233,7 +7233,7 @@ struct CMUXCLI {
               notification    Forward a Droid notification / attention request
               prompt-submit   Set Running status on user prompt
               stop            Send completion notification, set Idle
-              session-end     Clear final status/notifications on teardown
+              session-end     Clear final status and stale notifications on teardown
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -11928,17 +11928,25 @@ struct CMUXCLI {
         let message = messageCandidates.compactMap { $0 }.first
             ?? sessionRecord?.lastBody
             ?? "Droid needs your input"
+        let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        var classified = classifyClaudeNotification(signal: signal, message: normalizedSingleLine(message))
+        var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
-        if classified.body == "Claude reported an error" {
-            classified.body = "Droid reported an error"
-        } else if classified.body == "Claude needs your attention" {
-            classified.body = "Droid needs your attention"
+        // Only rewrite classifier-generated Claude placeholder text.
+        if classified.body.hasPrefix("Claude "), classified.body != normalizedMessage {
+            classified.body = "Droid " + String(classified.body.dropFirst("Claude ".count))
         }
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
+    }
+
+    private func shouldClearHookNotificationsOnSessionEnd(_ sessionRecord: ClaudeHookSessionRecord) -> Bool {
+        guard let lastSubtitle = sessionRecord.lastSubtitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lastSubtitle.isEmpty else {
+            return true
+        }
+        return !lastSubtitle.lowercased().hasPrefix("completed")
     }
 
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
@@ -12880,7 +12888,7 @@ struct CMUXCLI {
             }
 
             let payload = "Droid|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
-            let response = try client.send(command: "notify_target \(workspaceId) \(surfaceId) \(payload)")
+            let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
             try? setDroidStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -12969,7 +12977,9 @@ struct CMUXCLI {
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
                 _ = try? clearDroidStatus(client: client, workspaceId: workspaceId)
-                _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                if shouldClearHookNotificationsOnSessionEnd(consumedSession) {
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                }
             }
             print("{}")
 
