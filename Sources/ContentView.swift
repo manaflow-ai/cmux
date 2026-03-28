@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Combine
 import ImageIO
+import Observation
 import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
@@ -8500,9 +8501,9 @@ struct VerticalTabsSidebar: View {
     @Binding var selection: SidebarSelection
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
-    @StateObject private var modifierKeyMonitor = SidebarShortcutHintModifierMonitor()
-    @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @State private var modifierKeyMonitor = SidebarShortcutHintModifierMonitor()
+    @State private var dragAutoScrollController = SidebarDragAutoScrollController()
+    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -9250,7 +9251,7 @@ enum SidebarDragFailsafePolicy {
 }
 
 @MainActor
-private final class SidebarDragFailsafeMonitor: ObservableObject {
+private final class SidebarDragFailsafeMonitor {
     private static let escapeKeyCode: UInt16 = 53
     private var pendingClearWorkItem: DispatchWorkItem?
     private var appResignObserver: NSObjectProtocol?
@@ -9427,16 +9428,17 @@ private struct SidebarExternalDropDelegate: DropDelegate {
 }
 
 @MainActor
-private final class SidebarShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false
+@Observable
+private final class SidebarShortcutHintModifierMonitor {
+    private(set) var isModifierPressed = false
 
-    private weak var hostWindow: NSWindow?
-    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
-    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
-    private var flagsMonitor: Any?
-    private var keyDownMonitor: Any?
-    private var appResignObserver: NSObjectProtocol?
-    private var pendingShowWorkItem: DispatchWorkItem?
+    @ObservationIgnored private weak var hostWindow: NSWindow?
+    @ObservationIgnored private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
+    @ObservationIgnored private var hostWindowDidResignKeyObserver: NSObjectProtocol?
+    @ObservationIgnored private var flagsMonitor: Any?
+    @ObservationIgnored private var keyDownMonitor: Any?
+    @ObservationIgnored private var appResignObserver: NSObjectProtocol?
+    @ObservationIgnored private var pendingShowWorkItem: DispatchWorkItem?
 
     func setHostWindow(_ window: NSWindow?) {
         guard hostWindow !== window else { return }
@@ -12906,7 +12908,7 @@ enum SidebarDragAutoScrollPlanner {
 }
 
 @MainActor
-private final class SidebarDragAutoScrollController: ObservableObject {
+private final class SidebarDragAutoScrollController {
     private weak var scrollView: NSScrollView?
     private var timer: Timer?
     private var activePlan: SidebarAutoScrollPlan?
