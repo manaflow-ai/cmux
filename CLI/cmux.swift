@@ -366,6 +366,21 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func sessions(workspaceId: String) throws -> [ClaudeHookSessionRecord] {
+        let normalizedWorkspaceId = normalizeSessionId(workspaceId)
+        guard !normalizedWorkspaceId.isEmpty else { return [] }
+        return try withLockedState { state in
+            state.sessions.values
+                .filter { $0.workspaceId == normalizedWorkspaceId }
+                .sorted { lhs, rhs in
+                    if lhs.updatedAt != rhs.updatedAt {
+                        return lhs.updatedAt > rhs.updatedAt
+                    }
+                    return lhs.sessionId < rhs.sessionId
+                }
+        }
+    }
+
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -7223,7 +7238,7 @@ struct CMUXCLI {
             """
         case "droid-hook":
             return """
-            Usage: cmux droid-hook <session-start|notification|prompt-submit|stop|session-end> [flags]
+            Usage: cmux droid-hook <session-start|notification|prompt-submit|pre-tool-use|stop|session-end> [flags]
 
             Hook for Factory Droid integration. Reads JSON from stdin.
             Gracefully no-ops when not running inside cmux.
@@ -7232,6 +7247,7 @@ struct CMUXCLI {
               session-start   Register a Droid session
               notification    Forward a Droid notification / attention request
               prompt-submit   Set Running status on user prompt
+              pre-tool-use    Clear waiting state when Droid resumes work
               stop            Send completion notification, set Idle when Droid fully stops
               session-end     Clear final status and stale notifications on teardown
 
@@ -12021,6 +12037,88 @@ struct CMUXCLI {
         return false
     }
 
+    private func normalizedHookSubtitle(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.lowercased()
+    }
+
+    private func isRunningHookSubtitle(_ value: String?) -> Bool {
+        guard let normalized = normalizedHookSubtitle(value) else { return false }
+        return normalized == "running" || normalized.hasPrefix("running ")
+    }
+
+    private func isCompletedHookSubtitle(_ value: String?) -> Bool {
+        normalizedHookSubtitle(value)?.hasPrefix("completed") == true
+    }
+
+    private func isPendingDroidSession(_ session: ClaudeHookSessionRecord) -> Bool {
+        guard let normalized = normalizedHookSubtitle(session.lastSubtitle) else { return false }
+        return normalized != "running" && !normalized.hasPrefix("running ") && !normalized.hasPrefix("completed")
+    }
+
+    private func droidPendingStatusValue(for subtitle: String?) -> String {
+        guard let normalized = normalizedHookSubtitle(subtitle) else { return "Needs input" }
+        if normalized.hasPrefix("permission") {
+            return "Permission"
+        }
+        if normalized.hasPrefix("waiting") {
+            return "Waiting"
+        }
+        if normalized.hasPrefix("error") {
+            return "Error"
+        }
+        return "Needs input"
+    }
+
+    private func droidWorkspaceHasActiveSessions(_ sessions: [ClaudeHookSessionRecord]) -> Bool {
+        sessions.contains(where: { isPendingDroidSession($0) || isRunningHookSubtitle($0.lastSubtitle) })
+    }
+
+    private func synchronizeDroidWorkspaceStatus(
+        client: SocketClient,
+        workspaceId: String,
+        sessionStore: ClaudeHookSessionStore
+    ) {
+        let sessions = (try? sessionStore.sessions(workspaceId: workspaceId)) ?? []
+        if let pendingSession = sessions.first(where: { isPendingDroidSession($0) }) {
+            try? setDroidStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: droidPendingStatusValue(for: pendingSession.lastSubtitle),
+                icon: "bell.fill",
+                color: "#4C8DFF"
+            )
+            return
+        }
+
+        if sessions.contains(where: { isRunningHookSubtitle($0.lastSubtitle) }) {
+            try? setDroidStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Running",
+                icon: "bolt.fill",
+                color: "#4C8DFF"
+            )
+            return
+        }
+
+        if sessions.contains(where: { isCompletedHookSubtitle($0.lastSubtitle) }) {
+            try? setDroidStatus(
+                client: client,
+                workspaceId: workspaceId,
+                value: "Idle",
+                icon: "pause.circle.fill",
+                color: "#8E8E93"
+            )
+            return
+        }
+
+        _ = try? clearDroidStatus(client: client, workspaceId: workspaceId)
+    }
+
     private func normalizedSingleLine(_ value: String) -> String {
         let collapsed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12609,6 +12707,14 @@ struct CMUXCLI {
                     "timeout": 10
                 ] as [String: Any]]
             ] as [String: Any]],
+            "PreToolUse": [[
+                "matcher": "*",
+                "hooks": [[
+                    "type": "command",
+                    "command": droidHookCommand("pre-tool-use"),
+                    "timeout": 10
+                ] as [String: Any]]
+            ] as [String: Any]],
             "Notification": [[
                 "hooks": [[
                     "type": "command",
@@ -12881,14 +12987,68 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let surfaceId = mappedSession?.surfaceId ?? (surfaceArg ?? "")
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: "Running"
+                )
+            }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
-            try setDroidStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Running",
-                icon: "bolt.fill",
-                color: "#4C8DFF"
+            if parsedInput.sessionId != nil {
+                synchronizeDroidWorkspaceStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    sessionStore: sessionStore
+                )
+            } else {
+                try setDroidStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Running",
+                    icon: "bolt.fill",
+                    color: "#4C8DFF"
+                )
+            }
+            print("{}")
+
+        case "pre-tool-use":
+            telemetry.breadcrumb("droid-hook.pre-tool-use")
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(
+                preferred: mappedSession?.workspaceId,
+                fallback: workspaceArg,
+                client: client
             )
+            let surfaceId = mappedSession?.surfaceId ?? (surfaceArg ?? "")
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    lastSubtitle: "Running"
+                )
+            }
+            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            if parsedInput.sessionId != nil {
+                synchronizeDroidWorkspaceStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    sessionStore: sessionStore
+                )
+            } else {
+                try setDroidStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: "Running",
+                    icon: "bolt.fill",
+                    color: "#4C8DFF"
+                )
+            }
             print("{}")
 
         case "notification":
@@ -12923,13 +13083,21 @@ struct CMUXCLI {
 
             let payload = "Droid|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             let response = try sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
-            try? setDroidStatus(
-                client: client,
-                workspaceId: workspaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
-            )
+            if parsedInput.sessionId != nil {
+                synchronizeDroidWorkspaceStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    sessionStore: sessionStore
+                )
+            } else {
+                try? setDroidStatus(
+                    client: client,
+                    workspaceId: workspaceId,
+                    value: droidPendingStatusValue(for: summary.subtitle),
+                    icon: "bell.fill",
+                    color: "#4C8DFF"
+                )
+            }
             print(response)
 
         case "stop":
@@ -12954,19 +13122,29 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
-                        cwd: parsedInput.cwd
+                        cwd: parsedInput.cwd,
+                        lastSubtitle: stopHookActive ? "Running" : "Completed"
                     )
                 }
 
                 if stopHookActive {
                     telemetry.breadcrumb("droid-hook.stop.continuing")
-                    try? setDroidStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        value: "Running",
-                        icon: "bolt.fill",
-                        color: "#4C8DFF"
-                    )
+                    _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                    if parsedInput.sessionId != nil {
+                        synchronizeDroidWorkspaceStatus(
+                            client: client,
+                            workspaceId: workspaceId,
+                            sessionStore: sessionStore
+                        )
+                    } else {
+                        try? setDroidStatus(
+                            client: client,
+                            workspaceId: workspaceId,
+                            value: "Running",
+                            icon: "bolt.fill",
+                            color: "#4C8DFF"
+                        )
+                    }
                     print("{}")
                     return
                 }
@@ -12988,18 +13166,27 @@ struct CMUXCLI {
                     )
                 }
 
-                if let completion {
+                let workspaceSessions = (try? sessionStore.sessions(workspaceId: workspaceId)) ?? []
+                if let completion, !droidWorkspaceHasActiveSessions(workspaceSessions) {
                     let payload = "Droid|\(sanitizeNotificationField(completion.subtitle))|\(sanitizeNotificationField(completion.body))"
                     _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
                 }
 
-                try? setDroidStatus(
-                    client: client,
-                    workspaceId: workspaceId,
-                    value: "Idle",
-                    icon: "pause.circle.fill",
-                    color: "#8E8E93"
-                )
+                if parsedInput.sessionId != nil {
+                    synchronizeDroidWorkspaceStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        sessionStore: sessionStore
+                    )
+                } else {
+                    try? setDroidStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        value: "Idle",
+                        icon: "pause.circle.fill",
+                        color: "#8E8E93"
+                    )
+                }
                 print("{}")
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
@@ -13034,8 +13221,17 @@ struct CMUXCLI {
             )
             if let consumedSession {
                 let workspaceId = consumedSession.workspaceId
-                _ = try? clearDroidStatus(client: client, workspaceId: workspaceId)
-                if shouldClearHookNotificationsOnSessionEnd(consumedSession) {
+                let remainingSessions = (try? sessionStore.sessions(workspaceId: workspaceId)) ?? []
+                if remainingSessions.isEmpty {
+                    _ = try? clearDroidStatus(client: client, workspaceId: workspaceId)
+                } else {
+                    synchronizeDroidWorkspaceStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        sessionStore: sessionStore
+                    )
+                }
+                if remainingSessions.isEmpty && shouldClearHookNotificationsOnSessionEnd(consumedSession) {
                     _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 }
             }
@@ -13044,7 +13240,7 @@ struct CMUXCLI {
         case "help", "--help", "-h":
             print(
                 """
-                cmux droid-hook <session-start|notification|prompt-submit|stop|session-end> [--workspace <id>] [--surface <id>]
+                cmux droid-hook <session-start|notification|prompt-submit|pre-tool-use|stop|session-end> [--workspace <id>] [--surface <id>]
                 """
             )
 
