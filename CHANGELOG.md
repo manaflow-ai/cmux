@@ -2,6 +2,18 @@
 
 All notable changes to cmux are documented here.
 
+## [0.63.1] - 2026-03-28
+
+### Fixed
+- Fix crash on startup after upgrading from older versions due to stale window geometry data ([#2306](https://github.com/manaflow-ai/cmux/pull/2306))
+- Fix re-entrant `displayIfNeeded` crash during layout follow-up from SwiftUI geometry changes ([#2305](https://github.com/manaflow-ai/cmux/pull/2305)) — thanks @KyleJamesWalker!
+- Fix macOS compatibility with versioned geometry persistence to prevent future upgrade crashes ([#2308](https://github.com/manaflow-ai/cmux/pull/2308))
+
+### Thanks to 2 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@KyleJamesWalker](https://github.com/KyleJamesWalker)
+
 ## [0.63.0] - 2026-03-28
 
 ### Added
