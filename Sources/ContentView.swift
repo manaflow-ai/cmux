@@ -3779,7 +3779,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 CommandPaletteTextInputRepresentable(
-                    placeholder: "",
+                    placeholder: target.placeholder,
                     accessibilityIdentifier: "CommandPaletteRenameField",
                     text: $commandPaletteRenameDraft,
                     isFocused: Binding(
@@ -4048,10 +4048,24 @@ struct ContentView: View {
                 return nil
             }
 
+            private func sanitizedSingleLineText(_ text: String) -> String {
+                text.components(separatedBy: .newlines).joined(separator: " ")
+            }
+
             func textDidChange(_ notification: Notification) {
                 guard !isProgrammaticMutation,
                       let textView = notification.object as? NSTextView else { return }
-                parent.text = textView.string
+                let sanitizedText = sanitizedSingleLineText(textView.string)
+                if sanitizedText != textView.string {
+                    isProgrammaticMutation = true
+                    let selectedRange = textView.selectedRange()
+                    textView.string = sanitizedText
+                    textView.setSelectedRange(
+                        NSRange(location: min(selectedRange.location, (sanitizedText as NSString).length), length: 0)
+                    )
+                    isProgrammaticMutation = false
+                }
+                parent.text = sanitizedText
                 if let container = enclosingInputView(for: textView) {
                     container.syncTextViewFrameToContentSize()
                 }
@@ -6908,7 +6922,8 @@ struct ContentView: View {
         }
 
         if let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow,
-           let editor = window.firstResponder as? NSTextView {
+           let editor = window.firstResponder as? NSTextView,
+           commandPaletteWindowOverlayController(for: window).ownsTextInputResponder(editor) {
             editor.deleteBackward(nil)
             commandPaletteRenameDraft = editor.string
         } else if !commandPaletteRenameDraft.isEmpty {
