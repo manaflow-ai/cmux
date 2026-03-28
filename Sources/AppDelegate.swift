@@ -2706,7 +2706,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.launchTag() != nil {
+        if SocketControlSettings.isTaggedDevBuild() {
             return .terminateNow
         }
 
@@ -9011,7 +9011,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func handleQuitShortcutWarning() -> Bool {
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.launchTag() != nil {
+        if SocketControlSettings.isTaggedDevBuild() {
             NSApp.terminate(nil)
             return true
         }
