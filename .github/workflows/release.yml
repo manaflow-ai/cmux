@@ -149,18 +149,38 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Build app (Release)
+      - name: Build universal app (Release)
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build \
+          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO build
+
+      - name: Verify binary architectures
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          APP_ARCHS="$(lipo -archs "$APP_BINARY")"
+          CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
+          HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          echo "App binary architectures: $APP_ARCHS"
+          echo "CLI binary architectures: $CLI_ARCHS"
+          echo "Ghostty helper architectures: $HELPER_ARCHS"
+          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+          [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
 
       - name: Build remote daemon release assets and inject manifest
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
           APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
           ./scripts/build_remote_daemon_release_assets.sh \
             --version "$APP_VERSION" \
@@ -175,7 +195,7 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          CLI_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
           CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
@@ -183,13 +203,13 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
-          HELPER_BINARY="build/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
 
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          APP_PLIST="build/Build/Products/Release/cmux.app/Contents/Info.plist"
+          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$APP_PLIST" >/dev/null 2>&1 || true
           /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP_PLIST" >/dev/null 2>&1 || true
           echo "Adding SUPublicEDKey to Info.plist..."
@@ -233,7 +253,7 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ENTITLEMENTS="cmux.entitlements"
           CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
           HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
@@ -258,7 +278,7 @@ jobs:
             echo "Missing notarization secrets (APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID)" >&2
             exit 1
           fi
-          APP_PATH="build/Build/Products/Release/cmux.app"
+          APP_PATH="build-universal/Build/Products/Release/cmux.app"
           ZIP_SUBMIT="cmux-notary.zip"
           DMG_RELEASE="cmux-macos.dmg"
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_SUBMIT"
@@ -303,7 +323,7 @@ jobs:
             exit 0
           fi
           brew install getsentry/tools/sentry-cli || true
-          sentry-cli debug-files upload --include-sources build/Build/Products/Release/
+          sentry-cli debug-files upload --include-sources build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcast
         if: steps.guard_release_assets.outputs.skip_all != 'true'
