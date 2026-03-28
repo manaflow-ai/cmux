@@ -821,7 +821,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             queue: .main
         ) { [weak self] _ in
             self?.applyWorkspaceTitlebarVisibility()
-            self?.scheduleSizeUpdate(invalidateFittingSize: true)
+            if self?.showsWorkspaceTitlebar == true {
+                self?.restoreSizeAfterMinimalMode()
+            }
         }
 
         applyWorkspaceTitlebarVisibility()
@@ -918,12 +920,25 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
     private func applyWorkspaceTitlebarVisibility() {
         let shouldShow = showsWorkspaceTitlebar
+        self.isHidden = !shouldShow
         view.isHidden = !shouldShow
+        view.alphaValue = shouldShow ? 1 : 0
         if !shouldShow {
             preferredContentSize = .zero
-            containerView.frame = .zero
-            hostingView.frame = .zero
         }
+    }
+
+    /// Restore the accessory size after it was zeroed in minimal mode.
+    /// Seeds the hosting view with a non-zero frame so fittingSize returns
+    /// valid values even after the view was collapsed.
+    private func restoreSizeAfterMinimalMode() {
+        guard showsWorkspaceTitlebar else { return }
+        let seed = cachedFittingSize ?? NSSize(width: 200, height: 28)
+        if hostingView.frame.size == .zero || containerView.frame.size == .zero {
+            containerView.frame.size = seed
+            hostingView.frame.size = seed
+        }
+        scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
     func toggleNotificationsPopover(animated: Bool = true, externalAnchor: NSView? = nil) {
@@ -1202,6 +1217,7 @@ final class UpdateTitlebarAccessoryController {
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
+    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
     init(viewModel: UpdateViewModel) {
         self.updateViewModel = viewModel
@@ -1249,8 +1265,43 @@ final class UpdateTitlebarAccessoryController {
             }
         })
 
+        // Re-evaluate all windows when the presentation mode changes so that
+        // accessories are removed in minimal mode and re-attached in standard mode.
+        observers.append(center.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.reattachIfPresentationModeChanged()
+            }
+        })
+
         // We intentionally do not rely on "window became visible" notifications here:
         // AppKit does not provide a stable cross-SDK API for this. Startup scans handle this case.
+    }
+
+    private func reattachIfPresentationModeChanged() {
+        let currentMode = WorkspacePresentationModeSettings.mode()
+        guard currentMode != lastKnownPresentationMode else { return }
+        lastKnownPresentationMode = currentMode
+        // Ensure accessories exist on all windows. TitlebarControlsAccessoryViewController
+        // handles its own visibility (hidden in minimal, visible in standard) via its
+        // UserDefaults observer, so we just need to make sure it's attached.
+        attachToExistingWindows()
+
+        // When switching back to standard mode while a window is in fullscreen,
+        // hide the accessories because fullscreen uses SwiftUI overlay controls.
+        if currentMode == .standard {
+            let controlsId = self.controlsIdentifier
+            for window in NSApp.windows where window.styleMask.contains(.fullScreen) {
+                for accessory in window.titlebarAccessoryViewControllers
+                    where accessory.view.identifier == controlsId {
+                    accessory.isHidden = true
+                    accessory.view.alphaValue = 0
+                }
+            }
+        }
     }
 
     private func attachToExistingWindows() {
@@ -1308,10 +1359,9 @@ final class UpdateTitlebarAccessoryController {
 
         pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
 
-        guard !WorkspacePresentationModeSettings.isMinimal() else {
-            removeAccessoryIfPresent(from: window)
-            return
-        }
+        // Don't remove accessories in minimal mode. TitlebarControlsAccessoryViewController
+        // hides itself and zeros its frame via its own UserDefaults observer. Keeping it
+        // attached avoids fragile remove/re-add cycles on mode toggle.
 
         guard !attachedWindows.contains(window) else { return }
 

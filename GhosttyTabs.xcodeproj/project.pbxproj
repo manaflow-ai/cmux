@@ -94,6 +94,7 @@
 					D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
 					FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
+					AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 					F2000000A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */; };
 					F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */; };
 					F4000000A1B2C3D4E5F60718 /* GhosttyConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */; };
@@ -267,6 +268,7 @@
 						D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
 						FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
+						AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
 				F2000001A1B2C3D4E5F60718 /* UpdatePillReleaseVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdatePillReleaseVisibilityTests.swift; sourceTree = "<group>"; };
 				F3000001A1B2C3D4E5F60718 /* CJKIMEInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CJKIMEInputTests.swift; sourceTree = "<group>"; };
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigTests.swift; sourceTree = "<group>"; };
@@ -522,6 +524,7 @@
 							FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */,
 							C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */,
+						AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */,
 					);
 				path = cmuxUITests;
 				sourceTree = "<group>";
@@ -789,6 +792,7 @@
 							FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */,
 							C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 						E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */,
+						AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */,
 					);
 				runOnlyForDeploymentPostprocessing = 0;
 			};

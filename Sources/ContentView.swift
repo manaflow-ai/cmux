@@ -2348,7 +2348,7 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        isMinimalMode ? 0 : titlebarPadding
+        isMinimalMode ? -titlebarPadding : titlebarPadding
     }
 
     private var terminalContent: some View {
@@ -2512,6 +2512,15 @@ struct ContentView: View {
         }
     }
 
+    private func syncTrafficLightInset() {
+        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible) ? 80 : 0
+        for tab in tabManager.tabs {
+            if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
+                tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
+            }
+        }
+    }
+
     private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -2661,6 +2670,7 @@ struct ContentView: View {
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabManager.tabs)
             updateTitlebarText()
+            syncTrafficLightInset()
 
             // Startup recovery (#399): if session restore or a race condition leaves the
             // view in a broken state (empty tabs, no selection, unmounted workspaces),
@@ -3079,6 +3089,11 @@ struct ContentView: View {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             }
             updateSidebarResizerBandState()
+            syncTrafficLightInset()
+        })
+
+        view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
@@ -3110,11 +3125,11 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.titlebarAppearsTransparent = true
-            // Do not make the entire background draggable; it interferes with drag gestures
-            // like sidebar tab reordering in multi-window mode.
+            // Keep window immovable; the sidebar's WindowDragHandleView handles
+            // drag-to-move via performDrag with temporary movable override.
+            // isMovableByWindowBackground=true breaks tab reordering, and
+            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
             window.isMovableByWindowBackground = false
-            // Keep the window immovable by default so titlebar controls (like the folder icon)
-            // cannot accidentally initiate native window drags.
             window.isMovable = false
             window.styleMask.insert(.fullSizeContentView)
 
