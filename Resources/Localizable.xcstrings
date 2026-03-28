@@ -83056,6 +83056,23 @@
         }
       }
     },
+    "markdown.mermaid.installHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install @mermaid-js/mermaid-cli for diagram rendering"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@mermaid-js/mermaid-cli をインストールすると図が表示されます"
+          }
+        }
+      }
+    },
     "markdown.fileUnavailable.title": {
       "extractionState": "manual",
       "localizations": {

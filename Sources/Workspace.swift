@@ -5775,10 +5775,6 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onExternalTabDrop = { [weak self] request in
             self?.handleExternalTabDrop(request) ?? false
         }
-        bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
-            self?.markExplicitClose(surfaceId: tabId)
-        }
-
         // Set ourselves as delegate
         bonsplitController.delegate = self
 
@@ -10178,6 +10174,10 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        // Mark as user-initiated close. Consumed below to decide whether to
+        // close the workspace when this is the last tab.
+        markExplicitClose(surfaceId: tab.id)
+
         func recordPostCloseSelection() {
             let tabs = controller.tabs(inPane: pane)
             guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else {

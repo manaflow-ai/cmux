@@ -2298,6 +2298,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register fenced code renderers for the markdown panel content pipeline.
+        FencedCodeRendererRegistry.shared.register(MermaidRenderer.shared)
+
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
@@ -9886,6 +9889,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         logBrowserZoomShortcutTrace(stage: "match", event: event, flags: flags, chars: chars, action: zoomAction)
         #endif
         if let action = zoomAction, let manager = tabManager {
+            // Markdown panel zoom
+            if manager.focusedMarkdownPanel != nil {
+                let handled: Bool
+                switch action {
+                case .zoomIn:
+                    handled = manager.zoomInFocusedMarkdown()
+                case .zoomOut:
+                    handled = manager.zoomOutFocusedMarkdown()
+                case .reset:
+                    handled = manager.resetZoomFocusedMarkdown()
+                }
+                if handled { return true }
+            }
+
+            // Browser panel zoom
             let handled: Bool
             switch action {
             case .zoomIn:

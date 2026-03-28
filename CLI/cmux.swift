@@ -1804,11 +1804,13 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let file = optionValue(commandArgs, name: "--file")
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let file { params["file"] = file }
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -1817,6 +1819,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let file = optionValue(commandArgs, name: "--file")
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -1824,6 +1827,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if let file { params["file"] = file }
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -6526,14 +6530,16 @@ struct CMUXCLI {
             Create a new pane in the workspace.
 
             Flags:
-              --type <terminal|browser>           Pane type (default: terminal)
+              --type <terminal|browser|markdown>  Pane type (default: terminal)
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                         URL for browser panes
+              --file <path>                       File path for markdown panes
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type markdown --file ~/docs/README.md
             """
         case "new-surface":
             return """
@@ -6542,14 +6548,16 @@ struct CMUXCLI {
             Create a new surface (tab) in a pane.
 
             Flags:
-              --type <terminal|browser>   Surface type (default: terminal)
-              --pane <id|ref>             Target pane
-              --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
-              --url <url>                 URL for browser surfaces
+              --type <terminal|browser|markdown>  Surface type (default: terminal)
+              --pane <id|ref>                     Target pane
+              --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
+              --url <url>                         URL for browser surfaces
+              --file <path>                       File path for markdown surfaces
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type markdown --file ~/docs/notes.md
             """
         case "close-surface":
             return """
@@ -12685,8 +12693,8 @@ struct CMUXCLI {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
+          new-pane [--type <terminal|browser|markdown>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--file <path>]
+          new-surface [--type <terminal|browser|markdown>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--file <path>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)

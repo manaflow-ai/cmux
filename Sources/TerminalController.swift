@@ -3174,6 +3174,31 @@ class TerminalController {
         return PanelType(rawValue: s.lowercased())
     }
 
+    /// Validate and resolve a markdown file path from raw input.
+    /// Returns nil on success (resolved path stored in `resolved`), or a V2CallResult error.
+    private func v2ValidateMarkdownPath(_ rawPath: String?, context: String, resolved: inout String?) -> V2CallResult? {
+        guard let rawPath else {
+            return .err(code: "invalid_params", message: "Missing --file for markdown \(context)", data: nil)
+        }
+        let expandedPath = NSString(string: rawPath).expandingTildeInPath
+        let resolvedPath = NSString(string: expandedPath).standardizingPath
+        guard resolvedPath.hasPrefix("/") else {
+            return .err(code: "invalid_params", message: "Path must be absolute: \(resolvedPath)", data: ["path": resolvedPath])
+        }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolvedPath, isDirectory: &isDir) else {
+            return .err(code: "not_found", message: "File not found: \(resolvedPath)", data: ["path": resolvedPath])
+        }
+        guard !isDir.boolValue else {
+            return .err(code: "invalid_params", message: "Path is a directory, not a file: \(resolvedPath)", data: ["path": resolvedPath])
+        }
+        guard FileManager.default.isReadableFile(atPath: resolvedPath) else {
+            return .err(code: "permission_denied", message: "File not readable: \(resolvedPath)", data: ["path": resolvedPath])
+        }
+        resolved = resolvedPath
+        return nil
+    }
+
     // MARK: - V2 Context Resolution
 
     private func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
@@ -4661,6 +4686,15 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let filePath = v2String(params, "file")
+
+        // Validate and resolve markdown file path
+        var resolvedMarkdownPath: String?
+        if panelType == .markdown {
+            if let err = v2ValidateMarkdownPath(filePath, context: "surface", resolved: &resolvedMarkdownPath) {
+                return err
+            }
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -4685,9 +4719,12 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
-            if panelType == .browser {
+            switch panelType {
+            case .browser:
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
-            } else {
+            case .markdown:
+                newPanelId = ws.newMarkdownSurface(inPane: paneId, filePath: resolvedMarkdownPath!, focus: v2FocusAllowed())?.id
+            case .terminal:
                 newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
 
@@ -5986,6 +6023,15 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let filePath = v2String(params, "file")
+
+        // Validate and resolve markdown file path
+        var resolvedMarkdownPath: String?
+        if panelType == .markdown {
+            if let err = v2ValidateMarkdownPath(filePath, context: "pane", resolved: &resolvedMarkdownPath) {
+                return err
+            }
+        }
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -6004,7 +6050,8 @@ class TerminalController {
             }
 
             let newPanelId: UUID?
-            if panelType == .browser {
+            switch panelType {
+            case .browser:
                 newPanelId = ws.newBrowserSplit(
                     from: focusedPanelId,
                     orientation: orientation,
@@ -6012,7 +6059,15 @@ class TerminalController {
                     url: url,
                     focus: v2FocusAllowed()
                 )?.id
-            } else {
+            case .markdown:
+                newPanelId = ws.newMarkdownSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    filePath: resolvedMarkdownPath!,
+                    focus: v2FocusAllowed()
+                )?.id
+            case .terminal:
                 newPanelId = ws.newTerminalSplit(
                     from: focusedPanelId,
                     orientation: orientation,
