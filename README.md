@@ -1,273 +1,143 @@
-<h1 align="center">cmux</h1>
-<p align="center">A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents</p>
+<h1 align="center">cmux <sup>patched</sup></h1>
+<p align="center">좀비 프로세스 버그를 수정한 cmux 포크 — AI 코딩 에이전트를 위한 macOS 터미널</p>
 
 <p align="center">
-  <a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-    <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
+  <a href="https://github.com/manaflow-ai/cmux">
+    <img src="https://img.shields.io/badge/upstream-manaflow--ai%2Fcmux-blue" alt="Upstream" />
+  </a>
+  <a href="https://github.com/manaflow-ai/cmux/pull/2255">
+    <img src="https://img.shields.io/badge/PR-%232255-green" alt="PR #2255" />
+  </a>
+  <a href="https://github.com/manaflow-ai/cmux/issues/2248">
+    <img src="https://img.shields.io/badge/issue-%232248-red" alt="Issue #2248" />
   </a>
 </p>
 
-<p align="center">
-  English | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
-</p>
+---
 
-<p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
-  <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
-</p>
+## 왜 이 포크가 필요한가?
 
-<p align="center">
-  <img src="./docs/assets/main-first-image.png" alt="cmux screenshot" width="900" />
-</p>
+원본 cmux에서 **PreToolUse 훅이 `async:true`로 실행**되면서, Claude Code가 자식 프로세스를 정리(reap)하지 않아 **좀비 프로세스가 무한 누적**됩니다.
 
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Demo video</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
-</p>
+```
+                    원본 cmux의 문제
+                    ═══════════════
 
-## Features
+Claude Code ──async:true──▶ cmux claude-hook pre-tool-use
+                            │
+                            ├─ readDataToEndOfFile() ← stdin EOF 무한 대기
+                            ├─ Claude Code는 stdin을 닫지 않음 (async = fire-and-forget)
+                            └─ 프로세스가 영원히 살아있음 → 좀비
 
-<table>
-<tr>
-<td width="40%" valign="middle">
-<h3>Notification rings</h3>
-Panes get a blue ring and tabs light up when coding agents need your attention
-</td>
-<td width="60%">
-<img src="./docs/assets/notification-rings.png" alt="Notification rings" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>Notification panel</h3>
-See all pending notifications in one place, jump to the most recent unread
-</td>
-<td width="60%">
-<img src="./docs/assets/sidebar-notification-badge.png" alt="Sidebar notification badge" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>In-app browser</h3>
-Split a browser alongside your terminal with a scriptable API ported from <a href="https://github.com/vercel-labs/agent-browser">agent-browser</a>
-</td>
-<td width="60%">
-<img src="./docs/assets/built-in-browser.png" alt="Built-in browser" width="100%" />
-</td>
-</tr>
-<tr>
-<td width="40%" valign="middle">
-<h3>Vertical + horizontal tabs</h3>
-Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
-</td>
-<td width="60%">
-<img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
-</td>
-</tr>
-</table>
+시간이 지나면...
 
-- **Scriptable** — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
-- **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
-- **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
-- **GPU-accelerated** — Powered by libghostty for smooth rendering
-
-## Install
-
-### DMG (recommended)
-
-<a href="https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg">
-  <img src="./docs/assets/macos-badge.png" alt="Download cmux for macOS" width="180" />
-</a>
-
-Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
-
-### Homebrew
-
-```bash
-brew tap manaflow-ai/cmux
-brew install --cask cmux
+  좀비 프로세스:     945개+
+  열린 파일 디스크립터: 53,833개
+  IOSurface GPU 버퍼: 고갈
+  WindowServer:      응답 없음 (40초 타임아웃)
+  결과:              ⚡ 커널 패닉 → 시스템 강제 재시작
 ```
 
-To update later:
+## 수정 내용
 
-```bash
-brew upgrade --cask cmux
+```
+                    수정된 cmux (이 포크)
+                    ════════════════════
+
+Claude Code ──sync──▶ cmux claude-hook pre-tool-use
+                      │
+                      ├─ readStdinWithoutBlocking()
+                      │   ├─ stdin을 O_NONBLOCK으로 설정
+                      │   ├─ 10ms 간격으로 데이터 폴링
+                      │   ├─ 64KB+ 큰 페이로드도 청크 누적으로 처리
+                      │   └─ 최대 500ms 후 자동 종료
+                      │
+                      ├─ 작업 완료 → print("OK")
+                      └─ 프로세스 정상 종료 ✓
+
+  좀비 프로세스:     0개 ✓
+  시스템 안정성:     정상 ✓
 ```
 
-On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
+## 변경된 파일
 
-## Why cmux?
+| 파일 | 원본 | 이 포크 |
+|------|:----:|:-------:|
+| `Resources/bin/claude` | `async:true` | **sync** (좀비 근본 원인 제거) |
+| `CLI/cmux.swift` | `readDataToEndOfFile()` 블로킹 | **`readStdinWithoutBlocking()`** 논블로킹 루프 |
+| `tests/test_claude_wrapper_hooks.py` | async 있는지 검증 | async **없는지** 검증 + 전체 matcher flatten |
+| `GhosttyTabs.xcodeproj` | 기본 링커 설정 | vendor/lib 종속 라이브러리 링크 (로컬 빌드 가능) |
+| `build/` | 없음 | **빌드된 Debug 앱 포함** (arm64) |
 
-I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore.
+## 빠른 시작
 
-I tried a few coding orchestrators but most of them were Electron/Tauri apps and the performance bugged me. I also just prefer the terminal since GUI orchestrators lock you into their workflow. So I built cmux as a native macOS app in Swift/AppKit. It uses libghostty for terminal rendering and reads your existing Ghostty config for themes, fonts, and colors.
+### 방법 1: 빌드된 앱 바로 사용
 
-The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, linked PR status/number, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (`cmux notify`) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread.
+```bash
+git clone https://github.com/scokeepa/cmux.git
+cd cmux && git checkout fix/zombie-hook-processes
 
-The in-app browser has a scriptable API ported from [agent-browser](https://github.com/vercel-labs/agent-browser). Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly.
+# macOS 보안 경고 해제 후 실행
+xattr -rd com.apple.quarantine "build/cmux DEV fix-zombie.app"
+open "build/cmux DEV fix-zombie.app"
+```
 
-Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+### 방법 2: wrapper만 교체 (기존 cmux 유지)
 
-## The Zen of cmux
+가장 간단하고 안전한 방법입니다. 기존 설치된 cmux의 bash wrapper만 교체합니다.
 
-cmux is not prescriptive about how developers hold their tools. It's a terminal and browser with a CLI, and the rest is up to you.
+```bash
+git clone https://github.com/scokeepa/cmux.git
+cd cmux && git checkout fix/zombie-hook-processes
 
-cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours.
+# 원본 백업 후 교체
+sudo cp /Applications/cmux.app/Contents/Resources/bin/claude \
+        /Applications/cmux.app/Contents/Resources/bin/claude.bak
+sudo cp Resources/bin/claude \
+        /Applications/cmux.app/Contents/Resources/bin/claude
 
-The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first.
+# cmux 재시작
+```
 
-Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
+### 방법 3: 소스에서 빌드
 
-## Documentation
+```bash
+git clone https://github.com/scokeepa/cmux.git
+cd cmux && git checkout fix/zombie-hook-processes
 
-For more info on how to configure cmux, [head over to our docs](https://cmux.com/docs/getting-started?utm_source=readme).
+# 의존성 설치
+brew install zig freetype oniguruma
 
-## Keyboard Shortcuts
+# GhosttyKit 빌드 + 앱 빌드
+./scripts/setup.sh
+./scripts/reload.sh --tag my-build --launch
+```
 
-### Workspaces
+## 응급 조치 (좀비가 이미 쌓인 경우)
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ N | New workspace |
-| ⌘ 1–8 | Jump to workspace 1–8 |
-| ⌘ 9 | Jump to last workspace |
-| ⌃ ⌘ ] | Next workspace |
-| ⌃ ⌘ [ | Previous workspace |
-| ⌘ ⇧ W | Close workspace |
-| ⌘ ⇧ R | Rename workspace |
-| ⌘ B | Toggle sidebar |
+```bash
+# 좀비 프로세스 즉시 정리
+pkill -f "cmux claude-hook pre-tool-use"
 
-### Surfaces
+# 현재 좀비 수 확인
+ps aux | grep "cmux claude-hook" | grep -v grep | wc -l
+```
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ T | New surface |
-| ⌘ ⇧ ] | Next surface |
-| ⌘ ⇧ [ | Previous surface |
-| ⌃ Tab | Next surface |
-| ⌃ ⇧ Tab | Previous surface |
-| ⌃ 1–8 | Jump to surface 1–8 |
-| ⌃ 9 | Jump to last surface |
-| ⌘ W | Close surface |
+## 원본과의 관계
 
-### Split Panes
+- **Upstream**: [manaflow-ai/cmux](https://github.com/manaflow-ai/cmux)
+- **이슈**: [#2248](https://github.com/manaflow-ai/cmux/issues/2248) — 좀비 프로세스 누적 버그 리포트
+- **PR**: [#2255](https://github.com/manaflow-ai/cmux/pull/2255) — 이 수정사항의 PR (리뷰 피드백 반영 완료)
+- **라이선스**: AGPL-3.0-or-later (원본과 동일)
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ D | Split right |
-| ⌘ ⇧ D | Split down |
-| ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
-| ⌘ ⇧ H | Flash focused panel |
+원본에 수정이 머지되면 이 포크는 더 이상 필요하지 않습니다.
 
-### Browser
+## 원본 cmux 기능
 
-Browser developer-tool shortcuts follow Safari defaults and are customizable in `Settings → Keyboard Shortcuts`.
+이 포크는 원본 cmux의 모든 기능을 그대로 포함합니다.
 
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ L | Open browser in split |
-| ⌘ L | Focus address bar |
-| ⌘ [ | Back |
-| ⌘ ] | Forward |
-| ⌘ R | Reload page |
-| ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
-| ⌥ ⌘ C | Show JavaScript Console (Safari default) |
-
-### Notifications
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ I | Show notifications panel |
-| ⌘ ⇧ U | Jump to latest unread |
-
-### Find
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ F | Find |
-| ⌘ G / ⌘ ⇧ G | Find next / previous |
-| ⌘ ⇧ F | Hide find bar |
-| ⌘ E | Use selection for find |
-
-### Terminal
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ K | Clear scrollback |
-| ⌘ C | Copy (with selection) |
-| ⌘ V | Paste |
-| ⌘ + / ⌘ - | Increase / decrease font size |
-| ⌘ 0 | Reset font size |
-
-### Window
-
-| Shortcut | Action |
-|----------|--------|
-| ⌘ ⇧ N | New window |
-| ⌘ , | Settings |
-| ⌘ ⇧ , | Reload configuration |
-| ⌘ Q | Quit |
-
-## Nightly Builds
-
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
-
-cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
-
-Report nightly bugs on [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) or in [#nightly-bugs on Discord](https://discord.gg/xsgFEVrWCZ).
-
-## Session restore (current behavior)
-
-On relaunch, cmux currently restores app layout and metadata only:
-- Window/workspace/pane layout
-- Working directories
-- Terminal scrollback (best effort)
-- Browser URL and navigation history
-
-cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
-
-## Star History
-
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
- </picture>
-</a>
-
-## Contributing
-
-Ways to get involved:
-
-- Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
-- Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
-- Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
-- Let us know what you're building with cmux
-
-## Community
-
-- [Discord](https://discord.gg/xsgFEVrWCZ)
-- [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
-- [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
-- [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
-- [Reddit](https://www.reddit.com/r/cmux/)
-
-## Founder's Edition
-
-cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
-
-**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritized feature requests/bug fixes**
-- **Early access: cmux AI that gives you context on every workspace, tab and panel**
-- **Early access: iOS app with terminals synced between desktop and phone**
-- **Early access: Cloud VMs**
-- **Early access: Voice mode**
-- **My personal iMessage/WhatsApp**
-
-## License
-
-cmux is open source under [AGPL-3.0-or-later](LICENSE).
-
-If your organization cannot comply with AGPL, a commercial license is available. Contact [founders@manaflow.com](mailto:founders@manaflow.com) for details.
+- 세로 탭 + 알림 링 (AI 에이전트 입력 대기 시각화)
+- Ghostty 기반 GPU 가속 터미널
+- Claude Code, Codex, Gemini CLI 등 지원
+- 분할 패널, 브라우저 패널, 상태 표시줄
+- 자세한 내용: [원본 README](https://github.com/manaflow-ai/cmux/blob/main/README.md)
