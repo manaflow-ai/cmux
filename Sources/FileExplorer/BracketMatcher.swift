@@ -14,9 +14,9 @@ enum BracketMatcher {
 
         let nsString = string as NSString
 
-        // Clear any previous bracket highlights
+        // Clear any previous bracket highlights (temporary attributes only, preserves syntax colors)
         let fullRange = NSRange(location: 0, length: nsString.length)
-        textView.textStorage?.removeAttribute(.backgroundColor, range: fullRange)
+        textView.layoutManager?.removeTemporaryAttribute(.backgroundColor, forCharacterRange: fullRange)
 
         // Check character at cursor and before cursor
         if let match = findMatch(in: nsString, at: position) {
@@ -80,13 +80,13 @@ enum BracketMatcher {
             ? NSColor.white.withAlphaComponent(0.15)
             : NSColor.black.withAlphaComponent(0.1)
 
-        textView.textStorage?.addAttribute(
+        textView.layoutManager?.addTemporaryAttribute(
             .backgroundColor, value: highlightColor,
-            range: NSRange(location: pos1, length: 1)
+            forCharacterRange: NSRange(location: pos1, length: 1)
         )
-        textView.textStorage?.addAttribute(
+        textView.layoutManager?.addTemporaryAttribute(
             .backgroundColor, value: highlightColor,
-            range: NSRange(location: pos2, length: 1)
+            forCharacterRange: NSRange(location: pos2, length: 1)
         )
     }
 }

@@ -144,19 +144,19 @@ private struct FileExplorerHeader: View {
                 }
                 Divider()
                 Text(String(localized: "fileExplorer.gitStatusColors", defaultValue: "Git Status Colors"))
-                Button("⚪ Committed") {}
-                Button("🟠 Modified") {}
-                Button("🟢 Added") {}
-                Button("🔴 Deleted") {}
-                Button("🔵 Renamed") {}
-                Button("🩶 Untracked") {}
+                Button(String(localized: "fileExplorer.status.committed", defaultValue: "⚪ Committed")) {}
+                Button(String(localized: "fileExplorer.status.modified", defaultValue: "🟠 Modified")) {}
+                Button(String(localized: "fileExplorer.status.added", defaultValue: "🟢 Added")) {}
+                Button(String(localized: "fileExplorer.status.deleted", defaultValue: "🔴 Deleted")) {}
+                Button(String(localized: "fileExplorer.status.renamed", defaultValue: "🔵 Renamed")) {}
+                Button(String(localized: "fileExplorer.status.untracked", defaultValue: "🩶 Untracked")) {}
                 Divider()
-                Text("Tips")
-                Button("📁 Drag file → terminal to paste path") {}
-                Button("🔍 Click magnifying glass to search") {}
-                Button("📍 Click location to reveal open file") {}
-                Button("✏️ Click file to edit, Cmd+S to save") {}
-                Button("👆 Double-click to open in Sublime") {}
+                Text(String(localized: "fileExplorer.tips", defaultValue: "Tips"))
+                Button(String(localized: "fileExplorer.tip.drag", defaultValue: "📁 Drag file → terminal to paste path")) {}
+                Button(String(localized: "fileExplorer.tip.search", defaultValue: "🔍 Click magnifying glass to search")) {}
+                Button(String(localized: "fileExplorer.tip.reveal", defaultValue: "📍 Click location to reveal open file")) {}
+                Button(String(localized: "fileExplorer.tip.edit", defaultValue: "✏️ Click file to edit, Cmd+S to save")) {}
+                Button(String(localized: "fileExplorer.tip.sublime", defaultValue: "👆 Double-click to open in Sublime")) {}
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 10))
