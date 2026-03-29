@@ -57,8 +57,11 @@ struct FileExplorerView: View {
                         withAnimation {
                             proxy.scrollTo(targetId, anchor: .center)
                         }
+                        let currentTarget = targetId
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            state.scrollToNodeId = nil
+                            if state.scrollToNodeId == currentTarget {
+                                state.scrollToNodeId = nil
+                            }
                         }
                     }
                 }
@@ -76,8 +79,11 @@ struct FileExplorerView: View {
                     .padding(.top, 30)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .onAppear {
+                        let currentMessage = message
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                            withAnimation { state.revealMessage = nil }
+                            if state.revealMessage == currentMessage {
+                                withAnimation { state.revealMessage = nil }
+                            }
                         }
                     }
             }
@@ -379,9 +385,8 @@ private struct FileExplorerContextMenu: View {
 struct FileExplorerDivider: View {
     @Binding var position: CGFloat
     let totalHeight: CGFloat
-
-    private let minFraction: CGFloat = 0.2
-    private let maxFraction: CGFloat = 0.8
+    var minFraction: CGFloat = 0.1
+    var maxFraction: CGFloat = 0.8
     private let handleHeight: CGFloat = 6
 
     @State private var isDragging = false

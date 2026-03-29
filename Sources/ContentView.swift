@@ -8675,7 +8675,9 @@ struct VerticalTabsSidebar: View {
                     if fileExplorerState.isVisible {
                         FileExplorerDivider(
                             position: $fileExplorerState.dividerPosition,
-                            totalHeight: totalHeight
+                            totalHeight: totalHeight,
+                            minFraction: 0.1,
+                            maxFraction: maxDividerPos
                         )
 
                         FileExplorerSidebarSection(
