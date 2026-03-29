@@ -295,7 +295,7 @@ _cmux_install_winch_guard
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
-    local dir="$PWD"
+    local dir="${1:-$PWD}"
     while true; do
         if [[ -d "$dir/.git" ]]; then
             print -r -- "$dir/.git/HEAD"
@@ -328,6 +328,36 @@ _cmux_git_head_signature() {
         print -r -- "$line"
         return 0
     fi
+    return 1
+}
+
+_cmux_update_git_head_tracking() {
+    local repo_path="${1:-$PWD}"
+    if [[ "$repo_path" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
+        _CMUX_GIT_HEAD_LAST_PWD="$repo_path"
+        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+        _CMUX_GIT_HEAD_SIGNATURE=""
+    fi
+
+    [[ -n "$_CMUX_GIT_HEAD_PATH" ]] || return 1
+
+    local head_signature=""
+    head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
+    [[ -n "$head_signature" ]] || return 1
+
+    if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+        # The first observed HEAD value establishes the baseline for this shell
+        # session/context. Don't treat it as a branch change or we'll clear
+        # restore-seeded PR badges before the first background probe runs.
+        _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+        return 1
+    fi
+
+    if [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+        _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+        return 0
+    fi
+
     return 1
 }
 
@@ -546,35 +576,44 @@ _cmux_kill_process_tree() {
     kill "-$signal" "$pid" >/dev/null 2>&1 || true
 }
 
+_cmux_start_probe_timeout_watchdog() {
+    local probe_pid="$1"
+    local timeout="${2:-0}"
+    [[ -n "$probe_pid" ]] || return 1
+    (( timeout > 0 )) || return 1
+
+    (
+        sleep "$timeout"
+        kill -0 "$probe_pid" >/dev/null 2>&1 || exit 0
+        _cmux_kill_process_tree "$probe_pid" KILL
+    ) >/dev/null 2>&1 &
+
+    print -r -- "$!"
+}
+
+_cmux_stop_probe_timeout_watchdog() {
+    local watchdog_pid="$1"
+    [[ -n "$watchdog_pid" ]] || return 0
+    _cmux_kill_process_tree "$watchdog_pid" KILL
+    wait "$watchdog_pid" >/dev/null 2>&1 || true
+}
+
 _cmux_run_pr_probe_with_timeout() {
     local repo_path="$1"
     local probe_pid=""
-    local started_at=$EPOCHSECONDS
-    local now=$started_at
+    local watchdog_pid=""
 
     (
         _cmux_report_pr_for_path "$repo_path"
     ) &
     probe_pid=$!
 
-    while kill -0 "$probe_pid" >/dev/null 2>&1; do
-        sleep 1
-        now=$EPOCHSECONDS
-        if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
-            _cmux_kill_process_tree "$probe_pid" TERM
-            sleep 0.2
-            if kill -0 "$probe_pid" >/dev/null 2>&1; then
-                _cmux_kill_process_tree "$probe_pid" KILL
-                sleep 0.2
-            fi
-            if ! kill -0 "$probe_pid" >/dev/null 2>&1; then
-                wait "$probe_pid" >/dev/null 2>&1 || true
-            fi
-            return 1
-        fi
-    done
+    watchdog_pid="$(_cmux_start_probe_timeout_watchdog "$probe_pid" "$_CMUX_ASYNC_JOB_TIMEOUT" 2>/dev/null || true)"
 
     wait "$probe_pid"
+    local probe_status=$?
+    _cmux_stop_probe_timeout_watchdog "$watchdog_pid"
+    return "$probe_status"
 }
 
 _cmux_stop_pr_poll_loop() {
@@ -608,6 +647,14 @@ _cmux_start_pr_poll_loop() {
     {
         while true; do
             kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
+            if _cmux_update_git_head_tracking "$watch_pwd"; then
+                _CMUX_GIT_FORCE=1
+                _CMUX_PR_FORCE=1
+                _cmux_clear_pr_for_panel
+                {
+                    _cmux_report_git_branch_for_path "$watch_pwd"
+                } >/dev/null 2>&1 &!
+            fi
             _cmux_run_pr_probe_with_timeout "$watch_pwd" || true
             sleep "$interval"
         done
@@ -742,30 +789,13 @@ _cmux_precmd() {
 
     # Git branch can change without a `git ...`-prefixed command (aliases like `gco`,
     # tools like `gh pr checkout`, etc.). Detect HEAD changes and force a refresh.
-    if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
-        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
-        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
-        _CMUX_GIT_HEAD_SIGNATURE=""
-    fi
-    if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
-        local head_signature
-        head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
-        if [[ -n "$head_signature" ]]; then
-            if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-                # The first observed HEAD value establishes the baseline for this
-                # shell session. Don't treat it as a branch change or we'll clear
-                # restore-seeded PR badges before the first background probe runs.
-                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-            elif [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-                git_head_changed=1
-                # Treat HEAD file change like a git command — force-replace any
-                # running probe so the sidebar picks up the new branch immediately.
-                _CMUX_GIT_FORCE=1
-                _CMUX_PR_FORCE=1
-                should_git=1
-            fi
-        fi
+    if _cmux_update_git_head_tracking "$pwd"; then
+        git_head_changed=1
+        # Treat HEAD file change like a git command — force-replace any
+        # running probe so the sidebar picks up the new branch immediately.
+        _CMUX_GIT_FORCE=1
+        _CMUX_PR_FORCE=1
+        should_git=1
     fi
 
     if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" ]]; then

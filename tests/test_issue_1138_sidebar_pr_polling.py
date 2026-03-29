@@ -13,6 +13,7 @@ Validates that shell integration:
 7) falls back to explicit branch lookup when implicit gh branch resolution fails
 8) does not clear an existing PR badge on the first prompt while establishing
    the HEAD baseline
+9) clears stale PR state when HEAD changes while the shell is idle at a prompt
 """
 
 from __future__ import annotations
@@ -154,7 +155,7 @@ def _gh_stub() -> str:
             fi
             printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
             ;;
-          branch_switch_clear)
+          branch_switch_clear|idle_branch_switch_clear)
             if [ "$branch" = "feature/old" ]; then
               printf '111\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/111\\n'
               exit 0
@@ -224,6 +225,15 @@ def _shell_command(kind: str, scenario: str) -> str:
             'sleep 2\n'
             '_cmux_cleanup\n'
         ),
+        "idle_branch_switch_clear": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=1\n'
+            '_cmux_prompt_entry\n'
+            'sleep 2\n'
+            'printf \'ref: refs/heads/feature/new\\n\' > "$CMUX_TEST_HEAD_FILE"\n'
+            'sleep 2\n'
+            '_cmux_cleanup\n'
+        ),
         "timeout_recovery": (
             'cd "$CMUX_TEST_REPO"\n'
             '_CMUX_PR_POLL_INTERVAL=1\n'
@@ -277,10 +287,10 @@ def _read_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _report_line(number: int) -> str:
+def _report_line(number: int, *, branch: str = "feature/issue-1138") -> str:
     return (
         f"report_pr {number} https://github.com/manaflow-ai/cmux/pull/{number} "
-        "--state=open --tab=00000000-0000-0000-0000-000000000001 "
+        f'--state=open --branch="{branch}" --tab=00000000-0000-0000-0000-000000000001 '
         "--panel=00000000-0000-0000-0000-000000000002"
     )
 
@@ -308,7 +318,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
 
     bindir.mkdir(parents=True, exist_ok=True)
     repo_git.mkdir(parents=True, exist_ok=True)
-    initial_branch = "feature/old" if scenario == "branch_switch_clear" else "feature/issue-1138"
+    initial_branch = "feature/old" if scenario in {"branch_switch_clear", "idle_branch_switch_clear"} else "feature/issue-1138"
     head_file.write_text(f"ref: refs/heads/{initial_branch}\n", encoding="utf-8")
     _write_executable(bindir / "git", _git_stub())
     _write_executable(bindir / "gh", _gh_stub())
@@ -367,7 +377,7 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         return (0, f"{shell}/{scenario}: ok")
 
     if scenario == "branch_switch_clear":
-        old_report = _report_line(111)
+        old_report = _report_line(111, branch="feature/old")
         if old_report not in send_lines:
             return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
         try:
@@ -377,6 +387,21 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         clear_indices = [idx for idx, line in enumerate(send_lines) if line.startswith("clear_pr ")]
         if not clear_indices:
             return (1, f"{shell}/{scenario}: expected clear_pr after branch change\n" + "\n".join(send_lines))
+        if clear_indices[0] <= old_index:
+            return (1, f"{shell}/{scenario}: clear_pr happened before old report\n" + "\n".join(send_lines))
+        return (0, f"{shell}/{scenario}: ok")
+
+    if scenario == "idle_branch_switch_clear":
+        old_report = _report_line(111, branch="feature/old")
+        if old_report not in send_lines:
+            return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
+        try:
+            old_index = send_lines.index(old_report)
+        except ValueError:
+            return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
+        clear_indices = [idx for idx, line in enumerate(send_lines) if line.startswith("clear_pr ")]
+        if not clear_indices:
+            return (1, f"{shell}/{scenario}: expected clear_pr after idle HEAD change\n" + "\n".join(send_lines))
         if clear_indices[0] <= old_index:
             return (1, f"{shell}/{scenario}: clear_pr happened before old report\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
@@ -426,6 +451,7 @@ def main() -> int:
         "prompt_helper_idle",
         "transient_same_context",
         "branch_switch_clear",
+        "idle_branch_switch_clear",
         "timeout_recovery",
         "explicit_branch_fallback",
         "initial_prompt_preserves_pr_badge",
