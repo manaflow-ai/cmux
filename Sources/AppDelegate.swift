@@ -10702,6 +10702,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event.keyCode == 36 || event.keyCode == 76
         }
 
+        // Home/End/PageUp/PageDown — match by keyCode directly (like arrow keys).
+        if let expected = keyCodeForShortcutKey(shortcutKey),
+           ["↖", "↘", "⇞", "⇟"].contains(shortcutKey) {
+            return event.keyCode == expected
+        }
+
         let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
         if shortcutCharacterMatches(
             eventCharacter: eventCharsIgnoringModifiers,
@@ -10919,6 +10925,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case "→": return 124 // kVK_RightArrow
         case "↓": return 125 // kVK_DownArrow
         case "↑": return 126 // kVK_UpArrow
+        case "↖": return 115 // kVK_Home
+        case "↘": return 119 // kVK_End
+        case "⇞": return 116 // kVK_PageUp
+        case "⇟": return 121 // kVK_PageDown
         default:
             return nil
         }
