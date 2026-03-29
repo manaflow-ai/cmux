@@ -59113,109 +59113,109 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, links clicked in terminal output open in your default browser."
+            "value": "Sets the default for Cmd+Click. Cmd+Shift+Click opens in the other browser."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "オフの場合、ターミナル出力のリンクはデフォルトブラウザで開きます。"
+            "state": "needs_review",
+            "value": "Cmd+Click のデフォルトを設定します。Cmd+Shift+Click でもう一方のブラウザで開きます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭后，终端输出中点击的链接在默认浏览器中打开。"
+            "state": "needs_review",
+            "value": "设置 Cmd+Click 的默认行为。Cmd+Shift+Click 在另一个浏览器中打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "關閉時，終端機輸出中點擊的連結會在您的預設瀏覽器中開啟。"
+            "state": "needs_review",
+            "value": "設定 Cmd+Click 的預設行為。Cmd+Shift+Click 會在另一個瀏覽器中開啟。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "비활성화하면 터미널 출력에서 클릭한 링크가 기본 브라우저에서 열립니다."
+            "state": "needs_review",
+            "value": "Cmd+Click의 기본 동작을 설정합니다. Cmd+Shift+Click으로 다른 브라우저에서 엽니다."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wenn deaktiviert, werden im Terminal angeklickte Links in Ihrem Standardbrowser geöffnet."
+            "state": "needs_review",
+            "value": "Legt die Standardaktion für Cmd+Klick fest. Cmd+Shift+Klick öffnet im anderen Browser."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cuando está desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
+            "state": "needs_review",
+            "value": "Configura la acción predeterminada de Cmd+Clic. Cmd+Shift+Clic abre en el otro navegador."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lorsque désactivé, les liens cliqués dans la sortie du terminal s'ouvrent dans votre navigateur par défaut."
+            "state": "needs_review",
+            "value": "Définit l'action par défaut de Cmd+Clic. Cmd+Shift+Clic ouvre dans l'autre navigateur."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quando disattivato, i link cliccati nell'output del terminale si aprono nel browser predefinito."
+            "state": "needs_review",
+            "value": "Imposta l'azione predefinita per Cmd+Clic. Cmd+Shift+Clic apre nell'altro browser."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Når deaktiveret, åbnes links, der klikkes i terminaloutput, i din standardbrowser."
+            "state": "needs_review",
+            "value": "Indstiller standardhandlingen for Cmd+Klik. Cmd+Shift+Klik åbner i den anden browser."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Po wyłączeniu linki kliknięte w terminalu otwierają się w domyślnej przeglądarce."
+            "state": "needs_review",
+            "value": "Ustawia domyślną akcję Cmd+Klik. Cmd+Shift+Klik otwiera w drugiej przeglądarce."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "При отключении ссылки из терминала открываются в браузере по умолчанию."
+            "state": "needs_review",
+            "value": "Задаёт действие по умолчанию для Cmd+Click. Cmd+Shift+Click открывает в другом браузере."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kada je isključeno, linkovi kliknuti u izlazu terminala se otvaraju u podrazumijevanom pregledniku."
+            "state": "needs_review",
+            "value": "Postavlja zadanu radnju za Cmd+Klik. Cmd+Shift+Klik otvara u drugom pregledniku."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "عند التعطيل، تفتح الروابط المنقورة في مخرجات الطرفية في متصفحك الافتراضي."
+            "state": "needs_review",
+            "value": "يحدد الإجراء الافتراضي لـ Cmd+النقر. Cmd+Shift+النقر يفتح في المتصفح الآخر."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Når av, åpnes lenker som klikkes i terminalutdata i standard nettleser."
+            "state": "needs_review",
+            "value": "Angir standardhandlingen for Cmd+Klikk. Cmd+Shift+Klikk åpner i den andre nettleseren."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Quando desativado, links clicados na saída do terminal abrem no seu navegador padrão."
+            "state": "needs_review",
+            "value": "Define a ação padrão do Cmd+Clique. Cmd+Shift+Clique abre no outro navegador."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เมื่อปิด ลิงก์ที่คลิกในเอาต์พุตเทอร์มินัลจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
+            "state": "needs_review",
+            "value": "ตั้งค่าเริ่มต้นสำหรับ Cmd+Click Cmd+Shift+Click เปิดในเบราว์เซอร์อื่น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kapalıyken, terminal çıktısında tıklanan bağlantılar varsayılan tarayıcınızda açılır."
+            "state": "needs_review",
+            "value": "Cmd+Tıklama için varsayılan eylemi belirler. Cmd+Shift+Tıklama diğer tarayıcıda açar."
           }
         },
         "uk": {
