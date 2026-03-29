@@ -194,6 +194,8 @@ struct SessionSidebarSnapshot: Codable, Sendable {
     var isVisible: Bool
     var selection: SessionSidebarSelection
     var width: Double?
+    var fileExplorerVisible: Bool?
+    var fileExplorerDividerPosition: Double?
 }
 
 struct SessionStatusEntrySnapshot: Codable, Sendable {
@@ -240,6 +242,10 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+struct SessionEditorPanelSnapshot: Codable, Sendable {
+    var filePath: String
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -254,6 +260,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var editor: SessionEditorPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

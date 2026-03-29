@@ -128,6 +128,16 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
+					FE000011A1B2C3D4E5F60001 /* FileExplorerNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000001A1B2C3D4E5F60001 /* FileExplorerNode.swift */; };
+			FE000012A1B2C3D4E5F60002 /* FileExplorerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */; };
+			FE000013A1B2C3D4E5F60003 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */; };
+			FE000014A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */; };
+					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */; };
+			FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */; };
+					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */; };
+					FE000019A1B2C3D4E5F60009 /* SaveableTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE000009A1B2C3D4E5F60009 /* SaveableTextView.swift */; };
+					FE00001AA1B2C3D4E5F6000A /* BracketMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */; };
+					FE00001BA1B2C3D4E5F6000B /* GitStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00000BA1B2C3D4E5F6000B /* GitStatusProvider.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -302,6 +312,16 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
+			FE000001A1B2C3D4E5F60001 /* FileExplorerNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerNode.swift; sourceTree = "<group>"; };
+			FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerState.swift; sourceTree = "<group>"; };
+			FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerView.swift; sourceTree = "<group>"; };
+			FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSidebarSection.swift; sourceTree = "<group>"; };
+			FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanel.swift; sourceTree = "<group>"; };
+			FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/EditorPanelView.swift; sourceTree = "<group>"; };
+			FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighter.swift; sourceTree = "<group>"; };
+			FE000009A1B2C3D4E5F60009 /* SaveableTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SaveableTextView.swift; sourceTree = "<group>"; };
+			FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketMatcher.swift; sourceTree = "<group>"; };
+			FE00000BA1B2C3D4E5F6000B /* GitStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProvider.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -412,6 +432,7 @@
 			A5001041 /* Sources */ = {
 				isa = PBXGroup;
 				children = (
+					FE000099A1B2C3D4E5F60099 /* FileExplorer */,
 					A5001011 /* cmuxApp.swift */,
 					A5001012 /* ContentView.swift */,
 					9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
@@ -449,6 +470,9 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				FE000005A1B2C3D4E5F60005 /* EditorPanel.swift */,
+				FE000006A1B2C3D4E5F60006 /* EditorPanelView.swift */,
+				FE000009A1B2C3D4E5F60009 /* SaveableTextView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
@@ -566,6 +590,20 @@
 				path = cmuxTests;
 				sourceTree = "<group>";
 			};
+		FE000099A1B2C3D4E5F60099 /* FileExplorer */ = {
+			isa = PBXGroup;
+			children = (
+				FE000001A1B2C3D4E5F60001 /* FileExplorerNode.swift */,
+				FE000002A1B2C3D4E5F60002 /* FileExplorerState.swift */,
+				FE000003A1B2C3D4E5F60003 /* FileExplorerView.swift */,
+				FE00000BA1B2C3D4E5F6000B /* GitStatusProvider.swift */,
+				FE00000AA1B2C3D4E5F6000A /* BracketMatcher.swift */,
+				FE000008A1B2C3D4E5F60008 /* SyntaxHighlighter.swift */,
+				FE000004A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift */,
+			);
+			path = FileExplorer;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -714,6 +752,18 @@
 				files = (
 					A5001001 /* cmuxApp.swift in Sources */,
 					A5001002 /* ContentView.swift in Sources */,
+					FE00001BA1B2C3D4E5F6000B /* GitStatusProvider.swift in Sources */,
+					FE00001AA1B2C3D4E5F6000A /* BracketMatcher.swift in Sources */,
+					FE000019A1B2C3D4E5F60009 /* SaveableTextView.swift in Sources */,
+					FE000018A1B2C3D4E5F60008 /* SyntaxHighlighter.swift in Sources */,
+					FE000015A1B2C3D4E5F60005 /* EditorPanel.swift in Sources */,
+					FE000016A1B2C3D4E5F60006 /* EditorPanelView.swift in Sources */,
+
+					FE000011A1B2C3D4E5F60001 /* FileExplorerNode.swift in Sources */,
+					FE000012A1B2C3D4E5F60002 /* FileExplorerState.swift in Sources */,
+					FE000013A1B2C3D4E5F60003 /* FileExplorerView.swift in Sources */,
+					FE000014A1B2C3D4E5F60004 /* FileExplorerSidebarSection.swift in Sources */,
+
 					E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 					B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 					A50012F1 /* Backport.swift in Sources */,

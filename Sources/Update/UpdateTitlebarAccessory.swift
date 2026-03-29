@@ -256,6 +256,8 @@ struct TitlebarControlsView: View {
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
     let onNewTab: () -> Void
+    var onToggleFileExplorer: (() -> Void)?
+    var isFileExplorerVisible: Bool = false
     let visibilityMode: TitlebarControlsVisibilityMode
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -407,6 +409,20 @@ struct TitlebarControlsView: View {
             .accessibilityIdentifier("titlebarControl.newTab")
             .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+
+            if let onToggleFileExplorer {
+                TitlebarControlButton(config: config, action: {
+                    #if DEBUG
+                    dlog("titlebar.toggleFileExplorer")
+                    #endif
+                    onToggleFileExplorer()
+                }) {
+                    iconLabel(systemName: isFileExplorerVisible ? "folder.fill" : "folder", config: config)
+                }
+                .accessibilityIdentifier("titlebarControl.toggleFileExplorer")
+                .accessibilityLabel(String(localized: "titlebar.fileExplorer.accessibilityLabel", defaultValue: "Toggle File Explorer"))
+                .safeHelp(String(localized: "titlebar.fileExplorer.tooltip", defaultValue: "Show or hide the file explorer"))
+            }
         }
 
         let paddedContent = content.padding(config.groupPadding)
