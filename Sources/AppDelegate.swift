@@ -27,6 +27,21 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         ])
     }
 
+    // Exclude the titlebar from the accessibility frame. safeAreaInsets is
+    // zeroed so this view fills the whole window, but Swish and similar tools
+    // derive titlebar height from the gap between window frame and first child.
+    // No gap = no titlebar = no gestures. Subtract the titlebar height so the
+    // offset is visible.
+    override func accessibilityFrame() -> NSRect {
+        guard let window = window else { return super.accessibilityFrame() }
+        var frame = super.accessibilityFrame()
+        let titlebarHeight = window.frame.height - window.contentLayoutRect.height
+        if titlebarHeight > 0 {
+            frame.size.height -= titlebarHeight
+        }
+        return frame
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -5997,7 +6012,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        window.isMovable = true
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)
