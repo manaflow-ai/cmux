@@ -84847,6 +84847,227 @@
           }
         }
       }
+    },
+    "settings.app.terminalRightClickBehavior": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Right Click"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの右クリック"
+          }
+        }
+      }
+    },
+    "settings.app.terminalRightClickBehavior.optionContextMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Context Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストメニューを表示"
+          }
+        }
+      }
+    },
+    "settings.app.terminalRightClickBehavior.optionPaste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste from Clipboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードから貼り付け"
+          }
+        }
+      }
+    },
+    "settings.app.terminalRightClickBehavior.subtitleContextMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right click opens the terminal context menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックでターミナルのコンテキストメニューを開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalRightClickBehavior.subtitlePaste": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right click pastes from the clipboard inside the terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックでターミナル内にクリップボードの内容を貼り付けます。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickContextMenu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Right Click Opens Context Menu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押し右クリックでコンテキストメニューを開く"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickContextMenu.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding right click in a terminal opens the context menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル内で右クリックを長押しするとコンテキストメニューを開きます。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickContextMenu.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Holding right click keeps the paste behavior without opening a menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右クリックを長押ししてもメニューは開かず、貼り付け動作を維持します。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickDuration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Long Right Click Delay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長押し右クリックの遅延"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickDuration.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How long to hold right click before the context menu opens."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストメニューが開くまでに右クリックを長押しする時間です。"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickDuration.optionFast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast (0.20s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "速い (0.20秒)"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickDuration.optionDefault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default (0.30s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準 (0.30秒)"
+          }
+        }
+      }
+    },
+    "settings.app.terminalLongRightClickDuration.optionSlow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slow (0.45s)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遅い (0.45秒)"
+          }
+        }
+      }
     }
   }
 }

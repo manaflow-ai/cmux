@@ -4454,6 +4454,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeRetryQueued = false
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
+    private var rightClickLongPressWorkItem: DispatchWorkItem?
+    private var didTriggerContextMenuOnLongRightClick = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -6361,12 +6363,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDown(with event: NSEvent) {
         guard let surface = surface else { return }
+        let rightClickBehavior = TerminalRightClickSettings.behavior()
         if !ghostty_surface_mouse_captured(surface) {
+            if rightClickBehavior == .pasteFromClipboard {
+                requestPointerFocusRecovery()
+                window?.makeFirstResponder(self)
+                didTriggerContextMenuOnLongRightClick = false
+                armLongRightClickContextMenuIfNeeded(with: event)
+                return
+            }
             requestPointerFocusRecovery()
             super.rightMouseDown(with: event)
             return
         }
 
+        cancelLongRightClickContextMenu()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
@@ -6374,13 +6385,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
+    override func rightMouseDragged(with event: NSEvent) {
+        cancelLongRightClickContextMenu()
+        guard let surface = surface else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+    }
+
     override func rightMouseUp(with event: NSEvent) {
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
+            if TerminalRightClickSettings.behavior() == .pasteFromClipboard {
+                let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
+                cancelLongRightClickContextMenu()
+                didTriggerContextMenuOnLongRightClick = false
+                if !didTriggerContextMenu {
+                    paste(nil)
+                }
+                return
+            }
             super.rightMouseUp(with: event)
             return
         }
 
+        cancelLongRightClickContextMenu()
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
@@ -6407,6 +6435,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        if TerminalRightClickSettings.behavior() == .pasteFromClipboard {
+            return nil
+        }
+        return buildContextMenu(for: event)
+    }
+
+    private func buildContextMenu(for event: NSEvent) -> NSMenu? {
         guard let surface = surface else { return nil }
         if ghostty_surface_mouse_captured(surface) {
             return nil
@@ -6454,6 +6489,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         return menu
+    }
+
+    private func armLongRightClickContextMenuIfNeeded(with event: NSEvent) {
+        cancelLongRightClickContextMenu()
+        guard TerminalRightClickSettings.longPressContextMenuEnabled() else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard let menu = self.buildContextMenu(for: event) else { return }
+            self.didTriggerContextMenuOnLongRightClick = true
+            let locationInView = self.convert(event.locationInWindow, from: nil)
+            menu.popUp(positioning: nil, at: locationInView, in: self)
+        }
+        rightClickLongPressWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + TerminalRightClickSettings.longPressDuration(),
+            execute: workItem
+        )
+    }
+
+    private func cancelLongRightClickContextMenu() {
+        rightClickLongPressWorkItem?.cancel()
+        rightClickLongPressWorkItem = nil
     }
 
     private func canSplitCurrentSurface() -> Bool {
@@ -6604,6 +6661,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        cancelLongRightClickContextMenu()
         terminalSurface = nil
     }
 
