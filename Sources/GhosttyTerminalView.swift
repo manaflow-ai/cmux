@@ -4456,6 +4456,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var isFindEscapeSuppressionArmed = false
     private var rightClickLongPressWorkItem: DispatchWorkItem?
     private var didTriggerContextMenuOnLongRightClick = false
+    private var didRightMouseDrag = false
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -6368,6 +6369,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             if rightClickBehavior == .pasteFromClipboard {
                 requestPointerFocusRecovery()
                 window?.makeFirstResponder(self)
+                didRightMouseDrag = false
                 didTriggerContextMenuOnLongRightClick = false
                 armLongRightClickContextMenuIfNeeded(with: event)
                 return
@@ -6387,6 +6389,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDragged(with event: NSEvent) {
         cancelLongRightClickContextMenu()
+        didRightMouseDrag = true
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
@@ -6397,9 +6400,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if !ghostty_surface_mouse_captured(surface) {
             if TerminalRightClickSettings.behavior() == .pasteFromClipboard {
                 let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
+                let didDrag = didRightMouseDrag
                 cancelLongRightClickContextMenu()
                 didTriggerContextMenuOnLongRightClick = false
-                if !didTriggerContextMenu {
+                didRightMouseDrag = false
+                if !didTriggerContextMenu && !didDrag {
                     paste(nil)
                 }
                 return
