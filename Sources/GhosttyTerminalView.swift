@@ -4457,6 +4457,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var rightClickLongPressWorkItem: DispatchWorkItem?
     private var didTriggerContextMenuOnLongRightClick = false
     private var didRightMouseDrag = false
+    private var rightMouseDownLocation: NSPoint?
+    private var rightClickBehaviorForCurrentGesture: TerminalRightClickSettings.Behavior?
+    private static let rightClickDragCancelThreshold: CGFloat = 4
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -6122,13 +6125,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ = ghostty_surface_key(surface, keyEvent)
     }
 
-    private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+    private func modsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
-        if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
-        if event.modifierFlags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
-        if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
-        if event.modifierFlags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        if flags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
+        if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
+    }
+
+    private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        modsFromFlags(event.modifierFlags)
     }
 
     /// Consumed mods are modifiers that were used for text translation.
@@ -6365,11 +6372,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func rightMouseDown(with event: NSEvent) {
         guard let surface = surface else { return }
         let rightClickBehavior = TerminalRightClickSettings.behavior()
+        rightClickBehaviorForCurrentGesture = rightClickBehavior
         if !ghostty_surface_mouse_captured(surface) {
             if rightClickBehavior == .pasteFromClipboard {
                 requestPointerFocusRecovery()
                 window?.makeFirstResponder(self)
                 didRightMouseDrag = false
+                rightMouseDownLocation = convert(event.locationInWindow, from: nil)
                 didTriggerContextMenuOnLongRightClick = false
                 armLongRightClickContextMenuIfNeeded(with: event)
                 return
@@ -6388,32 +6397,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseDragged(with event: NSEvent) {
-        cancelLongRightClickContextMenu()
         didRightMouseDrag = true
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
+        if let down = rightMouseDownLocation {
+            let dx = point.x - down.x
+            let dy = point.y - down.y
+            let distance = hypot(dx, dy)
+            if distance > Self.rightClickDragCancelThreshold {
+                cancelLongRightClickContextMenu()
+            }
+        }
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
     }
 
     override func rightMouseUp(with event: NSEvent) {
         guard let surface = surface else { return }
+        let rightClickBehavior = rightClickBehaviorForCurrentGesture ?? TerminalRightClickSettings.behavior()
         if !ghostty_surface_mouse_captured(surface) {
-            if TerminalRightClickSettings.behavior() == .pasteFromClipboard {
+            if rightClickBehavior == .pasteFromClipboard {
                 let didTriggerContextMenu = didTriggerContextMenuOnLongRightClick
                 let didDrag = didRightMouseDrag
                 cancelLongRightClickContextMenu()
                 didTriggerContextMenuOnLongRightClick = false
                 didRightMouseDrag = false
+                rightMouseDownLocation = nil
+                rightClickBehaviorForCurrentGesture = nil
                 if !didTriggerContextMenu && !didDrag {
                     paste(nil)
                 }
                 return
             }
+            rightClickBehaviorForCurrentGesture = nil
             super.rightMouseUp(with: event)
             return
         }
 
         cancelLongRightClickContextMenu()
+        rightClickBehaviorForCurrentGesture = nil
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
     }
 
@@ -6440,13 +6461,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        if TerminalRightClickSettings.behavior() == .pasteFromClipboard {
-            return nil
-        }
         return buildContextMenu(for: event)
     }
 
-    private func buildContextMenu(for event: NSEvent) -> NSMenu? {
+    private func buildContextMenu(
+        for event: NSEvent,
+        modifierFlags: NSEvent.ModifierFlags? = nil
+    ) -> NSMenu? {
         guard let surface = surface else { return nil }
         if ghostty_surface_mouse_captured(surface) {
             return nil
@@ -6454,24 +6475,37 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, modsFromEvent(event))
+        let mods = modsFromFlags(modifierFlags ?? event.modifierFlags)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, mods)
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RIGHT, mods)
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
-            let flashItem = menu.addItem(withTitle: "Trigger Flash", action: #selector(triggerFlash(_:)), keyEquivalent: "")
+            let flashItem = menu.addItem(
+                withTitle: String(localized: "terminal.contextMenu.triggerFlash", defaultValue: "Trigger Flash"),
+                action: #selector(triggerFlash(_:)),
+                keyEquivalent: ""
+            )
             flashItem.target = self
             menu.addItem(.separator())
         }
         if ghostty_surface_has_selection(surface) {
-            let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+            let item = menu.addItem(
+                withTitle: String(localized: "terminal.contextMenu.copy", defaultValue: "Copy"),
+                action: #selector(copy(_:)),
+                keyEquivalent: ""
+            )
             item.target = self
         }
-        let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        let pasteItem = menu.addItem(
+            withTitle: String(localized: "terminal.contextMenu.paste", defaultValue: "Paste"),
+            action: #selector(paste(_:)),
+            keyEquivalent: ""
+        )
         pasteItem.target = self
         menu.addItem(.separator())
         let splitHorizontallyItem = menu.addItem(
-            withTitle: "Split Horizontally",
+            withTitle: String(localized: "terminal.contextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
             action: #selector(splitHorizontally(_:)),
             keyEquivalent: "d"
         )
@@ -6483,7 +6517,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 
         let splitVerticallyItem = menu.addItem(
-            withTitle: "Split Vertically",
+            withTitle: String(localized: "terminal.contextMenu.splitVertically", defaultValue: "Split Vertically"),
             action: #selector(splitVertically(_:)),
             keyEquivalent: "d"
         )
@@ -6501,7 +6535,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard TerminalRightClickSettings.longPressContextMenuEnabled() else { return }
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard let menu = self.buildContextMenu(for: event) else { return }
+            let currentFlags = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard let menu = self.buildContextMenu(for: event, modifierFlags: currentFlags) else { return }
             self.didTriggerContextMenuOnLongRightClick = true
             let locationInView = self.convert(event.locationInWindow, from: nil)
             menu.popUp(positioning: nil, at: locationInView, in: self)
