@@ -10352,9 +10352,13 @@ extension Workspace: BonsplitDelegate {
             return true
         }
 
-        // Editor panels: block close if dirty (auto-save or prompt)
+        // Editor panels: auto-save before close, block if save fails
         if let editorPanel = panels[panelId] as? EditorPanel, editorPanel.isDirty {
             editorPanel.save()
+            if editorPanel.saveError != nil {
+                // Save failed — don't close, user will see error
+                return false
+            }
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
