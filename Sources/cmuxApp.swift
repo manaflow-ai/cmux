@@ -5963,6 +5963,9 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        terminalRightClickBehavior = TerminalRightClickSettings.defaultBehavior.rawValue
+        terminalRightClickLongPressContextMenuEnabled = TerminalRightClickSettings.defaultLongPressContextMenuEnabled
+        terminalRightClickLongPressDuration = TerminalRightClickSettings.defaultLongPressDuration
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
