@@ -118,6 +118,7 @@ enum GitStatusProvider {
     }
 
     private static func debugLog(_ msg: String) {
+        #if DEBUG
         let line = "\(Date()) [GitStatus] \(msg)\n"
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: "/tmp/cmux-explorer-debug.log") {
@@ -130,6 +131,7 @@ enum GitStatusProvider {
                 FileManager.default.createFile(atPath: "/tmp/cmux-explorer-debug.log", contents: data)
             }
         }
+        #endif
     }
 
     private static func runGit(in directory: String, arguments: [String]) -> String? {

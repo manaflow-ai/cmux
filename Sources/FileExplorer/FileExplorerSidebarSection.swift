@@ -54,6 +54,7 @@ struct FileExplorerSidebarSection: View {
 
     /// Write debug info to a file so we can read it from CLI.
     private func debugLog(_ msg: String) {
+        #if DEBUG
         let line = "\(Date()) \(msg)\n"
         if let data = line.data(using: .utf8) {
             if FileManager.default.fileExists(atPath: "/tmp/cmux-explorer-debug.log") {
@@ -66,6 +67,7 @@ struct FileExplorerSidebarSection: View {
                 FileManager.default.createFile(atPath: "/tmp/cmux-explorer-debug.log", contents: data)
             }
         }
+        #endif
     }
 
     /// Force-sync the file explorer root to the workspace's current directory.
