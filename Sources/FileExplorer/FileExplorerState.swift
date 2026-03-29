@@ -145,6 +145,7 @@ final class FileExplorerState: ObservableObject {
     }
 
     private func debugLog(_ msg: String) {
+        #if DEBUG
         let line = "\(Date()) \(msg)\n"
         let logPath = "/tmp/cmux-explorer-debug.log"
         if let data = line.data(using: .utf8) {
@@ -158,6 +159,7 @@ final class FileExplorerState: ObservableObject {
                 FileManager.default.createFile(atPath: logPath, contents: data)
             }
         }
+        #endif
     }
 
     /// Expand a directory if it's currently collapsed (and lazy-load children).

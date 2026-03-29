@@ -47,16 +47,22 @@ final class EditorPanel: Panel, ObservableObject {
         self.filePath = filePath
         self.displayTitle = (filePath as NSString).lastPathComponent
 
+        #if DEBUG
         NSLog("EditorPanel: init for \(filePath)")
+        #endif
 
         do {
             let text = try String(contentsOfFile: filePath, encoding: .utf8)
             self.content = text
             self.savedContent = text
             self.isFileUnavailable = false
+            #if DEBUG
             NSLog("EditorPanel: loaded \(text.count) chars from \(filePath)")
+            #endif
         } catch {
+            #if DEBUG
             NSLog("EditorPanel: FAILED to read \(filePath): \(error)")
+            #endif
             self.isFileUnavailable = true
         }
     }
@@ -82,15 +88,21 @@ final class EditorPanel: Panel, ObservableObject {
     // MARK: - Save
 
     func save() {
+        #if DEBUG
         NSLog("EditorPanel: save() called for \(filePath)")
+        #endif
         do {
             try content.write(toFile: filePath, atomically: true, encoding: .utf8)
             savedContent = content
             isDirty = false
             updateDisplayTitle()
+            #if DEBUG
             NSLog("EditorPanel: saved OK (\(content.count) chars)")
+            #endif
         } catch {
+            #if DEBUG
             NSLog("EditorPanel: save FAILED: \(error)")
+            #endif
         }
     }
 
