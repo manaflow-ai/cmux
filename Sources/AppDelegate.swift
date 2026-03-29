@@ -1684,8 +1684,7 @@ func shouldSubmitCommandPaletteWithReturn(
 }
 
 func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
-    guard let editor = window.firstResponder as? NSTextView,
-          editor.isFieldEditor else {
+    guard let editor = window.firstResponder as? NSTextView else {
         return false
     }
     return editor.hasMarkedText()
