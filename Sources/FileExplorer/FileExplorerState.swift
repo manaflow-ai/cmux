@@ -33,6 +33,12 @@ final class FileExplorerState: ObservableObject {
     /// Path of the file currently open in the editor, used to highlight the row.
     @Published var currentEditingFilePath: String?
 
+    /// Node ID to scroll to after reveal (relative path like "/daemon/remote/go.mod").
+    @Published var scrollToNodeId: String?
+
+    /// Brief message shown as a toast when reveal can't complete (e.g., file outside root).
+    @Published var revealMessage: String?
+
     /// Search query for filtering the file tree. Empty = no filter.
     @Published var searchQuery: String = "" {
         didSet {
@@ -108,21 +114,50 @@ final class FileExplorerState: ObservableObject {
 
     /// Expand all parent directories to reveal a file by its absolute path.
     func revealFile(at absolutePath: String) {
-        guard let rootURL else { return }
+        guard let rootURL else {
+            debugLog("[reveal] no rootURL, aborting")
+            return
+        }
         let rootPath = rootURL.path
-        guard absolutePath.hasPrefix(rootPath + "/") else { return }
+        debugLog("[reveal] absolutePath=\(absolutePath) rootPath=\(rootPath)")
+        guard absolutePath.hasPrefix(rootPath + "/") else {
+            debugLog("[reveal] path doesn't start with root, showing message")
+            revealMessage = String(localized: "fileExplorer.revealOutsideRoot", defaultValue: "File is outside the current folder")
+            return
+        }
 
         // Get the path components between root and the file
         let relativePath = String(absolutePath.dropFirst(rootPath.count))
         let components = relativePath.split(separator: "/").dropLast() // directories only
+        debugLog("[reveal] relativePath=\(relativePath) dirComponents=\(Array(components))")
 
         // Expand each directory level
         var dirPath = ""
         for component in components {
             dirPath += "/" + component
+            debugLog("[reveal] expanding dirPath=\(dirPath)")
             expandIfCollapsed(nodeId: dirPath, nodes: &rootNodes, root: rootURL)
         }
         currentEditingFilePath = absolutePath
+        // Trigger scroll to the file node
+        debugLog("[reveal] scrollToNodeId=\(relativePath)")
+        scrollToNodeId = relativePath
+    }
+
+    private func debugLog(_ msg: String) {
+        let line = "\(Date()) \(msg)\n"
+        let logPath = "/tmp/cmux-explorer-debug.log"
+        if let data = line.data(using: .utf8) {
+            if FileManager.default.fileExists(atPath: logPath) {
+                if let handle = FileHandle(forWritingAtPath: logPath) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    handle.closeFile()
+                }
+            } else {
+                FileManager.default.createFile(atPath: logPath, contents: data)
+            }
+        }
     }
 
     /// Expand a directory if it's currently collapsed (and lazy-load children).
