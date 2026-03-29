@@ -20,6 +20,9 @@ final class SaveableTextView: NSTextView {
                 self.onSave?()
                 return nil
             }
+        } else if window == nil, let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
         }
     }
 

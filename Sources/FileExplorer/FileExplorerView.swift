@@ -386,6 +386,7 @@ struct FileExplorerDivider: View {
 
     @State private var isDragging = false
     @State private var isHovered = false
+    @State private var dragStartPosition: CGFloat = 0
 
     var body: some View {
         Rectangle()
@@ -407,8 +408,11 @@ struct FileExplorerDivider: View {
             .gesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
-                        isDragging = true
-                        let newPosition = position + (value.translation.height / totalHeight)
+                        if !isDragging {
+                            dragStartPosition = position
+                            isDragging = true
+                        }
+                        let newPosition = dragStartPosition + (value.translation.height / totalHeight)
                         position = min(maxFraction, max(minFraction, newPosition))
                     }
                     .onEnded { _ in

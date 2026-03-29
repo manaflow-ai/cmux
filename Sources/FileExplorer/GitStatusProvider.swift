@@ -146,9 +146,9 @@ enum GitStatusProvider {
 
         do {
             try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: data, encoding: .utf8)
         } catch {
             return nil
