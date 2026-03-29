@@ -8,12 +8,14 @@ This fork adds a file explorer sidebar and native text editor to CMUX. See `Sour
 - Split sidebar: file tree below workspace tabs with draggable divider
 - CWD auto-sync: file tree follows terminal's working directory (1s polling)
 - File search: magnifying glass filters tree recursively by name
+- Git status colors: modified (orange), added (green), deleted (red), renamed (blue), untracked (gray)
 - Native editor: NSTextView with syntax highlighting, Cmd+S save, dark mode
 - Bracket matching, tab-to-spaces (2), auto-indent on Enter
 - Double-click opens in Sublime Text; single-click opens inline editor
-- Current file highlighted in explorer
+- Reveal file: location button scrolls explorer to active editor tab's file
+- Drag file from explorer to terminal pastes shell-escaped path
 
-**New directories:** `Sources/FileExplorer/` (6 files), plus `EditorPanel.swift`, `EditorPanelView.swift`, `SaveableTextView.swift` in `Sources/Panels/`
+**New directories:** `Sources/FileExplorer/` (7 files), plus `EditorPanel.swift`, `EditorPanelView.swift`, `SaveableTextView.swift` in `Sources/Panels/`
 
 **Modified files:** `Panel.swift` (added `.editor` type), `PanelContentView.swift` (routing), `Workspace.swift` (factory + subscriptions), `ContentView.swift` (sidebar integration), `SessionPersistence.swift` (editor snapshot), `UpdateTitlebarAccessory.swift` (toggle button)
 
