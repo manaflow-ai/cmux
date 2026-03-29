@@ -158,7 +158,9 @@ struct FileExplorerSidebarSection: View {
         if let editor = ProcessInfo.processInfo.environment["EDITOR"], !editor.isEmpty {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [editor, url.path]
+            var parts = editor.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+            parts.append(url.path)
+            process.arguments = parts
             try? process.run()
         } else {
             NSWorkspace.shared.open(url)

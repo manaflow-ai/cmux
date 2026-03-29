@@ -90,6 +90,7 @@ enum SyntaxHighlighter {
         // 6. Comments — override everything (applied last)
         applyPattern("//[^\n]*", to: result, in: fullRange, color: p.comment)
         applyPattern("#[^\n]*", to: result, in: fullRange, color: p.comment,
+                     fileExtension: fileExtension,
                      enabledFor: ["py", "rb", "sh", "bash", "zsh", "yaml", "yml", "toml"])
         // Block comments
         applyMultilinePattern("/\\*[\\s\\S]*?\\*/", to: result, in: fullRange, color: p.comment)
@@ -147,8 +148,10 @@ enum SyntaxHighlighter {
         to result: NSMutableAttributedString,
         in range: NSRange,
         color: NSColor,
+        fileExtension: String = "",
         enabledFor extensions: [String]? = nil
     ) {
+        if let extensions, !extensions.isEmpty, !extensions.contains(fileExtension.lowercased()) { return }
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return }
         regex.enumerateMatches(in: result.string, options: [], range: range) { match, _, _ in
             if let matchRange = match?.range {

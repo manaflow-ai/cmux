@@ -14,6 +14,10 @@ enum BracketMatcher {
 
         let nsString = string as NSString
 
+        // Clear any previous bracket highlights
+        let fullRange = NSRange(location: 0, length: nsString.length)
+        textView.textStorage?.removeAttribute(.backgroundColor, range: fullRange)
+
         // Check character at cursor and before cursor
         if let match = findMatch(in: nsString, at: position) {
             applyHighlight(to: textView, at: match.0, and: match.1)
@@ -25,8 +29,9 @@ enum BracketMatcher {
     /// Find matching bracket starting from the given character position.
     /// Returns (bracketPos, matchPos) or nil.
     private static func findMatch(in string: NSString, at pos: Int) -> (Int, Int)? {
-        guard pos >= 0, pos < string.length else { return nil }
-        let char = Character(UnicodeScalar(string.character(at: pos))!)
+        guard pos >= 0, pos < string.length,
+              let scalar = UnicodeScalar(string.character(at: pos)) else { return nil }
+        let char = Character(scalar)
 
         if let closing = openBrackets[char] {
             // Scan forward for matching close
@@ -45,7 +50,8 @@ enum BracketMatcher {
     private static func scanForward(in string: NSString, from start: Int, open: Character, close: Character) -> Int? {
         var depth = 1
         for i in start..<string.length {
-            let c = Character(UnicodeScalar(string.character(at: i))!)
+            guard let scalar = UnicodeScalar(string.character(at: i)) else { continue }
+            let c = Character(scalar)
             if c == open { depth += 1 }
             else if c == close { depth -= 1 }
             if depth == 0 { return i }
@@ -57,7 +63,8 @@ enum BracketMatcher {
         var depth = 1
         var i = start
         while i >= 0 {
-            let c = Character(UnicodeScalar(string.character(at: i))!)
+            guard let scalar = UnicodeScalar(string.character(at: i)) else { i -= 1; continue }
+            let c = Character(scalar)
             if c == close { depth += 1 }
             else if c == open { depth -= 1 }
             if depth == 0 { return i }
