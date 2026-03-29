@@ -28,6 +28,9 @@ final class EditorPanel: Panel, ObservableObject {
     /// Whether the file was loaded successfully.
     @Published private(set) var isFileUnavailable: Bool = false
 
+    /// Error message from the last failed save, cleared on next successful save.
+    @Published private(set) var saveError: String?
+
     /// Token incremented to trigger focus flash animation.
     @Published private(set) var focusFlashToken: Int = 0
 
@@ -95,11 +98,13 @@ final class EditorPanel: Panel, ObservableObject {
             try content.write(toFile: filePath, atomically: true, encoding: .utf8)
             savedContent = content
             isDirty = false
+            saveError = nil
             updateDisplayTitle()
             #if DEBUG
             NSLog("EditorPanel: saved OK (\(content.count) chars)")
             #endif
         } catch {
+            saveError = error.localizedDescription
             #if DEBUG
             NSLog("EditorPanel: save FAILED: \(error)")
             #endif

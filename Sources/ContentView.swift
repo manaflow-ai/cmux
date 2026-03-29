@@ -8562,10 +8562,16 @@ struct VerticalTabsSidebar: View {
         VStack(spacing: 0) {
             GeometryReader { proxy in
                 let totalHeight = proxy.size.height
+                let dividerHeight: CGFloat = 8
+                let minimumExplorerHeight: CGFloat = 80
+                let maxDividerPos = totalHeight > minimumExplorerHeight + dividerHeight
+                    ? (totalHeight - minimumExplorerHeight - dividerHeight) / totalHeight
+                    : 0.5
+                let clampedPos = min(max(fileExplorerState.dividerPosition, 0.1), maxDividerPos)
                 let tabListHeight = fileExplorerState.isVisible
-                    ? totalHeight * fileExplorerState.dividerPosition
+                    ? totalHeight * clampedPos
                     : totalHeight
-                let explorerHeight = totalHeight - tabListHeight
+                let explorerHeight = max(0, totalHeight - tabListHeight - dividerHeight)
 
                 VStack(spacing: 0) {
                     // MARK: - Tab list section
@@ -8674,7 +8680,7 @@ struct VerticalTabsSidebar: View {
 
                         FileExplorerSidebarSection(
                             explorerState: fileExplorerState,
-                            height: max(explorerHeight - 8, 80)  // 8px for divider, 80px minimum
+                            height: explorerHeight
                         )
                     }
                 }
@@ -9654,7 +9660,11 @@ private struct SidebarFooterButtons: View {
                     .font(.system(size: 12))
             }
             .buttonStyle(SidebarFooterIconButtonStyle())
+            .frame(width: 22, height: 22, alignment: .center)
             .help(fileExplorerState.isVisible
+                ? String(localized: "sidebar.fileExplorer.hide", defaultValue: "Hide File Explorer")
+                : String(localized: "sidebar.fileExplorer.show", defaultValue: "Show File Explorer"))
+            .accessibilityLabel(fileExplorerState.isVisible
                 ? String(localized: "sidebar.fileExplorer.hide", defaultValue: "Hide File Explorer")
                 : String(localized: "sidebar.fileExplorer.show", defaultValue: "Show File Explorer"))
             .accessibilityIdentifier("sidebarFooter.toggleFileExplorer")
