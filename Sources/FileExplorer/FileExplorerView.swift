@@ -27,7 +27,7 @@ struct FileExplorerView: View {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 20))
                             .foregroundStyle(.tertiary)
-                        Text("No matches")
+                        Text(String(localized: "fileExplorer.noMatches", defaultValue: "No matches"))
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
@@ -99,7 +99,7 @@ private struct FileExplorerHeader: View {
     var body: some View {
         VStack(spacing: 0) {
         HStack(spacing: 4) {
-            Text("FILES")
+            Text(String(localized: "fileExplorer.header", defaultValue: "FILES"))
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 12)
@@ -112,7 +112,7 @@ private struct FileExplorerHeader: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Sync to working directory")
+            .help(String(localized: "fileExplorer.syncToCwd", defaultValue: "Sync to working directory"))
 
             Button(action: onRefresh) {
                 Image(systemName: "arrow.clockwise")
@@ -120,7 +120,7 @@ private struct FileExplorerHeader: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .help("Refresh file tree")
+            .help(String(localized: "fileExplorer.refresh", defaultValue: "Refresh file tree"))
 
             Button(action: { withAnimation { showSearchField.toggle() } }) {
                 Image(systemName: "magnifyingglass")
@@ -128,22 +128,22 @@ private struct FileExplorerHeader: View {
                     .foregroundStyle(showSearchField ? .primary : .secondary)
             }
             .buttonStyle(.plain)
-            .help("Search files")
+            .help(String(localized: "fileExplorer.search", defaultValue: "Search files"))
 
             Menu {
-                Toggle("Show Hidden Files", isOn: $showHidden)
+                Toggle(String(localized: "fileExplorer.showHidden", defaultValue: "Show Hidden Files"), isOn: $showHidden)
                 if let rootURL {
                     Divider()
-                    Button("Reveal in Finder") {
+                    Button(String(localized: "fileExplorer.revealInFinder", defaultValue: "Reveal in Finder")) {
                         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: rootURL.path)
                     }
-                    Button("Copy Path") {
+                    Button(String(localized: "fileExplorer.copyPath", defaultValue: "Copy Path")) {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(rootURL.path, forType: .string)
                     }
                 }
                 Divider()
-                Text("Git Status Colors")
+                Text(String(localized: "fileExplorer.gitStatusColors", defaultValue: "Git Status Colors"))
                 Button("⚪ Committed") {}
                 Button("🟠 Modified") {}
                 Button("🟢 Added") {}
@@ -175,7 +175,7 @@ private struct FileExplorerHeader: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
-                TextField("Search files...", text: $searchQuery)
+                TextField(String(localized: "fileExplorer.searchPlaceholder", defaultValue: "Search files..."), text: $searchQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 11))
                 if !searchQuery.isEmpty {
@@ -206,7 +206,7 @@ private struct FileExplorerEmptyState: View {
             Image(systemName: "folder")
                 .font(.system(size: 20))
                 .foregroundStyle(.tertiary)
-            Text("No files")
+            Text(String(localized: "fileExplorer.noFiles", defaultValue: "No files"))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
         }
@@ -353,19 +353,19 @@ private struct FileExplorerContextMenu: View {
 
     var body: some View {
         if !node.isDirectory {
-            Button("Open in Default Editor") {
+            Button(String(localized: "fileExplorer.openInDefaultEditor", defaultValue: "Open in Default Editor")) {
                 NSWorkspace.shared.open(node.url)
             }
         }
-        Button("Reveal in Finder") {
+        Button(String(localized: "fileExplorer.revealInFinder", defaultValue: "Reveal in Finder")) {
             NSWorkspace.shared.activateFileViewerSelecting([node.url])
         }
         Divider()
-        Button("Copy Path") {
+        Button(String(localized: "fileExplorer.copyPath", defaultValue: "Copy Path")) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(node.url.path, forType: .string)
         }
-        Button("Copy Relative Path") {
+        Button(String(localized: "fileExplorer.copyRelativePath", defaultValue: "Copy Relative Path")) {
             let name = node.id.hasPrefix("/") ? String(node.id.dropFirst()) : node.id
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(name, forType: .string)

@@ -8473,6 +8473,8 @@ final class Workspace: Identifiable, ObservableObject {
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
+        } else if let editorPanel = detached.panel as? EditorPanel {
+            installEditorPanelSubscription(editorPanel)
         } else if let browserPanel = detached.panel as? BrowserPanel {
             browserPanel.reattachToWorkspace(
                 id,
@@ -10344,8 +10346,21 @@ extension Workspace: BonsplitDelegate {
         }
 
         // Check if the panel needs close confirmation
-        guard let panelId = panelIdFromSurfaceId(tab.id),
-              let terminalPanel = terminalPanel(for: panelId) else {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else {
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            recordPostCloseSelection()
+            return true
+        }
+
+        // Editor panels: block close if dirty (auto-save or prompt)
+        if let editorPanel = panels[panelId] as? EditorPanel, editorPanel.isDirty {
+            editorPanel.save()
+            stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
+            recordPostCloseSelection()
+            return true
+        }
+
+        guard let terminalPanel = terminalPanel(for: panelId) else {
             stageClosedBrowserRestoreSnapshotIfNeeded(for: tab, inPane: pane)
             recordPostCloseSelection()
             return true
