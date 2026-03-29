@@ -5149,31 +5149,6 @@ enum SidebarBranchOrdering {
         return cleaned.isEmpty ? nil : cleaned
     }
 
-    private static func preferredDisplayedDirectory(
-        existing: String?,
-        replacement: String?,
-        homeDirectoryForTildeExpansion: String?
-    ) -> String? {
-        guard let replacement = normalizedDirectory(replacement) else { return existing }
-        guard let existing = normalizedDirectory(existing) else { return replacement }
-
-        let existingUsesTilde = relativePathFromTilde(existing) != nil
-        let replacementUsesTilde = relativePathFromTilde(replacement) != nil
-        if existingUsesTilde != replacementUsesTilde {
-            return replacementUsesTilde ? existing : replacement
-        }
-
-        if canonicalDirectoryKey(existing, homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion)
-            == canonicalDirectoryKey(
-                replacement,
-                homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
-            return existing
-        }
-
-        return replacement
-    }
-
     static func orderedPaneIds(tree: ExternalTreeNode) -> [String] {
         switch tree {
         case .pane(let pane):
@@ -5353,34 +5328,21 @@ enum SidebarBranchOrdering {
                 ? (panelBranches[panelId]?.isDirty ?? false)
                 : defaultBranchDirty
 
-            let key: EntryKey
-            if let directoryKey = canonicalDirectoryKey(
+            let canonicalDir = canonicalDirectoryKey(
                 directory,
                 homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-            ) {
-                // Keep one line per directory and allow the latest branch state to overwrite.
-                key = EntryKey(directory: directoryKey, branch: nil)
-            } else {
-                key = EntryKey(directory: nil, branch: branch)
-            }
+            )
+            // Key by both branch and canonical directory so each unique (branch, directory)
+            // pair gets its own vertical row. Two panels with the same branch+directory
+            // are merged; panels sharing only a directory but on different branches each
+            // get their own line.
+            let key = EntryKey(directory: canonicalDir, branch: branch)
 
             guard key.directory != nil || key.branch != nil else { continue }
 
             if var existing = entries[key] {
-                if key.directory != nil {
-                    if let branch {
-                        existing.branch = branch
-                        existing.isDirty = panelDirty
-                    } else if existing.branch == nil {
-                        existing.isDirty = panelDirty
-                    }
-                    existing.directory = preferredDisplayedDirectory(
-                        existing: existing.directory,
-                        replacement: directory,
-                        homeDirectoryForTildeExpansion: homeDirectoryForTildeExpansion
-                    )
-                    entries[key] = existing
-                } else if panelDirty {
+                // Same branch+directory: just propagate the dirty flag.
+                if panelDirty {
                     existing.isDirty = true
                     entries[key] = existing
                 }
