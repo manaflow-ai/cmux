@@ -2104,6 +2104,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
         case "surface.split":
             return v2Result(id: id, self.v2SurfaceSplit(params: params))
+        case "surface.split_sized":
+            return v2Result(id: id, self.v2SurfaceSplitSized(params: params))
         case "surface.create":
             return v2Result(id: id, self.v2SurfaceCreate(params: params))
         case "surface.close":
@@ -2152,6 +2154,12 @@ class TerminalController {
             return v2Result(id: id, self.v2PaneJoin(params: params))
         case "pane.last":
             return v2Result(id: id, self.v2PaneLast(params: params))
+
+        // Panel background state (FR6)
+        case "panel.mark_background":
+            return v2Result(id: id, self.v2PanelMarkBackground(params: params))
+        case "panel.mark_foreground":
+            return v2Result(id: id, self.v2PanelMarkForeground(params: params))
 
         // Notifications
         case "notification.create":
@@ -2458,6 +2466,7 @@ class TerminalController {
             "surface.current",
             "surface.focus",
             "surface.split",
+            "surface.split_sized",
             "surface.create",
             "surface.close",
             "surface.drag_to_split",
@@ -2482,6 +2491,8 @@ class TerminalController {
             "pane.break",
             "pane.join",
             "pane.last",
+            "panel.mark_background",
+            "panel.mark_foreground",
             "notification.create",
             "notification.create_for_surface",
             "notification.create_for_target",
@@ -4653,6 +4664,79 @@ class TerminalController {
         }
         return result
     }
+
+    /// Like `surface.split` but accepts a `ratio` parameter (0.0–1.0) that sets the divider
+    /// position after the split. The existing pane receives `ratio` of the available space
+    /// and the new pane receives `1 - ratio`. Defaults to 0.6 (existing pane keeps 60%).
+    private func v2SurfaceSplitSized(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let directionStr = v2String(params, "direction"),
+              let direction = parseSplitDirection(directionStr) else {
+            return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
+        }
+
+        let ratio: CGFloat
+        if params["ratio"] != nil {
+            guard let rawRatio = params["ratio"] as? Double else {
+                return .err(code: "invalid_params", message: "ratio must be a number between 0 and 1", data: nil)
+            }
+            guard rawRatio > 0.0 && rawRatio < 1.0 else {
+                return .err(code: "invalid_params", message: "ratio must be between 0 and 1 exclusive", data: nil)
+            }
+            ratio = CGFloat(rawRatio)
+        } else {
+            ratio = 0.6
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let targetSurfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard ws.panels[targetSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": targetSurfaceId.uuidString])
+                return
+            }
+
+            if let newId = tabManager.newSplit(
+                tabId: ws.id,
+                surfaceId: targetSurfaceId,
+                direction: direction,
+                focus: v2FocusAllowed(),
+                initialDividerRatio: ratio
+            ) {
+                let paneUUID = ws.paneId(forPanelId: newId)?.id
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(paneUUID?.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                    "surface_id": newId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: newId),
+                    "type": v2OrNull(ws.panels[newId]?.panelType.rawValue),
+                    "ratio": Double(max(0.01, min(0.99, ratio)))
+                ])
+            } else {
+                result = .err(code: "internal_error", message: "Failed to create split", data: nil)
+            }
+        }
+        return result
+    }
+
     private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6464,6 +6548,100 @@ class TerminalController {
                 "surface_id": v2OrNull(selectedSurfaceId?.uuidString),
                 "surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceId)
             ])
+        }
+        return result
+    }
+
+    // MARK: - V2 Panel Background State Methods (FR6)
+
+    /// `panel.mark_background` — marks a panel as a long-running/background process.
+    /// The entire body (workspace scan + badge mutation) executes on the main thread via `v2MainSync`.
+    private func v2PanelMarkBackground(params: [String: Any]) -> V2CallResult {
+        guard let panelId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id / panel_id", data: nil)
+        }
+        // Resolve the tab manager that owns this panel. v2ResolveTabManager routes by
+        // window_id/workspace_id/surface_id/tab_id; if only panel_id is supplied it may
+        // return the active window's manager even when the panel lives in another window.
+        // Fall back to a cross-window lookup via locateSurface so non-active windows are
+        // correctly handled.
+        let tabManager: TabManager?
+        if let resolved = v2ResolveTabManager(params: params),
+           resolved.tabs.contains(where: { $0.panels[panelId] != nil }) {
+            tabManager = resolved
+        } else {
+            tabManager = v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: panelId)?.tabManager }
+        }
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Panel not found", data: nil)
+        v2MainSync {
+            for workspace in tabManager.tabs {
+                if workspace.panels[panelId] != nil {
+                    workspace.markBackground(panelId: panelId)
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": workspace.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                        "surface_id": panelId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: panelId),
+                        "panel_id": panelId.uuidString,
+                        "panel_ref": v2Ref(kind: .surface, uuid: panelId),
+                        "is_background": true
+                    ])
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    /// `panel.mark_foreground` — removes the background mark from a panel.
+    /// The entire body (workspace scan + badge mutation) executes on the main thread via `v2MainSync`.
+    private func v2PanelMarkForeground(params: [String: Any]) -> V2CallResult {
+        guard let panelId = v2UUID(params, "surface_id") ?? v2UUID(params, "panel_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id / panel_id", data: nil)
+        }
+        // Resolve the tab manager that owns this panel. v2ResolveTabManager routes by
+        // window_id/workspace_id/surface_id/tab_id; if only panel_id is supplied it may
+        // return the active window's manager even when the panel lives in another window.
+        // Fall back to a cross-window lookup via locateSurface so non-active windows are
+        // correctly handled.
+        let tabManager: TabManager?
+        if let resolved = v2ResolveTabManager(params: params),
+           resolved.tabs.contains(where: { $0.panels[panelId] != nil }) {
+            tabManager = resolved
+        } else {
+            tabManager = v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: panelId)?.tabManager }
+        }
+        guard let tabManager else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Panel not found", data: nil)
+        v2MainSync {
+            for workspace in tabManager.tabs {
+                if workspace.panels[panelId] != nil {
+                    workspace.markForeground(panelId: panelId)
+                    let windowId = v2ResolveWindowId(tabManager: tabManager)
+                    result = .ok([
+                        "window_id": v2OrNull(windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: windowId),
+                        "workspace_id": workspace.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                        "surface_id": panelId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: panelId),
+                        "panel_id": panelId.uuidString,
+                        "panel_ref": v2Ref(kind: .surface, uuid: panelId),
+                        "is_background": false
+                    ])
+                    return
+                }
+            }
         }
         return result
     }

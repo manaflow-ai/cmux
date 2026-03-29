@@ -522,7 +522,7 @@ final class BrowserProfileStore: ObservableObject {
 
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
-    static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
+    static let defaultOpenTerminalLinksInCmuxBrowser: Bool = false
 
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
@@ -531,7 +531,7 @@ enum BrowserLinkOpenSettings {
     static let defaultOpenSidebarPortLinksInCmuxBrowser: Bool = true
 
     static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
-    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
+    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = false
 
     static let browserHostWhitelistKey = "browserHostWhitelist"
     static let defaultBrowserHostWhitelist: String = ""

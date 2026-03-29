@@ -5170,6 +5170,22 @@ struct ContentView: View {
             return .toggleSplitZoom
         case "palette.triggerFlash":
             return .triggerFlash
+        case "palette.focusPaneLeft":
+            return .focusLeft
+        case "palette.focusPaneRight":
+            return .focusRight
+        case "palette.focusPaneUp":
+            return .focusUp
+        case "palette.focusPaneDown":
+            return .focusDown
+        case "palette.newGroup":
+            return .newGroup
+        case "palette.toggleGroupCollapse":
+            return .toggleGroupCollapse
+        case "palette.markBackground":
+            return .markBackground
+        case "palette.markForeground":
+            return .markForeground
         default:
             return nil
         }
@@ -6009,6 +6025,85 @@ struct ContentView: View {
             )
         }
 
+        // --- Spatial navigation: focus pane movement ---
+        let splitLayoutSubtitle = constant(String(localized: "command.splitLayout.subtitle", defaultValue: "Split Navigation"))
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.focusPaneLeft",
+                title: constant(String(localized: "command.focusPaneLeft.title", defaultValue: "Focus Pane Left")),
+                subtitle: splitLayoutSubtitle,
+                keywords: ["focus", "pane", "left", "split", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.focusPaneRight",
+                title: constant(String(localized: "command.focusPaneRight.title", defaultValue: "Focus Pane Right")),
+                subtitle: splitLayoutSubtitle,
+                keywords: ["focus", "pane", "right", "split", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.focusPaneUp",
+                title: constant(String(localized: "command.focusPaneUp.title", defaultValue: "Focus Pane Up")),
+                subtitle: splitLayoutSubtitle,
+                keywords: ["focus", "pane", "up", "split", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.focusPaneDown",
+                title: constant(String(localized: "command.focusPaneDown.title", defaultValue: "Focus Pane Down")),
+                subtitle: splitLayoutSubtitle,
+                keywords: ["focus", "pane", "down", "split", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.workspaceHasSplits) }
+            )
+        )
+
+        // --- Workspace Groups ---
+        let groupSubtitle = constant(String(localized: "command.group.subtitle", defaultValue: "Workspace Group"))
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newGroup",
+                title: constant(String(localized: "command.newGroup.title", defaultValue: "New Group")),
+                subtitle: groupSubtitle,
+                keywords: ["new", "group", "workspace", "organize", "folder"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.toggleGroupCollapse",
+                title: constant(String(localized: "command.toggleGroupCollapse.title", defaultValue: "Toggle Group Collapse")),
+                subtitle: groupSubtitle,
+                keywords: ["group", "collapse", "expand", "toggle"],
+                when: { _ in true }
+            )
+        )
+
+        // --- Background pane (FR6) ---
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markBackground",
+                title: constant(String(localized: "command.markBackground.title", defaultValue: "Mark Pane as Background")),
+                subtitle: panelSubtitle,
+                keywords: ["background", "pane", "mark", "process", "server"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.markForeground",
+                title: constant(String(localized: "command.markForeground.title", defaultValue: "Unmark Pane as Background")),
+                subtitle: panelSubtitle,
+                keywords: ["background", "pane", "unmark", "foreground", "clear"],
+                when: { $0.bool(CommandPaletteContextKeys.hasFocusedPanel) }
+            )
+        )
+
         return contributions
     }
 
@@ -6368,6 +6463,56 @@ struct ContentView: View {
                     globalConfigPath: globalPath
                 )
             }
+        }
+
+        // Focus pane navigation via command palette
+        registry.register(commandId: "palette.focusPaneLeft") {
+            tabManager.movePaneFocus(direction: .left)
+        }
+        registry.register(commandId: "palette.focusPaneRight") {
+            tabManager.movePaneFocus(direction: .right)
+        }
+        registry.register(commandId: "palette.focusPaneUp") {
+            tabManager.movePaneFocus(direction: .up)
+        }
+        registry.register(commandId: "palette.focusPaneDown") {
+            tabManager.movePaneFocus(direction: .down)
+        }
+
+        // Workspace group management via command palette
+        registry.register(commandId: "palette.newGroup") {
+            guard let selectedId = tabManager.selectedTabId else {
+                NSSound.beep()
+                return
+            }
+            tabManager.createGroup(
+                title: String(localized: "group.default.title", defaultValue: "New Group"),
+                workspaceIds: [selectedId]
+            )
+        }
+        registry.register(commandId: "palette.toggleGroupCollapse") {
+            guard let selectedId = tabManager.selectedTabId,
+                  let group = tabManager.group(forWorkspaceId: selectedId) else {
+                NSSound.beep()
+                return
+            }
+            tabManager.toggleGroupCollapse(id: group.id)
+        }
+
+        // Background pane (FR6) via command palette
+        registry.register(commandId: "palette.markBackground") {
+            guard let panelContext = focusedPanelContext else {
+                NSSound.beep()
+                return
+            }
+            panelContext.workspace.markBackground(panelId: panelContext.panelId)
+        }
+        registry.register(commandId: "palette.markForeground") {
+            guard let panelContext = focusedPanelContext else {
+                NSSound.beep()
+                return
+            }
+            panelContext.workspace.markForeground(panelId: panelContext.panelId)
         }
     }
 
@@ -8559,50 +8704,122 @@ struct VerticalTabsSidebar: View {
                             .frame(height: trafficLightPadding)
 
                         LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                                let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
-                                let contextTargetIds = tabManager.tabs.compactMap { workspace in
-                                    selectedContextIds.contains(workspace.id) ? workspace.id : nil
-                                }
-                                let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
-                                    contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
-                                }
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
-                                    allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
-                                    allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+                            // Precompute lookup maps once per render pass to avoid O(n) scans.
+                            let tabById: [_ : _] = Dictionary(
+                                tabManager.tabs.map { ($0.id, $0) },
+                                uniquingKeysWith: { first, _ in first }
+                            )
+                            let indexById: [_ : Int] = Dictionary(
+                                tabManager.tabs.enumerated().map { ($0.element.id, $0.offset) },
+                                uniquingKeysWith: { first, _ in first }
+                            )
+
+                            // --- FR3: Grouped workspaces ---
+                            ForEach(tabManager.groups) { group in
+                                WorkspaceGroupHeaderView(
+                                    group: group,
+                                    tabManager: tabManager
                                 )
-                                .equatable()
+
+                                if !group.isCollapsed {
+                                    ForEach(group.memberIds, id: \.self) { memberId in
+                                        if let tab = tabById[memberId],
+                                           let index = indexById[memberId] {
+                                            let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
+                                            let contextTargetIds = tabManager.tabs.compactMap { workspace in
+                                                selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                                            }
+                                            let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
+                                                contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
+                                            }
+                                            TabItemView(
+                                                tabManager: tabManager,
+                                                notificationStore: notificationStore,
+                                                tab: tab,
+                                                index: index,
+                                                isActive: tabManager.selectedTabId == tab.id,
+                                                workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                                                    at: index,
+                                                    workspaceCount: workspaceCount
+                                                ),
+                                                workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                                canCloseWorkspace: canCloseWorkspace,
+                                                accessibilityWorkspaceCount: workspaceCount,
+                                                unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                                                latestNotificationText: {
+                                                    guard showsSidebarNotificationMessage,
+                                                          let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
+                                                    let text = notification.body.isEmpty ? notification.title : notification.body
+                                                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                                    return trimmed.isEmpty ? nil : trimmed
+                                                }(),
+                                                rowSpacing: tabRowSpacing,
+                                                setSelectionToTabs: { selection = .tabs },
+                                                selectedTabIds: $selectedTabIds,
+                                                lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                                showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                                dragAutoScrollController: dragAutoScrollController,
+                                                draggedTabId: $draggedTabId,
+                                                dropIndicator: $dropIndicator,
+                                                remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
+                                                allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
+                                                allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected },
+                                                isGrouped: true
+                                            )
+                                            .equatable()
+                                            .transition(.opacity.combined(with: .move(edge: .top)))
+                                        }
+                                    }
+                                }
+                            }
+
+                            // --- Ungrouped workspaces (rendered flat, as before) ---
+                            let ungroupedIds = Set(tabManager.ungroupedWorkspaceIds)
+                            ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
+                                if ungroupedIds.contains(tab.id) {
+                                    let selectedContextIds: Set<UUID> = selectedTabIds.contains(tab.id) ? selectedTabIds : [tab.id]
+                                    let contextTargetIds = tabManager.tabs.compactMap { workspace in
+                                        selectedContextIds.contains(workspace.id) ? workspace.id : nil
+                                    }
+                                    let remoteContextMenuTargets = tabManager.tabs.filter { workspace in
+                                        contextTargetIds.contains(workspace.id) && workspace.isRemoteWorkspace
+                                    }
+                                    TabItemView(
+                                        tabManager: tabManager,
+                                        notificationStore: notificationStore,
+                                        tab: tab,
+                                        index: index,
+                                        isActive: tabManager.selectedTabId == tab.id,
+                                        workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                                            at: index,
+                                            workspaceCount: workspaceCount
+                                        ),
+                                        workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                        canCloseWorkspace: canCloseWorkspace,
+                                        accessibilityWorkspaceCount: workspaceCount,
+                                        unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                                        latestNotificationText: {
+                                            guard showsSidebarNotificationMessage,
+                                                  let notification = notificationStore.latestNotification(forTabId: tab.id) else { return nil }
+                                            let text = notification.body.isEmpty ? notification.title : notification.body
+                                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                            return trimmed.isEmpty ? nil : trimmed
+                                        }(),
+                                        rowSpacing: tabRowSpacing,
+                                        setSelectionToTabs: { selection = .tabs },
+                                        selectedTabIds: $selectedTabIds,
+                                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                        showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                        dragAutoScrollController: dragAutoScrollController,
+                                        draggedTabId: $draggedTabId,
+                                        dropIndicator: $dropIndicator,
+                                        remoteContextMenuWorkspaceIds: remoteContextMenuTargets.map(\.id),
+                                        allRemoteContextMenuTargetsConnecting: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .connecting },
+                                        allRemoteContextMenuTargetsDisconnected: !remoteContextMenuTargets.isEmpty && remoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected },
+                                        isGrouped: false
+                                    )
+                                    .equatable()
+                                }
                             }
                         }
                         .padding(.vertical, 8)
@@ -10951,23 +11168,45 @@ enum SidebarWorkspaceShortcutHintMetrics {
     #endif
 }
 
-enum SidebarTrailingAccessoryWidthPolicy {
-    static let closeButtonWidth: CGFloat = 16
+// MARK: - FR3: Workspace Group Header View
 
-    static func width(
-        canCloseWorkspace: Bool,
-        showsWorkspaceShortcutHint: Bool,
-        workspaceShortcutLabel: String?,
-        debugXOffset: Double
-    ) -> CGFloat {
-        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
-                label: workspaceShortcutLabel,
-                debugXOffset: debugXOffset
-            )
+/// Renders a collapsible group header row in the sidebar.
+/// Tapping the row or chevron toggles collapse; only group-level state is observed.
+private struct WorkspaceGroupHeaderView: View {
+    @ObservedObject var group: WorkspaceGroup
+    let tabManager: TabManager
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                tabManager.toggleGroupCollapse(id: group.id)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: group.isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 14)
+                Text(group.title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
         }
-
-        return canCloseWorkspace ? closeButtonWidth : 0
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(
+                role: .destructive,
+                action: { tabManager.deleteGroup(id: group.id) }
+            ) {
+                Text(String(localized: "group.contextMenu.delete", defaultValue: "Delete Group"))
+            }
+        }
     }
 }
 
@@ -11000,7 +11239,8 @@ private struct TabItemView: View, Equatable {
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
-        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected
+        lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
+        lhs.isGrouped == rhs.isGrouped
     }
 
     // Use plain references instead of @EnvironmentObject to avoid subscribing
@@ -11029,6 +11269,9 @@ private struct TabItemView: View, Equatable {
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
+    /// Whether this workspace is rendered inside a group section (FR3).
+    /// Included in == so SwiftUI correctly re-evaluates when grouping state changes.
+    let isGrouped: Bool
     @State private var workspaceObservationGeneration: UInt64 = 0
     @State private var isHovering = false
     @State private var rowHeight: CGFloat = 1

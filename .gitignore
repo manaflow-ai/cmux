@@ -45,5 +45,6 @@ tests/visual_output/
 tests/visual_report.html
 
 # Local scratch (screenshots, etc.)
+.a5c/
 tmp/
 tmp-*/

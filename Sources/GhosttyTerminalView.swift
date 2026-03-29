@@ -3623,6 +3623,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             protectedStartupEnvironmentKeys.insert(key)
         }
 
+        // Terminal type detection: lets agents (e.g. Claude Code) detect they are inside cmux.
+        setManagedEnvironmentValue("CMUX_TERM", "1")
         setManagedEnvironmentValue("CMUX_SURFACE_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_WORKSPACE_ID", tabId.uuidString)
         // Backward-compatible shell integration keys used by existing scripts/tests.
@@ -3652,16 +3654,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
-
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        // Inject the bundled bin/ directory: PATH-independent fallback for agents (CMUX_CLAUDE_HOOKS_PATH)
+        // and prepend to PATH so the cmux CLI wrapper is always resolvable without shell config changes.
+        if let binPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+            env["CMUX_CLAUDE_HOOKS_PATH"] = binPath
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
-            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
-            }
+            let strippedPath = currentPath
+                .split(separator: ":", omittingEmptySubsequences: false)
+                .filter { $0 != Substring(binPath) }
+                .joined(separator: ":")
+            let separator = strippedPath.isEmpty ? "" : ":"
+            setManagedEnvironmentValue("PATH", "\(binPath)\(separator)\(strippedPath)")
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.

@@ -5296,7 +5296,7 @@ struct SettingsView: View {
 
                         SettingsCardRow(
                             String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"),
-                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When off, links clicked in terminal output open in your default browser.")
+                            subtitle: String(localized: "settings.browser.openTerminalLinks.subtitle", defaultValue: "When on, links clicked in terminal output open in the cmux embedded browser. Off by default — links open in your system browser.")
                         ) {
                             Toggle("", isOn: $openTerminalLinksInCmuxBrowser)
                                 .labelsHidden()
@@ -5306,8 +5306,8 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"),
-                            subtitle: String(localized: "settings.browser.interceptOpen.subtitle", defaultValue: "When off, `open https://...` and `open http://...` always use your default browser.")
+                            String(localized: "settings.browser.interceptOpen", defaultValue: "Route open http(s) in Terminal to cmux Browser"),
+                            subtitle: String(localized: "settings.browser.interceptOpen.subtitle", defaultValue: "When on, `open https://...` and `open http://...` commands open in the cmux embedded browser. Off by default — these commands use your system browser.")
                         ) {
                             Toggle("", isOn: $interceptTerminalOpenCommandInCmuxBrowser)
                                 .labelsHidden()

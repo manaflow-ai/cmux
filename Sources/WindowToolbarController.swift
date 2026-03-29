@@ -10,6 +10,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
     private var observers: [NSObjectProtocol] = []
+    private var cancellables: Set<AnyCancellable> = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
 
@@ -62,6 +63,15 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 self?.attach(to: window)
             }
         })
+
+        tabManager?.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleFocusedCommandTextUpdate()
+                }
+            }
+            .store(in: &cancellables)
 
         observers.append(center.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -138,10 +148,17 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         let text: String
         if let selectedId = tabManager.selectedTabId,
            let tab = tabManager.tabs.first(where: { $0.id == selectedId }) {
-            let title = tab.title.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-            text = title.isEmpty ? "Cmd: —" : "Cmd: \(title)"
+            let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let workspaceName = title.isEmpty ? String(localized: "toolbar.focusedWorkspace.empty", defaultValue: "—") : title
+            // Show group breadcrumb when the workspace belongs to a group (UX3: "where am I?")
+            if let group = tabManager.group(forWorkspaceId: selectedId) {
+                let groupName = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                text = groupName.isEmpty ? workspaceName : "\(groupName)  ›  \(workspaceName)"
+            } else {
+                text = workspaceName
+            }
         } else {
-            text = "Cmd: —"
+            text = String(localized: "toolbar.focusedWorkspace.empty", defaultValue: "—")
         }
 
         for label in commandLabels.values {
@@ -164,7 +181,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            let label = NSTextField(labelWithString: "Cmd: —")
+            let label = NSTextField(labelWithString: String(localized: "toolbar.focusedWorkspace.empty", defaultValue: "—"))
             label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle

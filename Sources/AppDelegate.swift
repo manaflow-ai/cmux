@@ -9614,6 +9614,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Workspace Group shortcuts (FR3)
+        // newGroup (Cmd+Shift+G): create a new named group containing the currently selected workspace.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newGroup)) {
+            if let manager = tabManager, let selectedId = manager.selectedTabId {
+#if DEBUG
+                dlog("shortcut.action name=newGroup selected=\(String(selectedId.uuidString.prefix(5))) \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                manager.createGroup(title: String(localized: "group.default.title", defaultValue: "New Group"), workspaceIds: [selectedId])
+            }
+            return true
+        }
+
+        // toggleGroupCollapse (Cmd+Opt+G): collapse/expand the group that owns the currently selected workspace.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleGroupCollapse)) {
+            if let manager = tabManager, let selectedId = manager.selectedTabId,
+               let group = manager.group(forWorkspaceId: selectedId) {
+#if DEBUG
+                dlog("shortcut.action name=toggleGroupCollapse group=\(String(group.id.uuidString.prefix(5))) collapsed=\(group.isCollapsed) \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    manager.toggleGroupCollapse(id: group.id)
+                }
+            }
+            return true
+        }
+
+        // markBackground (Cmd+Opt+Shift+B): mark the focused pane as a background/long-running process.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .markBackground)) {
+            if let manager = tabManager,
+               let workspace = manager.selectedWorkspace,
+               let panelId = workspace.focusedPanelId {
+#if DEBUG
+                dlog("shortcut.action name=markBackground panel=\(panelId.uuidString.prefix(5)) \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                workspace.markBackground(panelId: panelId)
+            }
+            return true
+        }
+
+        // markForeground (Cmd+Opt+B): remove background mark from the focused pane.
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .markForeground)) {
+            if let manager = tabManager,
+               let workspace = manager.selectedWorkspace,
+               let panelId = workspace.focusedPanelId {
+#if DEBUG
+                dlog("shortcut.action name=markForeground panel=\(panelId.uuidString.prefix(5)) \(debugShortcutRouteSnapshot(event: event))")
+#endif
+                workspace.markForeground(panelId: panelId)
+            }
+            return true
+        }
+
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow

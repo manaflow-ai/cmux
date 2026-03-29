@@ -254,6 +254,8 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    /// Optional so existing session files without background data decode successfully (backward compat, FR6).
+    var isBackground: Bool?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -345,6 +347,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    /// Optional so existing session files without group data decode successfully (backward compat).
+    /// Defaults to nil so call sites that only pass selectedWorkspaceIndex/workspaces keep compiling.
+    var groups: [WorkspaceGroupSnapshot]? = nil
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

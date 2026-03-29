@@ -690,6 +690,14 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
+
+    // MARK: - Workspace Groups (FR3)
+    /// Ordered list of workspace groups for the two-level sidebar hierarchy.
+    @Published var groups: [WorkspaceGroup] = []
+    /// Forwards each group's objectWillChange into TabManager so sidebar views re-render
+    /// when a group's title, isCollapsed, or memberIds change (groups are reference types).
+    private var groupCancellables: [UUID: AnyCancellable] = [:]
+
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2597,6 +2605,9 @@ class TabManager: ObservableObject {
         unwireClosedBrowserTracking(for: workspace)
         workspace.owningTabManager = nil
 
+        // Purge from any groups before removing from tabs so group member lists stay clean.
+        removeWorkspaceFromAllGroups(workspace.id)
+
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
 
@@ -2617,6 +2628,9 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
+
+        // Purge from any groups before removing so group member lists stay clean.
+        removeWorkspaceFromAllGroups(tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -2771,6 +2785,92 @@ class TabManager: ObservableObject {
 
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
+
+    // MARK: - Workspace Group Management (FR3)
+
+    @discardableResult
+    func createGroup(title: String, workspaceIds: [UUID]) -> WorkspaceGroup {
+        // 1. Keep only IDs that exist in the workspace store.
+        let existingIds = Set(tabs.map(\.id))
+        // 2. Deduplicate while preserving order.
+        var seen = Set<UUID>()
+        let validIds = workspaceIds.filter { existingIds.contains($0) && seen.insert($0).inserted }
+        // 3. Move workspaces out of any existing group (enforces single-group membership).
+        for id in validIds { removeWorkspaceFromAllGroups(id) }
+
+        let group = WorkspaceGroup(title: title, memberIds: validIds)
+        groups.append(group)
+        wireGroupObservation(group)
+        return group
+    }
+
+    func deleteGroup(id: UUID) {
+        groupCancellables.removeValue(forKey: id)
+        groups.removeAll { $0.id == id }
+        // Workspaces are kept; they become ungrouped automatically because
+        // the sidebar renders ungrouped workspaces below all group headers.
+    }
+
+    private func wireGroupObservation(_ group: WorkspaceGroup) {
+        groupCancellables[group.id] = group.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+    }
+
+    func renameGroup(id: UUID, title: String) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        group.title = title
+    }
+
+    func collapseGroup(id: UUID) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        group.isCollapsed = true
+    }
+
+    func expandGroup(id: UUID) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        group.isCollapsed = false
+    }
+
+    func toggleGroupCollapse(id: UUID) {
+        guard let group = groups.first(where: { $0.id == id }) else { return }
+        group.isCollapsed.toggle()
+    }
+
+    func addWorkspace(_ workspaceId: UUID, toGroup groupId: UUID) {
+        guard tabs.contains(where: { $0.id == workspaceId }) else { return }
+        guard let group = groups.first(where: { $0.id == groupId }) else { return }
+        // Remove from any existing group first to avoid duplicate membership.
+        for g in groups where g.id != groupId {
+            g.memberIds.removeAll { $0 == workspaceId }
+        }
+        if !group.memberIds.contains(workspaceId) {
+            group.memberIds.append(workspaceId)
+        }
+    }
+
+    func removeWorkspace(_ workspaceId: UUID, fromGroup groupId: UUID) {
+        guard let group = groups.first(where: { $0.id == groupId }) else { return }
+        group.memberIds.removeAll { $0 == workspaceId }
+    }
+
+    /// Removes a workspace ID from every group it belongs to.
+    /// Called from `closeWorkspace` and `detachWorkspace` to keep group member lists clean.
+    private func removeWorkspaceFromAllGroups(_ workspaceId: UUID) {
+        for group in groups {
+            group.memberIds.removeAll { $0 == workspaceId }
+        }
+    }
+
+    /// Returns the group that contains the given workspace ID, if any.
+    func group(forWorkspaceId workspaceId: UUID) -> WorkspaceGroup? {
+        groups.first { $0.memberIds.contains(workspaceId) }
+    }
+
+    /// Returns workspace IDs that are not a member of any group.
+    var ungroupedWorkspaceIds: [UUID] {
+        let allGroupedIds = Set(groups.flatMap { $0.memberIds })
+        return tabs.map { $0.id }.filter { !allGroupedIds.contains($0) }
+    }
 
     private func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
         if let confirmCloseHandler {
@@ -3760,12 +3860,15 @@ class TabManager: ObservableObject {
 
     /// Create a new split in the specified direction
     /// Returns the new panel's ID (which is also the surface ID for terminals)
-    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
+    func newSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, initialDividerRatio: CGFloat = 0.6, focus: Bool = true) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        return tab.newTerminalSplit(
+        // Clamp to (0, 1) exclusive — ratios at the extremes produce a fully-collapsed pane.
+        let clampedRatio = max(0.01, min(0.99, initialDividerRatio))
+        let createdPanel = tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
+            initialDividerRatio: clampedRatio,
             focus: focus
         )?.id
     }
@@ -5491,6 +5594,17 @@ extension TabManager {
             }
         }
 
+        hasher.combine(groups.count)
+        for group in groups {
+            hasher.combine(group.id)
+            hasher.combine(group.title)
+            hasher.combine(group.isCollapsed)
+            hasher.combine(group.memberIds.count)
+            for memberId in group.memberIds {
+                hasher.combine(memberId)
+            }
+        }
+
         return hasher.finalize()
     }
 
@@ -5503,9 +5617,11 @@ extension TabManager {
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
+        let groupSnapshots = groups.isEmpty ? nil : groups.map { WorkspaceGroupSnapshot(group: $0) }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            groups: groupSnapshots
         )
     }
 
@@ -5581,9 +5697,37 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
+        // Reconstruct workspace groups from snapshot if present (FR3).
+        var newGroups: [WorkspaceGroup] = []
+        let restoredTabIds = Set(newTabs.map { $0.id })
+        var assignedWorkspaceIds = Set<UUID>()
+        if let groupSnapshots = snapshot.groups {
+            for snap in groupSnapshots {
+                // Only keep member IDs that exist in the restored workspace list and haven't
+                // been claimed by a prior group (enforces single-group membership on restore).
+                // First-group-in-snapshot wins when a workspace appears in multiple groups.
+                let validMemberIds = snap.memberIds.filter {
+                    restoredTabIds.contains($0) && assignedWorkspaceIds.insert($0).inserted
+                }
+                // Skip groups that lost all members to deduplication — an empty group
+                // has no valid state in the sidebar and would appear as a ghost row.
+                guard !validMemberIds.isEmpty else { continue }
+                let group = WorkspaceGroup(
+                    id: snap.id,
+                    title: snap.title,
+                    isCollapsed: snap.isCollapsed,
+                    memberIds: validMemberIds
+                )
+                newGroups.append(group)
+            }
+        }
+
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        groups = newGroups
+        groupCancellables = [:]
+        for group in newGroups { wireGroupObservation(group) }
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)

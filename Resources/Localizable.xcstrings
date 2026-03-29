@@ -664,7 +664,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A Ghostty-based terminal with vertical tabs\nand a notification panel for macOS."
+            "value": "A Ghostty-based terminal with vertical tabs\\nand a notification panel for macOS."
           }
         },
         "ja": {
@@ -676,43 +676,43 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "基于 Ghostty 的 macOS 终端，\n支持垂直标签页和通知面板。"
+            "value": "基于 Ghostty 的 macOS 终端，\\n支持垂直标签页和通知面板。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "基於 Ghostty 的 macOS 終端機，\n具備垂直標籤頁與通知面板。"
+            "value": "基於 Ghostty 的 macOS 終端機，\\n具備垂直標籤頁與通知面板。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "세로 탭과 알림 패널을 갖춘\nGhostty 기반 macOS 터미널."
+            "value": "세로 탭과 알림 패널을 갖춘\\nGhostty 기반 macOS 터미널."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\nund einem Benachrichtigungsfeld für macOS."
+            "value": "Ein Ghostty-basiertes Terminal mit vertikalen Tabs\\nund einem Benachrichtigungsfeld für macOS."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basado en Ghostty con pestañas verticales\ny un panel de notificaciones para macOS."
+            "value": "Un terminal basado en Ghostty con pestañas verticales\\ny un panel de notificaciones para macOS."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\net un panneau de notifications pour macOS."
+            "value": "Un terminal basé sur Ghostty avec des onglets verticaux\\net un panneau de notifications pour macOS."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un terminale basato su Ghostty con schede verticali\ne un pannello notifiche per macOS."
+            "value": "Un terminale basato su Ghostty con schede verticali\\ne un pannello notifiche per macOS."
           }
         },
         "da": {
@@ -730,49 +730,43 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Терминал на базе Ghostty с вертикальными вкладками\nи панелью уведомлений для macOS."
+            "value": "Терминал на базе Ghostty с вертикальными вкладками\\nи панелью уведомлений для macOS."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\ni panelom za obavještenja za macOS."
+            "value": "Terminal zasnovan na Ghostty sa vertikalnim tabovima\\ni panelom za obavještenja za macOS."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\nولوحة إشعارات لنظام macOS."
+            "value": "طرفية مبنية على Ghostty مع ألسنة عمودية\\nولوحة إشعارات لنظام macOS."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En Ghostty-basert terminal med vertikale faner\nog et varselpanel for macOS."
+            "value": "En Ghostty-basert terminal med vertikale faner\\nog et varselpanel for macOS."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um terminal baseado no Ghostty com abas verticais\ne um painel de notificações para macOS."
+            "value": "Um terminal baseado no Ghostty com abas verticais\\ne um painel de notificações para macOS."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\nและแผงการแจ้งเตือนสำหรับ macOS"
+            "value": "เทอร์มินัลบน Ghostty พร้อมแท็บแนวตั้ง\\nและแผงการแจ้งเตือนสำหรับ macOS"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "macOS için dikey sekmeli ve bildirim panelli\nGhostty tabanlı terminal."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Термінал на основі Ghostty з вертикальними вкладками\nта панеллю сповіщень для macOS."
+            "value": "macOS için dikey sekmeli ve bildirim panelli\\nGhostty tabanlı terminal."
           }
         }
       }
@@ -47752,19 +47746,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keep Workspace Open When Closing Last Surface"
+            "value": "Closing Last Surface Closes Workspace"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のサーフェスを閉じてもワークスペースを残す"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Залишати робочу область відкритою при закритті останньої поверхні"
+            "value": "最後のサーフェスを閉じるとワークスペースも閉じる"
           }
         }
       }
@@ -47775,19 +47763,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the focused surface is the last one in its workspace, the close-surface shortcut also closes the workspace."
+            "value": "Closing the last surface keeps the workspace open. Use Cmd+Shift+W to close a workspace explicitly."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つなら、サーフェスを閉じるショートカットはワークスペースも閉じます。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Коли активна поверхня є останньою у робочій області, комбінація закриття поверхні також закриває робочу область."
+            "value": "最後のサーフェスを閉じてもワークスペースは残ります。ワークスペースを明示的に閉じるにはCmd+Shift+Wを使います。"
           }
         }
       }
@@ -47798,19 +47780,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When the focused surface is the last one in its workspace, the close-surface shortcut closes only the surface and keeps the workspace open. Use the close-workspace shortcut to close the workspace explicitly."
+            "value": "Closing the last surface also closes its workspace."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォーカス中のサーフェスがそのワークスペースの最後の1つでも、サーフェスを閉じるショートカットはサーフェスだけを閉じ、ワークスペースは残します。ワークスペースを閉じるショートカットを使うと明示的に閉じられます。"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Коли активна поверхня є останньою у робочій області, комбінація закриття поверхні закриває лише поверхню, залишаючи робочу область відкритою. Використовуйте комбінацію закриття робочої області для явного закриття."
+            "value": "最後のサーフェスを閉じると、そのワークスペースも閉じます。"
           }
         }
       }
@@ -58756,13 +58732,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intercept open http(s) in Terminal"
+            "value": "Route `open http(s)` commands in Terminal to the cmux browser"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルでopen http(s)をインターセプト"
+            "value": "ターミナルの`open http(s)`コマンドをcmuxブラウザで開く"
           }
         },
         "zh-Hans": {
@@ -58860,12 +58836,6 @@
             "state": "translated",
             "value": "Terminalde open http(s) Komutlarını Yakala"
           }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перехоплювати open http(s) у терміналі"
-          }
         }
       }
     },
@@ -58875,13 +58845,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, `open https://...` and `open http://...` always use your default browser."
+            "value": "When on, `open https://...` and `open http://...` commands open in the cmux embedded browser. Off by default — these commands use your system browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフの場合、`open https://...`および`open http://...`は常にデフォルトブラウザを使用します。"
+            "value": "オンの場合、`open https://...`および`open http://...`コマンドはcmux内蔵ブラウザで開きます。デフォルトはオフ — これらのコマンドはシステムブラウザを使用します。"
           }
         },
         "zh-Hans": {
@@ -58978,12 +58948,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kapalıyken, `open https://...` ve `open http://...` her zaman varsayılan tarayıcınızı kullanır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, `open https://...` та `open http://...` завжди використовують стандартний браузер."
           }
         }
       }
@@ -59113,13 +59077,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, links clicked in terminal output open in your default browser."
+            "value": "When on, links clicked in terminal output open in the cmux embedded browser. Off by default — links open in your system browser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフの場合、ターミナル出力のリンクはデフォルトブラウザで開きます。"
+            "value": "オンの場合、ターミナル出力のリンクはcmux内蔵ブラウザで開きます。デフォルトはオフ — リンクはシステムブラウザで開きます。"
           }
         },
         "zh-Hans": {
@@ -59216,12 +59180,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Kapalıyken, terminal çıktısında tıklanan bağlantılar varsayılan tarayıcınızda açılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Якщо вимкнено, посилання у виводі терміналу відкриваються у стандартному браузері."
           }
         }
       }
@@ -74561,6 +74519,23 @@
         }
       }
     },
+    "toolbar.focusedWorkspace.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        }
+      }
+    },
     "update.available.short": {
       "extractionState": "manual",
       "localizations": {
@@ -84844,6 +84819,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "Не вдалося завантажити перетягнутий файл: %@"
+          }
+        }
+      }
+    },
+    "command.focusPaneDown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Pane Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のペインにフォーカス"
+          }
+        }
+      }
+    },
+    "command.focusPaneLeft.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Pane Left"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左のペインにフォーカス"
+          }
+        }
+      }
+    },
+    "command.focusPaneRight.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Pane Right"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右のペインにフォーカス"
+          }
+        }
+      }
+    },
+    "command.focusPaneUp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Pane Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上のペインにフォーカス"
+          }
+        }
+      }
+    },
+    "command.group.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースグループ"
+          }
+        }
+      }
+    },
+    "command.markBackground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Pane as Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインをバックグラウンドとしてマーク"
+          }
+        }
+      }
+    },
+    "command.markForeground.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unmark Pane as Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのバックグラウンドマークを解除"
+          }
+        }
+      }
+    },
+    "command.newGroup.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規グループ"
+          }
+        }
+      }
+    },
+    "command.splitLayout.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ナビゲーション"
+          }
+        }
+      }
+    },
+    "command.toggleGroupCollapse.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Group Collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの折りたたみを切替"
+          }
+        }
+      }
+    },
+    "group.contextMenu.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループを削除"
+          }
+        }
+      }
+    },
+    "group.contextMenu.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ名を変更"
+          }
+        }
+      }
+    },
+    "group.default.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規グループ"
+          }
+        }
+      }
+    },
+    "panel.background.indicator.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Background Process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックグラウンドプロセス"
+          }
+        }
+      }
+    },
+    "shortcut.markBackground.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark Pane as Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインをバックグラウンドとしてマーク"
+          }
+        }
+      }
+    },
+    "shortcut.markForeground.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unmark Pane as Background"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのバックグラウンドマークを解除"
+          }
+        }
+      }
+    },
+    "shortcut.newGroup.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規グループ"
+          }
+        }
+      }
+    },
+    "shortcut.toggleGroupCollapse.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Group Collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループの折りたたみを切替"
           }
         }
       }

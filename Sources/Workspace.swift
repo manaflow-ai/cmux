@@ -317,6 +317,17 @@ extension Workspace {
         pruneSurfaceMetadata(validSurfaceIds: Set(panels.keys))
         applySessionDividerPositions(snapshotNode: snapshot.layout, liveNode: bonsplitController.treeSnapshot())
 
+        // Restore FR6 background panel state (optional field; ignored on old session files).
+        backgroundPanelIds = Set(
+            snapshot.panels
+                .filter { $0.isBackground == true }
+                .compactMap { oldToNewPanelIds[$0.id] }
+                .filter { panels[$0] != nil }
+        )
+        for panelId in backgroundPanelIds {
+            syncBackgroundBadgeForPanel(panelId)
+        }
+
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
         setCustomColor(snapshot.customColor)
@@ -483,7 +494,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            isBackground: backgroundPanelIds.contains(panelId) ? true : nil
         )
     }
 
@@ -5507,6 +5519,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
+    /// FR6: Panel IDs marked as background / long-running processes.
+    @Published private(set) var backgroundPanelIds: Set<UUID> = []
     private var manualUnreadMarkedAt: [UUID: Date] = [:]
     nonisolated private static let manualUnreadFocusGraceInterval: TimeInterval = 0.2
     nonisolated private static let manualUnreadClearDelayAfterFocusFlash: TimeInterval = 0.2
@@ -5775,10 +5789,6 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onExternalTabDrop = { [weak self] request in
             self?.handleExternalTabDrop(request) ?? false
         }
-        bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
-            self?.markExplicitClose(surfaceId: tabId)
-        }
-
         // Set ourselves as delegate
         bonsplitController.delegate = self
 
@@ -5890,6 +5900,7 @@ final class Workspace: Identifiable, ObservableObject {
         let kind: String?
         let isLoading: Bool
         let isPinned: Bool
+        let isBackground: Bool
         let directory: String?
         let ttyName: String?
         let cachedTitle: String?
@@ -6294,6 +6305,41 @@ final class Workspace: Identifiable, ObservableObject {
         normalizePinnedTabs(in: paneId)
     }
 
+    // MARK: - FR6: Background Panel Management
+
+    /// Marks a panel as a long-running / background process.
+    /// The panel remains fully accessible; a visual badge is added to its bonsplit tab.
+    func markBackground(panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        guard backgroundPanelIds.insert(panelId).inserted else { return }
+        syncBackgroundBadgeForPanel(panelId)
+    }
+
+    /// Removes the background mark from a panel, restoring normal appearance.
+    func markForeground(panelId: UUID) {
+        guard panels[panelId] != nil else { return }
+        guard backgroundPanelIds.remove(panelId) != nil else { return }
+        syncBackgroundBadgeForPanel(panelId)
+    }
+
+    func isPanelBackground(_ panelId: UUID) -> Bool {
+        backgroundPanelIds.contains(panelId)
+    }
+
+    private func syncBackgroundBadgeForPanel(_ panelId: UUID) {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let panel = panels[panelId] else { return }
+        let isBackground = backgroundPanelIds.contains(panelId)
+        bonsplitController.updateTab(
+            tabId,
+            title: .some(resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle)),
+            icon: isBackground ? .some("server.rack") : .some(panel.displayIcon),
+            kind: .some(surfaceKind(for: panel)),
+            hasCustomTitle: panelCustomTitles[panelId] != nil,
+            isPinned: pinnedPanelIds.contains(panelId)
+        )
+    }
+
     func markPanelUnread(_ panelId: UUID) {
         guard panels[panelId] != nil else { return }
         guard manualUnreadPanelIds.insert(panelId).inserted else { return }
@@ -6588,6 +6634,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
+        backgroundPanelIds = backgroundPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
@@ -7425,12 +7472,27 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    /// Walk the bonsplit tree to find the UUID of the split node whose direct children contain `paneId`.
+    private func parentSplitId(of paneId: PaneID, in node: ExternalTreeNode) -> UUID? {
+        guard case .split(let split) = node else { return nil }
+        // Check if either direct child is a pane node matching paneId.
+        func isTargetPane(_ child: ExternalTreeNode) -> Bool {
+            guard case .pane(let p) = child else { return false }
+            return UUID(uuidString: p.id) == paneId.id
+        }
+        if isTargetPane(split.first) || isTargetPane(split.second) {
+            return UUID(uuidString: split.id)
+        }
+        return parentSplitId(of: paneId, in: split.first) ?? parentSplitId(of: paneId, in: split.second)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
         from panelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
+        initialDividerRatio: CGFloat = 0.6,
         focus: Bool = true
     ) -> TerminalPanel? {
         // Find the pane containing the source panel
@@ -7518,8 +7580,16 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
+        // Apply non-default divider ratio so the existing pane keeps its proportional space.
+        if initialDividerRatio != 0.5 {
+            let ratio = insertFirst ? (1.0 - initialDividerRatio) : initialDividerRatio
+            if let splitId = parentSplitId(of: paneId, in: bonsplitController.treeSnapshot()) {
+                _ = bonsplitController.setDividerPosition(ratio, forSplit: splitId, fromExternal: true)
+            }
+        }
+
 #if DEBUG
-        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation)")
+        dlog("split.created pane=\(paneId.id.uuidString.prefix(5)) orientation=\(orientation) ratio=\(initialDividerRatio)")
 #endif
 
         // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
@@ -7633,6 +7703,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
+        initialDividerRatio: CGFloat = 0.6,
         focus: Bool = true
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
@@ -7686,6 +7757,14 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
         setPreferredBrowserProfileID(browserPanel.profileID)
+
+        // Apply non-default divider ratio so the existing pane keeps its proportional space.
+        if initialDividerRatio != 0.5 {
+            let ratio = insertFirst ? (1.0 - initialDividerRatio) : initialDividerRatio
+            if let splitId = parentSplitId(of: paneId, in: bonsplitController.treeSnapshot()) {
+                _ = bonsplitController.setDividerPosition(ratio, forSplit: splitId, fromExternal: true)
+            }
+        }
 
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
@@ -7790,6 +7869,7 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool = false,
         filePath: String,
+        initialDividerRatio: CGFloat = 0.6,
         focus: Bool = true
     ) -> MarkdownPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -7828,6 +7908,15 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
+        // Apply non-default divider ratio so the existing pane keeps its proportional space.
+        if initialDividerRatio != 0.5 {
+            let ratio = insertFirst ? (1.0 - initialDividerRatio) : initialDividerRatio
+            if let splitId = parentSplitId(of: paneId, in: bonsplitController.treeSnapshot()) {
+                _ = bonsplitController.setDividerPosition(ratio, forSplit: splitId, fromExternal: true)
+            }
+        }
+
+        // Suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
             previousHostedView?.suppressReparentFocus()
@@ -8428,6 +8517,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
+            backgroundPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
@@ -8461,6 +8551,10 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncPinnedStateForTab(newTabId, panelId: detached.panelId)
         syncUnreadBadgeStateForPanel(detached.panelId)
+        if detached.isBackground {
+            backgroundPanelIds.insert(detached.panelId)
+            syncBackgroundBadgeForPanel(detached.panelId)
+        }
         normalizePinnedTabs(in: paneId)
 
         if focus {
@@ -10324,6 +10418,7 @@ extension Workspace: BonsplitDelegate {
                 kind: surfaceKind(for: panel),
                 isLoading: browserPanel?.isLoading ?? false,
                 isPinned: pinnedPanelIds.contains(panelId),
+                isBackground: backgroundPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
@@ -10352,6 +10447,7 @@ extension Workspace: BonsplitDelegate {
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
+        backgroundPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
@@ -10505,6 +10601,7 @@ extension Workspace: BonsplitDelegate {
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
+                backgroundPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
                 panelShellActivityStates.removeValue(forKey: panelId)
