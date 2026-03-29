@@ -263,6 +263,7 @@ struct WorkspaceContentView: View {
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
 
+
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
         let _ = {
@@ -379,12 +380,6 @@ struct WorkspaceContentView: View {
             if isMinimalMode {
                 bonsplitView
                     .ignoresSafeArea(.container, edges: .top)
-                    .overlay(alignment: .top) {
-                        if isWorkspaceInputActive {
-                            TitlebarDoubleClickMonitorView()
-                                .frame(height: WorkspaceTitlebarInteractionMetrics.minimalModeTopStripHeight)
-                        }
-                    }
             } else {
                 bonsplitView
             }

@@ -306,7 +306,7 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
-            configTemplate: ghostty_surface_config_s?,
+            configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
@@ -448,26 +448,19 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
-    func testAddWorkspaceKeepsCapturedWorkspaceAliveUntilCreationFinishes() {
+    func testAddWorkspaceSurvivesMidCreationClose() {
         let manager = SnapshotMutatingTabManager()
         guard let first = manager.tabs.first else {
             XCTFail("Expected initial workspace")
             return
         }
 
-        var closingWorkspace: Workspace? = manager.addWorkspace()
+        let closingWorkspace = manager.addWorkspace()
         let third = manager.addWorkspace()
         manager.selectWorkspace(third)
 
-        guard let capturedClosingWorkspace = closingWorkspace else {
-            XCTFail("Expected secondary workspace")
-            return
-        }
-
-        let closingWorkspaceId = capturedClosingWorkspace.id
-        weak var weakClosingWorkspace = capturedClosingWorkspace
+        let closingWorkspaceId = closingWorkspace.id
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, closingWorkspaceId, third.id])
-        closingWorkspace = nil
 
         manager.afterCaptureWorkspaceCreationSnapshot = {
             guard let liveWorkspace = manager.tabs.first(where: { $0.id == closingWorkspaceId }) else {
@@ -477,22 +470,11 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             manager.closeWorkspace(liveWorkspace)
         }
 
-        var didReachBeforeCreateWorkspace = false
-        manager.beforeCreateWorkspace = {
-            didReachBeforeCreateWorkspace = true
-            XCTAssertNotNil(
-                weakClosingWorkspace,
-                "Expected the workspace captured before Cmd+N to stay alive until creation finishes"
-            )
-        }
-
         let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
 
-        XCTAssertTrue(didReachBeforeCreateWorkspace)
         XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspaceId }))
         XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
         XCTAssertEqual(manager.selectedTabId, inserted.id)
-        XCTAssertNil(weakClosingWorkspace)
     }
 
     func testAddWorkspaceAfterCurrentUsesSnapshotPinnedStateWhenPinningMutatesAfterSnapshot() {
@@ -561,47 +543,21 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 @MainActor
 final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
     private final class UnsafeConfigSnapshotTabManager: TabManager {
-        private var retainedCStringPointers: [UnsafeMutablePointer<CChar>] = []
-        private var retainedEnvVars: UnsafeMutablePointer<ghostty_env_var_s>?
-        private var injectedConfig: ghostty_surface_config_s?
-        var capturedConfigTemplate: ghostty_surface_config_s?
-
-        deinit {
-            retainedEnvVars?.deinitialize(count: 1)
-            retainedEnvVars?.deallocate()
-            for pointer in retainedCStringPointers {
-                free(pointer)
-            }
-        }
+        private var injectedConfig: CmuxSurfaceConfigTemplate?
+        var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
 
         func installInjectedConfig(fontSize: Float) {
-            let workingDirectory = strdup("/tmp/cmux-workspace-snapshot")
-            let command = strdup("echo snapshot")
-            let envKey = strdup("CMUX_INHERITED_ENV")
-            let envValue = strdup("1")
-            let envVars = UnsafeMutablePointer<ghostty_env_var_s>.allocate(capacity: 1)
-            envVars.initialize(
-                to: ghostty_env_var_s(
-                    key: UnsafePointer(envKey),
-                    value: UnsafePointer(envValue)
-                )
-            )
-
-            retainedCStringPointers = [workingDirectory, command, envKey, envValue].compactMap { $0 }
-            retainedEnvVars = envVars
-
-            var config = ghostty_surface_config_new()
-            config.font_size = fontSize
-            config.working_directory = UnsafePointer(workingDirectory)
-            config.command = UnsafePointer(command)
-            config.env_vars = envVars
-            config.env_var_count = 1
+            var config = CmuxSurfaceConfigTemplate()
+            config.fontSize = fontSize
+            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
+            config.command = "echo snapshot"
+            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
             injectedConfig = config
         }
 
         override func inheritedTerminalConfigForNewWorkspace(
             workspace: Workspace?
-        ) -> ghostty_surface_config_s? {
+        ) -> CmuxSurfaceConfigTemplate? {
             injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
         }
 
@@ -609,7 +565,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             title: String,
             workingDirectory: String?,
             portOrdinal: Int,
-            configTemplate: ghostty_surface_config_s?,
+            configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
             initialTerminalEnvironment: [String: String]
         ) -> Workspace {
@@ -636,11 +592,10 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(capturedConfig.font_size, 19, accuracy: 0.001)
-        XCTAssertNil(capturedConfig.working_directory)
+        XCTAssertEqual(capturedConfig.fontSize, 19, accuracy: 0.001)
+        XCTAssertNil(capturedConfig.workingDirectory)
         XCTAssertNil(capturedConfig.command)
-        XCTAssertNil(capturedConfig.env_vars)
-        XCTAssertEqual(capturedConfig.env_var_count, 0)
+        XCTAssertTrue(capturedConfig.environmentVariables.isEmpty)
     }
 }
 

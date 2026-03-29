@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Новое рабочее пространство",
+        "ws-prev": "Предыдущее рабочее пространство",
+        "ws-next": "Следующее рабочее пространство",
         "ws-jump-1-8": "Перейти к рабочему пространству 1–8",
         "ws-jump-last": "Перейти к последнему рабочему пространству",
         "ws-close": "Закрыть рабочее пространство",
@@ -554,6 +556,9 @@
       "createHookScript": "1. Создай скрипт хука",
       "configureClaude": "2. Настрой Claude Code",
       "restartNote": "Перезапусти Claude Code чтобы применить хуки.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI поддерживает <link>хуки</link>, которые выполняют shell-команды при событиях жизненного цикла, таких как отправка промпта, остановка агента и ошибки.",
+      "copilotCliRepoHooks": "Для хуков на уровне репозитория создайте файл .github/hooks/notify.json с аналогичной структурой:",
       "integrationExamples": "Примеры интеграций",
       "notifyAfterLong": "Уведомление после долгой команды",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "Справочник API",
       "browserAutomation": "Автоматизация браузера",
       "notifications": "Уведомления",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Изменения"
     }
   },

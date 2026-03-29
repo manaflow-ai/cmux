@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "새 워크스페이스",
+        "ws-prev": "이전 워크스페이스",
+        "ws-next": "다음 워크스페이스",
         "ws-jump-1-8": "워크스페이스 1–8로 이동",
         "ws-jump-last": "마지막 워크스페이스로 이동",
         "ws-close": "워크스페이스 닫기",
@@ -554,6 +556,9 @@
       "createHookScript": "1. 훅 스크립트 생성",
       "configureClaude": "2. Claude Code 설정",
       "restartNote": "hooks를 적용하려면 Claude Code를 재시작하세요.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI는 프롬프트 제출, 에이전트 중지, 오류 등 라이프사이클 이벤트에서 셸 명령을 실행하는 <link>hooks</link>를 지원합니다.",
+      "copilotCliRepoHooks": "저장소 수준 hooks의 경우, 같은 구조로 .github/hooks/notify.json 파일을 생성하세요:",
       "integrationExamples": "통합 예시",
       "notifyAfterLong": "긴 명령 후 알림",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "API 레퍼런스",
       "browserAutomation": "브라우저 자동화",
       "notifications": "알림",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "변경 로그"
     }
   },
