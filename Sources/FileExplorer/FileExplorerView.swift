@@ -37,23 +37,52 @@ struct FileExplorerView: View {
                     FileExplorerEmptyState()
                 }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(state.displayNodes) { node in
-                            FileExplorerRow(
-                                node: node,
-                                depth: 0,
-                                state: state,
-                                onFileSelect: onFileSelect,
-                                onFileDoubleClick: onFileDoubleClick
-                            )
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(state.displayNodes) { node in
+                                FileExplorerRow(
+                                    node: node,
+                                    depth: 0,
+                                    state: state,
+                                    onFileSelect: onFileSelect,
+                                    onFileDoubleClick: onFileDoubleClick
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .onChange(of: state.scrollToNodeId) { targetId in
+                        guard let targetId else { return }
+                        withAnimation {
+                            proxy.scrollTo(targetId, anchor: .center)
+                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            state.scrollToNodeId = nil
                         }
                     }
-                    .padding(.vertical, 4)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .top) {
+            if let message = state.revealMessage {
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .systemGray).opacity(0.9), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 30)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            withAnimation { state.revealMessage = nil }
+                        }
+                    }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: state.revealMessage)
     }
 }
 
@@ -296,6 +325,7 @@ private struct FileExplorerRow: View {
                     onFileSelect(node.url)
                 }
             }
+            .id(node.id)
             .contextMenu {
                 FileExplorerContextMenu(node: node)
             }

@@ -24,9 +24,12 @@ struct FileExplorerSidebarSection: View {
             },
             onSyncToCwd: {
                 // If a file is open, reveal it in the tree. Otherwise sync to cwd.
+                debugLog("location button: currentEditingFilePath=\(explorerState.currentEditingFilePath ?? "nil"), rootURL=\(explorerState.rootURL?.path ?? "nil")")
                 if let filePath = explorerState.currentEditingFilePath {
+                    debugLog("location button: calling revealFile(at: \(filePath))")
                     explorerState.revealFile(at: filePath)
                 } else {
+                    debugLog("location button: no file open, syncing to cwd")
                     syncToWorkingDirectory()
                 }
             }
@@ -38,6 +41,7 @@ struct FileExplorerSidebarSection: View {
         }
         .onReceive(pollTimer) { _ in
             checkForDirectoryChange()
+            syncCurrentEditingFile()
         }
         .onAppear {
             debugLog("onAppear — file explorer visible")
@@ -101,6 +105,23 @@ struct FileExplorerSidebarSection: View {
         }
         lastSyncedDirectory = currentDir
         explorerState.setRoot(URL(fileURLWithPath: currentDir))
+    }
+
+    /// Keep currentEditingFilePath in sync with whichever editor tab is focused.
+    private func syncCurrentEditingFile() {
+        guard let workspace = tabManager.selectedTab else { return }
+        guard let panelId = workspace.focusedPanelId,
+              let editor = workspace.panels[panelId] as? EditorPanel else {
+            // Focused panel is not an editor — clear highlight
+            if explorerState.currentEditingFilePath != nil {
+                explorerState.currentEditingFilePath = nil
+            }
+            return
+        }
+        if explorerState.currentEditingFilePath != editor.filePath {
+            debugLog("syncCurrentEditingFile: \(explorerState.currentEditingFilePath ?? "nil") -> \(editor.filePath)")
+            explorerState.currentEditingFilePath = editor.filePath
+        }
     }
 
     /// Single-click: open file preview in a new tab.
