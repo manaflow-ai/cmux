@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Novo workspace",
+        "ws-prev": "Workspace anterior",
+        "ws-next": "Workspace seguinte",
         "ws-jump-1-8": "Ir para workspace 1–8",
         "ws-jump-last": "Ir para último workspace",
         "ws-close": "Fechar workspace",
@@ -554,6 +556,9 @@
       "createHookScript": "1. Crie o script de hook",
       "configureClaude": "2. Configure o Claude Code",
       "restartNote": "Reinicie o Claude Code para aplicar os hooks.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "O Copilot CLI suporta <link>hooks</link> que executam comandos shell em eventos do ciclo de vida como envio de prompts, parada do agente e erros.",
+      "copilotCliRepoHooks": "Para hooks no nível do repositório, crie um arquivo .github/hooks/notify.json com a mesma estrutura:",
       "integrationExamples": "Exemplos de integração",
       "notifyAfterLong": "Notificar após comando longo",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "Referência da API",
       "browserAutomation": "Automação do Navegador",
       "notifications": "Notificações",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Changelog"
     }
   },

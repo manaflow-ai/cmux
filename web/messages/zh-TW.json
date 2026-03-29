@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "新增工作區",
+        "ws-prev": "上一個工作區",
+        "ws-next": "下一個工作區",
         "ws-jump-1-8": "跳到工作區 1–8",
         "ws-jump-last": "跳到最後一個工作區",
         "ws-close": "關閉工作區",
@@ -554,6 +556,9 @@
       "createHookScript": "1. 建立 hook 腳本",
       "configureClaude": "2. 設定 Claude Code",
       "restartNote": "重新啟動 Claude Code 以套用 hooks。",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI 支援<link>hooks</link>，可在提示提交、代理停止和錯誤等生命週期事件中執行 shell 命令。",
+      "copilotCliRepoHooks": "對於儲存庫層級的 hooks，使用相同結構建立 .github/hooks/notify.json 檔案：",
       "integrationExamples": "整合範例",
       "notifyAfterLong": "長時間指令後通知",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "API 參考",
       "browserAutomation": "瀏覽器自動化",
       "notifications": "通知",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "更新日誌"
     }
   },

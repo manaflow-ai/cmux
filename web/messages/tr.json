@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Yeni çalışma alanı",
+        "ws-prev": "Önceki çalışma alanı",
+        "ws-next": "Sonraki çalışma alanı",
         "ws-jump-1-8": "1–8 arası çalışma alanına atla",
         "ws-jump-last": "Son çalışma alanına atla",
         "ws-close": "Çalışma alanını kapat",
@@ -554,6 +556,9 @@
       "createHookScript": "1. Hook betiğini oluşturun",
       "configureClaude": "2. Claude Code'u yapılandırın",
       "restartNote": "Hook'ları uygulamak için Claude Code'u yeniden başlatın.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI, prompt gönderimi, agent durdurma ve hatalar gibi yaşam döngüsü olaylarında shell komutları çalıştıran <link>hook'ları</link> destekler.",
+      "copilotCliRepoHooks": "Repo düzeyinde hook'lar için aynı yapıda bir .github/hooks/notify.json dosyası oluşturun:",
       "integrationExamples": "Entegrasyon örnekleri",
       "notifyAfterLong": "Uzun komuttan sonra bildir",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "API Referansı",
       "browserAutomation": "Tarayıcı Otomasyonu",
       "notifications": "Bildirimler",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Değişiklik Günlüğü"
     }
   },

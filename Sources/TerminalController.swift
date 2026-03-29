@@ -1673,7 +1673,7 @@ class TerminalController {
             return listWorkspaces()
 
 	        case "new_workspace":
-	            return newWorkspace()
+	            return newWorkspace(args)
 
 	        case "new_split":
 	            return newSplit(args)
@@ -2071,6 +2071,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
             return v2Result(id: id, self.v2WorkspaceLast(params: params))
+        case "workspace.equalize_splits":
+            return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
         case "workspace.remote.configure":
             return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.reconnect":
@@ -2443,6 +2445,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.remote.reconnect",
             "workspace.remote.disconnect",
@@ -3336,10 +3339,14 @@ class TerminalController {
             cwd = nil
         }
 
+        let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
+
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
         v2MainSync {
             let ws = tabManager.addWorkspace(
+                title: title,
                 workingDirectory: cwd,
                 initialTerminalCommand: initialCommand,
                 initialTerminalEnvironment: initialEnv,
@@ -3670,6 +3677,66 @@ class TerminalController {
             ])
         }
         return result
+    }
+
+    private func v2WorkspaceEqualizeSplits(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let orientationFilter = v2String(params, "orientation")
+
+        var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let tree = ws.bonsplitController.treeSnapshot()
+            let success = v2ProportionalEqualize(node: tree, controller: ws.bonsplitController, orientationFilter: orientationFilter)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "equalized": success
+            ])
+        }
+        return result
+    }
+
+    /// Count leaf panes in a tree node.
+    private func v2CountLeaves(_ node: ExternalTreeNode) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let s):
+            return v2CountLeaves(s.first) + v2CountLeaves(s.second)
+        }
+    }
+
+    /// Proportionally equalize splits so each leaf pane gets equal space.
+    /// For a split with N1 leaves on the left and N2 on the right,
+    /// the divider is set to N1/(N1+N2).
+    /// When orientationFilter is set (e.g. "vertical"), only splits matching
+    /// that orientation are equalized. This lets main-vertical layout equalize
+    /// the agent column without squishing the main pane.
+    @discardableResult
+    private func v2ProportionalEqualize(
+        node: ExternalTreeNode,
+        controller: BonsplitController,
+        orientationFilter: String? = nil
+    ) -> Bool {
+        guard case .split(let s) = node else { return false }
+        guard let splitId = UUID(uuidString: s.id) else { return false }
+
+        var didEqualize = false
+        if orientationFilter == nil || s.orientation == orientationFilter {
+            let leftLeaves = v2CountLeaves(s.first)
+            let rightLeaves = v2CountLeaves(s.second)
+            let total = leftLeaves + rightLeaves
+            let position = CGFloat(leftLeaves) / CGFloat(total)
+            controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
+            didEqualize = true
+        }
+
+        let l = v2ProportionalEqualize(node: s.first, controller: controller, orientationFilter: orientationFilter)
+        let r = v2ProportionalEqualize(node: s.second, controller: controller, orientationFilter: orientationFilter)
+        return didEqualize || l || r
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
@@ -4565,7 +4632,8 @@ class TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
-            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction) {
+            let focus = v2Bool(params, "focus") ?? true
+            if let newId = tabManager.newSplit(tabId: ws.id, surfaceId: targetSurfaceId, direction: direction, focus: focus) {
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 result = .ok([
@@ -5278,7 +5346,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5329,7 +5406,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5363,7 +5449,16 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5414,7 +5509,16 @@ class TerminalController {
                 return
             }
 
-            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            let surfaceId: UUID?
+            if params["surface_id"] != nil {
+                surfaceId = v2UUID(params, "surface_id")
+                guard surfaceId != nil else {
+                    result = .err(code: "not_found", message: "Surface not found for the given surface_id", data: nil)
+                    return
+                }
+            } else {
+                surfaceId = ws.focusedPanelId
+            }
             guard let surfaceId else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
                 return
@@ -5719,12 +5823,19 @@ class TerminalController {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
 
             let focusedPaneId = ws.bonsplitController.focusedPaneId
+            let snapshot = ws.bonsplitController.layoutSnapshot()
+            let geometryByPaneId = Dictionary(
+                snapshot.panes.map { ($0.paneId, $0.frame) },
+                uniquingKeysWith: { first, _ in first }
+            )
+
             let panes: [[String: Any]] = ws.bonsplitController.allPaneIds.enumerated().map { index, paneId in
                 let tabs = ws.bonsplitController.tabs(inPane: paneId)
                 let surfaceUUIDs: [UUID] = tabs.compactMap { ws.panelIdFromSurfaceId($0.id) }
                 let selectedTab = ws.bonsplitController.selectedTab(inPane: paneId)
                 let selectedSurfaceUUID = selectedTab.flatMap { ws.panelIdFromSurfaceId($0.id) }
-                return [
+
+                var dict: [String: Any] = [
                     "id": paneId.id.uuidString,
                     "ref": v2Ref(kind: .pane, uuid: paneId.id),
                     "index": index,
@@ -5735,16 +5846,44 @@ class TerminalController {
                     "selected_surface_ref": v2Ref(kind: .surface, uuid: selectedSurfaceUUID),
                     "surface_count": surfaceUUIDs.count
                 ]
+
+                if let frame = geometryByPaneId[paneId.id.uuidString] {
+                    dict["pixel_frame"] = [
+                        "x": frame.x, "y": frame.y,
+                        "width": frame.width, "height": frame.height
+                    ]
+                }
+
+                // Get terminal grid size from the selected surface
+                if let panelUUID = selectedSurfaceUUID,
+                   let panel = ws.panels[panelUUID] as? TerminalPanel,
+                   panel.surface.hasLiveSurface,
+                   let ghosttySurface = panel.surface.surface {
+                    let size = ghostty_surface_size(ghosttySurface)
+                    if size.columns > 0 && size.rows > 0 {
+                        dict["columns"] = Int(size.columns)
+                        dict["rows"] = Int(size.rows)
+                        dict["cell_width_px"] = Int(size.cell_width_px)
+                        dict["cell_height_px"] = Int(size.cell_height_px)
+                    }
+                }
+
+                return dict
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            payload = [
+            var payloadDict: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
                 "panes": panes,
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ]
+            payloadDict["container_frame"] = [
+                "width": snapshot.containerFrame.width,
+                "height": snapshot.containerFrame.height
+            ]
+            payload = payloadDict
         }
 
         guard let payload else {
@@ -12036,13 +12175,16 @@ class TerminalController {
         return result.isEmpty ? "No workspaces" : result
     }
 
-    private func newWorkspace() -> String {
+    private func newWorkspace(_ args: String = "") -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title: String? = trimmed.isEmpty ? nil : trimmed
 
         var newTabId: UUID?
         let focus = socketCommandAllowsInAppFocusMutations()
         DispatchQueue.main.sync {
-            let workspace = tabManager.addTab(select: focus, eagerLoadTerminal: !focus)
+            let workspace = tabManager.addWorkspace(title: title, select: focus, eagerLoadTerminal: !focus)
             newTabId = workspace.id
         }
         return "OK \(newTabId?.uuidString ?? "unknown")"
@@ -13178,6 +13320,23 @@ class TerminalController {
         }
     }
 
+    private func keycodeForNamedKey(_ name: String) -> UInt32? {
+        switch name {
+        case "enter", "return": return UInt32(kVK_Return)
+        case "tab": return UInt32(kVK_Tab)
+        case "escape", "esc": return UInt32(kVK_Escape)
+        case "backspace": return UInt32(kVK_Delete)
+        case "delete": return UInt32(kVK_ForwardDelete)
+        case "space": return UInt32(kVK_Space)
+        case "up": return UInt32(kVK_UpArrow)
+        case "down": return UInt32(kVK_DownArrow)
+        case "left": return UInt32(kVK_LeftArrow)
+        case "right": return UInt32(kVK_RightArrow)
+        case "\\": return UInt32(kVK_ANSI_Backslash)
+        default: return nil
+        }
+    }
+
     private func sendNamedKey(_ surface: ghostty_surface_t, keyName: String) -> Bool {
         switch keyName.lowercased() {
         case "ctrl-c", "ctrl+c", "sigint":
@@ -13235,12 +13394,43 @@ class TerminalController {
             sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageDown))
             return true
         default:
-            if keyName.lowercased().hasPrefix("ctrl-") || keyName.lowercased().hasPrefix("ctrl+") {
-                let letter = keyName.dropFirst(5)
-                if letter.count == 1, let char = letter.first, let keycode = keycodeForLetter(char) {
-                    sendKeyEvent(surface: surface, keycode: keycode, mods: GHOSTTY_MODS_CTRL)
+            // Parse modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
+            // "ctrl+shift+a") or standalone named keys (e.g. "space", "up").
+            // Separators: '+' or '-'.
+            let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init).filter { !$0.isEmpty }
+            guard let baseKey = parts.last else { return false }
+
+            // Single named key without modifiers (e.g. "space", "up", "delete")
+            if parts.count == 1 {
+                if let keycode = keycodeForNamedKey(baseKey) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
                     return true
                 }
+                if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
+                    sendKeyEvent(surface: surface, keycode: keycode)
+                    return true
+                }
+                return false
+            }
+
+            var mods = GHOSTTY_MODS_NONE
+            for mod in parts.dropLast() {
+                switch mod {
+                case "ctrl", "control": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_CTRL.rawValue)
+                case "shift": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
+                case "alt", "opt", "option": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_ALT.rawValue)
+                case "cmd", "command", "super": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+                default: return false
+                }
+            }
+
+            if let keycode = keycodeForNamedKey(baseKey) {
+                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
+                return true
+            }
+            if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
+                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
+                return true
             }
             return false
         }

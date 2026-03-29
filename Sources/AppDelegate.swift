@@ -2042,12 +2042,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let visibleFrame: CGRect
     }
 
-    private struct PersistedWindowGeometry: Codable, Sendable {
+    struct PersistedWindowGeometry: Codable, Sendable {
+        let version: Int
         let frame: SessionRectSnapshot
         let display: SessionDisplaySnapshot?
     }
 
-    private static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v1"
+    nonisolated static let persistedWindowGeometrySchemaVersion = 2
+    private nonisolated static let persistedWindowGeometryDefaultsKey = "cmux.session.lastWindowGeometry.v2"
+    private nonisolated static let legacyPersistedWindowGeometryDefaultsKeys = [
+        "cmux.session.lastWindowGeometry.v1"
+    ]
 
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
@@ -2212,6 +2217,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastTypingActivityAt: TimeInterval = 0
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
+    // Set to true when the user has already confirmed quit via the warning dialog,
+    // so applicationShouldTerminate does not show a second alert.
+    private var isQuitWarningConfirmed = false
     private var didInstallLifecycleSnapshotObservers = false
     private var didDisableSuddenTermination = false
     private var commandPaletteVisibilityByWindowId: [UUID: Bool] = [:]
@@ -2701,7 +2709,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
-        return .terminateNow
+
+        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
+        if SocketControlSettings.isTaggedDevBuild() {
+            return .terminateNow
+        }
+
+        // If the user already confirmed via the Cmd+Q shortcut warning dialog
+        // (handleQuitShortcutWarning), skip the check to avoid a second alert.
+        if isQuitWarningConfirmed {
+            return .terminateNow
+        }
+
+        // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
+        // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
+        guard QuitWarningSettings.isEnabled() else {
+            return .terminateNow
+        }
+
+        // Show the same confirmation dialog used by the Cmd+Q shortcut path,
+        // then reply asynchronously so we can return .terminateLater now.
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "dialog.quitCmux.title", defaultValue: "Quit cmux?")
+            alert.informativeText = String(localized: "dialog.quitCmux.message", defaultValue: "This will close all windows and workspaces.")
+            alert.addButton(withTitle: String(localized: "dialog.quitCmux.quit", defaultValue: "Quit"))
+            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+            alert.showsSuppressionButton = true
+            alert.suppressionButton?.title = String(localized: "dialog.dontWarnCmdQ", defaultValue: "Don't warn again for Cmd+Q")
+
+            let response = alert.runModal()
+            if alert.suppressionButton?.state == .on {
+                QuitWarningSettings.setEnabled(false)
+            }
+
+            let shouldQuit = response == .alertFirstButtonReturn
+            if shouldQuit {
+                self.isQuitWarningConfirmed = true
+            } else {
+                // Reset so that the next quit attempt can show the dialog again.
+                self.isTerminatingApp = false
+            }
+            NSApp.reply(toApplicationShouldTerminate: shouldQuit)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -2827,16 +2879,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        Self.removeLegacyPersistedWindowGeometry()
         startupSessionSnapshot = SessionPersistenceStore.load()
     }
 
     private func persistedWindowGeometry(
         defaults: UserDefaults = .standard
     ) -> PersistedWindowGeometry? {
+        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = defaults.data(forKey: Self.persistedWindowGeometryDefaultsKey) else {
             return nil
         }
-        return try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data)
+        guard let payload = Self.decodedPersistedWindowGeometryData(data) else {
+            defaults.removeObject(forKey: Self.persistedWindowGeometryDefaultsKey)
+            return nil
+        }
+        return payload
     }
 
     private func persistWindowGeometry(
@@ -2844,6 +2902,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?,
         defaults: UserDefaults = .standard
     ) {
+        Self.removeLegacyPersistedWindowGeometry(defaults: defaults)
         guard let data = Self.encodedPersistedWindowGeometryData(frame: frame, display: display) else {
             return
         }
@@ -2855,8 +2914,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         display: SessionDisplaySnapshot?
     ) -> Data? {
         guard let frame else { return nil }
-        let payload = PersistedWindowGeometry(frame: frame, display: display)
+        let payload = PersistedWindowGeometry(
+            version: persistedWindowGeometrySchemaVersion,
+            frame: frame,
+            display: display
+        )
         return try? JSONEncoder().encode(payload)
+    }
+
+    nonisolated static func decodedPersistedWindowGeometryData(_ data: Data) -> PersistedWindowGeometry? {
+        guard let payload = try? JSONDecoder().decode(PersistedWindowGeometry.self, from: data),
+              payload.version == persistedWindowGeometrySchemaVersion else {
+            return nil
+        }
+        return payload
+    }
+
+    private nonisolated static func removeLegacyPersistedWindowGeometry(
+        defaults: UserDefaults = .standard
+    ) {
+        legacyPersistedWindowGeometryDefaultsKeys.forEach { defaults.removeObject(forKey: $0) }
     }
 
     private func persistWindowGeometry(from window: NSWindow?) {
@@ -3718,6 +3795,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
         let writeBlock = {
+            Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
                     persistedGeometryData,
@@ -8963,6 +9041,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
+        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
+        if SocketControlSettings.isTaggedDevBuild() {
+            NSApp.terminate(nil)
+            return true
+        }
+
         if !QuitWarningSettings.isEnabled() {
             NSApp.terminate(nil)
             return true
@@ -8983,6 +9067,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if response == .alertFirstButtonReturn {
+            // Mark as confirmed so applicationShouldTerminate does not show a
+            // second alert when NSApp.terminate re-enters the delegate callback.
+            isQuitWarningConfirmed = true
             NSApp.terminate(nil)
         }
         return true
@@ -10629,7 +10716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // For command-based shortcuts, trust AppKit's layout-aware characters when present.
         // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
         // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        // When a non-Latin input source is active (Korean, Chinese, Japanese, etc.),
+        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
         // charactersIgnoringModifiers returns non-ASCII characters that can never match
         // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
@@ -10658,15 +10745,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
         // command punctuation shortcuts, since some non-US layouts report different characters
         // for the same physical key even when menu-equivalent semantics should still apply.
-        // When a non-Latin input source is active, treat non-ASCII event chars the same as
-        // absent chars — they carry no usable Latin key identity.
+        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
+        // event chars carry no usable Latin key identity. Always allow keyCode fallback as a
+        // safety net — even when the layout-based translation resolved a character, the
+        // physical key code is the definitive identifier for the intended shortcut.
+        // For empty-character events (synthetic/browser key equivalents), preserve the original
+        // behavior: only fall back when the layout translation also failed.
         let hasUsableEventChars = hasEventChars && eventCharsAreASCII
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
                     !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (!hasUsableEventChars && (layoutCharacter?.isEmpty ?? true))
+                        || (hasEventChars && !eventCharsAreASCII)
+                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
                 ))
         if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
             return event.keyCode == expectedKeyCode

@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "Novi radni prostor",
+        "ws-prev": "Prethodni radni prostor",
+        "ws-next": "Sljedeći radni prostor",
         "ws-jump-1-8": "Skok na radni prostor 1–8",
         "ws-jump-last": "Skok na posljednji radni prostor",
         "ws-close": "Zatvori radni prostor",
@@ -554,6 +556,9 @@
       "createHookScript": "1. Kreirajte hook skriptu",
       "configureClaude": "2. Konfigurirajte Claude Code",
       "restartNote": "Ponovo pokrenite Claude Code da primijenite hookove.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "Copilot CLI podržava <link>hookove</link> koji pokreću shell komande na događajima životnog ciklusa poput slanja upita, zaustavljanja agenta i grešaka.",
+      "copilotCliRepoHooks": "Za hookove na nivou repozitorija, kreirajte .github/hooks/notify.json datoteku sa istom strukturom:",
       "integrationExamples": "Primjeri integracije",
       "notifyAfterLong": "Notifikacija nakon duge komande",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "API Referenca",
       "browserAutomation": "Automatizacija preglednika",
       "notifications": "Notifikacije",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "Zapisnik promjena"
     }
   },

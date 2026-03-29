@@ -388,6 +388,8 @@
       },
       "sc": {
         "ws-new": "مساحة عمل جديدة",
+        "ws-prev": "مساحة العمل السابقة",
+        "ws-next": "مساحة العمل التالية",
         "ws-jump-1-8": "الانتقال إلى مساحة العمل 1–8",
         "ws-jump-last": "الانتقال إلى آخر مساحة عمل",
         "ws-close": "إغلاق مساحة العمل",
@@ -554,6 +556,9 @@
       "createHookScript": "1. إنشاء نص الخطاف",
       "configureClaude": "2. إعداد Claude Code",
       "restartNote": "أعد تشغيل Claude Code لتطبيق الخطافات.",
+      "copilotCliHooks": "GitHub Copilot CLI",
+      "copilotCliHooksDesc": "يدعم Copilot CLI <link>الخطافات</link> التي تنفذ أوامر shell عند أحداث دورة الحياة مثل إرسال الأوامر وتوقف الوكيل والأخطاء.",
+      "copilotCliRepoHooks": "لخطافات على مستوى المستودع، أنشئ ملف .github/hooks/notify.json بنفس الهيكل:",
       "integrationExamples": "أمثلة التكامل",
       "notifyAfterLong": "إشعار بعد أمر طويل",
       "python": "Python",
@@ -616,6 +621,9 @@
       "apiReference": "مرجع الواجهة البرمجية",
       "browserAutomation": "أتمتة المتصفح",
       "notifications": "الإشعارات",
+      "agentIntegrations": "Agent Integrations",
+      "claudeCodeTeams": "Claude Code Teams",
+      "ohMyOpenCode": "oh-my-opencode",
       "changelog": "سجل التغييرات"
     }
   },

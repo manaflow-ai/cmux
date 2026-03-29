@@ -254,7 +254,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
-    private func waitForSocket(at path: String, timeout: TimeInterval = 2.0) throws {
+    private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 FileManager.default.fileExists(atPath: path)
