@@ -4843,36 +4843,54 @@ extension BrowserPanel {
 
     // MARK: - React Grab
 
+    private static let reactGrabScriptURL = URL(string: "https://unpkg.com/react-grab/dist/index.global.js")!
+    private static var cachedReactGrabScript: String?
+
+    private func fetchReactGrabScript() async -> String? {
+        if let cached = Self.cachedReactGrabScript { return cached }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: Self.reactGrabScriptURL)
+            let script = String(data: data, encoding: .utf8)
+            Self.cachedReactGrabScript = script
+            return script
+        } catch {
+            NSLog("BrowserPanel: failed to fetch react-grab script: %@", error.localizedDescription)
+            return nil
+        }
+    }
+
     func injectReactGrab() async {
+        // If already injected on this page, just activate
+        let checkScript = "typeof window.__REACT_GRAB__ !== 'undefined'"
+        if let alreadyLoaded = try? await webView.evaluateJavaScript(checkScript) as? Bool, alreadyLoaded {
+            try? await webView.evaluateJavaScript("window.__REACT_GRAB__.activate()")
+            isReactGrabActive = true
+            return
+        }
+
+        guard let scriptSource = await fetchReactGrabScript() else { return }
+
         let handlerName = Self.reactGrabMessageHandlerName
-        let script = """
-        (function() {
-            if (window.__REACT_GRAB__) {
-                window.__REACT_GRAB__.activate();
-                return;
-            }
-            var s = document.createElement('script');
-            s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
-            s.crossOrigin = 'anonymous';
-            window.addEventListener('react-grab:init', function(e) {
-                var api = e.detail;
-                if (!api) return;
-                api.activate();
-                api.registerPlugin({
-                    name: 'cmux-bridge',
-                    hooks: {
-                        onStateChange: function(state) {
-                            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
-                                window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: state.isActive });
-                            }
+        // Inject the script source inline (bypasses CSP), then register the bridge plugin
+        let bootstrap = """
+        window.addEventListener('react-grab:init', function(e) {
+            var api = e.detail;
+            if (!api) return;
+            api.activate();
+            api.registerPlugin({
+                name: 'cmux-bridge',
+                hooks: {
+                    onStateChange: function(state) {
+                        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
+                            window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: state.isActive });
                         }
                     }
-                });
-            }, { once: true });
-            document.head.appendChild(s);
-        })();
+                }
+            });
+        }, { once: true });
         """
-        try? await webView.evaluateJavaScript(script)
+        try? await webView.evaluateJavaScript(bootstrap)
+        try? await webView.evaluateJavaScript(scriptSource)
     }
 
     func toggleReactGrab() async {
