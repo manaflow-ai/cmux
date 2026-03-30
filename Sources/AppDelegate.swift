@@ -5511,6 +5511,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
 
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu(title: "")
+        let newWindowItem = NSMenuItem(
+            title: String(localized: "menu.file.newWindow", defaultValue: "New Window"),
+            action: #selector(openNewMainWindow(_:)),
+            keyEquivalent: ""
+        )
+        newWindowItem.target = self
+        menu.addItem(newWindowItem)
+        return menu
+    }
+
     @objc func openNewMainWindow(_ sender: Any?) {
         _ = createMainWindow()
     }

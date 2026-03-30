@@ -252,6 +252,44 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Cmd+N should still route by event window metadata when object-key lookup misses")
     }
 
+    func testDockMenuNewWindowItemCreatesMainWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let existingWindowId = appDelegate.createMainWindow()
+        var createdWindowId: UUID?
+        defer {
+            if let createdWindowId {
+                closeWindow(withId: createdWindowId)
+            }
+            closeWindow(withId: existingWindowId)
+        }
+
+        let existingWindowIds = mainWindowIds()
+
+        let delegate: NSApplicationDelegate = appDelegate
+        guard let dockMenu = delegate.applicationDockMenu?(NSApp) else {
+            XCTFail("Expected Dock menu")
+            return
+        }
+
+        let expectedTitle = String(localized: "menu.file.newWindow", defaultValue: "New Window")
+        guard let item = dockMenu.items.first(where: { $0.action == #selector(AppDelegate.openNewMainWindow(_:)) }) else {
+            XCTFail("Expected New Window item in Dock menu")
+            return
+        }
+
+        XCTAssertEqual(item.title, expectedTitle)
+        XCTAssertTrue(NSApp.sendAction(#selector(AppDelegate.openNewMainWindow(_:)), to: item.target, from: item))
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let newWindowIds = mainWindowIds().subtracting(existingWindowIds)
+        XCTAssertEqual(newWindowIds.count, 1, "Dock menu New Window should create one main window")
+        createdWindowId = newWindowIds.first
+    }
+
     func testAddWorkspaceInPreferredMainWindowUsesKeyWindowWhenObjectKeyLookupIsMismatched() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
