@@ -267,7 +267,7 @@ private struct FileExplorerRow: View {
 
     private func colorForStatus(_ status: GitFileStatus) -> Color {
         switch status {
-        case .modified: return .orange
+        case .modified: return Color(red: 0.80, green: 0.55, blue: 0.0)
         case .added: return .green
         case .deleted: return .red
         case .renamed: return .blue
