@@ -17,7 +17,7 @@ import (
 func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() string) int {
 	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
 
-	shimDir, err := createTmuxShimDir("claude-teams-bin", claudeTeamsShimScript)
+	shimDir, err := createClaudeTeamsShimDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux claude-teams: failed to create shim directory: %v\n", err)
 		return 1
@@ -126,6 +126,63 @@ set -euo pipefail
 exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
 `
 
+const runInPaneScript = `#!/usr/bin/env bash
+set -euo pipefail
+# Usage: run-in-pane [-h|-v] [-t timeout] [--] <command...>
+# Splits a pane, runs a command, waits for completion, captures output, cleans up.
+DIR="-h"; TIMEOUT=30
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|-v) DIR="$1"; shift ;;
+    -t)    TIMEOUT="$2"; shift 2 ;;
+    --)    shift; break ;;
+    *)     break ;;
+  esac
+done
+[[ $# -eq 0 ]] && { echo "run-in-pane: no command specified" >&2; exit 1; }
+SIGNAL="rip-$$-$RANDOM"
+SIG_PATH="/tmp/cmux-wait-for-${SIGNAL}.sig"
+PANE=$(tmux split-window -d "$DIR" -P)
+trap 'tmux kill-pane -t "$PANE" 2>/dev/null || true; rm -f "$SIG_PATH"' EXIT
+tmux send-keys -t "$PANE" "$*; touch $SIG_PATH" Enter
+# Poll for signal file
+DEADLINE=$(($(date +%s) + TIMEOUT))
+while [[ $(date +%s) -lt $DEADLINE ]]; do
+  [[ -f "$SIG_PATH" ]] && break
+  sleep 0.05
+done
+tmux capture-pane -t "$PANE" -p
+`
+
+const pollPaneScript = `#!/usr/bin/env bash
+set -euo pipefail
+# Usage: poll-pane -t <pane> -p <pattern> [--timeout <secs>] [--interval <secs>]
+# Polls pane output until a regex pattern matches or timeout.
+PANE=""; PATTERN=""; TIMEOUT=30; INTERVAL=0.2
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -t)         PANE="$2"; shift 2 ;;
+    -p)         PATTERN="$2"; shift 2 ;;
+    --timeout)  TIMEOUT="$2"; shift 2 ;;
+    --interval) INTERVAL="$2"; shift 2 ;;
+    *)          shift ;;
+  esac
+done
+[[ -z "$PANE" ]] && { echo "poll-pane: -t <pane> required" >&2; exit 1; }
+[[ -z "$PATTERN" ]] && { echo "poll-pane: -p <pattern> required" >&2; exit 1; }
+DEADLINE=$(($(date +%s) + TIMEOUT))
+while [[ $(date +%s) -lt $DEADLINE ]]; do
+  OUTPUT=$(tmux capture-pane -t "$PANE" -p 2>/dev/null || true)
+  if echo "$OUTPUT" | grep -qE "$PATTERN"; then
+    echo "$OUTPUT"
+    exit 0
+  fi
+  sleep "$INTERVAL"
+done
+echo "poll-pane: timeout waiting for pattern: $PATTERN" >&2
+exit 1
+`
+
 const omoTmuxShimScript = `#!/usr/bin/env bash
 set -euo pipefail
 # Only match -V/-v as the first arg (top-level tmux flag).
@@ -161,6 +218,22 @@ func createTmuxShimDir(dirName string, tmuxScript string) (string, error) {
 	tmuxPath := filepath.Join(dir, "tmux")
 	if err := writeShimIfChanged(tmuxPath, tmuxScript); err != nil {
 		return "", err
+	}
+	return dir, nil
+}
+
+func createClaudeTeamsShimDir() (string, error) {
+	dir, err := createTmuxShimDir("claude-teams-bin", claudeTeamsShimScript)
+	if err != nil {
+		return "", err
+	}
+	for name, script := range map[string]string{
+		"run-in-pane": runInPaneScript,
+		"poll-pane":   pollPaneScript,
+	} {
+		if err := writeShimIfChanged(filepath.Join(dir, name), script); err != nil {
+			return "", err
+		}
 	}
 	return dir, nil
 }

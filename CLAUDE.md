@@ -109,6 +109,58 @@ This creates an isolated app with its own name, bundle ID, socket, and derived d
 
 Before launching a new tagged run, clean up any older tags you started in this session (quit old tagged app + remove its `/tmp` socket/derived data).
 
+## Pane lifecycle (split, run, read, cleanup)
+
+When running commands in split panes, use the full lifecycle instead of fire-and-forget.
+
+### One-liner: run command and capture output
+
+```bash
+OUTPUT=$(run-in-pane "your-command")
+# With options:
+OUTPUT=$(run-in-pane -v -t 60 "npm run build")
+```
+
+`run-in-pane` creates a pane, runs the command, waits for completion, captures output, and cleans up the pane automatically. Use `-h` (default) or `-v` for split direction, `-t` for timeout in seconds (default 30).
+
+### Poll pane output for a pattern
+
+```bash
+PANE=$(tmux split-window -d -h -P)
+tmux send-keys -t "$PANE" 'npm run dev' Enter
+# Wait until "ready" or "error" appears:
+poll-pane -t "$PANE" -p "ready|error" --timeout 60
+tmux kill-pane -t "$PANE"
+```
+
+### Manual lifecycle with wait-for
+
+```bash
+SIGNAL="done-$$"
+PANE=$(tmux split-window -d -h -P)
+tmux send-keys -t "$PANE" "your-command; tmux wait-for -S $SIGNAL" Enter
+tmux wait-for "$SIGNAL" --timeout=30
+OUTPUT=$(tmux capture-pane -t "$PANE" -p)
+tmux kill-pane -t "$PANE"
+```
+
+### Manual lifecycle with signal file (works outside claude-teams env)
+
+```bash
+SIGNAL="done-$$"
+PANE=$(tmux split-window -d -h -P)
+tmux send-keys -t "$PANE" "your-command; touch /tmp/cmux-wait-for-${SIGNAL}.sig" Enter
+tmux wait-for "$SIGNAL" --timeout=30
+OUTPUT=$(tmux capture-pane -t "$PANE" -p)
+tmux kill-pane -t "$PANE"
+```
+
+### Read pane output snapshot
+
+```bash
+tmux capture-pane -t "$PANE" -p
+```
+
 ## Debug event log
 
 All debug events (keys, mouse, focus, splits, tabs) go to a unified log in DEBUG builds:
