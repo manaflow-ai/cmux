@@ -102,6 +102,19 @@ The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
 
 The fork branch HEAD is now the section 7 cmux theme picker helper commit.
 
+### 8) CoreText fallback glyph height clamp
+
+- Commit: `bb60bc964` (coretext: clamp fallback glyphs to primary cell height)
+- Files:
+  - `src/font/Collection.zig`
+  - `src/font/face/coretext.zig`
+- Summary:
+  - Propagates the collection fallback flag onto loaded CoreText faces so rasterization can distinguish fallback glyphs from primary-font glyphs.
+  - Caches CoreText face metrics at load time and preserves the fallback flag across synthetic/style/size copies.
+  - Uniformly shrinks unconstrained fallback text glyphs to fit the primary grid cell's vertical extents, preventing Hangul/CJK fallbacks from rendering larger than the primary monospace font.
+
+The fork branch HEAD is now the section 8 fallback sizing commit.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -129,5 +142,11 @@ These files change frequently upstream; be careful when rebasing the fork:
   - cmux now relies on the upstream picker UI plus local env-driven hooks for live preview and restore.
     If upstream reorganizes the preview loop or key handling, re-check the cmux mode path and keep the
     stock Ghostty behavior unchanged when the cmux env vars are absent.
+
+- `src/font/face/coretext.zig`
+  - Keep the cached face metrics and fallback-only height clamp together. The glyph-size remap is intentionally limited to unconstrained fallback text glyphs; don't accidentally apply it to primary fonts or icon/emoji constraint paths.
+
+- `src/font/Collection.zig`
+  - Keep the fallback flag propagation from `Collection.Entry` into loaded `Face` values, including deferred-face loads, or the CoreText clamp logic will silently stop applying to discovered fallback fonts.
 
 If you resolve a conflict, update this doc with what changed.
