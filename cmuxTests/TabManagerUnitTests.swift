@@ -540,6 +540,59 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertNil(workspace.pullRequest)
         XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
     }
+
+    func testTrackedWorkspaceGitBranchRefreshUpdatesSidebarBranchAfterCheckout() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-branch-refresh-\(UUID().uuidString)"
+        )
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 666,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/666")),
+            status: .open,
+            branch: "main"
+        )
+
+        try runGit(["checkout", "-b", "feature/sidebar-branch-update"], in: repoURL)
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "feature/sidebar-branch-update"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+                    && workspace.panelPullRequests[panelId] == nil
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/sidebar-branch-update")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+        XCTAssertNil(workspace.pullRequest)
+    }
 }
 
 
