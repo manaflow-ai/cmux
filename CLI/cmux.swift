@@ -4163,6 +4163,15 @@ struct CMUXCLI {
             remoteRelayPort: options.remoteRelayPort
         )
         var parts: [String] = ["ssh"]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
+            parts += ["-o", "ConnectTimeout=6"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveInterval") {
+            parts += ["-o", "ServerAliveInterval=20"]
+        }
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveCountMax") {
+            parts += ["-o", "ServerAliveCountMax=2"]
+        }
         if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
             parts += ["-o", "SetEnv COLORTERM=truecolor"]
         }
