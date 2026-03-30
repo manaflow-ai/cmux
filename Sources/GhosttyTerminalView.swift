@@ -1672,6 +1672,11 @@ class GhosttyApp {
         var containsExplicitShiftEnterDirective = false
 
         mutating func recordKeybind(_ value: String) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if trimmed.isEmpty || trimmed == "clear" {
+                containsExplicitShiftEnterDirective = false
+                return
+            }
             if GhosttyApp.keybindDirectiveTargetsShiftEnter(value) {
                 containsExplicitShiftEnterDirective = true
             }
@@ -1694,7 +1699,7 @@ class GhosttyApp {
 
         var loadedRecursivePaths = Set<String>()
         var index = 0
-        while index < recursiveConfigPaths.count && !summary.containsExplicitShiftEnterDirective {
+        while index < recursiveConfigPaths.count {
             let path = NSString(string: recursiveConfigPaths[index]).expandingTildeInPath
             index += 1
 
@@ -1814,9 +1819,6 @@ class GhosttyApp {
             case "keybind":
                 guard let value = entry.value else { continue }
                 summary.recordKeybind(value)
-                if summary.containsExplicitShiftEnterDirective {
-                    return
-                }
             case "config-file":
                 guard let value = entry.value else { continue }
                 applyConfigFileDirective(

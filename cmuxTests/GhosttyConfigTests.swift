@@ -2522,6 +2522,28 @@ final class GhosttyMouseFocusTests: XCTestCase {
         )
     }
 
+    func testUserConfigDefinesShiftEnterBindingHonorsLaterClearInIncludedFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-shift-enter-clear-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("bindings.conf")
+        try "keybind = clear\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try """
+        keybind = shift+enter=text:\\x0a
+        config-file = \(included.path)
+        """
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertFalse(
+            GhosttyApp.userConfigDefinesShiftEnterBinding(configPaths: [main.path])
+        )
+    }
+
     func testUserConfigDefinesShiftEnterBindingIgnoresOtherModifierCombinations() throws {
         try withTempConfig("keybind = cmd+shift+enter=text:\\x0a\n") { path in
             XCTAssertFalse(
@@ -2990,6 +3012,58 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(
             output,
             "report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999"
+        )
+    }
+
+    func testShellIntegrationResendsTmuxStateWhenSocketTargetChanges() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-tmux-state-resend-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let socketA = root.appendingPathComponent("cmux-a.sock").path
+        let socketB = root.appendingPathComponent("cmux-b.sock").path
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            python3 -c 'import os, socket, sys, time; path = sys.argv[1]; \
+            os.path.exists(path) and os.unlink(path); \
+            s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1); time.sleep(3)' "$CMUX_SOCKET_PATH" &
+            server_a=$!
+            sleep 0.1
+            functions[_cmux_send_bg]='print -r -- "$1"'
+            _CMUX_TMUX_STATE_SIGNATURE_LAST=""
+            _cmux_report_tmux_state
+            kill $server_a >/dev/null 2>&1
+            wait $server_a >/dev/null 2>&1
+
+            export CMUX_SOCKET_PATH="\(socketB)"
+            python3 -c 'import os, socket, sys, time; path = sys.argv[1]; \
+            os.path.exists(path) and os.unlink(path); \
+            s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1); time.sleep(3)' "$CMUX_SOCKET_PATH" &
+            server_b=$!
+            sleep 0.1
+            _cmux_report_tmux_state
+            kill $server_b >/dev/null 2>&1
+            wait $server_b >/dev/null 2>&1
+            """,
+            extraEnvironment: [
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_SOCKET_PATH": socketA,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "99999999-9999-9999-9999-999999999999",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            """
+            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999
+            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999
+            """
         )
     }
 

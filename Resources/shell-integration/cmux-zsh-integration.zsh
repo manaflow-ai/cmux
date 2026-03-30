@@ -74,7 +74,7 @@ typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
-typeset -g _CMUX_TMUX_STATE_LAST=""
+typeset -g _CMUX_TMUX_STATE_SIGNATURE_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
@@ -380,6 +380,13 @@ _cmux_report_tmux_state_payload() {
     print -r -- "report_tmux_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
 }
 
+_cmux_tmux_state_report_signature() {
+    local payload="$1"
+    [[ -n "$payload" ]] || return 0
+    [[ -n "$CMUX_SOCKET_PATH" ]] || return 0
+    print -r -- "${CMUX_SOCKET_PATH}"$'\x1f'"${payload}"
+}
+
 _cmux_report_tmux_state() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
 
@@ -387,10 +394,11 @@ _cmux_report_tmux_state() {
     payload="$(_cmux_report_tmux_state_payload)"
     [[ -n "$payload" ]] || return 0
 
-    local state="${payload#report_tmux_state }"
-    state="${state%% *}"
-    [[ "$_CMUX_TMUX_STATE_LAST" == "$state" ]] && return 0
-    _CMUX_TMUX_STATE_LAST="$state"
+    local signature=""
+    signature="$(_cmux_tmux_state_report_signature "$payload")"
+    [[ -n "$signature" ]] || return 0
+    [[ "$_CMUX_TMUX_STATE_SIGNATURE_LAST" == "$signature" ]] && return 0
+    _CMUX_TMUX_STATE_SIGNATURE_LAST="$signature"
     _cmux_send_bg "$payload"
 }
 
