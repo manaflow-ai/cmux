@@ -1351,6 +1351,64 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to become first responder"
         )
     }
+
+    func testClearSuppressReparentFocusReassertsGhosttyFocusForCurrentFirstResponder() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
+            XCTFail("Expected left terminal surface view")
+            return
+        }
+
+        leftPanel.surface.setFocus(false)
+        rightPanel.surface.setFocus(true)
+        leftPanel.hostedView.suppressReparentFocus()
+
+        XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.surface.debugDesiredFocusState(),
+            "Suppressed reparent focus should not immediately flip the Ghostty focus bit"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(
+            leftPanel.surface.debugDesiredFocusState(),
+            "Clearing reparent-focus suppression should reassert Ghostty focus when the surface still owns first responder"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
