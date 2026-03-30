@@ -4869,52 +4869,51 @@ extension BrowserPanel {
     }
 
     func injectReactGrab() async {
-        // If already injected on this page, just activate
-        let checkScript = "typeof window.__REACT_GRAB__ !== 'undefined'"
-        if let alreadyLoaded = try? await webView.evaluateJavaScript(checkScript) as? Bool, alreadyLoaded {
-            try? await webView.evaluateJavaScript("window.__REACT_GRAB__.activate()")
-            isReactGrabActive = true
-            return
-        }
-
         guard let scriptSource = await fetchReactGrabScript() else { return }
 
         let handlerName = Self.reactGrabMessageHandlerName
-        // Inject the script source inline (bypasses CSP), then register the bridge plugin
-        let bootstrap = """
-        window.addEventListener('react-grab:init', function(e) {
-            var api = e.detail;
-            if (!api) return;
-            api.activate();
-            api.registerPlugin({
-                name: 'cmux-bridge',
-                hooks: {
-                    onStateChange: function(state) {
-                        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
-                            window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: state.isActive });
+        // Single combined payload: bootstrap listener + react-grab source.
+        // Injected inline via evaluateJavaScript to bypass page CSP.
+        // Fire-and-forget (completion handler, no await) to avoid blocking main actor.
+        let combined = """
+        (function() {
+            if (window.__REACT_GRAB__) { window.__REACT_GRAB__.activate(); return; }
+            window.addEventListener('react-grab:init', function(e) {
+                var api = e.detail;
+                if (!api) return;
+                api.activate();
+                var lastActive;
+                api.registerPlugin({
+                    name: 'cmux-bridge',
+                    hooks: {
+                        onStateChange: function(state) {
+                            if (state.isActive === lastActive) return;
+                            lastActive = state.isActive;
+                            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
+                            if (h) h.postMessage({ isActive: state.isActive });
                         }
                     }
-                }
-            });
-        }, { once: true });
+                });
+            }, { once: true });
+        })();
+        \(scriptSource)
         """
-        try? await webView.evaluateJavaScript(bootstrap)
-        try? await webView.evaluateJavaScript(scriptSource)
+        webView.evaluateJavaScript(combined, completionHandler: nil)
+        isReactGrabActive = true
     }
 
-    func toggleReactGrab() async {
+    func toggleReactGrab() {
         let handlerName = Self.reactGrabMessageHandlerName
         let script = """
         (function() {
             var api = window.__REACT_GRAB__;
             if (!api) return;
             api.toggle();
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
-                window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: api.isActive() });
-            }
+            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
+            if (h) h.postMessage({ isActive: api.isActive() });
         })();
         """
-        try? await webView.evaluateJavaScript(script)
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
     func resetReactGrabState() {

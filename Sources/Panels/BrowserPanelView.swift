@@ -829,13 +829,11 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
-            Task {
-                if isReactGrabInjected {
-                    await panel.toggleReactGrab()
-                } else {
-                    await panel.injectReactGrab()
-                    isReactGrabInjected = true
-                }
+            if isReactGrabInjected {
+                panel.toggleReactGrab()
+            } else {
+                isReactGrabInjected = true
+                Task { await panel.injectReactGrab() }
             }
         }) {
             Image(systemName: "cursorarrow.click.2")
