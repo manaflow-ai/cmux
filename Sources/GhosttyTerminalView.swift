@@ -1382,11 +1382,21 @@ class GhosttyApp {
         )
     }
 
+    private func loadShiftEnterOverride(_ config: ghostty_config_t) {
+        loadInlineGhosttyConfig(
+            TerminalShiftEnterSettings.overrideConfigLine,
+            into: config,
+            prefix: "cmux-shift-enter",
+            logLabel: "shift-enter override"
+        )
+    }
+
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        loadShiftEnterOverride(config)
         loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
         ghostty_config_finalize(config)
