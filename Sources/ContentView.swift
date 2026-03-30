@@ -2348,7 +2348,10 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        isMinimalMode ? -titlebarPadding : titlebarPadding
+        if isMinimalMode {
+            return isFullScreen ? 0 : -titlebarPadding
+        }
+        return titlebarPadding
     }
 
     private var terminalContent: some View {
@@ -2378,6 +2381,7 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
+                        isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -2514,7 +2518,7 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible) ? 80 : 0
+        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
         for tab in tabManager.tabs {
             if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
                 tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
@@ -3051,6 +3055,7 @@ struct ContentView: View {
             isFullScreen = true
             setTitlebarControlsHidden(true, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
@@ -3059,6 +3064,7 @@ struct ContentView: View {
             isFullScreen = false
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
