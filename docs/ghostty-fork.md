@@ -86,7 +86,7 @@ touch the same stale-frame mitigation path and tend to conflict in the same file
   - Avoids inserting an explicit continuation marker after Pure's hidden carriage return, because Ghostty already tracks the newline as prompt continuation and the extra marker duplicates the preprompt row.
   - Restores that prompt-marker behavior on top of the current Ghostty `main` base after the older redraw fix drifted out during later submodule updates.
 
-The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
+The fork branch HEAD was the section 6 zsh redraw follow-up commit.
 
 ### 7) cmux theme picker helper hooks
 
@@ -100,7 +100,17 @@ The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
   - Lets `+list-themes` switch into a cmux-managed mode via env vars, writing the cmux theme override file and posting the existing cmux reload notification for live app-wide preview.
   - Fixes the helper-only `app-runtime=none` stdout path so the Ghostty CLI binary builds with the current Zig toolchain.
 
-The fork branch HEAD is now the section 7 cmux theme picker helper commit.
+The fork branch HEAD is now the section 8 BiDi / RTL text rendering commit.
+
+### 8) BiDi / RTL text rendering
+
+- Commits: `42db2607b` (feat: add RTL/BiDi text rendering support), `b54f07d50` (fix: increase BiDi buffer to 4096 columns)
+- Files:
+  - `src/text/bidi.zig` (new file)
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a simplified Unicode BiDi Algorithm (UAX#9) implementation in `src/text/bidi.zig` for RTL text rendering.
+  - Integrates BiDi into the renderer: per-row visual reordering, right-alignment for RTL-dominant lines, logical-to-visual cursor mapping, and bracket mirroring for paired punctuation.
 
 ## Upstreamed fork changes
 
@@ -124,6 +134,13 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Prompt marker handling is easy to regress when upstream adjusts zsh redraw behavior. Keep the
     `OSC 133;A` vs `OSC 133;P` split intact for redraw-heavy themes. Pure-style `\n%{\r%}`
     prompt newlines should not get an extra explicit continuation marker after the hidden CR.
+
+- `src/renderer/generic.zig`
+  - Patched in three separate sections (2, 4, and 8). During rebases, apply the display-link restart
+    (section 2) and stale-frame replay (section 4) hunks first, then the BiDi per-row reordering
+    (section 8). The BiDi integration hooks into the row-drawing path, so a rebase that shuffles
+    render-loop code can shift all three patches. Check that the display-link, stale-frame, and
+    BiDi blocks each remain in the correct function after conflict resolution.
 
 - `src/cli/list_themes.zig`
   - cmux now relies on the upstream picker UI plus local env-driven hooks for live preview and restore.
