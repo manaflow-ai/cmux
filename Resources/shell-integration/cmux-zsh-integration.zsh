@@ -74,6 +74,7 @@ typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
 typeset -g _CMUX_SHELL_ACTIVITY_LAST=""
+typeset -g _CMUX_TMUX_STATE_LAST=""
 typeset -g _CMUX_TTY_NAME=""
 typeset -g _CMUX_TTY_REPORTED=0
 typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
@@ -367,6 +368,30 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_report_tmux_state_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local state="outside"
+    [[ -n "$TMUX" ]] && state="inside"
+
+    print -r -- "report_tmux_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_report_tmux_state() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tmux_state_payload)"
+    [[ -n "$payload" ]] || return 0
+
+    local state="${payload#report_tmux_state }"
+    state="${state%% *}"
+    [[ "$_CMUX_TMUX_STATE_LAST" == "$state" ]] && return 0
+    _CMUX_TMUX_STATE_LAST="$state"
+    _cmux_send_bg "$payload"
 }
 
 _cmux_ports_kick() {
@@ -668,6 +693,7 @@ _cmux_preexec() {
 
     _CMUX_CMD_START=$EPOCHSECONDS
     _cmux_report_shell_activity_state running
+    _cmux_report_tmux_state
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
     local cmd="${1## }"
@@ -693,6 +719,7 @@ _cmux_precmd() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_report_shell_activity_state prompt
+    _cmux_report_tmux_state
 
     # Handle cases where Ghostty integration initializes after this file.
     (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw

@@ -2495,6 +2495,98 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
+    func testUserConfigDefinesShiftEnterBindingDetectsDirectBinding() throws {
+        try withTempConfig("keybind = shift+enter=text:\\x0a\n") { path in
+            XCTAssertTrue(
+                GhosttyApp.userConfigDefinesShiftEnterBinding(configPaths: [path])
+            )
+        }
+    }
+
+    func testUserConfigDefinesShiftEnterBindingDetectsUnbindInIncludedFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-test-shift-enter-unbind-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let included = dir.appendingPathComponent("bindings.conf")
+        try "keybind = shift+enter=unbind\n"
+            .write(to: included, atomically: true, encoding: .utf8)
+
+        let main = dir.appendingPathComponent("config")
+        try "config-file = \(included.path)\n"
+            .write(to: main, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(
+            GhosttyApp.userConfigDefinesShiftEnterBinding(configPaths: [main.path])
+        )
+    }
+
+    func testUserConfigDefinesShiftEnterBindingIgnoresOtherModifierCombinations() throws {
+        try withTempConfig("keybind = cmd+shift+enter=text:\\x0a\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.userConfigDefinesShiftEnterBinding(configPaths: [path])
+            )
+        }
+    }
+
+    func testShouldRemapShiftEnterForTmuxOnlyWhenScopedToTmuxWithoutOverrides() {
+        XCTAssertTrue(
+            GhosttyApp.shouldRemapShiftEnterForTmux(
+                keyCode: 36,
+                modifierFlags: [.shift],
+                isInsideTmux: true,
+                userConfigDefinesShiftEnterBinding: false,
+                ghosttyHasBinding: false,
+                hasMarkedText: false
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldRemapShiftEnterForTmux(
+                keyCode: 36,
+                modifierFlags: [.shift],
+                isInsideTmux: false,
+                userConfigDefinesShiftEnterBinding: false,
+                ghosttyHasBinding: false,
+                hasMarkedText: false
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldRemapShiftEnterForTmux(
+                keyCode: 36,
+                modifierFlags: [.shift],
+                isInsideTmux: true,
+                userConfigDefinesShiftEnterBinding: true,
+                ghosttyHasBinding: false,
+                hasMarkedText: false
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldRemapShiftEnterForTmux(
+                keyCode: 36,
+                modifierFlags: [.shift],
+                isInsideTmux: true,
+                userConfigDefinesShiftEnterBinding: false,
+                ghosttyHasBinding: true,
+                hasMarkedText: false
+            )
+        )
+
+        XCTAssertFalse(
+            GhosttyApp.shouldRemapShiftEnterForTmux(
+                keyCode: 36,
+                modifierFlags: [.shift, .command],
+                isInsideTmux: true,
+                userConfigDefinesShiftEnterBinding: false,
+                ghosttyHasBinding: false,
+                hasMarkedText: false
+            )
+        )
+    }
+
     func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
@@ -2881,6 +2973,24 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         )
 
         XCTAssertEqual(output, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111")
+    }
+
+    func testShellIntegrationReportsTmuxStatePayload() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: "print -r -- \"$(_cmux_report_tmux_state_payload)\"",
+            extraEnvironment: [
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_PANEL_ID": "99999999-9999-9999-9999-999999999999",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            "report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999"
+        )
     }
 
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {

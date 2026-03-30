@@ -949,6 +949,7 @@ class GhosttyApp {
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
+    private(set) var userConfigDefinesShiftEnterBinding = false
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
@@ -1382,21 +1383,12 @@ class GhosttyApp {
         )
     }
 
-    private func loadShiftEnterOverride(_ config: ghostty_config_t) {
-        loadInlineGhosttyConfig(
-            TerminalShiftEnterSettings.overrideConfigLine,
-            into: config,
-            prefix: "cmux-shift-enter",
-            logLabel: "shift-enter override"
-        )
-    }
-
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        loadShiftEnterOverride(config)
+        userConfigDefinesShiftEnterBinding = Self.userConfigDefinesShiftEnterBinding()
         loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
         ghostty_config_finalize(config)
@@ -1593,6 +1585,12 @@ class GhosttyApp {
         ) != nil
     }
 
+    static func userConfigDefinesShiftEnterBinding(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> Bool {
+        userShiftEnterConfigSummary(configPaths: configPaths).containsExplicitShiftEnterDirective
+    }
+
     private static func configuredCTFont(
         named name: String,
         size: CGFloat = 12
@@ -1661,6 +1659,50 @@ class GhosttyApp {
             loadedRecursivePaths.insert(resolved)
 
             scanFontConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        return summary
+    }
+
+    private struct UserShiftEnterConfigSummary {
+        var containsExplicitShiftEnterDirective = false
+
+        mutating func recordKeybind(_ value: String) {
+            if GhosttyApp.keybindDirectiveTargetsShiftEnter(value) {
+                containsExplicitShiftEnterDirective = true
+            }
+        }
+    }
+
+    private static func userShiftEnterConfigSummary(
+        configPaths: [String] = loadedCJKScanPaths()
+    ) -> UserShiftEnterConfigSummary {
+        var summary = UserShiftEnterConfigSummary()
+        var recursiveConfigPaths: [String] = []
+
+        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
+            scanShiftEnterConfigFile(
+                atPath: path,
+                summary: &summary,
+                recursiveConfigPaths: &recursiveConfigPaths
+            )
+        }
+
+        var loadedRecursivePaths = Set<String>()
+        var index = 0
+        while index < recursiveConfigPaths.count && !summary.containsExplicitShiftEnterDirective {
+            let path = NSString(string: recursiveConfigPaths[index]).expandingTildeInPath
+            index += 1
+
+            let resolved = (path as NSString).standardizingPath
+            guard !loadedRecursivePaths.contains(resolved) else { continue }
+            loadedRecursivePaths.insert(resolved)
+
+            scanShiftEnterConfigFile(
                 atPath: path,
                 summary: &summary,
                 recursiveConfigPaths: &recursiveConfigPaths
@@ -1754,6 +1796,40 @@ class GhosttyApp {
         }
     }
 
+    private static func scanShiftEnterConfigFile(
+        atPath path: String,
+        summary: inout UserShiftEnterConfigSummary,
+        recursiveConfigPaths: inout [String]
+    ) {
+        let resolved = (path as NSString).standardizingPath
+        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
+            return
+        }
+        let parentDir = (resolved as NSString).deletingLastPathComponent
+
+        for line in contents.components(separatedBy: .newlines) {
+            guard let entry = parsedConfigEntry(from: line) else { continue }
+
+            switch entry.key {
+            case "keybind":
+                guard let value = entry.value else { continue }
+                summary.recordKeybind(value)
+                if summary.containsExplicitShiftEnterDirective {
+                    return
+                }
+            case "config-file":
+                guard let value = entry.value else { continue }
+                applyConfigFileDirective(
+                    value,
+                    parentDir: parentDir,
+                    recursiveConfigPaths: &recursiveConfigPaths
+                )
+            default:
+                continue
+            }
+        }
+    }
+
     private static func parsedConfigEntry(
         from rawLine: String
     ) -> (key: String, value: String?)? {
@@ -1804,6 +1880,65 @@ class GhosttyApp {
             ? expanded
             : (parentDir as NSString).appendingPathComponent(expanded)
         recursiveConfigPaths.append(absolute)
+    }
+
+    private static func keybindDirectiveTargetsShiftEnter(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.lowercased() != "clear",
+              let separatorIndex = trimmed.firstIndex(of: "=") else {
+            return false
+        }
+
+        let triggerExpression = String(trimmed[..<separatorIndex])
+        for rawPart in triggerExpression.split(separator: ">") {
+            var part = String(rawPart).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !part.isEmpty else { continue }
+
+            if let slashIndex = part.lastIndex(of: "/") {
+                part = String(part[part.index(after: slashIndex)...])
+            }
+
+            for prefix in ["all:", "global:", "unconsumed:", "performable:"] {
+                while part.hasPrefix(prefix) {
+                    part.removeFirst(prefix.count)
+                }
+            }
+
+            let tokens = part
+                .split(separator: "+")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+
+            guard tokens.count == 2, tokens.contains("shift") else { continue }
+            guard let keyToken = tokens.first(where: { $0 != "shift" }) else { continue }
+            switch keyToken {
+            case "enter", "return", "kp_enter", "physical:enter", "physical:return", "physical:kp_enter":
+                return true
+            default:
+                continue
+            }
+        }
+
+        return false
+    }
+
+    static func shouldRemapShiftEnterForTmux(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        isInsideTmux: Bool,
+        userConfigDefinesShiftEnterBinding: Bool,
+        ghosttyHasBinding: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        guard isInsideTmux else { return false }
+        guard !userConfigDefinesShiftEnterBinding else { return false }
+        guard !ghosttyHasBinding else { return false }
+        guard !hasMarkedText else { return false }
+
+        let normalizedModifiers = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
+        guard normalizedModifiers == [.shift] else { return false }
+        return keyCode == 36 || keyCode == 76
     }
 
     static func shouldLoadLegacyGhosttyConfig(
@@ -5576,16 +5711,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         // Check if this event matches a Ghostty keybinding.
-        let bindingFlags: ghostty_binding_flags_e? = {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
-            let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
-            var flags = ghostty_binding_flags_e(0)
-            let isBinding = text.withCString { ptr in
-                keyEvent.text = ptr
-                return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
-            }
-            return isBinding ? flags : nil
-        }()
+        let bindingFlags = ghosttyBindingFlags(for: event, surface: surface)
 
         if let bindingFlags {
             let isConsumed = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_CONSUMED.rawValue) != 0
@@ -5739,6 +5865,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
+        if shouldRemapShiftEnterForTmux(event: event, surface: surface) {
+            terminalSurface?.sendText("\n")
+            return
+        }
 #if DEBUG
         recordKeyLatency(path: "keyDown", event: event)
 #endif
@@ -6084,6 +6214,47 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
 #endif
         return ghostty_surface_key(surface, keyEvent)
+    }
+
+    private func ghosttyBindingFlags(
+        for event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> ghostty_binding_flags_e? {
+        var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+        let text = textForKeyEvent(event).flatMap { shouldSendText($0) ? $0 : nil } ?? ""
+        var flags = ghostty_binding_flags_e(0)
+        let isBinding = text.withCString { ptr in
+            keyEvent.text = ptr
+            return ghostty_surface_key_is_binding(surface, keyEvent, &flags)
+        }
+        return isBinding ? flags : nil
+    }
+
+    private func shouldRemapShiftEnterForTmux(
+        event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        guard !GhosttyApp.shared.userConfigDefinesShiftEnterBinding else { return false }
+        let normalizedModifiers = terminalKeyboardCopyModeNormalizedModifiers(event.modifierFlags)
+        guard normalizedModifiers == [.shift] else { return false }
+        guard event.keyCode == 36 || event.keyCode == 76 else { return false }
+        guard let terminalSurface else { return false }
+        let tabId = terminalSurface.tabId
+        let panelId = terminalSurface.id
+        let isInsideTmux = AppDelegate.shared?
+            .tabManagerFor(tabId: tabId)?
+            .tabs
+            .first(where: { $0.id == tabId })?
+            .panelIsInsideTmux(panelId: panelId) ?? false
+        let ghosttyHasBinding = ghosttyBindingFlags(for: event, surface: surface) != nil
+        return GhosttyApp.shouldRemapShiftEnterForTmux(
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags,
+            isInsideTmux: isInsideTmux,
+            userConfigDefinesShiftEnterBinding: false,
+            ghosttyHasBinding: ghosttyHasBinding,
+            hasMarkedText: hasMarkedText()
+        )
     }
 
 #if DEBUG

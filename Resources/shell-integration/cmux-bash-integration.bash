@@ -61,6 +61,7 @@ _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
+_CMUX_TMUX_STATE_LAST="${_CMUX_TMUX_STATE_LAST:-}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
@@ -261,6 +262,32 @@ _cmux_report_shell_activity_state() {
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     {
         _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
+_cmux_report_tmux_state_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+
+    local state="outside"
+    [[ -n "$TMUX" ]] && state="inside"
+
+    printf '%s\n' "report_tmux_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_report_tmux_state() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tmux_state_payload)"
+    [[ -n "$payload" ]] || return 0
+
+    local state="${payload#report_tmux_state }"
+    state="${state%% *}"
+    [[ "$_CMUX_TMUX_STATE_LAST" == "$state" ]] && return 0
+    _CMUX_TMUX_STATE_LAST="$state"
+    {
+        _cmux_send "$payload"
     } >/dev/null 2>&1 & disown
 }
 
@@ -511,6 +538,7 @@ _cmux_preexec_command() {
     fi
 
     _cmux_report_shell_activity_state running
+    _cmux_report_tmux_state
     _cmux_report_tty_once
     _cmux_ports_kick
     _cmux_stop_pr_poll_loop
@@ -527,6 +555,7 @@ _cmux_prompt_command() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_report_shell_activity_state prompt
+    _cmux_report_tmux_state
 
     local now=$SECONDS
     local pwd="$PWD"

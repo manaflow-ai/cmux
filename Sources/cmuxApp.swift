@@ -3801,10 +3801,6 @@ enum TerminalCopyOnSelectSettings {
     }
 }
 
-enum TerminalShiftEnterSettings {
-    static let overrideConfigLine = #"keybind = shift+enter=text:\x0a"#
-}
-
 enum CommandPaletteSwitcherSearchSettings {
     static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
     static let defaultSearchAllSurfaces = false

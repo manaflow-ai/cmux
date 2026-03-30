@@ -440,8 +440,10 @@ class TerminalController {
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
         private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private var lastReportedTmuxStates: [SocketSurfaceKey: Bool] = [:]
         private let maxTrackedDirectories = 4096
         private let maxTrackedShellStates = 4096
+        private let maxTrackedTmuxStates = 4096
 
         func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
@@ -471,6 +473,24 @@ class TerminalController {
                     lastReportedShellStates.removeAll(keepingCapacity: true)
                 }
                 lastReportedShellStates[key] = state
+                return true
+            }
+        }
+
+        func shouldPublishTmuxState(
+            workspaceId: UUID,
+            panelId: UUID,
+            isInsideTmux: Bool
+        ) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedTmuxStates[key] == isInsideTmux {
+                    return false
+                }
+                if lastReportedTmuxStates.count >= maxTrackedTmuxStates {
+                    lastReportedTmuxStates.removeAll(keepingCapacity: true)
+                }
+                lastReportedTmuxStates[key] = isInsideTmux
                 return true
             }
         }
@@ -540,6 +560,19 @@ class TerminalController {
             return .commandRunning
         case "unknown", "clear":
             return .unknown
+        default:
+            return nil
+        }
+    }
+
+    nonisolated static func parseReportedTmuxState(
+        _ rawState: String
+    ) -> Bool? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "inside", "tmux", "active", "1", "true", "yes":
+            return true
+        case "outside", "none", "inactive", "0", "false", "no", "clear":
+            return false
         default:
             return nil
         }
@@ -1803,6 +1836,9 @@ class TerminalController {
 
         case "report_shell_state":
             return reportShellState(args)
+
+        case "report_tmux_state":
+            return reportTmuxState(args)
 
         case "report_pwd":
             return reportPwd(args)
@@ -11117,6 +11153,7 @@ class TerminalController {
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
+          report_tmux_state <inside|outside> [--tab=X] [--panel=Y] - Report whether the shell is currently inside tmux
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -15163,6 +15200,76 @@ class TerminalController {
             }
 
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+        }
+        return result
+    }
+
+    private func reportTmuxState(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawState = parsed.positional.first, !rawState.isEmpty else {
+            return "ERROR: Missing tmux state — usage: report_tmux_state <inside|outside> [--tab=X] [--panel=Y]"
+        }
+        guard let isInsideTmux = Self.parseReportedTmuxState(rawState) else {
+            return "ERROR: Invalid tmux state '\(rawState)' — expected inside or outside"
+        }
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishTmuxState(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                isInsideTmux: isInsideTmux
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceTmuxState(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    isInsideTmux: isInsideTmux
+                )
+            }
+            return "OK"
+        }
+
+        guard let tabManager else { return "ERROR: TabManager not available" }
+
+        var result = "OK"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+            let surfaceId: UUID
+            if let panelArg {
+                if panelArg.isEmpty {
+                    result = "ERROR: Missing panel id — usage: report_tmux_state <inside|outside> [--tab=X] [--panel=Y]"
+                    return
+                }
+                guard let parsedId = UUID(uuidString: panelArg) else {
+                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    return
+                }
+                surfaceId = parsedId
+            } else {
+                guard let focused = tab.focusedPanelId else {
+                    result = "ERROR: Missing panel id (no focused surface)"
+                    return
+                }
+                surfaceId = focused
+            }
+
+            guard validSurfaceIds.contains(surfaceId) else {
+                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+                return
+            }
+
+            tabManager.updateSurfaceTmuxState(tabId: tab.id, surfaceId: surfaceId, isInsideTmux: isInsideTmux)
         }
         return result
     }
