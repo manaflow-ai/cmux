@@ -336,6 +336,37 @@ jobs:
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
+      - name: Upload release assets to R2
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
+          BUCKET=cmux-binaries
+
+          # Derive R2 appcast by replacing the download URL prefix.
+          sed "s|https://github.com/manaflow-ai/cmux/releases/download/${GITHUB_REF_NAME}/|https://files.cmux.com/stable/|g" \
+            appcast.xml > appcast-r2.xml
+
+          # Upload DMG first so the appcast never references a missing file.
+          aws s3 cp cmux-macos.dmg \
+            "s3://${BUCKET}/stable/cmux-macos.dmg" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          # Upload appcast last (atomic PutObject, no 404 window).
+          aws s3 cp appcast-r2.xml \
+            "s3://${BUCKET}/stable/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "R2 upload complete: https://files.cmux.com/stable/appcast.xml"
+
       - name: Attest remote daemon release assets
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0

@@ -503,6 +503,43 @@ jobs:
           # installs to migrate onto the unified nightly appcast.
           cp appcast.xml appcast-universal.xml
 
+      - name: Upload nightly assets to R2
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
+          BUCKET=cmux-binaries
+
+          # Derive R2 appcast from the GitHub one by replacing the download URL prefix.
+          # EdDSA signature is over the DMG content, not the URL, so this is safe.
+          sed 's|https://github.com/manaflow-ai/cmux/releases/download/nightly/|https://files.cmux.com/nightly/|g' \
+            appcast.xml > appcast-r2.xml
+
+          # Upload immutable versioned DMG (cacheable forever).
+          aws s3 cp "$NIGHTLY_DMG_IMMUTABLE" \
+            "s3://${BUCKET}/nightly/${NIGHTLY_DMG_IMMUTABLE}" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "max-age=31536000, immutable"
+          # Upload mutable latest DMG (no cache).
+          aws s3 cp cmux-nightly-macos.dmg \
+            "s3://${BUCKET}/nightly/cmux-nightly-macos.dmg" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          # Upload appcast last (atomic PutObject, no 404 window).
+          aws s3 cp appcast-r2.xml \
+            "s3://${BUCKET}/nightly/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "R2 upload complete: https://files.cmux.com/nightly/appcast.xml"
+
       - name: Attest remote daemon nightly assets
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
