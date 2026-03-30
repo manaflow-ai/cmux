@@ -588,6 +588,7 @@ final class WindowTerminalPortal: NSObject {
     private var installConstraints: [NSLayoutConstraint] = []
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
+    private var externalGeometrySyncGeneration: UInt64 = 0
     private var geometryObservers: [NSObjectProtocol] = []
 #if DEBUG
     private var lastLoggedBonsplitContainerSignature: String?
@@ -681,6 +682,10 @@ final class WindowTerminalPortal: NSObject {
     }
 
     fileprivate func scheduleExternalGeometrySynchronize() {
+        // Coalesce to the latest request so ancestor/frame churn (for example
+        // sidebar toggles) doesn't resize the PTY at stale intermediate widths.
+        externalGeometrySyncGeneration &+= 1
+        let generation = externalGeometrySyncGeneration
         guard !hasExternalGeometrySyncScheduled else { return }
         hasExternalGeometrySyncScheduled = true
         let isDragEvent = TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive
@@ -688,6 +693,11 @@ final class WindowTerminalPortal: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let performSync = {
+                if self.externalGeometrySyncGeneration != generation {
+                    self.hasExternalGeometrySyncScheduled = false
+                    self.scheduleExternalGeometrySynchronize()
+                    return
+                }
                 self.hasExternalGeometrySyncScheduled = false
                 self.synchronizeAllEntriesFromExternalGeometryChange()
             }
@@ -1667,6 +1677,7 @@ enum TerminalWindowPortalRegistry {
     private static var portalsByWindowId: [ObjectIdentifier: WindowTerminalPortal] = [:]
     private static var hostedToWindowId: [ObjectIdentifier: ObjectIdentifier] = [:]
     private static var hasPendingExternalGeometrySyncForAllWindows = false
+    private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
     private static var interactiveGeometryResizeCount = 0
 #if DEBUG
     private static var blockedBindCount: Int = 0
@@ -1842,11 +1853,20 @@ enum TerminalWindowPortalRegistry {
     }
 
     static func scheduleExternalGeometrySynchronizeForAllWindows() {
+        // Same latest-request-wins coalescing for callers that don't have a
+        // concrete window handle yet.
+        Self.externalGeometrySyncForAllWindowsGeneration &+= 1
+        let generation = Self.externalGeometrySyncForAllWindowsGeneration
         guard !Self.hasPendingExternalGeometrySyncForAllWindows else { return }
         Self.hasPendingExternalGeometrySyncForAllWindows = true
         let isDragEvent = Self.isInteractiveGeometryResizeActive
         DispatchQueue.main.async {
             let performSync = {
+                if Self.externalGeometrySyncForAllWindowsGeneration != generation {
+                    Self.hasPendingExternalGeometrySyncForAllWindows = false
+                    Self.scheduleExternalGeometrySynchronizeForAllWindows()
+                    return
+                }
                 Self.hasPendingExternalGeometrySyncForAllWindows = false
                 for portal in Self.portalsByWindowId.values {
                     portal.synchronizeAllEntriesFromExternalGeometryChange()
