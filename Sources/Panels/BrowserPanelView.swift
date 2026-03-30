@@ -320,6 +320,7 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @State private var isReactGrabInjected = false
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -588,6 +589,7 @@ struct BrowserPanelView: View {
             if isWebViewBlank() {
                 refreshEmptyStateImportBrowsers()
             }
+            isReactGrabInjected = false
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -732,6 +734,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
                 developerToolsButton
@@ -821,6 +824,36 @@ struct BrowserPanelView: View {
                 .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
+    }
+
+    private var reactGrabButton: some View {
+        Button(action: {
+            Task {
+                let script = """
+                (function() {
+                    if (window.__reactGrabInjected) return;
+                    var s = document.createElement('script');
+                    s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
+                    s.crossOrigin = 'anonymous';
+                    s.onload = function() { window.__reactGrabInjected = true; };
+                    document.head.appendChild(s);
+                })();
+                """
+                try? await panel.evaluateJavaScript(script)
+                isReactGrabInjected = true
+            }
+        }) {
+            Image(systemName: "cursorarrow.click.2")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(isReactGrabInjected ? Color.accentColor : Color.secondary)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(String(localized: "browser.reactGrab", defaultValue: "Inject React Grab"))
+        .accessibilityIdentifier("BrowserReactGrabButton")
     }
 
     private var developerToolsButton: some View {
