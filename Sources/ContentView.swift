@@ -3130,12 +3130,14 @@ struct ContentView: View {
         view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
             window.titlebarAppearsTransparent = true
-            // Keep window immovable; the sidebar's WindowDragHandleView handles
-            // drag-to-move via performDrag with temporary movable override.
-            // isMovableByWindowBackground=true breaks tab reordering, and
-            // isMovable=true blocks clicks on sidebar buttons in minimal mode.
+            // isMovableByWindowBackground=false prevents background drags from
+            // interfering with sidebar tab reordering.
+            // isMovable=true enables macOS window tiling (Move & Resize menu).
+            // The sidebar's WindowDragHandleView handles drag-to-move via
+            // performDrag with temporary movable override.
             window.isMovableByWindowBackground = false
-            window.isMovable = false
+            window.isMovable = true
+            window.collectionBehavior.insert(.managed)
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
