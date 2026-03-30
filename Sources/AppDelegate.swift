@@ -2147,6 +2147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isFirstResponder: Bool
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
+    var debugCreateMainWindowSourceIsNativeFullScreenOverride: Bool?
     // Keep debug-only windows alive when tests intentionally inject key mismatches.
     private var debugDetachedContextWindows: [NSWindow] = []
 
@@ -5975,9 +5976,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
         let styleMask: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
-        let existingFrame = preferredMainWindowContextForWorkspaceCreation(
+        let sourceContext = preferredMainWindowContextForWorkspaceCreation(
             debugSource: "createMainWindow.initialGeometry"
-        ).flatMap { resolvedWindow(for: $0)?.frame }
+        )
+        let sourceWindow = sourceContext.flatMap { resolvedWindow(for: $0) }
+        let existingFrame = sourceWindow?.frame
+        let sourceWindowIsNativeFullScreen: Bool = {
+#if DEBUG
+            if let debugCreateMainWindowSourceIsNativeFullScreenOverride {
+                return debugCreateMainWindowSourceIsNativeFullScreenOverride
+            }
+#endif
+            return sourceWindow?.styleMask.contains(.fullScreen) == true
+        }()
+        let shouldTemporarilyDisallowFullScreenTiling =
+            sessionWindowSnapshot == nil && sourceWindowIsNativeFullScreen
         let initialRect: NSRect
         if sessionWindowSnapshot == nil, let existingFrame {
             // Convert frame rect to content rect so the new window matches the
@@ -5993,6 +6006,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
+        // When creating a new window from an existing native fullscreen window,
+        // temporarily opt out of fullscreen tiling so AppKit doesn't place the
+        // new window into the active fullscreen Space.
+        if shouldTemporarilyDisallowFullScreenTiling {
+            window.collectionBehavior.insert(.fullScreenDisallowsTiling)
+        }
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -6044,6 +6063,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             window.makeKeyAndOrderFront(nil)
             setActiveMainWindow(window)
             NSApp.activate(ignoringOtherApps: true)
+        }
+        if shouldTemporarilyDisallowFullScreenTiling {
+            DispatchQueue.main.async { [weak window] in
+                window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
+            }
         }
         if let restoredFrame {
             window.setFrame(restoredFrame, display: true)

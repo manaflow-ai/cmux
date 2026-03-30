@@ -33,6 +33,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
+        AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
         AppDelegate.shared?.dismissNotificationsPopoverIfShown()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         for action in KeyboardShortcutSettings.Action.allCases {
@@ -96,6 +97,60 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         XCTAssertEqual(firstManager.tabs.count, firstCount, "Cmd+N should not add workspace to stale active window")
         XCTAssertEqual(secondManager.tabs.count, secondCount + 1, "Cmd+N should add workspace to the event's window")
+    }
+
+    func testCreateMainWindowDoesNotDisallowFullScreenTilingByDefault() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        XCTAssertFalse(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "Main windows should still support standard macOS Split View when not created from a fullscreen source"
+        )
+    }
+
+    func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = true
+
+        let newWindowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: newWindowId)
+        }
+
+        guard let newWindow = window(withId: newWindowId) else {
+            XCTFail("Expected new window")
+            return
+        }
+
+        XCTAssertTrue(
+            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "New windows should temporarily opt out of fullscreen tiling while opening from a fullscreen source"
+        )
+
+        appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertFalse(
+            newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "The fullscreen tiling opt-out should be cleared after initial presentation so Split View keeps working"
+        )
     }
 
     func testAddWorkspaceInPreferredMainWindowIgnoresStaleTabManagerPointer() {
