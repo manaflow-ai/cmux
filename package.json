@@ -2,5 +2,5 @@
   "dependencies": {
     "vercel": "^50.9.5"
   },
-  "license": "AGPL-3.0-or-later"
+  "license": "GPL-3.0-or-later"
 }

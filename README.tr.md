@@ -268,6 +268,6 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 ## Lisans
 
-cmux, [AGPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
+cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
 
-Kuruluşunuz AGPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.
+Kuruluşunuz GPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.

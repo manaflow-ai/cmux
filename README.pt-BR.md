@@ -268,6 +268,6 @@ O cmux é gratuito, open source, e sempre será. Se você gostaria de apoiar o d
 
 ## Licença
 
-cmux é open source sob [AGPL-3.0-or-later](LICENSE).
+cmux é open source sob [GPL-3.0-or-later](LICENSE).
 
-Se sua organização não puder cumprir a AGPL, uma licença comercial está disponível. Entre em contato com [founders@manaflow.com](mailto:founders@manaflow.com) para detalhes.
+Se sua organização não puder cumprir a GPL, uma licença comercial está disponível. Entre em contato com [founders@manaflow.com](mailto:founders@manaflow.com) para detalhes.
