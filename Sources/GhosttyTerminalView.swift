@@ -1103,7 +1103,7 @@ class GhosttyApp {
             return GhosttyApp.shared.handleAction(target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return false }
 
             DispatchQueue.main.async {
                 guard let requestSurface = callbackContext.runtimeSurface else { return }
@@ -1209,6 +1209,7 @@ class GhosttyApp {
                     )
                 }
             }
+            return true
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
@@ -2573,6 +2574,10 @@ class GhosttyApp {
             DispatchQueue.main.async {
                 terminalSurface.searchState?.selected = selected
             }
+            return true
+        case GHOSTTY_ACTION_SET_TAB_TITLE:
+            // Tab title override from the terminal (e.g. OSC escape).
+            // cmux handles tab titles through its own tab manager, so we ignore this.
             return true
         case GHOSTTY_ACTION_SET_TITLE:
             let title = action.action.set_title.title
