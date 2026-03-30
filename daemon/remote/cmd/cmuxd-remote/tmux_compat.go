@@ -124,6 +124,26 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 			continue
 		}
 		if strings.HasPrefix(arg, "--") {
+			// Handle --key=value and --key value for long flags
+			key := arg
+			val := ""
+			if eqIdx := strings.IndexByte(arg, '='); eqIdx >= 0 {
+				key = arg[:eqIdx]
+				val = arg[eqIdx+1:]
+			}
+			if vSet[key] {
+				if val != "" {
+					p.options[key] = append(p.options[key], val)
+				} else if i+1 < len(args) {
+					i++
+					p.options[key] = append(p.options[key], args[i])
+				}
+				continue
+			}
+			if bSet[key] {
+				p.flags[key] = true
+				continue
+			}
 			p.positional = append(p.positional, arg)
 			continue
 		}
@@ -381,6 +401,25 @@ func tmuxCallerWorkspaceHandle() string {
 
 func tmuxCallerSurfaceHandle() string {
 	return strings.TrimSpace(os.Getenv("CMUX_SURFACE_ID"))
+}
+
+// tmuxSurfaceExists returns true if the given surface ID is present in the workspace.
+func tmuxSurfaceExists(rc *rpcContext, workspaceId, surfaceId string) bool {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
+	if err != nil {
+		return false
+	}
+	surfs, _ := payload["surfaces"].([]any)
+	for _, s := range surfs {
+		surf, _ := s.(map[string]any)
+		if id, _ := surf["id"].(string); id == surfaceId {
+			return true
+		}
+		if ref, _ := surf["ref"].(string); ref == surfaceId {
+			return true
+		}
+	}
+	return false
 }
 
 func tmuxCallerPaneHandle() string {
@@ -722,9 +761,10 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 	}
 
 	// When no explicit target and caller workspace matches, use caller's surface
+	// (only if that surface still exists — it may have been closed by kill-pane)
 	if winSel == "" {
 		if callerWs := tmuxCallerWorkspaceHandle(); callerWs == workspaceId {
-			if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
+			if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" && tmuxSurfaceExists(rc, workspaceId, callerSurface) {
 				surfaceId = callerSurface
 				return
 			}
@@ -1069,17 +1109,30 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		direction = "up"
 	}
 
-	// Anchor splits to the leader surface for agent teams
+	// Anchor splits to the leader surface for agent teams.
+	// Validate that the target surface still exists before using it;
+	// a prior kill-pane may have made CMUX_SURFACE_ID stale.
 	callerSurface := tmuxCallerSurfaceHandle()
 	callerWorkspace := tmuxCallerWorkspaceHandle()
 	if callerSurface != "" && callerWorkspace != "" {
 		if wsId, err := tmuxResolveWorkspaceId(rc, callerWorkspace); err == nil {
 			store := loadTmuxCompatStore()
 			if mvState, ok := store.MainVerticalLayouts[wsId]; ok && mvState.LastColumnSurfaceId != "" {
-				targetWs = wsId
-				targetSurface = mvState.LastColumnSurfaceId
-				direction = "down"
-			} else {
+				if tmuxSurfaceExists(rc, wsId, mvState.LastColumnSurfaceId) {
+					targetWs = wsId
+					targetSurface = mvState.LastColumnSurfaceId
+					direction = "down"
+				} else if tmuxSurfaceExists(rc, wsId, callerSurface) {
+					// Column surface is gone but leader is still alive; start a new column.
+					targetWs = wsId
+					targetSurface = callerSurface
+					direction = "right"
+					// Clear stale layout state.
+					delete(store.MainVerticalLayouts, wsId)
+					saveTmuxCompatStore(store)
+				}
+				// else: both stale — fall through to default resolution
+			} else if tmuxSurfaceExists(rc, wsId, callerSurface) {
 				targetWs = wsId
 				targetSurface = callerSurface
 				direction = "right"

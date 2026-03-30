@@ -8763,6 +8763,33 @@ struct CMUXCLI {
                 continue
             }
             if arg.hasPrefix("--") {
+                // Parse long flags: --key=value or --key value
+                var key = arg
+                var inlineValue: String? = nil
+                if let eqIdx = arg.firstIndex(of: "=") {
+                    key = String(arg[arg.startIndex..<eqIdx])
+                    inlineValue = String(arg[arg.index(after: eqIdx)...])
+                }
+                if valueFlags.contains(key) {
+                    let value: String
+                    if let v = inlineValue {
+                        value = v
+                    } else {
+                        guard index + 1 < args.count else {
+                            throw CLIError(message: "\(key) requires a value")
+                        }
+                        index += 1
+                        value = args[index]
+                    }
+                    parsed.options[key, default: []].append(value)
+                    index += 1
+                    continue
+                }
+                if boolFlags.contains(key) {
+                    parsed.flags.insert(key)
+                    index += 1
+                    continue
+                }
                 parsed.positional.append(arg)
                 index += 1
                 continue
@@ -8888,6 +8915,21 @@ struct CMUXCLI {
 
     private func tmuxCallerSurfaceHandle() -> String? {
         normalizedTmuxTarget(ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"])
+    }
+
+    /// Returns true if the given surface ID is present in the workspace.
+    private func tmuxSurfaceExists(
+        _ surfaceId: String,
+        workspaceId: String,
+        client: SocketClient
+    ) -> Bool {
+        guard let payload = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]),
+              let surfaces = payload["surfaces"] as? [[String: Any]] else {
+            return false
+        }
+        return surfaces.contains { surface in
+            (surface["id"] as? String) == surfaceId || (surface["ref"] as? String) == surfaceId
+        }
     }
 
     private func tmuxCanonicalPaneId(
@@ -9449,11 +9491,45 @@ struct CMUXCLI {
         }
     }
 
+    private static let paneToolsPrompt = """
+    You have pane management shell scripts on PATH for running commands in split terminal panes.
+
+    One-shot (run, capture, close):
+      OUTPUT=$(run-in-pane "your-command")
+      OUTPUT=$(run-in-pane -v -t 60 "npm run build")  # vertical split, 60s timeout
+
+    Long-lived pane (interactive, SSH, etc.):
+      PANE=$(tmux split-window -d -h -P -F "#{pane_id}")
+      tmux send-keys -t "$PANE" "ssh remote-host" Enter
+      SIG="/tmp/done-$$.sig"
+      tmux send-keys -t "$PANE" "your-command; touch $SIG" Enter
+      tmux wait-for "done-$$" --timeout=30
+      tmux capture-pane -t "$PANE" -p
+      tmux kill-pane -t "$PANE"
+
+    Poll pane output for a pattern:
+      poll-pane -t "$PANE" -p "ready|error" --timeout 60
+    """
+
     private func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
-        guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
-            return commandArgs
+        var result: [String] = []
+        var hasPaneTools = false
+        let hasTeammateMode = claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs)
+        // Strip --pane-tools from args (it's a cmux flag, not a claude flag)
+        for arg in commandArgs {
+            if arg == "--pane-tools" {
+                hasPaneTools = true
+                continue
+            }
+            result.append(arg)
         }
-        return ["--teammate-mode", "auto"] + commandArgs
+        if !hasTeammateMode {
+            result = ["--teammate-mode", "auto"] + result
+        }
+        if hasPaneTools {
+            result += ["--append-system-prompt", Self.paneToolsPrompt]
+        }
+        return result
     }
 
     private func configureTmuxCompatEnvironment(
@@ -9551,10 +9627,71 @@ struct CMUXCLI {
         set -euo pipefail
         exec "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-cmux}" __tmux-compat "$@"
         """
-        return try createTmuxCompatShimDirectory(
+        let dir = try createTmuxCompatShimDirectory(
             directoryName: "claude-teams-bin",
             tmuxShimScript: script
         )
+
+        let runInPaneScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # Usage: run-in-pane [-h|-v] [-t timeout] [--] <command...>
+        DIR="-h"; TIMEOUT=30
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -h|-v) DIR="$1"; shift ;;
+            -t)    TIMEOUT="$2"; shift 2 ;;
+            --)    shift; break ;;
+            *)     break ;;
+          esac
+        done
+        [[ $# -eq 0 ]] && { echo "run-in-pane: no command specified" >&2; exit 1; }
+        SIGNAL="rip-$$-$RANDOM"
+        SIG_PATH="/tmp/cmux-wait-for-${SIGNAL}.sig"
+        PANE=$(tmux split-window -d "$DIR" -P)
+        trap 'tmux kill-pane -t "$PANE" 2>/dev/null || true; rm -f "$SIG_PATH"' EXIT
+        tmux send-keys -t "$PANE" "$*; touch $SIG_PATH" Enter
+        # Poll for signal file
+        DEADLINE=$(($(date +%s) + TIMEOUT))
+        while [[ $(date +%s) -lt $DEADLINE ]]; do
+          [[ -f "$SIG_PATH" ]] && break
+          sleep 0.05
+        done
+        tmux capture-pane -t "$PANE" -p
+        """
+
+        let pollPaneScript = """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        # Usage: poll-pane -t <pane> -p <pattern> [--timeout <secs>] [--interval <secs>]
+        PANE=""; PATTERN=""; TIMEOUT=30; INTERVAL=0.2
+        while [[ $# -gt 0 ]]; do
+          case "$1" in
+            -t)         PANE="$2"; shift 2 ;;
+            -p)         PATTERN="$2"; shift 2 ;;
+            --timeout)  TIMEOUT="$2"; shift 2 ;;
+            --interval) INTERVAL="$2"; shift 2 ;;
+            *)          shift ;;
+          esac
+        done
+        [[ -z "$PANE" ]] && { echo "poll-pane: -t <pane> required" >&2; exit 1; }
+        [[ -z "$PATTERN" ]] && { echo "poll-pane: -p <pattern> required" >&2; exit 1; }
+        DEADLINE=$(($(date +%s) + TIMEOUT))
+        while [[ $(date +%s) -lt $DEADLINE ]]; do
+          OUTPUT=$(tmux capture-pane -t "$PANE" -p 2>/dev/null || true)
+          if echo "$OUTPUT" | grep -qE "$PATTERN"; then
+            echo "$OUTPUT"
+            exit 0
+          fi
+          sleep "$INTERVAL"
+        done
+        echo "poll-pane: timeout waiting for pattern: $PATTERN" >&2
+        exit 1
+        """
+
+        try writeShimIfChanged(runInPaneScript, to: dir.appendingPathComponent("run-in-pane"))
+        try writeShimIfChanged(pollPaneScript, to: dir.appendingPathComponent("poll-pane"))
+        return dir
     }
 
     private func runClaudeTeams(
@@ -10218,17 +10355,29 @@ struct CMUXCLI {
             // successfully. Falling back to target.workspaceId would pair
             // the caller's surface with a different workspace, creating an
             // invalid cross-workspace split.
+            // Anchor splits to the leader surface for agent teams.
+            // Validate that the target surface still exists before using it;
+            // a prior kill-pane may have made CMUX_SURFACE_ID stale.
             if let callerSurface = tmuxCallerSurfaceHandle(),
                let callerWorkspace = tmuxCallerWorkspaceHandle(),
                let wsId = try? resolveWorkspaceId(callerWorkspace, client: client) {
                 let store = loadTmuxCompatStore()
                 if let mvState = store.mainVerticalLayouts[wsId],
                    let lastColumn = mvState.lastColumnSurfaceId {
-                    // Main-vertical active: stack in right column.
-                    target = (wsId, nil, lastColumn)
-                    direction = "down"
-                } else {
-                    // First teammate: split the leader surface to the right.
+                    if tmuxSurfaceExists(lastColumn, workspaceId: wsId, client: client) {
+                        target = (wsId, nil, lastColumn)
+                        direction = "down"
+                    } else if tmuxSurfaceExists(callerSurface, workspaceId: wsId, client: client) {
+                        // Column surface gone but leader alive; start a new column.
+                        target = (wsId, nil, callerSurface)
+                        direction = "right"
+                        // Clear stale layout state.
+                        var updatedStore = store
+                        updatedStore.mainVerticalLayouts.removeValue(forKey: wsId)
+                        try? saveTmuxCompatStore(updatedStore)
+                    }
+                    // else: both stale — fall through to default resolution
+                } else if tmuxSurfaceExists(callerSurface, workspaceId: wsId, client: client) {
                     target = (wsId, nil, callerSurface)
                     direction = "right"
                 }

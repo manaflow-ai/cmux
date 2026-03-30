@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSplitTmuxCmd(t *testing.T) {
@@ -389,6 +391,25 @@ func TestClaudeTeamsLaunchArgs(t *testing.T) {
 	if args[0] != "--teammate-mode" || args[1] != "off" {
 		t.Errorf("args = %v, should not prepend when already present", args)
 	}
+
+	// --pane-tools should be stripped and --append-system-prompt added
+	args = claudeTeamsLaunchArgs([]string{"--pane-tools", "--verbose"})
+	foundPaneTools := false
+	foundAppend := false
+	for i, a := range args {
+		if a == "--pane-tools" {
+			foundPaneTools = true
+		}
+		if a == "--append-system-prompt" && i+1 < len(args) {
+			foundAppend = true
+		}
+	}
+	if foundPaneTools {
+		t.Error("--pane-tools should be stripped from args")
+	}
+	if !foundAppend {
+		t.Error("--append-system-prompt should be added when --pane-tools is specified")
+	}
 }
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {
@@ -427,5 +448,33 @@ func TestTmuxShowBuffer(t *testing.T) {
 	})
 	if strings.TrimSpace(output) != "hello world" {
 		t.Errorf("output = %q, want %q", output, "hello world")
+	}
+}
+
+func TestWaitForSignalPathUniqueness(t *testing.T) {
+	// Verify that signal names with distinct inputs produce distinct paths
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		signal := fmt.Sprintf("rip-%d-%d-%d", os.Getpid(), time.Now().UnixNano(), i)
+		path := tmuxWaitForSignalPath(signal)
+		if seen[path] {
+			t.Fatalf("duplicate signal path: %s", path)
+		}
+		seen[path] = true
+	}
+}
+
+func TestWaitForSignalPathSanitization(t *testing.T) {
+	// Signal names with special chars should be sanitized to safe characters
+	path := tmuxWaitForSignalPath("rip-123-456/../../etc/passwd")
+	// Slashes and dots are converted to underscores, preventing directory traversal
+	if !strings.HasPrefix(path, "/tmp/cmux-wait-for-") {
+		t.Errorf("signal path should be in /tmp: %s", path)
+	}
+	// The sanitized name should not contain actual slash characters
+	name := strings.TrimPrefix(path, "/tmp/cmux-wait-for-")
+	name = strings.TrimSuffix(name, ".sig")
+	if strings.Contains(name, "/") {
+		t.Errorf("signal name should not contain slashes: %s", name)
 	}
 }
