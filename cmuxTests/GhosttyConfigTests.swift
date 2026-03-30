@@ -2559,7 +2559,6 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 modifierFlags: [.shift],
                 isInsideTmux: true,
                 userConfigDefinesShiftEnterBinding: false,
-                ghosttyHasBinding: false,
                 hasMarkedText: false
             )
         )
@@ -2570,7 +2569,6 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 modifierFlags: [.shift],
                 isInsideTmux: false,
                 userConfigDefinesShiftEnterBinding: false,
-                ghosttyHasBinding: false,
                 hasMarkedText: false
             )
         )
@@ -2581,18 +2579,6 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 modifierFlags: [.shift],
                 isInsideTmux: true,
                 userConfigDefinesShiftEnterBinding: true,
-                ghosttyHasBinding: false,
-                hasMarkedText: false
-            )
-        )
-
-        XCTAssertFalse(
-            GhosttyApp.shouldRemapShiftEnterForTmux(
-                keyCode: 36,
-                modifierFlags: [.shift],
-                isInsideTmux: true,
-                userConfigDefinesShiftEnterBinding: false,
-                ghosttyHasBinding: true,
                 hasMarkedText: false
             )
         )
@@ -2603,8 +2589,52 @@ final class GhosttyMouseFocusTests: XCTestCase {
                 modifierFlags: [.shift, .command],
                 isInsideTmux: true,
                 userConfigDefinesShiftEnterBinding: false,
-                ghosttyHasBinding: false,
                 hasMarkedText: false
+            )
+        )
+    }
+
+    func testForegroundTmuxProcessOnTTYIsDetected() {
+        let processes = [
+            TerminalSSHSessionDetector.ProcessSnapshot(
+                pid: 47486,
+                pgid: 47486,
+                tpgid: 48365,
+                tty: "ttys089",
+                executableName: "login"
+            ),
+            TerminalSSHSessionDetector.ProcessSnapshot(
+                pid: 47487,
+                pgid: 47487,
+                tpgid: 48365,
+                tty: "ttys089",
+                executableName: "zsh"
+            ),
+            TerminalSSHSessionDetector.ProcessSnapshot(
+                pid: 48365,
+                pgid: 48365,
+                tpgid: 48365,
+                tty: "ttys089",
+                executableName: "tmux"
+            ),
+        ]
+
+        XCTAssertTrue(
+            TerminalSSHSessionDetector.isInsideTmuxForTesting(
+                ttyName: "ttys089",
+                processes: processes
+            )
+        )
+        XCTAssertFalse(
+            TerminalSSHSessionDetector.isInsideTmuxForTesting(
+                ttyName: "ttys090",
+                processes: processes
+            )
+        )
+        XCTAssertFalse(
+            TerminalSSHSessionDetector.isInsideTmuxForTesting(
+                ttyName: "ttys089",
+                processes: processes.filter { $0.executableName != "tmux" }
             )
         )
     }

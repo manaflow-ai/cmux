@@ -1930,12 +1930,10 @@ class GhosttyApp {
         modifierFlags: NSEvent.ModifierFlags,
         isInsideTmux: Bool,
         userConfigDefinesShiftEnterBinding: Bool,
-        ghosttyHasBinding: Bool,
         hasMarkedText: Bool
     ) -> Bool {
         guard isInsideTmux else { return false }
         guard !userConfigDefinesShiftEnterBinding else { return false }
-        guard !ghosttyHasBinding else { return false }
         guard !hasMarkedText else { return false }
 
         let normalizedModifiers = terminalKeyboardCopyModeNormalizedModifiers(modifierFlags)
@@ -6236,27 +6234,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
-        guard !GhosttyApp.shared.userConfigDefinesShiftEnterBinding else { return false }
+        let userConfigDefinesShiftEnterBinding = GhosttyApp.shared.userConfigDefinesShiftEnterBinding
+        guard !userConfigDefinesShiftEnterBinding else { return false }
         let normalizedModifiers = terminalKeyboardCopyModeNormalizedModifiers(event.modifierFlags)
         guard normalizedModifiers == [.shift] else { return false }
         guard event.keyCode == 36 || event.keyCode == 76 else { return false }
         guard let terminalSurface else { return false }
         let tabId = terminalSurface.tabId
         let panelId = terminalSurface.id
-        let isInsideTmux = AppDelegate.shared?
+        guard let tab = AppDelegate.shared?
             .tabManagerFor(tabId: tabId)?
             .tabs
-            .first(where: { $0.id == tabId })?
-            .panelIsInsideTmux(panelId: panelId) ?? false
-        let ghosttyHasBinding = ghosttyBindingFlags(for: event, surface: surface) != nil
-        return GhosttyApp.shouldRemapShiftEnterForTmux(
+            .first(where: { $0.id == tabId }) else {
+            return false
+        }
+        let reportedInsideTmux = tab.panelIsInsideTmux(panelId: panelId)
+        // Shell-side tmux telemetry can lag behind pane focus changes, so fall back to
+        // the current foreground process on the pane TTY before deciding whether to remap.
+        let detectedInsideTmux = tab.surfaceTTYNames[panelId].map {
+            TerminalSSHSessionDetector.isInsideTmux(forTTY: $0)
+        } ?? false
+        let isInsideTmux = reportedInsideTmux || detectedInsideTmux
+        if detectedInsideTmux != reportedInsideTmux {
+            AppDelegate.shared?
+                .tabManagerFor(tabId: tabId)?
+                .updateSurfaceTmuxState(
+                    tabId: tabId,
+                    surfaceId: panelId,
+                    isInsideTmux: detectedInsideTmux
+                )
+        }
+        let shouldRemap = GhosttyApp.shouldRemapShiftEnterForTmux(
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags,
             isInsideTmux: isInsideTmux,
-            userConfigDefinesShiftEnterBinding: false,
-            ghosttyHasBinding: ghosttyHasBinding,
+            userConfigDefinesShiftEnterBinding: userConfigDefinesShiftEnterBinding,
             hasMarkedText: hasMarkedText()
         )
+        return shouldRemap
     }
 
 #if DEBUG
