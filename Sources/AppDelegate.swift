@@ -5339,6 +5339,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
+    /// Resolve the best current `TabManager` for menu/UI reads without mutating
+    /// the app-wide active window pointers.
+    func preferredTabManager(preferredWindow: NSWindow? = nil) -> TabManager? {
+        if let preferredWindow,
+           let context = contextForMainWindow(preferredWindow) {
+            return context.tabManager
+        }
+        if let context = contextForMainWindow(NSApp.keyWindow) {
+            return context.tabManager
+        }
+        if let context = contextForMainWindow(NSApp.mainWindow) {
+            return context.tabManager
+        }
+        if let activeManager = tabManager {
+            return activeManager
+        }
+        return mainWindowContexts.values.first?.tabManager
+    }
+
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
     /// This keeps menu/shortcut actions window-scoped even if the cached `tabManager` drifts.
     @discardableResult
@@ -11179,7 +11198,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] note in
             guard let self, let window = note.object as? NSWindow else { return }
-            self.setActiveMainWindow(window)
+            guard let context = self.setActiveMainWindow(window) else { return }
+            self.restoreFocusedTerminalOnWindowActivation(window: window, context: context)
         }
     }
 
@@ -11223,8 +11243,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return tabManager?.selectedWorkspace?.browserPanel(for: panelId)
     }
 
-    private func setActiveMainWindow(_ window: NSWindow) {
-        guard let context = contextForMainTerminalWindow(window) else { return }
+    private func restoreFocusedTerminalOnWindowActivation(
+        window: NSWindow,
+        context: MainWindowContext
+    ) {
+        guard window.isKeyWindow,
+              let workspace = context.tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: focusedPanelId) else {
+            return
+        }
+#if DEBUG
+        dlog(
+            "mainWindow.focusRestore window={\(debugWindowToken(window))} " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) panel=\(focusedPanelId.uuidString.prefix(5))"
+        )
+#endif
+        terminalPanel.hostedView.ensureFocus(for: workspace.id, surfaceId: focusedPanelId)
+    }
+
+    @discardableResult
+    private func setActiveMainWindow(_ window: NSWindow) -> MainWindowContext? {
+        guard let context = contextForMainTerminalWindow(window) else { return nil }
+        let sameTabManager = tabManager === context.tabManager
+        let sameSidebarState = sidebarState === context.sidebarState
+        let sameSidebarSelectionState = sidebarSelectionState === context.sidebarSelectionState
+        if sameTabManager {
+            let repairedSidebarState = !sameSidebarState && sidebarState == nil
+            let repairedSidebarSelectionState =
+                !sameSidebarSelectionState && sidebarSelectionState == nil
+            if repairedSidebarState {
+                sidebarState = context.sidebarState
+            }
+            if repairedSidebarSelectionState {
+                sidebarSelectionState = context.sidebarSelectionState
+            }
+            TerminalController.shared.setActiveTabManager(context.tabManager)
+#if DEBUG
+            dlog(
+                "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} " +
+                "nochange=1 repairSidebar=\(repairedSidebarState ? 1 : 0) " +
+                "repairSelection=\(repairedSidebarSelectionState ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot())"
+            )
+#endif
+            return context
+        }
 #if DEBUG
         let beforeManagerToken = debugManagerToken(tabManager)
 #endif
@@ -11237,6 +11301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "mainWindow.active window={\(debugWindowToken(window))} context={\(debugContextToken(context))} beforeMgr=\(beforeManagerToken) afterMgr=\(debugManagerToken(tabManager)) \(debugShortcutRouteSnapshot())"
         )
 #endif
+        return context
     }
 
     private func unregisterMainWindow(_ window: NSWindow) {
