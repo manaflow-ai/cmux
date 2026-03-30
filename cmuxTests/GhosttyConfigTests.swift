@@ -3001,7 +3001,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
-            command: "print -r -- \"$(_cmux_report_tmux_state_payload)\"",
+            command: """
+            _CMUX_TTY_NAME=ttys999
+            print -r -- "$(_cmux_report_tmux_state_payload)"
+            """,
             extraEnvironment: [
                 "TMUX": "/tmp/tmux-current,123,0",
                 "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
@@ -3011,7 +3014,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(
             output,
-            "report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999"
+            "report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --tty=ttys999"
         )
     }
 
@@ -3035,6 +3038,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             server_a=$!
             sleep 0.1
             functions[_cmux_send_bg]='print -r -- "$1"'
+            _CMUX_TTY_NAME=ttys999
             _CMUX_TMUX_STATE_SIGNATURE_LAST=""
             _cmux_report_tmux_state
             kill $server_a >/dev/null 2>&1
@@ -3061,8 +3065,51 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(
             output,
             """
-            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999
-            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --panel=99999999-9999-9999-9999-999999999999
+            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --tty=ttys999
+            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --tty=ttys999
+            """
+        )
+    }
+
+    func testShellIntegrationPrecmdReportsTmuxStateWithoutPanelScope() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-precmd-tmux-state-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let socketPath = root.appendingPathComponent("cmux.sock").path
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            python3 -c 'import os, socket, sys, time; path = sys.argv[1]; \
+            os.path.exists(path) and os.unlink(path); \
+            s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1); time.sleep(3)' "$CMUX_SOCKET_PATH" &
+            server_pid=$!
+            sleep 0.1
+            functions[_cmux_send_bg]='print -r -- "$1"'
+            unset CMUX_PANEL_ID
+            _CMUX_TTY_NAME=ttys999
+            _CMUX_TTY_REPORTED=0
+            _CMUX_TMUX_STATE_SIGNATURE_LAST=""
+            _cmux_precmd
+            kill $server_pid >/dev/null 2>&1
+            wait $server_pid >/dev/null 2>&1
+            """,
+            extraEnvironment: [
+                "TMUX": "/tmp/tmux-current,123,0",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            """
+            report_tmux_state inside --tab=11111111-1111-1111-1111-111111111111 --tty=ttys999
+            report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111
             """
         )
     }

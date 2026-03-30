@@ -372,12 +372,19 @@ _cmux_report_shell_activity_state() {
 
 _cmux_report_tmux_state_payload() {
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local state="outside"
     [[ -n "$TMUX" ]] && state="inside"
 
-    print -r -- "report_tmux_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    local payload="report_tmux_state $state --tab=$CMUX_TAB_ID"
+    if [[ -n "$TMUX" ]]; then
+        [[ -n "$_CMUX_TTY_NAME" ]] && payload+=" --tty=$_CMUX_TTY_NAME"
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    print -r -- "$payload"
 }
 
 _cmux_tmux_state_report_signature() {
@@ -725,9 +732,6 @@ _cmux_precmd() {
     # Skip if socket doesn't exist yet
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_report_shell_activity_state prompt
-    _cmux_report_tmux_state
 
     # Handle cases where Ghostty integration initializes after this file.
     (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
@@ -739,7 +743,13 @@ _cmux_precmd() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_report_shell_activity_state prompt
+    fi
+    _cmux_report_tmux_state
     _cmux_report_tty_once
+
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local now=$EPOCHSECONDS
     local pwd="$PWD"
