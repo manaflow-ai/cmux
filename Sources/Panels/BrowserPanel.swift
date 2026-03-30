@@ -2735,6 +2735,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
+        Self.prefetchReactGrabScript()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
@@ -4845,18 +4846,26 @@ extension BrowserPanel {
 
     private static let reactGrabScriptURL = URL(string: "https://unpkg.com/react-grab/dist/index.global.js")!
     private static var cachedReactGrabScript: String?
+    private static var prefetchTask: Task<String?, Never>?
+
+    static func prefetchReactGrabScript() {
+        guard prefetchTask == nil, cachedReactGrabScript == nil else { return }
+        prefetchTask = Task.detached(priority: .low) {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: reactGrabScriptURL)
+                let script = String(data: data, encoding: .utf8)
+                await MainActor.run { cachedReactGrabScript = script }
+                return script
+            } catch {
+                return nil
+            }
+        }
+    }
 
     private func fetchReactGrabScript() async -> String? {
         if let cached = Self.cachedReactGrabScript { return cached }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: Self.reactGrabScriptURL)
-            let script = String(data: data, encoding: .utf8)
-            Self.cachedReactGrabScript = script
-            return script
-        } catch {
-            NSLog("BrowserPanel: failed to fetch react-grab script: %@", error.localizedDescription)
-            return nil
-        }
+        Self.prefetchReactGrabScript()
+        return await Self.prefetchTask?.value
     }
 
     func injectReactGrab() async {
