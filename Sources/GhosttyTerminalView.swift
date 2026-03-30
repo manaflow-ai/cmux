@@ -1349,11 +1349,45 @@ class GhosttyApp {
         #endif
     }
 
+    private func loadInlineGhosttyConfig(
+        _ contents: String,
+        into config: ghostty_config_t,
+        prefix: String,
+        logLabel: String
+    ) {
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString).conf")
+        do {
+            try trimmed.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            tmpURL.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        } catch {
+            #if DEBUG
+            dlog("ghostty.config.inlineLoad.failed label=\(logLabel) error=\(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    private func loadCopyOnSelectOverride(_ config: ghostty_config_t) {
+        loadInlineGhosttyConfig(
+            TerminalCopyOnSelectSettings.overrideConfigLine(),
+            into: config,
+            prefix: "cmux-copy-on-select",
+            logLabel: "copy-on-select override"
+        )
+    }
+
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
+        loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
         ghostty_config_finalize(config)
     }
@@ -1376,20 +1410,12 @@ class GhosttyApp {
         let lines = mappings.map { range, font in
             "font-codepoint-map = \(range)=\(font)"
         }.joined(separator: "\n")
-
-        let tmpURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cjk-font-fallback-\(UUID().uuidString).conf")
-        do {
-            try lines.write(to: tmpURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tmpURL) }
-            tmpURL.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-        } catch {
-            #if DEBUG
-            Self.initLog("failed to write CJK font fallback config: \(error)")
-            #endif
-        }
+        loadInlineGhosttyConfig(
+            lines,
+            into: config,
+            prefix: "cmux-cjk-font-fallback",
+            logLabel: "CJK font fallback"
+        )
     }
 
     /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).

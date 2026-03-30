@@ -584,6 +584,44 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(TelemetrySettings.isEnabled(defaults: defaults))
     }
 
+    func testTerminalCopyOnSelectDefaultsToDisabledWhenUnset() {
+        let suiteName = "cmux.tests.copy-on-select.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.removeObject(forKey: TerminalCopyOnSelectSettings.enabledKey)
+
+        XCTAssertFalse(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults),
+            "copy-on-select = false"
+        )
+    }
+
+    func testTerminalCopyOnSelectUsesClipboardOverrideWhenEnabled() {
+        let suiteName = "cmux.tests.copy-on-select.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated user defaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(true, forKey: TerminalCopyOnSelectSettings.enabledKey)
+
+        XCTAssertTrue(TerminalCopyOnSelectSettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(
+            TerminalCopyOnSelectSettings.overrideConfigLine(defaults: defaults),
+            "copy-on-select = clipboard"
+        )
+    }
+
     private func rgb255(_ color: NSColor) -> RGB {
         let srgb = color.usingColorSpace(.sRGB)!
         var red: CGFloat = 0
