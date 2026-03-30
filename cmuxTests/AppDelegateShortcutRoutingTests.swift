@@ -7,11 +7,35 @@ import XCTest
 #endif
 
 private let appDelegateLastSurfaceCloseShortcutDefaultsKey = "closeWorkspaceOnLastSurfaceShortcut"
+private final class FakeWKInspectorContainerView: NSView {}
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+
+    private func makeKeyEvent(
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String,
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to construct key event")
+        }
+        return event
+    }
 
     override func setUp() {
         super.setUp()
@@ -3091,6 +3115,110 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     // MARK: - Non-Latin keyboard layout shortcut tests
+
+    func testBrowserFirstFindShortcutRoutingRecognizesFindCommandFamily() {
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-f", [.command], "f", 3),
+            ("cmd-g", [.command], "g", 5),
+            ("cmd-shift-g", [.command, .shift], "g", 5),
+            ("cmd-shift-f", [.command, .shift], "f", 3),
+            ("cmd-e", [.command], "e", 14),
+        ]
+
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+            XCTAssertTrue(
+                shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+                "Expected browser-first routing for \(testCase.name)"
+            )
+        }
+    }
+
+    func testBrowserFirstFindShortcutRoutingFallsBackToKeyCodeForNonLatinInput() {
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "",
+            charactersIgnoringModifiers: "а", // Cyrillic a from a non-Latin input source
+            keyCode: 3 // kVK_ANSI_F
+        )
+
+        XCTAssertTrue(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+            "Expected browser-first routing to keep Cmd+F eligible under non-Latin input"
+        )
+    }
+
+    func testBrowserFirstFindShortcutRoutingDoesNotUseANSIPositionsForMismatchedASCIICharacters() {
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-u-on-ansi-f", [.command], "u", 3),
+            ("cmd-o-on-ansi-g", [.command], "o", 5),
+            ("cmd-period-on-ansi-e", [.command], ".", 14),
+            ("cmd-shift-u-on-ansi-f", [.command, .shift], "u", 3),
+            ("cmd-shift-o-on-ansi-g", [.command, .shift], "o", 5),
+        ]
+
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+
+            XCTAssertFalse(
+                shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+                "Did not expect browser-first routing for mismatched ASCII shortcut \(testCase.name)"
+            )
+        }
+    }
+
+    func testBrowserFirstFindShortcutRoutingExcludesWebInspectorResponders() {
+        let inspectorContainer = FakeWKInspectorContainerView(frame: .zero)
+        let inspectorChild = NSView(frame: .zero)
+        inspectorContainer.addSubview(inspectorChild)
+
+        let event = makeKeyEvent(
+            modifierFlags: [.command],
+            characters: "f",
+            charactersIgnoringModifiers: "f",
+            keyCode: 3
+        )
+
+        XCTAssertFalse(
+            shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
+                event,
+                responder: inspectorChild
+            ),
+            "Did not expect browser-first routing while a Web Inspector responder is focused"
+        )
+    }
+
+    func testBrowserFirstFindShortcutRoutingExcludesNonFindCommands() {
+        let cases: [(name: String, modifiers: NSEvent.ModifierFlags, chars: String, keyCode: UInt16)] = [
+            ("cmd-n", [.command], "n", 45),
+            ("cmd-w", [.command], "w", 13),
+            ("cmd-l", [.command], "l", 37),
+            ("cmd-option-f", [.command, .option], "f", 3),
+        ]
+
+        for testCase in cases {
+            let event = makeKeyEvent(
+                modifierFlags: testCase.modifiers,
+                characters: testCase.chars,
+                charactersIgnoringModifiers: testCase.chars,
+                keyCode: testCase.keyCode
+            )
+            XCTAssertFalse(
+                shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(event),
+                "Did not expect browser-first routing for \(testCase.name)"
+            )
+        }
+    }
 
     func testCmdTWorksWithRussianKeyboardLayout() {
         guard let appDelegate = AppDelegate.shared else {
