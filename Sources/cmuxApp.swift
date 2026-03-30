@@ -3699,6 +3699,41 @@ enum AppIconMode: String, CaseIterable, Identifiable {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
+    private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+
+    struct Environment {
+        let imageForMode: (AppIconMode) -> NSImage?
+        let setApplicationIconImage: (NSImage) -> Void
+        let startAppearanceObservation: () -> Void
+        let stopAppearanceObservation: () -> Void
+        let notifyDockTilePlugin: () -> Void
+
+        static func live() -> Self {
+            Self(
+                imageForMode: { mode in
+                    guard let imageName = mode.imageName else { return nil }
+                    return NSImage(named: imageName)
+                },
+                setApplicationIconImage: { icon in
+                    NSApplication.shared.applicationIconImage = icon
+                },
+                startAppearanceObservation: {
+                    AppIconAppearanceObserver.shared.startObserving()
+                },
+                stopAppearanceObservation: {
+                    AppIconAppearanceObserver.shared.stopObserving()
+                },
+                notifyDockTilePlugin: {
+                    DistributedNotificationCenter.default().postNotificationName(
+                        AppIconSettings.dockTileIconDidChangeNotification,
+                        object: nil,
+                        userInfo: nil,
+                        deliverImmediately: true
+                    )
+                }
+            )
+        }
+    }
 
     static func resolvedMode(defaults: UserDefaults = .standard) -> AppIconMode {
         guard let raw = defaults.string(forKey: modeKey),
@@ -3708,21 +3743,21 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode) {
+    static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
-            AppIconAppearanceObserver.shared.startObserving()
+            environment.startAppearanceObservation()
         case .light:
-            AppIconAppearanceObserver.shared.stopObserving()
-            if let icon = NSImage(named: "AppIconLight") {
-                NSApplication.shared.applicationIconImage = icon
-            }
+            environment.stopAppearanceObservation()
+            guard let icon = environment.imageForMode(.light) else { return }
+            environment.setApplicationIconImage(icon)
         case .dark:
-            AppIconAppearanceObserver.shared.stopObserving()
-            if let icon = NSImage(named: "AppIconDark") {
-                NSApplication.shared.applicationIconImage = icon
-            }
+            environment.stopAppearanceObservation()
+            guard let icon = environment.imageForMode(.dark) else { return }
+            environment.setApplicationIconImage(icon)
         }
+
+        environment.notifyDockTilePlugin()
     }
 }
 
