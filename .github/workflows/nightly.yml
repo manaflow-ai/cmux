@@ -503,6 +503,41 @@ jobs:
           # installs to migrate onto the unified nightly appcast.
           cp appcast.xml appcast-universal.xml
 
+      - name: Generate R2-targeted appcast
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          DOWNLOAD_URL_PREFIX: "https://files.cmux.com/nightly/"
+          RELEASE_NOTES_URL: "https://github.com/manaflow-ai/cmux/releases/tag/nightly"
+        run: |
+          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast-r2.xml
+
+      - name: Upload nightly assets to R2
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          BUCKET=cmux-binaries
+
+          # Upload DMGs first so the appcast never references a missing file.
+          aws s3 cp "$NIGHTLY_DMG_IMMUTABLE" \
+            "s3://${BUCKET}/nightly/${NIGHTLY_DMG_IMMUTABLE}" \
+            --endpoint-url "$R2_ENDPOINT"
+          aws s3 cp cmux-nightly-macos.dmg \
+            "s3://${BUCKET}/nightly/cmux-nightly-macos.dmg" \
+            --endpoint-url "$R2_ENDPOINT"
+
+          # Upload appcast last (atomic PutObject, no 404 window).
+          aws s3 cp appcast-r2.xml \
+            "s3://${BUCKET}/nightly/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT"
+
+          echo "R2 upload complete: https://files.cmux.com/nightly/appcast.xml"
+
       - name: Attest remote daemon nightly assets
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
