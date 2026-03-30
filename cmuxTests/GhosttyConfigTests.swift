@@ -2680,6 +2680,53 @@ final class SidebarBackgroundConfigTests: XCTestCase {
     }
 }
 
+final class VSCodeInlineSplitDirectionConfigTests: XCTestCase {
+    func testParseVSCodeInlineSplitDirection() {
+        var config = GhosttyConfig()
+        config.parse("vscode-inline-split-direction = bottom")
+
+        XCTAssertEqual(config.vscodeInlineSplitDirection, .bottom)
+    }
+
+    func testApplyVSCodeInlineSplitDirectionToUserDefaultsWritesCanonicalValue() {
+        let suiteName = "VSCodeInlineSplitDirectionConfigTests.Write.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var config = GhosttyConfig()
+        config.parse("vscode-inline-split-direction = down")
+        config.applyVSCodeInlineSplitDirectionToUserDefaults(defaults: defaults)
+
+        XCTAssertEqual(
+            defaults.string(forKey: VSCodeInlineSplitDirectionSettings.key),
+            VSCodeInlineSplitDirection.bottom.rawValue
+        )
+    }
+
+    func testApplyVSCodeInlineSplitDirectionToUserDefaultsSkipsInvalidValues() {
+        let suiteName = "VSCodeInlineSplitDirectionConfigTests.Invalid.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(VSCodeInlineSplitDirection.tab.rawValue, forKey: VSCodeInlineSplitDirectionSettings.key)
+
+        var config = GhosttyConfig()
+        config.parse("vscode-inline-split-direction = diagonal")
+        config.applyVSCodeInlineSplitDirectionToUserDefaults(defaults: defaults)
+
+        XCTAssertEqual(
+            defaults.string(forKey: VSCodeInlineSplitDirectionSettings.key),
+            VSCodeInlineSplitDirection.tab.rawValue
+        )
+    }
+}
+
 final class ZshShellIntegrationHandoffTests: XCTestCase {
     func testGhosttyPromptHooksLoadWhenCmuxRequestsZshIntegration() throws {
         let output = try runInteractiveZsh(cmuxLoadGhosttyIntegration: true)

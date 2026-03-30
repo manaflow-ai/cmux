@@ -35,6 +35,7 @@ struct GhosttyConfig {
     var sidebarBackgroundLight: NSColor?
     var sidebarBackgroundDark: NSColor?
     var sidebarTintOpacity: Double?
+    var vscodeInlineSplitDirection: VSCodeInlineSplitDirection?
 
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
@@ -189,6 +190,11 @@ struct GhosttyConfig {
         }
     }
 
+    func applyVSCodeInlineSplitDirectionToUserDefaults(defaults: UserDefaults = .standard) {
+        guard let vscodeInlineSplitDirection else { return }
+        defaults.set(vscodeInlineSplitDirection.rawValue, forKey: VSCodeInlineSplitDirectionSettings.key)
+    }
+
     private static func loadFromDisk(preferredColorScheme: ColorSchemePreference) -> GhosttyConfig {
         var config = GhosttyConfig()
 
@@ -218,6 +224,7 @@ struct GhosttyConfig {
 
         config.resolveSidebarBackground(preferredColorScheme: preferredColorScheme)
         config.applySidebarAppearanceToUserDefaults()
+        config.applyVSCodeInlineSplitDirectionToUserDefaults()
 
         return config
     }
@@ -303,6 +310,10 @@ struct GhosttyConfig {
                 case "sidebar-tint-opacity":
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
+                    }
+                case VSCodeInlineSplitDirectionSettings.configKey:
+                    if let direction = VSCodeInlineSplitDirectionSettings.parse(rawValue: value) {
+                        vscodeInlineSplitDirection = direction
                     }
                 default:
                     break

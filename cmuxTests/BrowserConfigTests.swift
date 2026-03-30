@@ -1195,6 +1195,63 @@ final class BrowserThemeSettingsTests: XCTestCase {
 }
 
 
+final class VSCodeInlineSplitDirectionSettingsTests: XCTestCase {
+    private func makeIsolatedDefaults() -> UserDefaults {
+        let suiteName = "VSCodeInlineSplitDirectionSettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            fatalError("Failed to create defaults suite")
+        }
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        return defaults
+    }
+
+    func testDefaultsToRightWhenUnsetOrInvalid() {
+        let defaults = makeIsolatedDefaults()
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .right
+        )
+
+        defaults.set("diagonal", forKey: VSCodeInlineSplitDirectionSettings.key)
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .right
+        )
+    }
+
+    func testCurrentReadsStoredValuesAndNormalizesAliases() {
+        let defaults = makeIsolatedDefaults()
+
+        defaults.set(VSCodeInlineSplitDirection.left.rawValue, forKey: VSCodeInlineSplitDirectionSettings.key)
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .left
+        )
+
+        defaults.set("down", forKey: VSCodeInlineSplitDirectionSettings.key)
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .bottom
+        )
+
+        defaults.set("up", forKey: VSCodeInlineSplitDirectionSettings.key)
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .top
+        )
+
+        defaults.set(VSCodeInlineSplitDirection.tab.rawValue, forKey: VSCodeInlineSplitDirectionSettings.key)
+        XCTAssertEqual(
+            VSCodeInlineSplitDirectionSettings.current(defaults: defaults),
+            .tab
+        )
+    }
+}
+
+
 final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
     func testSafariDefaultShortcutForToggleDeveloperTools() {
         let shortcut = KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.defaultShortcut

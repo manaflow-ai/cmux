@@ -223,6 +223,80 @@ enum BrowserThemeSettings {
     }
 }
 
+enum VSCodeInlineSplitDirection: String, CaseIterable, Identifiable {
+    case right
+    case left
+    case bottom
+    case top
+    case tab
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .right:
+            return String(localized: "settings.browser.vscodeInlineSplitDirection.right", defaultValue: "Right")
+        case .left:
+            return String(localized: "settings.browser.vscodeInlineSplitDirection.left", defaultValue: "Left")
+        case .bottom:
+            return String(localized: "settings.browser.vscodeInlineSplitDirection.bottom", defaultValue: "Bottom")
+        case .top:
+            return String(localized: "settings.browser.vscodeInlineSplitDirection.top", defaultValue: "Top")
+        case .tab:
+            return String(localized: "settings.browser.vscodeInlineSplitDirection.tab", defaultValue: "Tab")
+        }
+    }
+
+    var splitDirection: SplitDirection? {
+        switch self {
+        case .right:
+            return .right
+        case .left:
+            return .left
+        case .bottom:
+            return .down
+        case .top:
+            return .up
+        case .tab:
+            return nil
+        }
+    }
+}
+
+enum VSCodeInlineSplitDirectionSettings {
+    static let key = "vscodeInlineSplitDirection"
+    static let configKey = "vscode-inline-split-direction"
+    static let defaultDirection: VSCodeInlineSplitDirection = .right
+
+    static func parse(rawValue: String?) -> VSCodeInlineSplitDirection? {
+        guard let rawValue = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !rawValue.isEmpty else {
+            return nil
+        }
+
+        switch rawValue {
+        case VSCodeInlineSplitDirection.right.rawValue:
+            return .right
+        case VSCodeInlineSplitDirection.left.rawValue:
+            return .left
+        case VSCodeInlineSplitDirection.bottom.rawValue, "down":
+            return .bottom
+        case VSCodeInlineSplitDirection.top.rawValue, "up":
+            return .top
+        case VSCodeInlineSplitDirection.tab.rawValue:
+            return .tab
+        default:
+            return nil
+        }
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> VSCodeInlineSplitDirection {
+        parse(rawValue: defaults.string(forKey: key)) ?? defaultDirection
+    }
+}
+
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
     case inlineStrip
     case floatingCard
