@@ -8052,9 +8052,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { [weak self] result, _ in
+        panel.webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { [weak self] callResult in
             guard let self else { return }
-            let payload = result as? [String: Any]
+            let payload = (try? callResult.get()) as? [String: Any]
             let focused = (payload?["focused"] as? Bool) ?? false
             let inputId = (payload?["id"] as? String) ?? ""
             let secondaryInputId = (payload?["secondaryId"] as? String) ?? ""
@@ -8260,8 +8260,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         })();
         """
 
-        panel.webView.evaluateJavaScript(script) { result, _ in
-            let payload = result as? [String: Any]
+        panel.webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { callResult in
+            let payload = (try? callResult.get()) as? [String: Any]
             completion([
                 "id": (payload?["id"] as? String) ?? "",
                 "tag": (payload?["tag"] as? String) ?? "",

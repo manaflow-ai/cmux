@@ -2517,7 +2517,8 @@ final class BrowserPanel: Panel, ObservableObject {
             WKUserScript(
                 source: Self.telemetryHookBootstrapScriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: .defaultClient
             )
         )
         // Track the last editable focused element continuously so omnibar exit can
@@ -2527,7 +2528,8 @@ final class BrowserPanel: Panel, ObservableObject {
             WKUserScript(
                 source: Self.addressBarFocusTrackingBootstrapScript,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
+                forMainFrameOnly: true,
+                in: .defaultClient
             )
         )
     }
@@ -3540,8 +3542,8 @@ final class BrowserPanel: Panel, ObservableObject {
                 continuation.resume(returning: value)
             }
 
-            webView.evaluateJavaScript(script) { result, _ in
-                let value = result as? String
+            webView.evaluateJavaScript(script, in: nil, in: .defaultClient) { result in
+                let value = (try? result.get()) as? String
                 Task { @MainActor in
                     resume(value)
                 }
@@ -4807,7 +4809,7 @@ extension BrowserPanel {
 
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script)
+        try await webView.evaluateJavaScript(script, in: nil, in: .defaultClient)
     }
 
     // MARK: - Find in Page
@@ -4867,7 +4869,7 @@ extension BrowserPanel {
     func findNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript())
+            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.nextScript(), in: nil, in: .defaultClient)
             self.parseFindResult(result)
         }
     }
@@ -4875,7 +4877,7 @@ extension BrowserPanel {
     func findPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript())
+            let result = try? await self.webView.evaluateJavaScript(BrowserFindJavaScript.previousScript(), in: nil, in: .defaultClient)
             self.parseFindResult(result)
         }
     }
@@ -4909,7 +4911,7 @@ extension BrowserPanel {
             guard let self else { return }
             let js = BrowserFindJavaScript.searchScript(query: needle)
             do {
-                let result = try await self.webView.evaluateJavaScript(js)
+                let result = try await self.webView.evaluateJavaScript(js, in: nil, in: .defaultClient)
                 self.parseFindResult(result)
             } catch {
                 NSLog("Find: browser JS search error: %@", error.localizedDescription)
@@ -4921,7 +4923,7 @@ extension BrowserPanel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript())
+                _ = try await self.webView.evaluateJavaScript(BrowserFindJavaScript.clearScript(), in: nil, in: .defaultClient)
             } catch {
                 NSLog("Find: browser JS clear error: %@", error.localizedDescription)
             }
@@ -5236,25 +5238,25 @@ extension BrowserPanel {
     }
 
     private func captureAddressBarPageFocusIfNeeded() {
-        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript) { [weak self] result, error in
+        webView.evaluateJavaScript(Self.addressBarFocusCaptureScript, in: nil, in: .defaultClient) { [weak self] callResult in
 #if DEBUG
             guard let self else { return }
-            if let error {
+            switch callResult {
+            case .failure(let error):
                 dlog(
                     "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
                     "result=error message=\(error.localizedDescription)"
                 )
-                return
+            case .success(let result):
+                let resultValue = (result as? String) ?? "unknown"
+                dlog(
+                    "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
+                    "result=\(resultValue)"
+                )
             }
-            let resultValue = (result as? String) ?? "unknown"
-            dlog(
-                "browser.focus.addressBar.capture panel=\(self.id.uuidString.prefix(5)) " +
-                "result=\(resultValue)"
-            )
 #else
             _ = self
-            _ = result
-            _ = error
+            _ = callResult
 #endif
         }
     }
@@ -5308,7 +5310,14 @@ extension BrowserPanel {
             completion(false)
             return
         }
-        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript) { [weak self] result, error in
+        webView.evaluateJavaScript(Self.addressBarFocusRestoreScript, in: nil, in: .defaultClient) { [weak self] callResult in
+            let result: Any?
+            let error: Error?
+            switch callResult {
+            case .success(let value): result = value; error = nil
+            case .failure(let err): result = nil; error = err
+            }
+
             guard let self else {
                 completion(false)
                 return
