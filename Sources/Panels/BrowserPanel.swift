@@ -1728,6 +1728,25 @@ final class BrowserPortalAnchorView: NSView {
     }
 }
 
+private class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
+    private let onStateChange: @MainActor (Bool) -> Void
+
+    init(onStateChange: @escaping @MainActor (Bool) -> Void) {
+        self.onStateChange = onStateChange
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any],
+              let isActive = body["isActive"] as? Bool else { return }
+        Task { @MainActor in
+            onStateChange(isActive)
+        }
+    }
+}
+
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
@@ -2258,6 +2277,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    @Published private(set) var isReactGrabActive: Bool = false
+    private static let reactGrabMessageHandlerName = "cmuxReactGrab"
+    private var reactGrabMessageHandler: ReactGrabMessageHandler?
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -2547,6 +2569,15 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+        setupReactGrabMessageHandler(for: webView)
+    }
+
+    private func setupReactGrabMessageHandler(for webView: WKWebView) {
+        let handler = ReactGrabMessageHandler { [weak self] isActive in
+            self?.isReactGrabActive = isActive
+        }
+        reactGrabMessageHandler = handler
+        webView.configuration.userContentController.add(handler, name: Self.reactGrabMessageHandlerName)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -4808,6 +4839,59 @@ extension BrowserPanel {
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
+    }
+
+    // MARK: - React Grab
+
+    func injectReactGrab() async {
+        let handlerName = Self.reactGrabMessageHandlerName
+        let script = """
+        (function() {
+            if (window.__REACT_GRAB__) {
+                window.__REACT_GRAB__.activate();
+                return;
+            }
+            var s = document.createElement('script');
+            s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
+            s.crossOrigin = 'anonymous';
+            window.addEventListener('react-grab:init', function(e) {
+                var api = e.detail;
+                if (!api) return;
+                api.activate();
+                api.registerPlugin({
+                    name: 'cmux-bridge',
+                    hooks: {
+                        onStateChange: function(state) {
+                            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
+                                window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: state.isActive });
+                            }
+                        }
+                    }
+                });
+            }, { once: true });
+            document.head.appendChild(s);
+        })();
+        """
+        try? await webView.evaluateJavaScript(script)
+    }
+
+    func toggleReactGrab() async {
+        let handlerName = Self.reactGrabMessageHandlerName
+        let script = """
+        (function() {
+            var api = window.__REACT_GRAB__;
+            if (!api) return;
+            api.toggle();
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName)) {
+                window.webkit.messageHandlers.\(handlerName).postMessage({ isActive: api.isActive() });
+            }
+        })();
+        """
+        try? await webView.evaluateJavaScript(script)
+    }
+
+    func resetReactGrabState() {
+        isReactGrabActive = false
     }
 
     // MARK: - Find in Page

@@ -320,7 +320,7 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var isReactGrabInjected = false
+    @State private var isReactGrabInjected = false // tracks whether script has been loaded on this page
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -590,6 +590,7 @@ struct BrowserPanelView: View {
                 refreshEmptyStateImportBrowsers()
             }
             isReactGrabInjected = false
+            panel.resetReactGrabState()
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -830,26 +831,9 @@ struct BrowserPanelView: View {
         Button(action: {
             Task {
                 if isReactGrabInjected {
-                    // Toggle selection mode if already injected
-                    try? await panel.evaluateJavaScript("window.__REACT_GRAB__?.toggle()")
+                    await panel.toggleReactGrab()
                 } else {
-                    // Inject script and auto-activate selection mode on load
-                    let script = """
-                    (function() {
-                        if (window.__REACT_GRAB__) {
-                            window.__REACT_GRAB__.activate();
-                            return;
-                        }
-                        var s = document.createElement('script');
-                        s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
-                        s.crossOrigin = 'anonymous';
-                        window.addEventListener('react-grab:init', function(e) {
-                            if (e.detail && e.detail.activate) e.detail.activate();
-                        }, { once: true });
-                        document.head.appendChild(s);
-                    })();
-                    """
-                    try? await panel.evaluateJavaScript(script)
+                    await panel.injectReactGrab()
                     isReactGrabInjected = true
                 }
             }
@@ -858,7 +842,7 @@ struct BrowserPanelView: View {
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
-                .foregroundStyle(isReactGrabInjected ? Color.accentColor : Color.secondary)
+                .foregroundStyle(panel.isReactGrabActive ? Color.accentColor : Color.secondary)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
