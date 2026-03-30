@@ -829,18 +829,29 @@ struct BrowserPanelView: View {
     private var reactGrabButton: some View {
         Button(action: {
             Task {
-                let script = """
-                (function() {
-                    if (window.__reactGrabInjected) return;
-                    var s = document.createElement('script');
-                    s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
-                    s.crossOrigin = 'anonymous';
-                    s.onload = function() { window.__reactGrabInjected = true; };
-                    document.head.appendChild(s);
-                })();
-                """
-                try? await panel.evaluateJavaScript(script)
-                isReactGrabInjected = true
+                if isReactGrabInjected {
+                    // Toggle selection mode if already injected
+                    try? await panel.evaluateJavaScript("window.__REACT_GRAB__?.toggle()")
+                } else {
+                    // Inject script and auto-activate selection mode on load
+                    let script = """
+                    (function() {
+                        if (window.__REACT_GRAB__) {
+                            window.__REACT_GRAB__.activate();
+                            return;
+                        }
+                        var s = document.createElement('script');
+                        s.src = 'https://unpkg.com/react-grab/dist/index.global.js';
+                        s.crossOrigin = 'anonymous';
+                        window.addEventListener('react-grab:init', function(e) {
+                            if (e.detail && e.detail.activate) e.detail.activate();
+                        }, { once: true });
+                        document.head.appendChild(s);
+                    })();
+                    """
+                    try? await panel.evaluateJavaScript(script)
+                    isReactGrabInjected = true
+                }
             }
         }) {
             Image(systemName: "cursorarrow.click.2")
