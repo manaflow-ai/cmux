@@ -141,6 +141,23 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## Apple / Xcode workflow
+
+For Swift, AppKit, SwiftUI, Observation, Foundation-on-Apple, or Xcode-related work:
+
+- Prefer reading the relevant Apple documentation first before proposing architecture, implementation details, or refactors.
+- Prefer local Apple documentation sources when available (Dash, Xcode docs), then fall back to official Apple web docs.
+- When making a non-trivial change, briefly state the API contract, lifecycle rule, threading rule, or Xcode workflow requirement being relied on.
+- If the docs and the current code seem to disagree, surface that conflict instead of silently choosing one.
+
+Preferred execution order for Xcode work:
+
+1. Inspect workspace and diagnostics in Xcode-aware tooling first when available.
+2. Prefer Xcode-aware read/search/build/test/run paths before broad filesystem fallback.
+3. Use direct filesystem edits in Xcode-managed areas carefully, and verify afterward that the project structure still makes sense.
+
+This is guidance, not a hard gate. The goal is to reduce accidental Xcode project churn and avoid relying on memory alone for Apple platform behavior.
+
 ## Pitfalls
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
