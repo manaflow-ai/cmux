@@ -391,6 +391,25 @@ func TestClaudeTeamsLaunchArgs(t *testing.T) {
 	if args[0] != "--teammate-mode" || args[1] != "off" {
 		t.Errorf("args = %v, should not prepend when already present", args)
 	}
+
+	// --pane-tools should be stripped and --append-system-prompt added
+	args = claudeTeamsLaunchArgs([]string{"--pane-tools", "--verbose"})
+	foundPaneTools := false
+	foundAppend := false
+	for i, a := range args {
+		if a == "--pane-tools" {
+			foundPaneTools = true
+		}
+		if a == "--append-system-prompt" && i+1 < len(args) {
+			foundAppend = true
+		}
+	}
+	if foundPaneTools {
+		t.Error("--pane-tools should be stripped from args")
+	}
+	if !foundAppend {
+		t.Error("--append-system-prompt should be added when --pane-tools is specified")
+	}
 }
 
 func TestTmuxWaitForSignalRoundTrip(t *testing.T) {

@@ -9482,11 +9482,45 @@ struct CMUXCLI {
         }
     }
 
+    private static let paneToolsPrompt = """
+    You have pane management shell scripts on PATH for running commands in split terminal panes.
+
+    One-shot (run, capture, close):
+      OUTPUT=$(run-in-pane "your-command")
+      OUTPUT=$(run-in-pane -v -t 60 "npm run build")  # vertical split, 60s timeout
+
+    Long-lived pane (interactive, SSH, etc.):
+      PANE=$(tmux split-window -d -h -P -F "#{pane_id}")
+      tmux send-keys -t "$PANE" "ssh remote-host" Enter
+      SIG="/tmp/done-$$.sig"
+      tmux send-keys -t "$PANE" "your-command; touch $SIG" Enter
+      tmux wait-for "done-$$" --timeout=30
+      tmux capture-pane -t "$PANE" -p
+      tmux kill-pane -t "$PANE"
+
+    Poll pane output for a pattern:
+      poll-pane -t "$PANE" -p "ready|error" --timeout 60
+    """
+
     private func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
-        guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
-            return commandArgs
+        var result: [String] = []
+        var hasPaneTools = false
+        let hasTeammateMode = claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs)
+        // Strip --pane-tools from args (it's a cmux flag, not a claude flag)
+        for arg in commandArgs {
+            if arg == "--pane-tools" {
+                hasPaneTools = true
+                continue
+            }
+            result.append(arg)
         }
-        return ["--teammate-mode", "auto"] + commandArgs
+        if !hasTeammateMode {
+            result = ["--teammate-mode", "auto"] + result
+        }
+        if hasPaneTools {
+            result += ["--append-system-prompt", Self.paneToolsPrompt]
+        }
+        return result
     }
 
     private func configureTmuxCompatEnvironment(

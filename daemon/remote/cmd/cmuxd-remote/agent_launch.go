@@ -646,12 +646,44 @@ func findExecutableInPath(name string, pathEnv string, skipDir string) string {
 
 // --- Claude Teams launch args ---
 
+const paneToolsPrompt = `You have pane management shell scripts on PATH for running commands in split terminal panes.
+
+One-shot (run, capture, close):
+  OUTPUT=$(run-in-pane "your-command")
+  OUTPUT=$(run-in-pane -v -t 60 "npm run build")  # vertical split, 60s timeout
+
+Long-lived pane (interactive, SSH, etc.):
+  PANE=$(tmux split-window -d -h -P -F "#{pane_id}")
+  tmux send-keys -t "$PANE" "ssh remote-host" Enter
+  SIG="/tmp/done-$$.sig"
+  tmux send-keys -t "$PANE" "your-command; touch $SIG" Enter
+  tmux wait-for "done-$$" --timeout=30
+  tmux capture-pane -t "$PANE" -p
+  tmux kill-pane -t "$PANE"
+
+Poll pane output for a pattern:
+  poll-pane -t "$PANE" -p "ready|error" --timeout 60`
+
 func claudeTeamsLaunchArgs(args []string) []string {
-	// Check if --teammate-mode is already specified
+	var result []string
+	hasPaneTools := false
+	hasTeammateMode := false
+	// Strip --pane-tools from args (it's a cmux flag, not a claude flag)
 	for _, arg := range args {
-		if arg == "--teammate-mode" || strings.HasPrefix(arg, "--teammate-mode=") {
-			return args
+		if arg == "--pane-tools" {
+			hasPaneTools = true
+			continue
 		}
+		if arg == "--teammate-mode" || strings.HasPrefix(arg, "--teammate-mode=") {
+			hasTeammateMode = true
+		}
+		result = append(result, arg)
 	}
-	return append([]string{"--teammate-mode", "auto"}, args...)
+	if !hasTeammateMode {
+		result = append([]string{"--teammate-mode", "auto"}, result...)
+	}
+	if hasPaneTools {
+		result = append(result, "--append-system-prompt", paneToolsPrompt)
+	}
+	return result
 }
