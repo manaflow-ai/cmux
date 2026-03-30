@@ -4473,6 +4473,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
+    private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
@@ -4721,6 +4722,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
+        }
+        // Balance the cursor stack if the view is removed while hover is active
+        if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
         }
 #if DEBUG
         dlog(
@@ -6185,6 +6191,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.text = nil
         keyEvent.composing = false
         _ = ghostty_surface_key(surface, keyEvent)
+        // Refresh ghostty's mouse position so quicklook_word uses current coordinates
+        // when Cmd is pressed while the pointer is stationary.
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        updateWordPathHover(cmdHeld: event.modifierFlags.contains(.command))
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
@@ -6424,7 +6435,89 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+
+        // Fallback: if Cmd was held and ghostty didn't handle the click as a link,
+        // check if the word under cursor is a valid file/directory in the terminal's CWD.
+        // This enables cmd-click on bare filenames from commands like `ls`.
+        if !consumed && event.modifierFlags.contains(.command) {
+            // Refresh ghostty's cached mouse position so quicklook_word reads
+            // up-to-date coordinates (mouseDown skips pos update on double-click).
+            let point = convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+            tryOpenWordAsPath()
+        }
+    }
+
+    /// Attempt to open the word under the mouse cursor as a file path, resolved
+    /// against the terminal panel's current working directory.
+    private func tryOpenWordAsPath() {
+        guard let resolvedPath = resolveWordUnderCursorAsPath() else { return }
+
+        #if DEBUG
+        dlog("link.wordFallback resolved=\(resolvedPath)")
+        #endif
+
+        PreferredEditorSettings.open(URL(fileURLWithPath: resolvedPath))
+    }
+
+    /// Check if the word under the mouse cursor resolves to an existing file/directory
+    /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
+    private func resolveWordUnderCursorAsPath() -> String? {
+        guard let surface = surface else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard text.text_len > 0, let ptr = text.text else { return nil }
+        let wordData = Data(bytes: ptr, count: Int(text.text_len))
+        guard let decodedWord = String(bytes: wordData, encoding: .utf8) else { return nil }
+        let word = decodedWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty, !word.hasPrefix("/") else { return nil }
+
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+
+        // Use the same CWD fallback chain as Workspace split creation:
+        // panelDirectories (live OSC 7) → requestedWorkingDirectory → workspace currentDirectory
+        let cwd: String? = {
+            if let dir = workspace.panelDirectories[termSurface.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty { return dir }
+            if let dir = workspace.terminalPanel(for: termSurface.id)?
+                .requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty { return dir }
+            let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return dir.isEmpty ? nil : dir
+        }()
+        guard let cwd else { return nil }
+
+        let resolvedPath = (cwd as NSString).appendingPathComponent(word)
+        guard FileManager.default.fileExists(atPath: resolvedPath) else { return nil }
+        return resolvedPath
+    }
+
+    /// Update the pointing-hand cursor when Cmd-hovering over a bare filename
+    /// that exists in the terminal's CWD.
+    private func updateWordPathHover(cmdHeld: Bool) {
+        guard cmdHeld else {
+            if wordPathHoverActive {
+                wordPathHoverActive = false
+                NSCursor.pop()
+            }
+            return
+        }
+
+        if resolveWordUnderCursorAsPath() != nil {
+            if !wordPathHoverActive {
+                wordPathHoverActive = true
+                NSCursor.pointingHand.push()
+            }
+        } else if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -6590,6 +6683,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        updateWordPathHover(cmdHeld: event.modifierFlags.contains(.command))
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -6618,6 +6712,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
+        }
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return

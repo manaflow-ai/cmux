@@ -3879,6 +3879,50 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+enum PreferredEditorSettings {
+    static let key = "preferredEditorCommand"
+
+    /// Returns the configured editor command, or nil to use system default.
+    static func resolvedCommand(defaults: UserDefaults = .standard) -> String? {
+        guard let stored = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !stored.isEmpty else {
+            return nil
+        }
+        return stored
+    }
+
+    /// Open a file path with the user's preferred editor, falling back to system default.
+    static func open(_ url: URL) {
+        guard let command = resolvedCommand() else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        let path = url.path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "\(command) \(shellQuote(path))"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            // Check exit status on a background thread; fall back on failure
+            // (e.g. command not found exits 127 but /bin/sh itself succeeds)
+            DispatchQueue.global(qos: .userInitiated).async {
+                process.waitUntilExit()
+                if process.terminationStatus != 0 {
+                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                }
+            }
+        } catch {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private static func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -3894,6 +3938,7 @@ struct SettingsView: View {
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
+    @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -4587,6 +4632,20 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"),
+                            subtitle: String(localized: "settings.app.preferredEditor.subtitle", defaultValue: "Command to open files on Cmd-click. Leave empty for system default.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.app.preferredEditor.placeholder", defaultValue: "e.g. code, zed, subl"),
+                                text: $preferredEditorCommand
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
                         }
 
                         SettingsCardDivider()
@@ -5835,6 +5894,7 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
+        preferredEditorCommand = ""
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
