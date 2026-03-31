@@ -870,6 +870,31 @@ final class CJKIMEKeyTextAccumulatorTests: XCTestCase {
     }
 }
 
+// MARK: - External committed-text sanitization
+
+final class ExternalCommittedTextSanitizationTests: XCTestCase {
+    func testStripsLeadingCSISequenceFromExternalCommittedText() {
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[Chello"),
+            "hello"
+        )
+    }
+
+    func testStripsMultipleLeadingControlAndEscapeSequences() {
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[1;5C\u{1B}OChello"),
+            "hello"
+        )
+    }
+
+    func testLeavesLiteralBracketPrefixedTextUntouched() {
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("[Code] review"),
+            "[Code] review"
+        )
+    }
+}
+
 // MARK: - Shift+Space fallback suppression (IME source-switch shortcut)
 
 final class CJKIMEShiftSpaceFallbackTests: XCTestCase {
