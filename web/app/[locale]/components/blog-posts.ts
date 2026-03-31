@@ -18,10 +18,18 @@ export const blogPosts = [
   {
     slug: "cmux-omo",
     key: "cmuxOmo",
-    title: "oh-my-openagent's multi-model agents as native cmux panes",
+    title: "oh-my-openagent's specialist agents as native cmux panes",
     date: "2026-03-30",
     summary:
-      "oh-my-openagent (formerly oh-my-opencode) orchestrates Claude, GPT, and Gemini specialists in parallel. cmux omo turns their tmux panes into native splits.",
+      "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
+  },
+  {
+    slug: "gpl",
+    key: "gpl",
+    title: "cmux is now GPL",
+    date: "2026-03-30",
+    summary:
+      "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier.",
   },
   {
     slug: "cmd-shift-u",
