@@ -47988,57 +47988,6 @@
         }
       }
     },
-    "settings.app.copyOnSelect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy on Select"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択時にコピー"
-          }
-        }
-      }
-    },
-    "settings.app.copyOnSelect.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Selecting terminal text does not copy it to the system clipboard."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルテキストを選択してもシステムのクリップボードにはコピーしません。"
-          }
-        }
-      }
-    },
-    "settings.app.copyOnSelect.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatically copy selected terminal text to the system clipboard."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択したターミナルテキストをシステムのクリップボードに自動でコピーします。"
-          }
-        }
-      }
-    },
     "settings.app.paneFirstClickFocus": {
       "extractionState": "manual",
       "localizations": {
