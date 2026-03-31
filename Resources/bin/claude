@@ -6,6 +6,24 @@
 # so that Claude Code hooks fire back into cmux for notifications/status.
 # Outside cmux, it passes through to the real claude binary unchanged.
 
+# Find the newest Claude Code app bundle install when the CLI is not on PATH.
+find_claude_app_bundle() {
+    local base_dir
+    local -a candidates=()
+    local had_nullglob=0
+
+    base_dir="${HOME}/Library/Application Support/Claude/claude-code"
+    [[ -d "$base_dir" ]] || return 1
+
+    shopt -q nullglob && had_nullglob=1
+    shopt -s nullglob
+    candidates=("$base_dir"/*/claude.app/Contents/MacOS/claude)
+    (( had_nullglob )) || shopt -u nullglob
+
+    ((${#candidates[@]})) || return 1
+    printf '%s\n' "${candidates[@]}" | LC_ALL=C sort -V | tail -n 1
+}
+
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
     local self_dir
@@ -15,7 +33,11 @@ find_real_claude() {
         [[ "$d" == "$self_dir" ]] && continue
         [[ -x "$d/claude" ]] && printf '%s' "$d/claude" && return 0
     done
-    return 1
+    find_claude_app_bundle
+}
+
+resolve_real_claude() {
+    find_real_claude || find_claude_app_bundle
 }
 
 # Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
@@ -48,12 +70,18 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     if [[ "$IN_CMUX" == "1" ]]; then
         unset CLAUDECODE
     fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+    REAL_CLAUDE="$(resolve_real_claude)" || {
+        echo "Error: claude not found in PATH or in \$HOME/Library/Application Support/Claude/claude-code/*/claude.app" >&2
+        exit 127
+    }
     exec "$REAL_CLAUDE" "$@"
 fi
 
 # Find real claude.
-REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
+REAL_CLAUDE="$(resolve_real_claude)" || {
+    echo "Error: claude not found in PATH or in \$HOME/Library/Application Support/Claude/claude-code/*/claude.app" >&2
+    exit 127
+}
 
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
