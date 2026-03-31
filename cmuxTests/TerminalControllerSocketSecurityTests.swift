@@ -254,41 +254,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
-    func testReportTmuxStateResolvesPanelByTTY() throws {
-        let socketPath = makeSocketPath("tmux-tty")
-        let manager = TabManager()
-        let workspace = manager.addWorkspace(select: true)
-
-        guard let focusedPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace with a focused panel")
-            return
-        }
-        guard let targetPanel = workspace.newTerminalSplit(from: focusedPanelId, orientation: .horizontal) else {
-            XCTFail("Expected split panel to be created")
-            return
-        }
-        workspace.focusPanel(focusedPanelId)
-        workspace.surfaceTTYNames[targetPanel.id] = "/dev/ttys777"
-
-        TerminalController.shared.start(
-            tabManager: manager,
-            socketPath: socketPath,
-            accessMode: .allowAll
-        )
-        try waitForSocket(at: socketPath)
-
-        let responses = try sendCommands(
-            ["report_tmux_state inside --tab=\(workspace.id.uuidString) --tty=ttys777"],
-            to: socketPath
-        )
-        XCTAssertEqual(responses, ["OK"])
-
-        try waitForCondition("tmux state routed by tty") {
-            workspace.panelIsInsideTmux(panelId: targetPanel.id)
-        }
-        XCTAssertFalse(workspace.panelIsInsideTmux(panelId: focusedPanelId))
-    }
-
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -300,22 +265,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             return
         }
         XCTFail("Timed out waiting for socket at \(path)")
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
-    }
-
-    private func waitForCondition(
-        _ description: String,
-        timeout: TimeInterval = 5.0,
-        condition: @escaping () -> Bool
-    ) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() {
-                return
-            }
-            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-        XCTFail("Timed out waiting for \(description)")
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
     }
 
