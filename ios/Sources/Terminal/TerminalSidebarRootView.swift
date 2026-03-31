@@ -57,14 +57,51 @@ struct TerminalSidebarRootView: View {
     }
 
     private var filteredWorkspaces: [TerminalWorkspace] {
+        let staleThreshold = Date.now.addingTimeInterval(-24 * 60 * 60)
+
+        let base: [TerminalWorkspace]
         if searchText.isEmpty {
-            return store.workspaces
+            base = store.workspaces
+        } else {
+            let query = searchText.localizedLowercase
+            base = store.workspaces.filter { workspace in
+                guard let host = store.server(for: workspace.hostID) else { return false }
+                return workspace.matches(query: query, host: host)
+            }
         }
 
-        let query = searchText.localizedLowercase
-        return store.workspaces.filter { workspace in
-            guard let host = store.server(for: workspace.hostID) else { return false }
-            return workspace.matches(query: query, host: host)
+        let visible = base.filter { workspace in
+            // Hide stale workspaces: idle with no activity in 24 hours
+            if workspace.phase == .idle, workspace.lastActivity < staleThreshold {
+                return false
+            }
+            return true
+        }
+
+        // Pre-compute sort keys to avoid repeated store lookups during sort.
+        let sortKeys = Dictionary(
+            uniqueKeysWithValues: visible.map { ($0.id, workspaceSortOrder($0)) }
+        )
+        return visible.sorted { lhs, rhs in
+            let lhsOrder = sortKeys[lhs.id] ?? 1
+            let rhsOrder = sortKeys[rhs.id] ?? 1
+            if lhsOrder != rhsOrder {
+                return lhsOrder < rhsOrder
+            }
+            return lhs.lastActivity > rhs.lastActivity
+        }
+    }
+
+    /// Sort priority: connected first (0), disconnected-but-online next (1), offline last (2).
+    private func workspaceSortOrder(_ workspace: TerminalWorkspace) -> Int {
+        if store.server(for: workspace.hostID)?.machineStatus == .offline {
+            return 2
+        }
+        switch workspace.phase {
+        case .connected:
+            return 0
+        default:
+            return 1
         }
     }
 
@@ -327,6 +364,7 @@ private enum TerminalHomeStrings {
         defaultValue: "Reconnecting to cmuxd"
     )
     static let failedLabel = String(localized: "terminal.home.status.failed", defaultValue: "Failed")
+    static let offlineLabel = String(localized: "terminal.home.status.offline", defaultValue: "Offline")
     static let readyToConfigureLabel = String(localized: "terminal.home.status.needs_setup", defaultValue: "Setup Required")
     static let disconnectedLabel = String(localized: "terminal.home.status.disconnected", defaultValue: "Disconnected")
     static let editorNewTitle = String(localized: "terminal.host_editor.new_title", defaultValue: "New Server")
@@ -450,12 +488,22 @@ private struct TerminalServerPinView: View {
     let workspaceCount: Int
     let isConfigured: Bool
 
+    private var isOffline: Bool {
+        host.machineStatus == .offline
+    }
+
     var body: some View {
         VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 Circle()
                     .fill(host.palette.gradient)
                     .frame(width: 62, height: 62)
+                    .overlay {
+                        if isOffline {
+                            Circle()
+                                .fill(Color.gray.opacity(0.5))
+                        }
+                    }
 
                 Image(systemName: host.symbolName)
                     .font(.title3.weight(.semibold))
@@ -474,14 +522,23 @@ private struct TerminalServerPinView: View {
 
             Text(host.name)
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(isOffline ? .secondary : .primary)
                 .lineLimit(1)
 
-            Text(isConfigured ? host.subtitle : TerminalHomeStrings.notReadyLabel)
-                .font(.caption2)
-                .foregroundStyle(isConfigured ? Color.secondary : Color.orange)
-                .lineLimit(1)
+            if isOffline {
+                Text(TerminalHomeStrings.offlineLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            } else {
+                Text(isConfigured ? host.subtitle : TerminalHomeStrings.notReadyLabel)
+                    .font(.caption2)
+                    .foregroundStyle(isConfigured ? Color.secondary : Color.orange)
+                    .lineLimit(1)
+            }
         }
         .frame(width: 92)
+        .opacity(isOffline ? 0.5 : 1.0)
     }
 }
 
@@ -512,6 +569,10 @@ private struct TerminalWorkspaceConversationRow: View {
     let workspace: TerminalWorkspace
     let host: TerminalHost
 
+    private var isOffline: Bool {
+        host.machineStatus == .offline
+    }
+
     var accessibilityTitle: String {
         workspace.title
     }
@@ -520,13 +581,15 @@ private struct TerminalWorkspaceConversationRow: View {
         let readState = workspace.unread
             ? TerminalHomeStrings.markUnreadAction
             : TerminalHomeStrings.markReadAction
-        return [
-            host.name,
-            previewText(for: workspace, host: host),
-            statusText(for: workspace.phase),
-            readState,
-            relativeTimestamp(for: workspace.lastActivity),
-        ]
+        var parts = [host.name]
+        if isOffline {
+            parts.append(TerminalHomeStrings.offlineLabel)
+        } else {
+            parts.append(previewText(for: workspace, host: host))
+            parts.append(statusText(for: workspace.phase))
+        }
+        parts.append(contentsOf: [readState, relativeTimestamp(for: workspace.lastActivity)])
+        return parts
         .joined(separator: ", ")
     }
 
@@ -557,6 +620,7 @@ private struct TerminalWorkspaceConversationRow: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(workspace.title)
                         .font(.headline)
+                        .foregroundStyle(isOffline ? .secondary : .primary)
                         .lineLimit(1)
 
                     Spacer(minLength: 10)
@@ -567,35 +631,54 @@ private struct TerminalWorkspaceConversationRow: View {
                         .accessibilityIdentifier("terminal.workspace.timestamp.\(workspace.id.uuidString)")
                 }
 
-                HStack(spacing: 6) {
-                    Text(host.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(host.palette.accent)
-                        .lineLimit(1)
-                    Text("•")
-                        .foregroundStyle(.tertiary)
-                    Text(previewText(for: workspace, host: host))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .accessibilityIdentifier("terminal.workspace.preview.\(workspace.id.uuidString)")
+                if isOffline {
+                    HStack(spacing: 6) {
+                        Text(host.name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        Text("•")
+                            .foregroundStyle(.tertiary)
+                        Text(TerminalHomeStrings.offlineLabel)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    .accessibilityIdentifier("terminal.workspace.preview.\(workspace.id.uuidString)")
+                } else {
+                    HStack(spacing: 6) {
+                        Text(host.name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(host.palette.accent)
+                            .lineLimit(1)
+                        Text("•")
+                            .foregroundStyle(.tertiary)
+                        Text(previewText(for: workspace, host: host))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .accessibilityIdentifier("terminal.workspace.preview.\(workspace.id.uuidString)")
+                    }
                 }
 
-                if let lastError = workspace.lastError, workspace.phase == .failed {
-                    Text(lastError)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(1)
-                } else {
-                    Text(statusText(for: workspace.phase))
-                        .font(.caption)
-                        .foregroundStyle(statusColor(for: workspace.phase))
-                        .lineLimit(1)
-                        .accessibilityIdentifier("terminal.workspace.status.\(workspace.id.uuidString)")
+                if !isOffline {
+                    if let lastError = workspace.lastError, workspace.phase == .failed {
+                        Text(lastError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .lineLimit(1)
+                    } else {
+                        Text(statusText(for: workspace.phase))
+                            .font(.caption)
+                            .foregroundStyle(statusColor(for: workspace.phase))
+                            .lineLimit(1)
+                            .accessibilityIdentifier("terminal.workspace.status.\(workspace.id.uuidString)")
+                    }
                 }
             }
         }
         .padding(.vertical, 2)
+        .opacity(isOffline ? 0.5 : 1.0)
     }
 
     private func relativeTimestamp(for date: Date) -> String {

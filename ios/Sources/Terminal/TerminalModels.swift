@@ -18,6 +18,11 @@ enum TerminalConnectionPhase: String, Codable, CaseIterable, Sendable {
     case failed
 }
 
+enum MobileMachineStatus: String, Codable, CaseIterable, Sendable {
+    case online
+    case offline
+}
+
 enum TerminalHostSource: String, Codable, CaseIterable, Sendable {
     case discovered
     case custom
@@ -102,6 +107,9 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
     var serverID: String?
     var allowsSSHFallback: Bool
     var directTLSPins: [String]
+    /// Runtime-only machine status propagated by the server discovery layer (Unit 6).
+    /// Not persisted. Defaults to nil (treated as online).
+    var machineStatus: MobileMachineStatus?
 
     init(
         id: ID = UUID(),
@@ -122,7 +130,8 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         teamID: String? = nil,
         serverID: String? = nil,
         allowsSSHFallback: Bool = true,
-        directTLSPins: [String] = []
+        directTLSPins: [String] = [],
+        machineStatus: MobileMachineStatus? = nil
     ) {
         self.id = id
         self.stableID = stableID ?? id.uuidString
@@ -143,6 +152,7 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
         self.serverID = serverID
         self.allowsSSHFallback = allowsSSHFallback
         self.directTLSPins = directTLSPins.normalizedTerminalPins
+        self.machineStatus = machineStatus
     }
 
     var subtitle: String {
@@ -246,6 +256,29 @@ struct TerminalHost: Identifiable, Codable, Equatable, Sendable {
             allowsSSHFallback: try container.decodeIfPresent(Bool.self, forKey: .allowsSSHFallback) ?? true,
             directTLSPins: try container.decodeIfPresent([String].self, forKey: .directTLSPins) ?? []
         )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(stableID, forKey: .stableID)
+        try container.encode(name, forKey: .name)
+        try container.encode(hostname, forKey: .hostname)
+        try container.encode(port, forKey: .port)
+        try container.encode(username, forKey: .username)
+        try container.encode(symbolName, forKey: .symbolName)
+        try container.encode(palette, forKey: .palette)
+        try container.encode(bootstrapCommand, forKey: .bootstrapCommand)
+        try container.encodeIfPresent(trustedHostKey, forKey: .trustedHostKey)
+        try container.encodeIfPresent(pendingHostKey, forKey: .pendingHostKey)
+        try container.encode(sortIndex, forKey: .sortIndex)
+        try container.encode(source, forKey: .source)
+        try container.encode(transportPreference, forKey: .transportPreference)
+        try container.encode(sshAuthenticationMethod, forKey: .sshAuthenticationMethod)
+        try container.encodeIfPresent(teamID, forKey: .teamID)
+        try container.encodeIfPresent(serverID, forKey: .serverID)
+        try container.encode(allowsSSHFallback, forKey: .allowsSSHFallback)
+        try container.encode(directTLSPins, forKey: .directTLSPins)
     }
 
     private static func legacyStableID(hostname: String, fallbackID: ID) -> String {
