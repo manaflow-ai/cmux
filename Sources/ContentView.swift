@@ -980,6 +980,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
+    private var currentRenderFingerprint: Int?
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
@@ -1230,7 +1231,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool) {
+    func update(rootView: AnyView, isVisible: Bool, renderFingerprint: Int) {
         guard ensureInstalled() else { return }
         let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
             previouslyVisible: isPaletteVisible,
@@ -1238,7 +1239,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         )
         isPaletteVisible = isVisible
         if isVisible {
-            hostingView.rootView = rootView
+            if currentRenderFingerprint != renderFingerprint {
+                hostingView.rootView = rootView
+                currentRenderFingerprint = renderFingerprint
+            }
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
@@ -1252,6 +1256,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 _ = window.makeFirstResponder(nil)
             }
             hostingView.rootView = AnyView(EmptyView())
+            currentRenderFingerprint = nil
             containerView.capturesMouseEvents = false
             containerView.alphaValue = 0
             containerView.isHidden = true
@@ -1727,11 +1732,52 @@ struct ContentView: View {
         let shortcutHint: String?
         let kindLabel: String?
         let keywords: [String]
+        let liveTitleWorkspace: Workspace?
         let dismissOnRun: Bool
         let action: () -> Void
 
+        init(
+            id: String,
+            rank: Int,
+            title: String,
+            subtitle: String,
+            shortcutHint: String?,
+            kindLabel: String?,
+            keywords: [String],
+            liveTitleWorkspace: Workspace? = nil,
+            dismissOnRun: Bool,
+            action: @escaping () -> Void
+        ) {
+            self.id = id
+            self.rank = rank
+            self.title = title
+            self.subtitle = subtitle
+            self.shortcutHint = shortcutHint
+            self.kindLabel = kindLabel
+            self.keywords = keywords
+            self.liveTitleWorkspace = liveTitleWorkspace
+            self.dismissOnRun = dismissOnRun
+            self.action = action
+        }
+
         var searchableTexts: [String] {
             [title, subtitle] + keywords
+        }
+
+        func displayTitle() -> String {
+            guard let liveTitleWorkspace else { return title }
+            return ContentView.commandPaletteWorkspaceDisplayName(liveTitleWorkspace)
+        }
+
+        func displayTitleMatchIndices(
+            matchingQuery: String,
+            fallbackIndices: Set<Int>
+        ) -> Set<Int> {
+            guard liveTitleWorkspace != nil else { return fallbackIndices }
+            return CommandPaletteFuzzyMatcher.matchCharacterIndices(
+                query: matchingQuery,
+                candidate: displayTitle()
+            )
         }
     }
 
@@ -1986,6 +2032,39 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
+    private struct CommandPaletteLiveWorkspaceResultLabel: View {
+        @ObservedObject private var workspace: Workspace
+        private let command: CommandPaletteCommand
+        private let matchingQuery: String
+        private let fallbackMatchIndices: Set<Int>
+        private let trailingLabel: CommandPaletteTrailingLabel?
+
+        init(
+            workspace: Workspace,
+            command: CommandPaletteCommand,
+            matchingQuery: String,
+            fallbackMatchIndices: Set<Int>,
+            trailingLabel: CommandPaletteTrailingLabel?
+        ) {
+            _workspace = ObservedObject(wrappedValue: workspace)
+            self.command = command
+            self.matchingQuery = matchingQuery
+            self.fallbackMatchIndices = fallbackMatchIndices
+            self.trailingLabel = trailingLabel
+        }
+
+        var body: some View {
+            ContentView.commandPaletteResultLabelContent(
+                title: command.displayTitle(),
+                matchedIndices: command.displayTitleMatchIndices(
+                    matchingQuery: matchingQuery,
+                    fallbackIndices: fallbackMatchIndices
+                ),
+                trailingLabel: trailingLabel
+            )
+        }
+    }
+
     private struct CommandPaletteResolvedSearchMatch: Sendable {
         let commandID: String
         let score: Int
@@ -2001,7 +2080,6 @@ struct ContentView: View {
 
     struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
         let id: UUID
-        let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
         let surfaces: [CommandPaletteSwitcherFingerprintSurface]
     }
@@ -3036,9 +3114,28 @@ struct ContentView: View {
                 let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
                 tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
                 let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
+                overlayController.update(
+                    rootView: AnyView(commandPaletteOverlay),
+                    isVisible: isCommandPalettePresented,
+                    renderFingerprint: commandPaletteOverlayRenderFingerprint
+                )
             }
         }))
+
+        view = AnyView(view.onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
+            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
+        })
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
@@ -3670,6 +3767,7 @@ struct ContentView: View {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
+                            let trailingLabel = commandPaletteTrailingLabel(for: result.command)
                             let rowBackground: Color = isSelected
                                 ? cmuxAccentColor().opacity(0.12)
                                 : (isHovered ? Color.primary.opacity(0.08) : .clear)
@@ -3677,37 +3775,28 @@ struct ContentView: View {
                             Button {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
-                                HStack(spacing: 8) {
-                                    commandPaletteHighlightedTitleText(
-                                        result.command.title,
-                                        matchedIndices: result.titleMatchIndices
-                                    )
-                                        .font(.system(size: 13, weight: .regular))
-                                        .lineLimit(1)
-                                    Spacer()
-
-                                    if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
-                                        switch trailingLabel.style {
-                                        case .shortcut:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                        case .kind:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
+                                Group {
+                                    if let liveTitleWorkspace = result.command.liveTitleWorkspace {
+                                        CommandPaletteLiveWorkspaceResultLabel(
+                                            workspace: liveTitleWorkspace,
+                                            command: result.command,
+                                            matchingQuery: commandPaletteQueryForMatching,
+                                            fallbackMatchIndices: result.titleMatchIndices,
+                                            trailingLabel: trailingLabel
+                                        )
+                                    } else {
+                                        Self.commandPaletteResultLabelContent(
+                                            title: result.command.title,
+                                            matchedIndices: result.titleMatchIndices,
+                                            trailingLabel: trailingLabel
+                                        )
                                     }
                                 }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(rowBackground)
-                                .contentShape(Rectangle())
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(rowBackground)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
@@ -3773,19 +3862,6 @@ struct ContentView: View {
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
-        }
-        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            Task { @MainActor in
-                // Let the query-state transition settle first so the forced corpus refresh
-                // cannot rebuild the old command list after deleting the ">" prefix.
-                await Task.yield()
-                scheduleCommandPaletteResultsRefresh(
-                    query: commandPaletteQuery,
-                    forceSearchCorpusRefresh: true
-                )
-                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-                syncCommandPaletteDebugStateForObservedWindow()
-            }
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -4157,6 +4233,78 @@ struct ContentView: View {
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
+    }
+
+    private var commandPaletteOverlayRenderFingerprint: Int {
+        var hasher = Hasher()
+        switch commandPaletteMode {
+        case .commands:
+            hasher.combine("commands")
+        case .renameInput(let target):
+            hasher.combine("renameInput")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+        case .renameConfirm(let target, let proposedName):
+            hasher.combine("renameConfirm")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+            hasher.combine(proposedName)
+        }
+        hasher.combine(commandPaletteQuery)
+        hasher.combine(commandPaletteRenameDraft)
+        hasher.combine(commandPaletteListScope.rawValue)
+        hasher.combine(commandPaletteSearchAllSurfaces)
+        hasher.combine(commandPaletteSelectedResultIndex)
+        hasher.combine(commandPaletteSelectionAnchorCommandID)
+        hasher.combine(commandPaletteHoveredResultIndex)
+        hasher.combine(commandPaletteScrollTargetIndex)
+        hasher.combine(commandPaletteScrollTargetAnchor?.x)
+        hasher.combine(commandPaletteScrollTargetAnchor?.y)
+        hasher.combine(commandPaletteVisibleResultsScope?.rawValue)
+        hasher.combine(commandPaletteVisibleResultsFingerprint)
+        hasher.combine(cachedCommandPaletteScope?.rawValue)
+        hasher.combine(cachedCommandPaletteFingerprint)
+        hasher.combine(isCommandPaletteSearchPending)
+        hasher.combine(commandPaletteSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchScope?.rawValue)
+        hasher.combine(commandPaletteResolvedSearchFingerprint)
+        hasher.combine(commandPaletteResolvedMatchingQuery)
+        hasher.combine(commandPaletteResultsRevision)
+        combineCommandPalettePendingActivation(commandPalettePendingActivation, into: &hasher)
+        return hasher.finalize()
+    }
+
+    private func combineCommandPaletteRenameTarget(
+        _ target: CommandPaletteRenameTarget,
+        into hasher: inout Hasher
+    ) {
+        switch target.kind {
+        case .workspace(let workspaceId):
+            hasher.combine("workspace")
+            hasher.combine(workspaceId)
+        case .tab(let workspaceId, let panelId):
+            hasher.combine("tab")
+            hasher.combine(workspaceId)
+            hasher.combine(panelId)
+        }
+    }
+
+    private func combineCommandPalettePendingActivation(
+        _ activation: CommandPalettePendingActivation?,
+        into hasher: inout Hasher
+    ) {
+        switch activation {
+        case .selected(let requestID, let fallbackSelectedIndex, let preferredCommandID):
+            hasher.combine("selected")
+            hasher.combine(requestID)
+            hasher.combine(fallbackSelectedIndex)
+            hasher.combine(preferredCommandID)
+        case .command(let requestID, let commandID):
+            hasher.combine("command")
+            hasher.combine(requestID)
+            hasher.combine(commandID)
+        case nil:
+            hasher.combine("none")
+        }
     }
 
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
@@ -4705,7 +4853,6 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -4732,7 +4879,7 @@ struct ContentView: View {
         return Self.commandPaletteSwitcherFingerprint(windowContexts: fingerprintContexts)
     }
 
-    private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
+    private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
             return Text(title).foregroundColor(.primary)
         }
@@ -4758,6 +4905,46 @@ struct ContentView: View {
         }
 
         return result
+    }
+
+    @ViewBuilder
+    private static func commandPaletteTrailingLabelView(_ trailingLabel: CommandPaletteTrailingLabel?) -> some View {
+        if let trailingLabel {
+            switch trailingLabel.style {
+            case .shortcut:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Color.primary.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+            case .kind:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private static func commandPaletteResultLabelContent(
+        title: String,
+        matchedIndices: Set<Int>,
+        trailingLabel: CommandPaletteTrailingLabel?
+    ) -> some View {
+        HStack(spacing: 8) {
+            commandPaletteHighlightedTitleText(
+                title,
+                matchedIndices: matchedIndices
+            )
+                .font(.system(size: 13, weight: .regular))
+                .lineLimit(1)
+            Spacer()
+            commandPaletteTrailingLabelView(trailingLabel)
+        }
     }
 
     private func commandPaletteTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteTrailingLabel? {
@@ -4814,10 +5001,11 @@ struct ContentView: View {
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
-                        subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
+                        subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
+                        liveTitleWorkspace: workspace,
                         dismissOnRun: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
@@ -4859,7 +5047,7 @@ struct ContentView: View {
                             id: surfaceCommandId,
                             rank: nextRank,
                             title: surfaceName,
-                            subtitle: commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
+                            subtitle: Self.commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
                             shortcutHint: nil,
                             kindLabel: surfaceKindLabel,
                             keywords: surfaceKeywords,
@@ -4931,7 +5119,7 @@ struct ContentView: View {
         return contexts
     }
 
-    private func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
+    private static func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
         guard let windowLabel else { return base }
         return "\(base) • \(windowLabel)"
     }
@@ -6398,13 +6586,17 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+    private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
         let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty {
             return custom
         }
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+        Self.commandPaletteWorkspaceDisplayName(workspace)
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -6506,7 +6698,7 @@ struct ContentView: View {
             hasher.combine(context.workspaces.count)
             for workspace in context.workspaces {
                 hasher.combine(workspace.id)
-                hasher.combine(workspace.displayName)
+                // Keep animated workspace titles from invalidating the live switcher corpus.
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
@@ -6843,13 +7035,13 @@ struct ContentView: View {
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
-            CommandPaletteDebugResultRow(
-                commandId: result.command.id,
-                title: result.command.title,
-                shortcutHint: result.command.shortcutHint,
-                trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
-                score: result.score
-            )
+                CommandPaletteDebugResultRow(
+                    commandId: result.command.id,
+                    title: result.command.displayTitle(),
+                    shortcutHint: result.command.shortcutHint,
+                    trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
+                    score: result.score
+                )
         }
 
         return CommandPaletteDebugSnapshot(
