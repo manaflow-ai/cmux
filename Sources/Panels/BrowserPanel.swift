@@ -4850,21 +4850,44 @@ extension BrowserPanel {
 
     // MARK: - React Grab
 
-    private static let reactGrabScriptURL = URL(string: "https://unpkg.com/react-grab/dist/index.global.js")!
+    // Pin exact version and integrity hash to prevent supply-chain attacks.
+    // To update: bump the version, fetch the new script, and update the hash.
+    private static let reactGrabScriptURL = URL(string: "https://unpkg.com/react-grab@0.1.29/dist/index.global.js")!
+    private static let reactGrabScriptSHA256 = "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b"
     private static var cachedReactGrabScript: String?
     private static var prefetchTask: Task<String?, Never>?
 
     static func prefetchReactGrabScript() {
-        guard prefetchTask == nil, cachedReactGrabScript == nil else { return }
+        guard cachedReactGrabScript == nil else { return }
+        // Clear any previously failed task so we retry on failure.
+        if let existing = prefetchTask, existing.isCancelled { prefetchTask = nil }
+        guard prefetchTask == nil else { return }
         prefetchTask = Task.detached(priority: .low) {
+            let result: String?
             do {
                 let (data, _) = try await URLSession.shared.data(from: reactGrabScriptURL)
-                let script = String(data: data, encoding: .utf8)
+                // Verify integrity before trusting the payload.
+                let hash = SHA256.hash(data: data)
+                let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
+                guard hex == reactGrabScriptSHA256 else {
+                    NSLog("BrowserPanel: react-grab integrity mismatch (got %@)", hex)
+                    result = nil
+                    await MainActor.run { prefetchTask = nil }
+                    return nil
+                }
+                guard let script = String(data: data, encoding: .utf8) else {
+                    await MainActor.run { prefetchTask = nil }
+                    return nil
+                }
                 await MainActor.run { cachedReactGrabScript = script }
-                return script
+                result = script
             } catch {
-                return nil
+                result = nil
             }
+            if result == nil {
+                await MainActor.run { prefetchTask = nil }
+            }
+            return result
         }
     }
 
@@ -4915,12 +4938,17 @@ extension BrowserPanel {
         #if DEBUG
         dlog("reactGrab.inject.evalJS len=\(combined.count)")
         #endif
-        webView.evaluateJavaScript(combined) { _, error in
+        // Don't set isReactGrabActive here — wait for the onStateChange callback
+        // via the message handler to confirm the script actually initialized.
+        webView.evaluateJavaScript(combined) { [weak self] _, error in
             #if DEBUG
             dlog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
             #endif
+            if let error {
+                NSLog("BrowserPanel: react-grab injection failed: %@", error.localizedDescription)
+                Task { @MainActor in self?.isReactGrabActive = false }
+            }
         }
-        isReactGrabActive = true
         #if DEBUG
         dlog("reactGrab.inject.end")
         #endif
