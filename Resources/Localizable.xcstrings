@@ -10404,6 +10404,59 @@
         }
       }
     },
+    "browser.reactGrab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inject React Grab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grabを注入"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注入 React Grab"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注入 React Grab"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab 주입"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inyectar React Grab"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Injecter React Grab"
+          }
+        }
+      }
+    },
     "browser.search.placeholder": {
       "extractionState": "manual",
       "localizations": {
@@ -43562,6 +43615,41 @@
         }
       }
     },
+    "menu.view.toggleReactGrab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle React Grab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grabの切り替え"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换 React Grab"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換 React Grab"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab 전환"
+          }
+        }
+      }
+    },
     "menu.view.showNotifications": {
       "extractionState": "manual",
       "localizations": {
@@ -56855,6 +56943,40 @@
         }
       }
     },
+    "settings.browser.reactGrabVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab Version"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grabバージョン"
+          }
+        }
+      }
+    },
+    "settings.browser.reactGrabVersion.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールバーボタン（Cmd+Shift+G）で注入されるreact-grabのnpmバージョン。既知の整合性ハッシュを持つバージョンのみ使用可能です。"
+          }
+        }
+      }
+    },
     "settings.browser.history": {
       "extractionState": "manual",
       "localizations": {
@@ -67649,6 +67771,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Показати консоль JavaScript браузера"
+          }
+        }
+      }
+    },
+    "shortcut.toggleReactGrab.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle React Grab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grabの切り替え"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换 React Grab"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換 React Grab"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "React Grab 전환"
           }
         }
       }

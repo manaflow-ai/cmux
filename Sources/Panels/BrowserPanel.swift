@@ -2258,6 +2258,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    @Published var isReactGrabActive: Bool = false
+    var reactGrabMessageHandler: ReactGrabMessageHandler?
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -2547,6 +2549,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+        setupReactGrabMessageHandler(for: webView)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -2704,6 +2707,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
+        ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }

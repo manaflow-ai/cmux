@@ -3159,6 +3159,11 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
     }
 
+    func toggleReactGrabFocusedBrowser() {
+        guard let panel = focusedBrowserPanel else { return }
+        Task { await panel.toggleOrInjectReactGrab() }
+    }
+
     /// Backwards compatibility: returns the focused surface ID
     func focusedSurfaceId(for tabId: UUID) -> UUID? {
         focusedPanelId(for: tabId)
