@@ -18,9 +18,9 @@ export async function generateMetadata({
 }
 
 const blogSlugs = [
-  "cmuxOmo",
-  "cmuxClaudeTeams",
   "cmuxSsh",
+  "cmuxClaudeTeams",
+  "cmuxOmo",
   "cmdShiftU",
   "zenOfCmux",
   "showHnLaunch",

@@ -1,11 +1,11 @@
 export const blogPosts = [
   {
-    slug: "cmux-omo",
-    key: "cmuxOmo",
-    title: "cmux omo",
+    slug: "cmux-ssh",
+    key: "cmuxSsh",
+    title: "cmux SSH",
     date: "2026-03-30",
     summary:
-      "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams.",
+      "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
   },
   {
     slug: "cmux-claude-teams",
@@ -16,12 +16,12 @@ export const blogPosts = [
       "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
   },
   {
-    slug: "cmux-ssh",
-    key: "cmuxSsh",
-    title: "cmux SSH",
+    slug: "cmux-omo",
+    key: "cmuxOmo",
+    title: "cmux omo",
     date: "2026-03-30",
     summary:
-      "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
+      "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams.",
   },
   {
     slug: "cmd-shift-u",
