@@ -829,12 +829,18 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
+            #if DEBUG
+            dlog("reactGrab.button.tap injected=\(isReactGrabInjected)")
+            #endif
             if isReactGrabInjected {
                 panel.toggleReactGrab()
             } else {
                 isReactGrabInjected = true
                 Task { await panel.injectReactGrab() }
             }
+            #if DEBUG
+            dlog("reactGrab.button.tap.done")
+            #endif
         }) {
             Image(systemName: "cursorarrow.click.2")
                 .symbolRenderingMode(.monochrome)

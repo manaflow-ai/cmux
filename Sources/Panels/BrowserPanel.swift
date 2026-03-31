@@ -1741,7 +1741,13 @@ private class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
     ) {
         guard let body = message.body as? [String: Any],
               let isActive = body["isActive"] as? Bool else { return }
+        #if DEBUG
+        dlog("reactGrab.messageHandler isActive=\(isActive)")
+        #endif
         Task { @MainActor in
+            #if DEBUG
+            dlog("reactGrab.messageHandler.mainActor isActive=\(isActive)")
+            #endif
             onStateChange(isActive)
         }
     }
@@ -4869,12 +4875,20 @@ extension BrowserPanel {
     }
 
     func injectReactGrab() async {
-        guard let scriptSource = await fetchReactGrabScript() else { return }
+        #if DEBUG
+        dlog("reactGrab.inject.start cached=\(Self.cachedReactGrabScript != nil)")
+        #endif
+        guard let scriptSource = await fetchReactGrabScript() else {
+            #if DEBUG
+            dlog("reactGrab.inject.fetchFailed")
+            #endif
+            return
+        }
+        #if DEBUG
+        dlog("reactGrab.inject.fetched len=\(scriptSource.count)")
+        #endif
 
         let handlerName = Self.reactGrabMessageHandlerName
-        // Single combined payload: bootstrap listener + react-grab source.
-        // Injected inline via evaluateJavaScript to bypass page CSP.
-        // Fire-and-forget (completion handler, no await) to avoid blocking main actor.
         let combined = """
         (function() {
             if (window.__REACT_GRAB__) { window.__REACT_GRAB__.activate(); return; }
@@ -4898,22 +4912,31 @@ extension BrowserPanel {
         })();
         \(scriptSource)
         """
-        webView.evaluateJavaScript(combined, completionHandler: nil)
+        #if DEBUG
+        dlog("reactGrab.inject.evalJS len=\(combined.count)")
+        #endif
+        webView.evaluateJavaScript(combined) { _, error in
+            #if DEBUG
+            dlog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
+            #endif
+        }
         isReactGrabActive = true
+        #if DEBUG
+        dlog("reactGrab.inject.end")
+        #endif
     }
 
     func toggleReactGrab() {
-        let handlerName = Self.reactGrabMessageHandlerName
-        let script = """
-        (function() {
-            var api = window.__REACT_GRAB__;
-            if (!api) return;
-            api.toggle();
-            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-            if (h) h.postMessage({ isActive: api.isActive() });
-        })();
-        """
+        #if DEBUG
+        dlog("reactGrab.toggle.start")
+        #endif
+        // Don't send an explicit postMessage here — the plugin's onStateChange
+        // hook already posts when isActive flips, avoiding a duplicate callback.
+        let script = "window.__REACT_GRAB__?.toggle()"
         webView.evaluateJavaScript(script, completionHandler: nil)
+        #if DEBUG
+        dlog("reactGrab.toggle.end")
+        #endif
     }
 
     func resetReactGrabState() {
