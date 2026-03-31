@@ -50,7 +50,14 @@ export default function CmuxSshPage() {
       </time>
 
       <p className="mt-6">{t("p1")}</p>
-      <p>{t("p2")}</p>
+
+      <ul className="mt-4 space-y-1">
+        <li>Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags</li>
+        <li>Coding agents on the remote box send notifications to your local sidebar</li>
+        <li>cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote</li>
+        <li>Drag a file into a remote terminal to upload via scp</li>
+        <li>The sidebar shows connection state and detected listening ports</li>
+      </ul>
     </>
   );
 }
