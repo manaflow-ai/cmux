@@ -2598,6 +2598,15 @@ class TabManager: ObservableObject {
         tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
     }
 
+    func updateSurfaceTmuxState(
+        tabId: UUID,
+        surfaceId: UUID,
+        isInsideTmux: Bool
+    ) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.updatePanelTmuxState(panelId: surfaceId, isInsideTmux: isInsideTmux)
+    }
+
     private func normalizeDirectory(_ directory: String) -> String {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return directory }
@@ -3157,6 +3166,11 @@ class TabManager: ObservableObject {
     @discardableResult
     func showJavaScriptConsoleFocusedBrowser() -> Bool {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
+    }
+
+    func toggleReactGrabFocusedBrowser() {
+        guard let panel = focusedBrowserPanel else { return }
+        Task { await panel.toggleOrInjectReactGrab() }
     }
 
     /// Backwards compatibility: returns the focused surface ID

@@ -61,6 +61,7 @@ _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
+_CMUX_TMUX_STATE_SIGNATURE_LAST="${_CMUX_TMUX_STATE_SIGNATURE_LAST:-}"
 _CMUX_TTY_NAME="${_CMUX_TTY_NAME:-}"
 _CMUX_TTY_REPORTED="${_CMUX_TTY_REPORTED:-0}"
 _CMUX_TMUX_PUSH_SIGNATURE="${_CMUX_TMUX_PUSH_SIGNATURE:-}"
@@ -261,6 +262,47 @@ _cmux_report_shell_activity_state() {
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     {
         _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    } >/dev/null 2>&1 & disown
+}
+
+_cmux_report_tmux_state_payload() {
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+
+    local state="outside"
+    [[ -n "$TMUX" ]] && state="inside"
+
+    local payload="report_tmux_state $state --tab=$CMUX_TAB_ID"
+    if [[ -n "$TMUX" ]]; then
+        [[ -n "$_CMUX_TTY_NAME" ]] && payload+=" --tty=$_CMUX_TTY_NAME"
+    else
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+        payload+=" --panel=$CMUX_PANEL_ID"
+    fi
+
+    printf '%s\n' "$payload"
+}
+
+_cmux_tmux_state_report_signature() {
+    local payload="$1"
+    [[ -n "$payload" ]] || return 0
+    [[ -n "$CMUX_SOCKET_PATH" ]] || return 0
+    printf '%s\037%s\n' "$CMUX_SOCKET_PATH" "$payload"
+}
+
+_cmux_report_tmux_state() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+
+    local payload=""
+    payload="$(_cmux_report_tmux_state_payload)"
+    [[ -n "$payload" ]] || return 0
+
+    local signature=""
+    signature="$(_cmux_tmux_state_report_signature "$payload")"
+    [[ -n "$signature" ]] || return 0
+    [[ "$_CMUX_TMUX_STATE_SIGNATURE_LAST" == "$signature" ]] && return 0
+    _CMUX_TMUX_STATE_SIGNATURE_LAST="$signature"
+    {
+        _cmux_send "$payload"
     } >/dev/null 2>&1 & disown
 }
 
@@ -501,7 +543,6 @@ _cmux_preexec_command() {
 
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -510,8 +551,12 @@ _cmux_preexec_command() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _cmux_report_shell_activity_state running
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_report_shell_activity_state running
+    fi
+    _cmux_report_tmux_state
     _cmux_report_tty_once
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     _cmux_ports_kick
     _cmux_stop_pr_poll_loop
 }
@@ -525,8 +570,21 @@ _cmux_prompt_command() {
 
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
+
+    if [[ -z "$_CMUX_TTY_NAME" ]]; then
+        local t
+        t="$(tty 2>/dev/null || true)"
+        t="${t##*/}"
+        [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
+    fi
+
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_report_shell_activity_state prompt
+    fi
+    _cmux_report_tmux_state
+    _cmux_report_tty_once
+
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_report_shell_activity_state prompt
 
     local now=$SECONDS
     local pwd="$PWD"
@@ -542,16 +600,6 @@ _cmux_prompt_command() {
             _CMUX_GIT_JOB_STARTED_AT=0
         fi
     fi
-
-    # Resolve TTY name once.
-    if [[ -z "$_CMUX_TTY_NAME" ]]; then
-        local t
-        t="$(tty 2>/dev/null || true)"
-        t="${t##*/}"
-        [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
-    fi
-
-    _cmux_report_tty_once
 
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then

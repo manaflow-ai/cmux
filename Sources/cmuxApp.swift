@@ -164,6 +164,8 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleReactGrab.defaultsKey)
+    private var toggleReactGrabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
@@ -722,6 +724,10 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: toggleReactGrabMenuShortcut) {
+                    activeTabManager.toggleReactGrabFocusedBrowser()
+                }
+
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
                     _ = activeTabManager.zoomInFocusedBrowser()
                 }
@@ -927,6 +933,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: showBrowserJavaScriptConsoleShortcutData,
             fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
+    }
+
+    private var toggleReactGrabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleReactGrabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
         )
     }
 
@@ -4010,6 +4023,7 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
@@ -5700,6 +5714,19 @@ struct SettingsView: View {
                         .accessibilityIdentifier("SettingsBrowserImportSection")
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
+                            subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+                        ) {
+                            TextField("", text: $reactGrabVersion)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                                .font(.system(.body, design: .monospaced))
+                                .accessibilityIdentifier("SettingsReactGrabVersionField")
+                        }
 
                         SettingsCardDivider()
 
