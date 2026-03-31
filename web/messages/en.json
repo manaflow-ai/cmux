@@ -133,12 +133,8 @@
         "title": "cmux SSH",
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
         "date": "March 30, 2026",
-        "p1": "I SSH into remote dev servers constantly. Cloud boxes for builds, GPU machines for inference, a Mac Mini for CI. Every session involves the same ritual: forward ports for localhost previews, accept that agent notifications won't reach me, hope the connection holds.",
-        "p2": "cmux ssh creates a workspace for the remote machine. It uses your ~/.ssh/config, sets up a persistent session that reconnects on drops, and deploys a small relay daemon to the remote host on first connect. The daemon does three things: proxies browser pane traffic through the remote network (so localhost:3000 reaches the remote dev server, no -L flags), relays CLI commands bidirectionally (so coding agents on the remote box can send notifications to your local sidebar), and manages session reattach on reconnect.",
-        "p3": "The part I use most is the browser pane. Open one in a remote workspace and all HTTP/WebSocket traffic egresses from the remote machine. I run a dev server on the cloud box and preview it locally without thinking about port forwarding. Each remote workspace gets isolated cookies and sessions.",
-        "p4": "cmux claude-teams and cmux omo both work over SSH. Claude's teammate agents spawn as native cmux splits on your local machine while the computation runs remote. Notifications come through. Cmd+Shift+U jumps to the right pane. You get the remote machine's resources with the local machine's UI.",
-        "p5": "Drag a file into a remote terminal and it uploads via scp. The sidebar shows connection state and detected listening ports. cmux ssh takes the same flags as ssh: -p, -i, -o. Everything interoperates with your existing setup.",
-        "p6": "Install cmux from the <link>getting started guide</link> or check the source on <github>GitHub</github>."
+        "p1": "I SSH into remote dev servers all day. Every session means manually forwarding ports, losing notifications from coding agents, and hoping the connection holds. cmux ssh user@devbox wraps all of that into one workspace. It reads your ~/.ssh/config, reconnects on drops, and deploys a small relay daemon so browser panes route traffic through the remote network. Type localhost:3000 and you're looking at the remote dev server. No -L flags.",
+        "p2": "Coding agents running on the remote box send notifications to your local sidebar through the relay. The blue ring lights up, Cmd+Shift+U jumps to the right pane. cmux claude-teams and cmux omo both work over SSH, so teammate agents spawn as native splits locally while the computation runs remote. Drag a file in and it uploads via scp."
       },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
