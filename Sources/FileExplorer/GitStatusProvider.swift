@@ -106,13 +106,16 @@ enum GitStatusProvider {
         status: GitFileStatus,
         in map: inout [String: GitFileStatus]
     ) {
+        // Parent directories always show as "modified" — a directory isn't
+        // "deleted" or "added" just because it contains such a file.
+        let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
         var components = path.split(separator: "/")
         components.removeLast()
         var dirPath = ""
         for component in components {
             dirPath += "/" + component
             if map[dirPath] == nil {
-                map[dirPath] = status
+                map[dirPath] = dirStatus
             }
         }
     }
