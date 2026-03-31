@@ -5564,6 +5564,29 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
         rightOptionFallbackToggleArmed = isArmed
     }
+
+    @discardableResult
+    func debugSimulateFlagsChangedForUITest(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let window else { return false }
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        guard let event = NSEvent.keyEvent(
+            with: .flagsChanged,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
+            isARepeat: false,
+            keyCode: keyCode
+        ) else { return false }
+        flagsChanged(with: event)
+        return true
+    }
 #endif
 
 #if DEBUG
@@ -6186,6 +6209,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 inferredRightOptionDown = true
                 inferredFallbackToggleArmed = true
             } else if !optionDown {
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            } else if inferredRightOptionDown {
+                // Right Option was previously inferred as down, but this event now
+                // reports generic Option without a right-side bit. Treat this as
+                // releasing Right Option while Left Option remains held.
                 inferredRightOptionDown = false
                 inferredFallbackToggleArmed = true
             } else if inferredFallbackToggleArmed {
@@ -8911,6 +8940,17 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
         surfaceView.debugSetRightOptionFallbackToggleArmedForUITest(isArmed)
+    }
+
+    @discardableResult
+    func debugSimulateFlagsChangedForUITest(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        surfaceView.debugSimulateFlagsChangedForUITest(
+            keyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
     }
 
 #endif

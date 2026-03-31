@@ -1333,4 +1333,82 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             "Right Option fallback should set AltRight in raw mods"
         )
     }
+
+    func testReleasingRightOptionWhileLeftOptionHeldClearsFallbackRightState() {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            window.orderOut(nil)
+        }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        hostedView.debugSetRightOptionModifierDownForUITest(true)
+        hostedView.debugSetRightOptionFallbackToggleArmedForUITest(false)
+        defer {
+            hostedView.debugSetRightOptionModifierDownForUITest(false)
+            hostedView.debugSetRightOptionFallbackToggleArmedForUITest(true)
+        }
+
+        let didSimulateRelease = hostedView.debugSimulateFlagsChangedForUITest(
+            keyCode: UInt16(kVK_RightOption),
+            modifierFlags: [.option]
+        )
+        XCTAssertTrue(didSimulateRelease, "Expected synthetic right-option release-style flagsChanged event")
+
+        var capturedPress: ghostty_input_key_s?
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS,
+                  keyEvent.keycode == UInt32(kVK_ANSI_D),
+                  keyEvent.text != nil else { return }
+            capturedPress = keyEvent
+        }
+
+        let sent = hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            characters: "˚",
+            charactersIgnoringModifiers: "d",
+            keyCode: UInt16(kVK_ANSI_D),
+            modifierFlags: [.option]
+        )
+        XCTAssertTrue(sent, "Expected synthetic left Option+D event to be dispatched")
+
+        guard let capturedPress else {
+            XCTFail("Expected to capture left Option literal key event after right release simulation")
+            return
+        }
+
+        XCTAssertEqual(
+            capturedPress.mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            0,
+            "After releasing Right Option while Left remains held, AltRight should be cleared"
+        )
+    }
 }
