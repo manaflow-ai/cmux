@@ -4908,7 +4908,7 @@ struct SidebarProgressState {
     let label: String?
 }
 
-struct SidebarGitBranchState {
+struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
 }
@@ -6468,22 +6468,32 @@ final class Workspace: Identifiable, ObservableObject {
             panelGitBranches[panelId] = state
         }
         if branchChanged {
-            panelPullRequests.removeValue(forKey: panelId)
-            if panelId == focusedPanelId {
+            if panelPullRequests[panelId] != nil {
+                panelPullRequests.removeValue(forKey: panelId)
+            }
+            if panelId == focusedPanelId, pullRequest != nil {
                 pullRequest = nil
             }
         }
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
     }
 
     func clearPanelGitBranch(panelId: UUID) {
-        panelGitBranches.removeValue(forKey: panelId)
-        panelPullRequests.removeValue(forKey: panelId)
+        if panelGitBranches[panelId] != nil {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
         if panelId == focusedPanelId {
-            gitBranch = nil
-            pullRequest = nil
+            if gitBranch != nil {
+                gitBranch = nil
+            }
+            if pullRequest != nil {
+                pullRequest = nil
+            }
         }
     }
 
@@ -6539,14 +6549,16 @@ final class Workspace: Identifiable, ObservableObject {
         if existing != state {
             panelPullRequests[panelId] = state
         }
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, pullRequest != state {
             pullRequest = state
         }
     }
 
     func clearPanelPullRequest(panelId: UUID) {
-        panelPullRequests.removeValue(forKey: panelId)
-        if panelId == focusedPanelId {
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        if panelId == focusedPanelId, pullRequest != nil {
             pullRequest = nil
         }
     }
