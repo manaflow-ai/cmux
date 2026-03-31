@@ -4808,8 +4808,8 @@ extension BrowserPanel {
     }
 
     /// Execute JavaScript
-    func evaluateJavaScript(_ script: String) async throws -> Any? {
-        try await webView.evaluateJavaScript(script, in: nil, in: .defaultClient)
+    func evaluateJavaScript(_ script: String, contentWorld: WKContentWorld = .defaultClient) async throws -> Any? {
+        try await webView.evaluateJavaScript(script, in: nil, in: contentWorld)
     }
 
     // MARK: - Find in Page

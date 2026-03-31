@@ -9356,6 +9356,7 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.telemetryHookBootstrapScriptSource,
             timeout: 5.0,
+            preferAsync: true,
             contentWorld: .defaultClient
         )
     }
@@ -9365,6 +9366,7 @@ class TerminalController {
             browserPanel.webView,
             script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
             timeout: 5.0,
+            preferAsync: true,
             contentWorld: .defaultClient
         )
     }
@@ -9397,7 +9399,7 @@ class TerminalController {
             })()
             """
 
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .defaultClient) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -10055,7 +10057,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .defaultClient) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
@@ -10093,7 +10095,7 @@ class TerminalController {
               return { ok: true, items };
             })()
             """
-            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .defaultClient) {
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, preferAsync: true, contentWorld: .defaultClient) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
