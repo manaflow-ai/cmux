@@ -10411,8 +10411,69 @@ class TerminalController {
         v2BrowserNotSupported("browser.input_mouse", details: "Raw CDP mouse injection is unavailable; use browser.click/hover/scroll")
     }
 
-    private func v2BrowserInputKeyboard(params _: [String: Any]) -> V2CallResult {
-        v2BrowserNotSupported("browser.input_keyboard", details: "Raw CDP keyboard injection is unavailable; use browser.press/keydown/keyup")
+    private func v2BrowserInputKeyboard(params: [String: Any]) -> V2CallResult {
+        let text = v2String(params, "text")
+        let keyRaw = v2String(params, "key")
+        let selector = v2String(params, "selector")
+
+        guard (text == nil) != (keyRaw == nil) else {
+            return .err(code: "invalid_params", message: "Exactly one of 'text' or 'key' must be provided", data: nil)
+        }
+
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            if let selector = selector {
+                let selectorLiteral = v2JSONLiteral(selector)
+                let focusScript = """
+                (() => {
+                  const el = document.querySelector(\(selectorLiteral));
+                  if (!el) return { ok: false, error: 'not_found' };
+                  el.focus();
+                  return { ok: true };
+                })()
+                """
+                switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: focusScript) {
+                case .failure(let message):
+                    return .err(code: "js_error", message: message, data: nil)
+                case .success:
+                    break
+                }
+            }
+
+            browserPanel.prepareForKeyInjection()
+
+            if let textToType = text {
+                for char in textToType {
+                    guard let parsed = parseBrowserKey(String(char)) else {
+                        return .err(code: "invalid_key", message: "Cannot parse character: \(char)", data: nil)
+                    }
+                    browserPanel.injectNativeKeyEvent(
+                        keyCode: parsed.keyCode,
+                        characters: parsed.characters,
+                        charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                        modifierFlags: parsed.modifierFlags
+                    )
+                }
+            } else if let keyRaw = keyRaw {
+                guard let parsed = parseBrowserKey(keyRaw) else {
+                    return .err(code: "invalid_key", message: "Unknown key: \(keyRaw)", data: nil)
+                }
+                browserPanel.injectNativeKeyEvent(
+                    keyCode: parsed.keyCode,
+                    characters: parsed.characters,
+                    charactersIgnoringModifiers: parsed.charactersIgnoringModifiers,
+                    modifierFlags: parsed.modifierFlags
+                )
+            }
+
+            var payload: [String: Any] = [
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
+            ]
+            v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
+            return .ok(payload)
+        }
     }
 
     private func v2BrowserInputTouch(params _: [String: Any]) -> V2CallResult {
@@ -12073,6 +12134,32 @@ class TerminalController {
         }
     }
 #endif
+
+    private func parseBrowserKey(_ rawKey: String) -> ParsedShortcutCombo? {
+        // Bare uppercase letter (e.g. 'H' from --text "Hello"): normalize to "Shift+h"
+        // so parseShortcutCombo produces the correct keyCode and modifierFlags.
+        let raw = rawKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = (raw.count == 1 && raw.first?.isLetter == true && raw.first?.isUppercase == true)
+            ? "Shift+" + raw.lowercased()
+            : raw
+
+        guard let combo = parseShortcutCombo(normalized) else { return nil }
+
+        // parseShortcutCombo sets characters=storedKey (always lowercase for letters).
+        // For browser injection, characters must reflect the actual glyph the key produces:
+        // Shift+letter → uppercase; everything else → as-is.
+        guard combo.modifierFlags.contains(.shift),
+              combo.storedKey.count == 1,
+              combo.storedKey.first?.isLetter == true else { return combo }
+
+        return ParsedShortcutCombo(
+            storedKey: combo.storedKey,
+            keyCode: combo.keyCode,
+            modifierFlags: combo.modifierFlags,
+            characters: combo.storedKey.uppercased(),
+            charactersIgnoringModifiers: combo.storedKey
+        )
+    }
 
     #if !DEBUG
     private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {

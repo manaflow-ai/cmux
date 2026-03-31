@@ -112,7 +112,6 @@ WKWEBVIEW_NOT_SUPPORTED = {
     "browser.screencast.start": {},
     "browser.screencast.stop": {},
     "browser.input_mouse": {"args": ["move", "10", "10"]},
-    "browser.input_keyboard": {"args": ["type", "hello"]},
     "browser.input_touch": {"args": ["tap", "10", "10"]},
 }
 

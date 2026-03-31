@@ -3273,6 +3273,57 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    /// Prepares the webView for a batch of native key events: suppresses omnibar autofocus and
+    /// makes webView first responder once, avoiding redundant setup per-character in text loops.
+    func prepareForKeyInjection() {
+        guard let window = webView.window else { return }
+        suppressOmnibarAutofocus(for: 0.5)
+        if !Self.responderChainContains(window.firstResponder, target: webView) {
+            window.makeFirstResponder(webView)
+        }
+    }
+
+    func injectNativeKeyEvent(
+        keyCode: UInt16,
+        characters: String,
+        charactersIgnoringModifiers: String,
+        modifierFlags: NSEvent.ModifierFlags
+    ) {
+        guard let window = webView.window else { return }
+
+        let timestamp = ProcessInfo.processInfo.systemUptime
+
+        guard let keyDown = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else { return }
+
+        webView.keyDown(with: keyDown)
+
+        guard let keyUp = NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: timestamp + 0.00005, // 50µs after keyDown
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else { return }
+
+        webView.keyUp(with: keyUp)
+    }
+
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }

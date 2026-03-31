@@ -5896,12 +5896,33 @@ struct CMUXCLI {
                 throw CLIError(message: "browser input requires mouse|keyboard|touch")
             }
             let remainder = Array(subArgs.dropFirst())
+
+            if inputVerb == "keyboard" {
+                let (selector, args1) = parseOption(remainder, name: "--selector")
+                let (text, args2) = parseOption(args1, name: "--text")
+                let (key, args3) = parseOption(args2, name: "--key")
+                let snapshotAfter = hasFlag(args3, name: "--snapshot-after")
+                let leftover = args3.filter { $0 != "--snapshot-after" }
+                if let unknown = leftover.first {
+                    throw CLIError(message: "Unknown keyboard flag: \(unknown)")
+                }
+                guard (text == nil) != (key == nil) else {
+                    throw CLIError(message: "Exactly one of --text or --key must be provided")
+                }
+                var params: [String: Any] = ["surface_id": sid]
+                if let selector { params["selector"] = selector }
+                if let text { params["text"] = text }
+                if let key { params["key"] = key }
+                if snapshotAfter { params["snapshot_after"] = true }
+                let payload = try client.sendV2(method: "browser.input_keyboard", params: params)
+                output(payload, fallback: "OK")
+                return
+            }
+
             let method: String
             switch inputVerb {
             case "mouse":
                 method = "browser.input_mouse"
-            case "keyboard":
-                method = "browser.input_keyboard"
             case "touch":
                 method = "browser.input_touch"
             default:
@@ -13099,6 +13120,8 @@ struct CMUXCLI {
           browser type <selector> <text> [--snapshot-after]
           browser fill <selector> [text] [--snapshot-after]   (empty text clears input)
           browser press|keydown|keyup <key> [--snapshot-after]
+          browser input keyboard [--selector <css>] (--text <text> | --key <key>) [--snapshot-after]
+                               (native keyboard injection via NSEvent; compatible with React/Vue/Angular controlled inputs)
           browser select <selector> <value> [--snapshot-after]
           browser scroll [--selector <css>] [--dx <n>] [--dy <n>] [--snapshot-after]
           browser screenshot [--out <path>] [--json]
