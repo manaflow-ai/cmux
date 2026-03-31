@@ -10,7 +10,7 @@ export const blogPosts = [
   {
     slug: "cmux-claude-teams",
     key: "cmuxClaudeTeams",
-    title: "cmux claude-teams",
+    title: "Claude Code teammate agents as native cmux panes",
     date: "2026-03-30",
     summary:
       "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
@@ -18,10 +18,10 @@ export const blogPosts = [
   {
     slug: "cmux-omo",
     key: "cmuxOmo",
-    title: "cmux omo",
+    title: "oh-my-openagent's multi-model agents as native cmux panes",
     date: "2026-03-30",
     summary:
-      "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams.",
+      "oh-my-openagent (formerly oh-my-opencode) orchestrates Claude, GPT, and Gemini specialists in parallel. cmux omo turns their tmux panes into native splits.",
   },
   {
     slug: "cmd-shift-u",
