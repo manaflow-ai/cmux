@@ -48,6 +48,17 @@ export default function CmuxOmoPage() {
         {t("date")}
       </time>
 
+      <video
+        src="/blog/cmux-omo-demo.mp4"
+        width={1824}
+        height={1080}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="mt-6 rounded-lg w-full h-auto"
+      />
+
       <p className="mt-6">
         {t.rich("p1", {
           code: (chunks) => <code>{chunks}</code>,
