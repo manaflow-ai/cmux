@@ -6837,6 +6837,7 @@ class TerminalController {
                     }
                 }
             } else {
+                // macOS < 11.0: contentWorld parameter is ignored; JS runs in .page
                 webView.evaluateJavaScript(script) { value, error in
                     if let error {
                         finish(nil, error.localizedDescription)
@@ -7115,24 +7116,6 @@ class TerminalController {
             })()
             """
             rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, contentWorld: .defaultClient)
-        }
-
-        if !useEval, case .failure(let pageMessage) = rawResult, #available(macOS 11.0, *) {
-            let isolatedResult = v2RunJavaScript(
-                webView,
-                script: asyncFunctionBody,
-                timeout: timeout,
-                preferAsync: true,
-                contentWorld: .defaultClient
-            )
-            switch isolatedResult {
-            case .success:
-                rawResult = isolatedResult
-            case .failure(let isolatedMessage):
-                if isolatedMessage != pageMessage {
-                    rawResult = .failure("\(pageMessage) (isolated-world retry: \(isolatedMessage))")
-                }
-            }
         }
 
         switch rawResult {
