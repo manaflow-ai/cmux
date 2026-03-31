@@ -750,16 +750,7 @@ final class WindowTerminalPortal: NSObject {
         guard ensureInstalled() else { return }
         synchronizeLayoutHierarchy()
         synchronizeAllHostedViews(excluding: nil)
-
-        // During live resize, AppKit can deliver frame churn where host/container geometry
-        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
-        // in-place surface refresh when reconciliation actually changed terminal geometry.
-        for entry in entriesByHostedId.values {
-            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
-            if hostedView.reconcileGeometryNow() {
-                hostedView.refreshSurfaceNow(reason: "portal.externalGeometrySync")
-            }
-        }
+        reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
     }
 
     private func ensureDividerOverlayOnTop() {
@@ -1157,7 +1148,20 @@ final class WindowTerminalPortal: NSObject {
         // geometry callback while another fires. Reconcile all mapped hosted views so no stale
         // frame remains "stuck" onscreen until the next interaction.
         synchronizeAllHostedViews(excluding: primaryHostedId)
+        reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.anchorGeometrySync")
         scheduleDeferredFullSynchronizeAll()
+    }
+
+    private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String) {
+        // During live resize, AppKit can deliver frame churn where outer portal geometry
+        // settles a tick before the terminal's own scroll/surface hierarchy. Only force an
+        // in-place surface refresh when reconciliation actually changed terminal geometry.
+        for entry in entriesByHostedId.values {
+            guard let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
+            if hostedView.reconcileGeometryNow() {
+                hostedView.refreshSurfaceNow(reason: reason)
+            }
+        }
     }
 
     private func scheduleDeferredFullSynchronizeAll() {
