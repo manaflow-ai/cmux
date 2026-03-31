@@ -1,5 +1,13 @@
 export const blogPosts = [
   {
+    slug: "cmux-ssh",
+    key: "cmuxSsh",
+    title: "cmux SSH",
+    date: "2026-03-30",
+    summary:
+      "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
+  },
+  {
     slug: "cmd-shift-u",
     key: "cmdShiftU",
     title: "Cmd+Shift+U",

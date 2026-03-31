@@ -18,6 +18,7 @@ export async function generateMetadata({
 }
 
 const blogSlugs = [
+  "cmuxSsh",
   "cmdShiftU",
   "zenOfCmux",
   "showHnLaunch",
@@ -25,6 +26,7 @@ const blogSlugs = [
 ] as const;
 
 const slugToPath: Record<string, string> = {
+  cmuxSsh: "cmux-ssh",
   cmdShiftU: "cmd-shift-u",
   zenOfCmux: "zen-of-cmux",
   showHnLaunch: "show-hn-launch",

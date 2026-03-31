@@ -112,6 +112,10 @@
       "metaTitle": "The Zen of cmux",
       "metaDescription": "cmux is a primitive, not a solution. It gives you composable pieces and your workflow is up to you."
     },
+    "cmuxSsh": {
+      "metaTitle": "cmux SSH: remote development without the plumbing",
+      "metaDescription": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home."
+    },
     "cmdShiftU": {
       "metaTitle": "Cmd+Shift+U",
       "metaDescription": "How Cmd+Shift+U navigates between finished agents across workspaces in cmux."
@@ -125,6 +129,38 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "cmuxSsh": {
+        "title": "cmux SSH: remote development without the plumbing",
+        "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
+        "date": "March 30, 2026",
+        "intro": "I SSH into remote dev servers constantly. Beefy cloud boxes for builds, GPU machines for inference, a Mac Mini on my desk for CI. Every session involves the same ritual: set up port forwarding for localhost previews, accept that notifications from coding agents won't reach me, and hope the connection doesn't drop while an agent is mid-task.",
+        "problemTitle": "The problem",
+        "problemP1": "SSH gives you a pipe to a remote shell. Everything else you need for development, you have to bolt on yourself. Want to see your remote dev server's UI? Forward the port manually, or remember the right -L flag. Want to know when Claude Code finishes a task on the remote machine? You don't, unless you're watching the terminal. Connection drops? Your session is gone (unless you also set up tmux or mosh).",
+        "problemP2": "These are all solved problems individually. Port forwarding exists. tmux exists. You can write a script to poll for notifications. But the cumulative friction adds up, and it gets worse when you're running multiple agents across multiple remote machines. Each one needs its own forwarding, its own session management, its own notification plumbing.",
+        "howTitle": "One command",
+        "howP1": "cmux ssh wraps all of this into a single workspace.",
+        "howP2": "That's it. cmux creates a new workspace, establishes the SSH connection using your existing ~/.ssh/config, and sets up everything behind the scenes: persistent session with automatic reconnect, browser pane proxying, bidirectional CLI relay, and file upload via drag-and-drop.",
+        "howP3": "If the connection drops, cmux reconnects with exponential backoff (3s, 6s, 12s, up to 60s). The session survives on the remote side, same as tmux. When the connection comes back, cmux reattaches and resizes using smallest-screen-wins semantics.",
+        "browserTitle": "Browser panes that see the remote network",
+        "browserP1": "This was the feature I wanted most. When you open a browser pane in a remote workspace, all HTTP and WebSocket traffic routes through the remote machine's network. Type localhost:3000 in the URL bar and you're looking at the dev server running on the remote box. No -L flags, no manual port forwarding, no SSH tunnel config.",
+        "browserP2": "Under the hood, cmux deploys a small relay daemon to the remote host on first connect (auto-detected platform and architecture, verified against a SHA-256 manifest). The daemon proxies browser traffic via SOCKS5 and HTTP CONNECT over the SSH connection's stdio channel. Each remote workspace gets an isolated WKWebsiteDataStore, so cookies and sessions are scoped per-connection.",
+        "notificationsTitle": "Notifications come home",
+        "notificationsP1": "The relay daemon also runs a bidirectional CLI relay. Processes on the remote machine can run cmux commands that execute on your local instance. When a coding agent calls cmux notify on the remote box, the notification appears in your local sidebar. The blue ring lights up on the right workspace tab. Cmd+Shift+U jumps to it.",
+        "notificationsP2": "The relay uses a reverse SSH tunnel (TCP, not Unix socket forwarding, because many servers disable AllowStreamLocalForwarding) with HMAC-SHA256 challenge-response authentication. Each SSH session gets its own relay port and token, so parallel sessions to the same host stay isolated.",
+        "agentsTitle": "Coding agents over SSH",
+        "agentsP1": "The cmux claude-teams and cmux omo commands both work inside SSH sessions. The Go relay daemon on the remote host handles the same tmux-compat translation that the local Swift CLI does.",
+        "agentsCode": "cmux ssh devbox\n# inside the remote session:\ncmux claude-teams",
+        "agentsP2": "Claude's teammate agents spawn as native cmux splits on your local machine, rendered in the sidebar with metadata and notifications, while the actual computation runs on the remote box. Same for OpenCode's multi-model subagents via cmux omo. You get the remote machine's resources with the local machine's UI.",
+        "architectureTitle": "How it works",
+        "architectureP1": "On first connect, cmux probes the remote host (uname -s, uname -m) and uploads a versioned cmuxd-remote binary if needed. The binary is a Go executable that speaks JSON-RPC over stdio. It handles three things: proxy streaming for browser traffic, session management for reconnect/resize, and CLI relay for remote-to-local command forwarding.",
+        "architectureP2": "The SSH connection uses ControlMaster multiplexing. The initial connection becomes the master, and subsequent operations (daemon bootstrap, relay tunnel, file transfers) reuse the same TCP connection. Cleanup runs ssh -O exit when the workspace is torn down.",
+        "architectureP3": "Drag a file into a remote terminal and cmux detects the foreground SSH process by TTY, then uploads via scp through the existing ControlMaster. The --no-focus flag lets scripts create SSH workspaces programmatically without stealing your current focus.",
+        "detailsTitle": "Small things",
+        "detailsP1": "Notification spam from flaky connections is suppressed with a 5-minute per-host cooldown and error fingerprint deduplication. Default keepalive options (ConnectTimeout=6, ServerAliveInterval=20, ServerAliveCountMax=2) are injected unless your config already sets them.",
+        "detailsP2": "The sidebar shows remote connection state: connecting, connected, reconnecting, error. Listening ports detected on the remote machine are clickable in the sidebar to open in the browser pane.",
+        "detailsP3": "cmux ssh reads the same flags you'd pass to ssh: -p for port, -i for identity file, -o for arbitrary SSH options. Everything interoperates with your existing setup.",
+        "cta": "Install cmux from the <link>getting started guide</link> or check the source on <github>GitHub</github>."
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "How Cmd+Shift+U navigates between finished agents across workspaces in cmux.",
