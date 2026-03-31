@@ -28,6 +28,17 @@ export default function ClaudeCodeTeamsPage() {
 
       <p>{t("intro")}</p>
 
+      <video
+        src="/blog/cmux-claude-teams-demo.mp4"
+        width={1824}
+        height={1080}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full h-auto"
+      />
+
       <h2>{t("usage")}</h2>
       <CodeBlock lang="bash">{`cmux claude-teams
 cmux claude-teams --continue
