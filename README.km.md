@@ -65,8 +65,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ ផ្ទាំងកម្មវិធីរុករកត្រូវបានដឹកនាំតាមបណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានភ្លាមៗ។ អូសរូបភាពចូលក្នុង session ពីចម្ងាយដើម្បីផ្ទុកឡើងតាមរយៈ scp។
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> ដំណើរការមុខងារ teammate mode របស់ Claude Code ដោយគ្រាន់តែប្រើពាក្យបញ្ជាតែមួយ។ សមាជិកក្រុមនឹងបង្ហាញជា split ដើមកំណើតដែលមាន metadata នៅលើរបារចំហៀង និងការជូនដំណឹង។ មិនត្រូវការ tmux ទេ។
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+* **ការនាំចូលកម្មវិធីរុករក (Browser import)** — នាំចូល cookies, ប្រវត្តិ និង sessions ពី Chrome, Firefox, Arc និងកម្មវិធីរុករកជាង 20 ផ្សេងទៀត ដើម្បីឱ្យផ្ទាំងកម្មវិធីរុករកចាប់ផ្ដើមដោយមានការផ្ទៀងផ្ទាត់រួចរាល់
+* **ពាក្យបញ្ជាផ្ទាល់ខ្លួន (Custom commands)** — កំណត់សកម្មភាពជាក់លាក់សម្រាប់គម្រោងនៅក្នុង [`cmux.json`](https://cmux.com/docs/custom-commands) ដែលអាចដំណើរការពី command palette
 * **អាចសរសេរ Script បាន (Scriptable)** — CLI និង socket API ដើម្បីបង្កើត workspaces, បំបែក panes, បញ្ជូន keystrokes, និងធ្វើស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក (browser)
 * **កម្មវិធីដើមរបស់ macOS (Native macOS app)** — បង្កើតឡើងដោយប្រើ Swift និង AppKit មិនមែន Electron ទេ។ ចាប់ផ្តើមលឿន, ស៊ីមេម៉ូរី (memory) តិច។
 * **ត្រូវគ្នាជាមួយ Ghostty (Ghostty compatible)** — អានការកំណត់ `~/.config/ghostty/config` ដែលអ្នកមានស្រាប់សម្រាប់ theme, font, និងពណ៌
