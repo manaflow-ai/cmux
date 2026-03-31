@@ -153,7 +153,7 @@
         "title": "oh-my-openagent's specialist agents as native cmux panes",
         "summary": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
         "date": "March 30, 2026",
-        "p1": "oh-my-openagent (formerly oh-my-opencode) is a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel, each in its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",
+        "p1": "<code>cmux omo</code> integrates oh-my-openagent (formerly oh-my-opencode), a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Each agent gets its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",
         "p2": "The shim also intercepts <code>terminal-notifier</code> calls and routes them through <code>cmux notify</code>. Works over SSH via the Go relay daemon."
       },
       "gpl": {
