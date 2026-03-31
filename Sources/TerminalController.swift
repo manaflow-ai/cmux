@@ -13552,6 +13552,14 @@ class TerminalController {
         return success ? "OK" : "ERROR: Failed to send input"
     }
 
+    /// Threshold (in characters) above which text chunks use the direct PTY
+    /// text path (`ghostty_surface_text`) instead of key-event simulation.
+    /// Ghostty's text path handles bracketed paste mode internally — it adds
+    /// `\e[200~` / `\e[201~` markers only when the running program has enabled
+    /// mode 2004, so this is safe for vim, REPLs, and other non-shell surfaces.
+    /// See #2396.
+    private static let pasteTextThreshold = 256
+
     private func sendSocketText(_ text: String, surface: ghostty_surface_t) {
         let chunks = Self.socketTextChunks(text)
 #if DEBUG
@@ -13560,7 +13568,11 @@ class TerminalController {
         for chunk in chunks {
             switch chunk {
             case .text(let value):
-                sendTextEvent(surface: surface, text: value)
+                if value.count >= Self.pasteTextThreshold {
+                    writePTYText(value, surface: surface)
+                } else {
+                    sendTextEvent(surface: surface, text: value)
+                }
             case .control(let scalar):
                 _ = handleControlScalar(scalar, surface: surface)
             }
@@ -13573,6 +13585,26 @@ class TerminalController {
             )
         }
 #endif
+    }
+
+    /// Write text directly to the PTY via `ghostty_surface_text` (Ghostty's
+    /// paste/text path), bypassing key-event simulation.
+    private func writePTYText(_ text: String, surface: ghostty_surface_t) {
+        guard let data = text.data(using: .utf8), !data.isEmpty else {
+#if DEBUG
+            dlog("writePTYText: failed to convert text to UTF-8 or text is empty")
+#endif
+            return
+        }
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+#if DEBUG
+                dlog("writePTYText: nil baseAddress for UTF-8 data")
+#endif
+                return
+            }
+            ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
     }
 
     private func sendInputToWorkspace(_ args: String) -> String {
