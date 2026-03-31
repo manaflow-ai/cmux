@@ -1994,6 +1994,9 @@ class TerminalController {
         case "reload_config":
             return reloadConfig(args)
 
+        case "set_appearance_mode":
+            return setAppearanceMode(args)
+
         case "refresh_surfaces":
             return refreshSurfaces()
 
@@ -11385,6 +11388,7 @@ class TerminalController {
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
           reload_config                   - Reload Ghostty config, cmux settings, and refresh terminals
+          set_appearance_mode [mode]      - Get/set appearance (system, light, classicLight, dark)
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
@@ -15658,6 +15662,23 @@ class TerminalController {
             GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
         }
         return "OK Reloaded config"
+    }
+
+    private func setAppearanceMode(_ args: String) -> String {
+        let mode = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !mode.isEmpty else {
+            let current = AppearanceSettings.resolvedMode()
+            return "OK \(current.rawValue)"
+        }
+        guard let newMode = AppearanceMode(rawValue: mode) else {
+            let valid = AppearanceMode.allCases.map(\.rawValue).joined(separator: ", ")
+            return "ERROR: Invalid mode '\(mode)'. Valid: \(valid)"
+        }
+        v2MainSync {
+            UserDefaults.standard.set(newMode.rawValue, forKey: AppearanceSettings.appearanceModeKey)
+            GhosttyApp.shared.reloadConfiguration(source: "socket.set_appearance_mode")
+        }
+        return "OK \(newMode.rawValue)"
     }
 
     private func refreshSurfaces() -> String {
