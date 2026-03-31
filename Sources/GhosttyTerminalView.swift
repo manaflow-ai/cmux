@@ -4478,6 +4478,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var rightOptionModifierDown = false
+    private var rightOptionFallbackToggleArmed = true
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
@@ -5512,6 +5513,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             desiredFocus = false
             terminalSurface?.recordExternalFocusState(false)
             rightOptionModifierDown = false
+            rightOptionFallbackToggleArmed = true
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
@@ -5557,6 +5559,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     func debugSetRightOptionModifierDownForUITest(_ isDown: Bool) {
         rightOptionModifierDown = isDown
+    }
+
+    func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
+        rightOptionFallbackToggleArmed = isArmed
     }
 #endif
 
@@ -6180,22 +6186,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case Int(kVK_RightOption):
             if hasRightOptionBit {
                 rightOptionModifierDown = true
+                rightOptionFallbackToggleArmed = true
             } else if !optionDown {
                 rightOptionModifierDown = false
+                rightOptionFallbackToggleArmed = true
             } else {
                 // Some keyboard layouts/OS combinations report only generic Option.
                 // Infer right-side transitions from right-Option flagsChanged events.
-                rightOptionModifierDown.toggle()
+                // We expect one event per physical edge; guard duplicate synthetic
+                // "down" events so they don't toggle back to false.
+                if rightOptionFallbackToggleArmed {
+                    rightOptionModifierDown.toggle()
+                    rightOptionFallbackToggleArmed = false
+                }
             }
         case Int(kVK_Option):
             if hasRightOptionBit {
                 rightOptionModifierDown = true
+                rightOptionFallbackToggleArmed = true
             } else if !optionDown {
                 rightOptionModifierDown = false
+                rightOptionFallbackToggleArmed = true
             }
         default:
             if !optionDown {
                 rightOptionModifierDown = false
+                rightOptionFallbackToggleArmed = true
             }
         }
 
@@ -8887,6 +8903,14 @@ final class GhosttySurfaceScrollView: NSView {
 
     func debugHasKeyboardCopyModeIndicator() -> Bool {
         keyboardCopyModeBadgeContainerView.superview === self && !keyboardCopyModeBadgeContainerView.isHidden
+    }
+
+    func debugSetRightOptionModifierDownForUITest(_ isDown: Bool) {
+        surfaceView.debugSetRightOptionModifierDownForUITest(isDown)
+    }
+
+    func debugSetRightOptionFallbackToggleArmedForUITest(_ isArmed: Bool) {
+        surfaceView.debugSetRightOptionFallbackToggleArmedForUITest(isArmed)
     }
 
 #endif

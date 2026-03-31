@@ -1296,8 +1296,8 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         let rightOptionOnly = NSEvent.ModifierFlags([.option])
-        hostedView.surfaceView.debugSetRightOptionModifierDownForUITest(true)
-        defer { hostedView.surfaceView.debugSetRightOptionModifierDownForUITest(false) }
+        hostedView.debugSetRightOptionModifierDownForUITest(true)
+        defer { hostedView.debugSetRightOptionModifierDownForUITest(false) }
 
         var capturedPress: ghostty_input_key_s?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
