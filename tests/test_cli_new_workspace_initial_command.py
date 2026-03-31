@@ -135,10 +135,17 @@ def main() -> int:
             "cwd": str(cwd),
             "initial_command": command_text,
         }
-        if state.workspace_create_params != expected_params:
+        observed_params = state.workspace_create_params
+        missing_or_mismatched = {
+            key: (expected_params[key], observed_params.get(key))
+            for key in expected_params
+            if observed_params.get(key) != expected_params[key]
+        }
+        if missing_or_mismatched:
             print(
                 "FAIL: workspace.create params mismatch "
-                f"expected={expected_params!r} observed={state.workspace_create_params!r}"
+                f"expected_subset={expected_params!r} observed={observed_params!r} "
+                f"diff={missing_or_mismatched!r}"
             )
             return 1
 
