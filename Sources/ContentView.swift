@@ -11163,7 +11163,7 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // Reactive workspace state inside the row must not rely on parent diffs alone:
 // `.equatable()` can otherwise leave sidebar badges/details stale until an
 // unrelated parent change sneaks through. Keep the workspace reference plain
-// and bridge its objectWillChange into local state instead.
+// and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 private struct TabItemView: View, Equatable {
@@ -11795,7 +11795,7 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onReceive(
-            tab.objectWillChange
+            tab.sidebarObservationPublisher
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst
                 // (pwd, branch, PR, shell state). Coalesce that burst so the
