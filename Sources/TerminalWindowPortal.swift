@@ -1746,10 +1746,6 @@ enum TerminalWindowPortalRegistry {
         }
 
         let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
-        if let activeSplitDividerDragWindowId,
-           candidateWindows.contains(where: { ObjectIdentifier($0) == activeSplitDividerDragWindowId }) {
-            return true
-        }
 
         switch event.type {
         case .leftMouseDown, .leftMouseDragged:
