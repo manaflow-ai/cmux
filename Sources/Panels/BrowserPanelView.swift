@@ -320,7 +320,6 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
-    @State private var isReactGrabInjected = false // tracks whether script has been loaded on this page
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -589,7 +588,6 @@ struct BrowserPanelView: View {
             if isWebViewBlank() {
                 refreshEmptyStateImportBrowsers()
             }
-            isReactGrabInjected = false
             panel.resetReactGrabState()
         }
         .onChange(of: browserThemeModeRaw) { _ in
@@ -829,18 +827,7 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
-            #if DEBUG
-            dlog("reactGrab.button.tap injected=\(isReactGrabInjected)")
-            #endif
-            if isReactGrabInjected {
-                panel.toggleReactGrab()
-            } else {
-                isReactGrabInjected = true
-                Task { await panel.injectReactGrab() }
-            }
-            #if DEBUG
-            dlog("reactGrab.button.tap.done")
-            #endif
+            Task { await panel.toggleOrInjectReactGrab() }
         }) {
             Image(systemName: "cursorarrow.click.2")
                 .symbolRenderingMode(.monochrome)

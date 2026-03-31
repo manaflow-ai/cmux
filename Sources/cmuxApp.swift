@@ -164,6 +164,8 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleReactGrab.defaultsKey)
+    private var toggleReactGrabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
@@ -729,6 +731,10 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: toggleReactGrabMenuShortcut) {
+                    activeTabManager.toggleReactGrabFocusedBrowser()
+                }
+
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
                     _ = activeTabManager.zoomInFocusedBrowser()
                 }
@@ -934,6 +940,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: showBrowserJavaScriptConsoleShortcutData,
             fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
+    }
+
+    private var toggleReactGrabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleReactGrabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
         )
     }
 

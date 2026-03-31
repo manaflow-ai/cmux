@@ -4939,6 +4939,15 @@ extension BrowserPanel {
         #endif
     }
 
+    /// Toggle react-grab if already injected, otherwise inject and activate.
+    func toggleOrInjectReactGrab() async {
+        if isReactGrabActive {
+            toggleReactGrab()
+        } else {
+            await injectReactGrab()
+        }
+    }
+
     func resetReactGrabState() {
         isReactGrabActive = false
     }

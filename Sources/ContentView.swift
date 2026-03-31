@@ -5158,6 +5158,8 @@ struct ContentView: View {
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":
             return .showBrowserJavaScriptConsole
+        case "palette.browserReactGrab":
+            return .toggleReactGrab
         case "palette.browserSplitRight", "palette.terminalSplitBrowserRight":
             return .splitBrowserRight
         case "palette.browserSplitDown", "palette.terminalSplitBrowserDown":
@@ -5786,6 +5788,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.browserReactGrab",
+                title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "react", "grab", "inspect", "element"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: browserPanelSubtitle,
@@ -6267,6 +6278,9 @@ struct ContentView: View {
             if !tabManager.showJavaScriptConsoleFocusedBrowser() {
                 NSSound.beep()
             }
+        }
+        registry.register(commandId: "palette.browserReactGrab") {
+            tabManager.toggleReactGrabFocusedBrowser()
         }
         registry.register(commandId: "palette.browserZoomIn") {
             if !tabManager.zoomInFocusedBrowser() {
