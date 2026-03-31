@@ -73,7 +73,7 @@ export default function CmuxClaudeTeamsPage() {
         {t.rich("p3", {
           code: (chunks) => <code>{chunks}</code>,
           omoLink: (chunks) => (
-            <Link href="/blog/cmux-omo">{chunks}</Link>
+            <Link href="/docs/agent-integrations/oh-my-opencode">{chunks}</Link>
           ),
         })}
       </p>

@@ -147,7 +147,7 @@
         "date": "March 30, 2026",
         "p1": "Claude Code has an experimental teammate mode that spawns sub-agents in parallel. It manages them by issuing tmux commands (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>, <code>select-layout</code>), so if you're not in tmux, it doesn't work. <code>cmux claude-teams</code> places a shim on PATH that intercepts every tmux call and translates it into cmux's split/workspace API. It sets a fake <code>TMUX</code> env var so Claude thinks it's in tmux, then execs into <code>claude --teammate-mode auto</code>.",
         "p2": "The shim translates <code>split-window</code> into <code>surface.split</code>, <code>send-keys</code> into <code>surface.send_text</code>, <code>capture-pane</code> into <code>surface.read_text</code>. Teammates stack vertically in a right column, auto-equalizing as agents spawn and exit. Every pane shows up in the sidebar with notifications. Works over SSH via the Go relay daemon.",
-        "p3": "The same shim powers <omoLink><code>cmux omo</code></omoLink> for OpenCode."
+        "p3": "The same shim powers <omoLink><code>cmux omo</code></omoLink> for oh-my-openagent (formerly oh-my-opencode)."
       },
       "cmuxOmo": {
         "title": "oh-my-openagent subagents as native cmux panes",
