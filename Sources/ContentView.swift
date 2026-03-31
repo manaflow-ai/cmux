@@ -8724,6 +8724,7 @@ struct VerticalTabsSidebar: View {
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
+                ScrollViewReader { scrollProxy in
                 ScrollView {
                     VStack(spacing: 0) {
                         // Space for traffic lights / fullscreen controls
@@ -8827,6 +8828,13 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
+                .onChange(of: tabManager.selectedTabId) { newId in
+                    guard let newId else { return }
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scrollProxy.scrollTo(newId, anchor: nil)
+                    }
+                }
+                }
             }
             SidebarFooter(updateViewModel: updateViewModel, onSendFeedback: onSendFeedback)
                 .frame(maxWidth: .infinity, alignment: .leading)
