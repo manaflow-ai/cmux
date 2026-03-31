@@ -5578,7 +5578,6 @@ final class Workspace: Identifiable, ObservableObject {
     }()
     nonisolated(unsafe) static var runSSHControlMasterCommandOverrideForTesting: (([String]) -> Void)?
     private var panelShellActivityStates: [UUID: PanelShellActivityState] = [:]
-    private var panelTmuxStates: [UUID: Bool] = [:]
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
@@ -6435,24 +6434,6 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     }
 
-    func updatePanelTmuxState(panelId: UUID, isInsideTmux: Bool) {
-        guard panels[panelId] != nil else { return }
-        let previousState = panelTmuxStates[panelId] ?? false
-        guard previousState != isInsideTmux else { return }
-        panelTmuxStates[panelId] = isInsideTmux
-#if DEBUG
-        dlog(
-            "surface.tmuxState workspace=\(id.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) from=\(previousState ? "inside" : "outside") " +
-            "to=\(isInsideTmux ? "inside" : "outside")"
-        )
-#endif
-    }
-
-    func panelIsInsideTmux(panelId: UUID) -> Bool {
-        panelTmuxStates[panelId] ?? false
-    }
-
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
         Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
@@ -6652,7 +6633,6 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
-        panelTmuxStates = panelTmuxStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         recomputeListeningPorts()
     }
@@ -10417,7 +10397,6 @@ extension Workspace: BonsplitDelegate {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
-        panelTmuxStates.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
@@ -10570,7 +10549,6 @@ extension Workspace: BonsplitDelegate {
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
                 panelShellActivityStates.removeValue(forKey: panelId)
-                panelTmuxStates.removeValue(forKey: panelId)
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)

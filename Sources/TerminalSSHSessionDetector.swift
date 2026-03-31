@@ -420,24 +420,6 @@ enum TerminalSSHSessionDetector {
         )
     }
 
-    static func isInsideTmux(forTTY ttyName: String) -> Bool {
-        let normalizedTTY = normalizeTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return false }
-        return isInsideTmuxForTesting(
-            ttyName: normalizedTTY,
-            processes: processSnapshots(forTTY: normalizedTTY)
-        )
-    }
-
-    static func isInsideTmuxForTesting(
-        ttyName: String,
-        processes: [ProcessSnapshot]
-    ) -> Bool {
-        let normalizedTTY = normalizeTTYName(ttyName)
-        guard !normalizedTTY.isEmpty else { return false }
-        return processes.contains { isForegroundProcess($0, ttyName: normalizedTTY, executableName: "tmux") }
-    }
-
     static func detectForTesting(
         ttyName: String,
         processes: [ProcessSnapshot],
@@ -492,16 +474,8 @@ enum TerminalSSHSessionDetector {
     }
 
     private static func isForegroundSSHProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
-        isForegroundProcess(process, ttyName: ttyName, executableName: "ssh")
-    }
-
-    private static func isForegroundProcess(
-        _ process: ProcessSnapshot,
-        ttyName: String,
-        executableName: String
-    ) -> Bool {
         normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
-            process.executableName == executableName &&
+            process.executableName == "ssh" &&
             process.pgid > 0 &&
             process.tpgid > 0 &&
             process.pgid == process.tpgid
