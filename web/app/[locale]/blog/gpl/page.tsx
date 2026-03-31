@@ -49,8 +49,6 @@ export default function GplPage() {
       </time>
 
       <p className="mt-6">{t("p1")}</p>
-      <p>{t("p2")}</p>
-      <p>{t("p3")}</p>
     </>
   );
 }

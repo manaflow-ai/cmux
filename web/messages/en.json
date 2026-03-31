@@ -122,7 +122,7 @@
     },
     "gpl": {
       "metaTitle": "cmux is now GPL",
-      "metaDescription": "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier."
+      "metaDescription": "cmux relicensed from AGPL-3.0 to GPL-3.0."
     },
     "cmuxSsh": {
       "metaTitle": "cmux SSH",
@@ -158,11 +158,9 @@
       },
       "gpl": {
         "title": "cmux is now GPL",
-        "summary": "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier.",
+        "summary": "cmux relicensed from AGPL-3.0 to GPL-3.0.",
         "date": "March 30, 2026",
-        "p1": "cmux was AGPL-3.0. AGPL's network-use clause (Section 13) is designed for server software, requiring anyone who runs a modified version over a network to publish their source. cmux is a desktop app. Nobody runs cmux over a network. But several companies emailed us saying their org has a blanket AGPL ban, blocking adoption entirely.",
-        "p2": "We relicensed to GPL-3.0. GPL still requires any distributed fork to publish its full source under GPL, which prevents proprietary commercial forks. It drops only the network-use clause, which cmux never needed. This matches Zed's approach: GPL for the editor, AGPL only for server components.",
-        "p3": "The dual-license structure stays the same: GPL for open source, commercial license available for organizations that can't do GPL. Copyright stays with Manaflow. Personal and experimental forks remain fully allowed."
+        "p1": "cmux relicensed from AGPL-3.0 to GPL-3.0. AGPL's network-use clause is irrelevant for a desktop app, but many companies ban AGPL entirely. GPL drops that clause while still requiring forks to stay open source. Dual-license (GPL + commercial) stays the same."
       },
       "cmuxSsh": {
         "title": "cmux SSH",
