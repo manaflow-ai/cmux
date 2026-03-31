@@ -20,22 +20,24 @@ WORKSPACE_REF = "workspace:1"
 
 class FakeCmuxState:
     def __init__(self) -> None:
+        self.lock = threading.Lock()
         self.requests: list[tuple[str, dict[str, object]]] = []
         self.workspace_create_params: dict[str, object] | None = None
         self.surface_send_text_params: dict[str, object] | None = None
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
-        self.requests.append((method, dict(params)))
-        if method == "workspace.create":
-            self.workspace_create_params = dict(params)
-            return {
-                "workspace_id": WORKSPACE_ID,
-                "workspace_ref": WORKSPACE_REF,
-            }
-        if method == "surface.send_text":
-            self.surface_send_text_params = dict(params)
-            return {"ok": True}
-        raise RuntimeError(f"Unsupported fake cmux method: {method}")
+        with self.lock:
+            self.requests.append((method, dict(params)))
+            if method == "workspace.create":
+                self.workspace_create_params = dict(params)
+                return {
+                    "workspace_id": WORKSPACE_ID,
+                    "workspace_ref": WORKSPACE_REF,
+                }
+            if method == "surface.send_text":
+                self.surface_send_text_params = dict(params)
+                return {"ok": True}
+            raise RuntimeError(f"Unsupported fake cmux method: {method}")
 
 
 class FakeCmuxUnixServer(socketserver.ThreadingUnixStreamServer):
