@@ -213,7 +213,7 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
         )
     }
 
-    func testControlLetterNavigationSupportsPrintableAndControlChars() {
+    func testControlLetterNavigationSupportsPrintableAndControlCharsForNPOnly() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
@@ -246,37 +246,36 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
             ),
             -1
         )
-        XCTAssertEqual(
+    }
+
+    func testDoesNotTreatControlJKAsPaletteNavigation() {
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "j",
                 keyCode: 38
-            ),
-            1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "\u{0a}",
                 keyCode: 38
-            ),
-            1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "k",
                 keyCode: 40
-            ),
-            -1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "\u{0b}",
                 keyCode: 40
-            ),
-            -1
+            )
         )
     }
 
