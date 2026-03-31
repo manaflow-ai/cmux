@@ -12948,8 +12948,9 @@ private extension NSWindow {
         var menuBypassGhosttyView = firstResponderGhosttyView
         if menuBypassGhosttyView == nil, self.firstResponder is NSWindow {
             if let terminalPanel = AppDelegate.shared?.tabManager?.selectedWorkspace?.focusedTerminalPanel,
-               let ghosttyNSView = Self.findGhosttyNSView(in: terminalPanel.hostedView) {
-                self.makeFirstResponder(ghosttyNSView)
+               let ghosttyNSView = Self.findGhosttyNSView(in: terminalPanel.hostedView),
+               ghosttyNSView.window === self,
+               self.makeFirstResponder(ghosttyNSView) {
                 menuBypassGhosttyView = ghosttyNSView
 #if DEBUG
                 dlog("  → focus-transition recovery: restored terminal as firstResponder")
