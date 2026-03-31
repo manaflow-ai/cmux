@@ -485,8 +485,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testPendingEmptyStateIsPreservedWhenRefiningAResolvedNoMatchQuery() {
-        XCTAssertTrue(
+    func testPendingEmptyStateIsNotPreservedWhileSearchIsStillPending() {
+        XCTAssertFalse(
             ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
                 isSearchPending: true,
                 visibleResultsScopeMatches: true,
