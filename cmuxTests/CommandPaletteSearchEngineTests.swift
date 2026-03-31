@@ -649,7 +649,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(base, renamed)
     }
 
-    func testSwitcherFingerprintTracksMetadataValuesAtSameCardinality() {
+    func testSwitcherFingerprintIgnoresWorkspaceDisplayNameChurn() {
         let windowID = UUID()
         let workspaceID = UUID()
         let base = ContentView.commandPaletteSwitcherFingerprint(
@@ -716,8 +716,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             ]
         )
 
+        XCTAssertEqual(base, changedDisplayName)
         XCTAssertNotEqual(base, changedMetadata)
-        XCTAssertNotEqual(base, changedDisplayName)
     }
 
     func testSwitcherFingerprintTracksSurfaceValuesAtSameCardinality() {
