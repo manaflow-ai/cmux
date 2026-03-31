@@ -980,7 +980,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
-    private var currentRenderFingerprint: Int?
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
@@ -1231,7 +1230,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool, renderFingerprint: Int) {
+    func update(rootView: AnyView, isVisible: Bool) {
         guard ensureInstalled() else { return }
         let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
             previouslyVisible: isPaletteVisible,
@@ -1239,10 +1238,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         )
         isPaletteVisible = isVisible
         if isVisible {
-            if currentRenderFingerprint != renderFingerprint {
-                hostingView.rootView = rootView
-                currentRenderFingerprint = renderFingerprint
-            }
+            hostingView.rootView = rootView
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
@@ -1256,7 +1252,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 _ = window.makeFirstResponder(nil)
             }
             hostingView.rootView = AnyView(EmptyView())
-            currentRenderFingerprint = nil
             containerView.capturesMouseEvents = false
             containerView.alphaValue = 0
             containerView.isHidden = true
@@ -1724,36 +1719,6 @@ struct ContentView: View {
         )
     }
 
-    // Keep switcher titles live without letting cached search results retain whole workspaces.
-    private final class CommandPaletteLiveWorkspaceTitleModel: ObservableObject {
-        private weak var workspace: Workspace?
-        private var titleChangeSubscription: AnyCancellable?
-
-        init(workspace: Workspace) {
-            self.workspace = workspace
-            titleChangeSubscription = workspace.objectWillChange.sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-        }
-
-        func displayTitle(fallbackTitle: String) -> String {
-            guard let workspace else { return fallbackTitle }
-            return ContentView.commandPaletteWorkspaceDisplayName(workspace)
-        }
-
-        func displayTitleMatchIndices(
-            matchingQuery: String,
-            fallbackIndices: Set<Int>,
-            fallbackTitle: String
-        ) -> Set<Int> {
-            guard workspace != nil else { return fallbackIndices }
-            return CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                query: matchingQuery,
-                candidate: displayTitle(fallbackTitle: fallbackTitle)
-            )
-        }
-    }
-
     private struct CommandPaletteCommand: Identifiable {
         let id: String
         let rank: Int
@@ -1762,51 +1727,11 @@ struct ContentView: View {
         let shortcutHint: String?
         let kindLabel: String?
         let keywords: [String]
-        let liveTitleModel: CommandPaletteLiveWorkspaceTitleModel?
         let dismissOnRun: Bool
         let action: () -> Void
 
-        init(
-            id: String,
-            rank: Int,
-            title: String,
-            subtitle: String,
-            shortcutHint: String?,
-            kindLabel: String?,
-            keywords: [String],
-            liveTitleModel: CommandPaletteLiveWorkspaceTitleModel? = nil,
-            dismissOnRun: Bool,
-            action: @escaping () -> Void
-        ) {
-            self.id = id
-            self.rank = rank
-            self.title = title
-            self.subtitle = subtitle
-            self.shortcutHint = shortcutHint
-            self.kindLabel = kindLabel
-            self.keywords = keywords
-            self.liveTitleModel = liveTitleModel
-            self.dismissOnRun = dismissOnRun
-            self.action = action
-        }
-
         var searchableTexts: [String] {
             [title, subtitle] + keywords
-        }
-
-        func displayTitle() -> String {
-            liveTitleModel?.displayTitle(fallbackTitle: title) ?? title
-        }
-
-        func displayTitleMatchIndices(
-            matchingQuery: String,
-            fallbackIndices: Set<Int>
-        ) -> Set<Int> {
-            liveTitleModel?.displayTitleMatchIndices(
-                matchingQuery: matchingQuery,
-                fallbackIndices: fallbackIndices,
-                fallbackTitle: title
-            ) ?? fallbackIndices
         }
     }
 
@@ -2061,39 +1986,6 @@ struct ContentView: View {
         var id: String { command.id }
     }
 
-    private struct CommandPaletteLiveWorkspaceResultLabel: View {
-        @ObservedObject private var liveTitleModel: CommandPaletteLiveWorkspaceTitleModel
-        private let command: CommandPaletteCommand
-        private let matchingQuery: String
-        private let fallbackMatchIndices: Set<Int>
-        private let trailingLabel: CommandPaletteTrailingLabel?
-
-        init(
-            liveTitleModel: CommandPaletteLiveWorkspaceTitleModel,
-            command: CommandPaletteCommand,
-            matchingQuery: String,
-            fallbackMatchIndices: Set<Int>,
-            trailingLabel: CommandPaletteTrailingLabel?
-        ) {
-            _liveTitleModel = ObservedObject(wrappedValue: liveTitleModel)
-            self.command = command
-            self.matchingQuery = matchingQuery
-            self.fallbackMatchIndices = fallbackMatchIndices
-            self.trailingLabel = trailingLabel
-        }
-
-        var body: some View {
-            ContentView.commandPaletteResultLabelContent(
-                title: command.displayTitle(),
-                matchedIndices: command.displayTitleMatchIndices(
-                    matchingQuery: matchingQuery,
-                    fallbackIndices: fallbackMatchIndices
-                ),
-                trailingLabel: trailingLabel
-            )
-        }
-    }
-
     private struct CommandPaletteResolvedSearchMatch: Sendable {
         let commandID: String
         let score: Int
@@ -2109,6 +2001,7 @@ struct ContentView: View {
 
     struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
         let id: UUID
+        let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
         let surfaces: [CommandPaletteSwitcherFingerprintSurface]
     }
@@ -3143,28 +3036,9 @@ struct ContentView: View {
                 let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
                 tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
                 let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(
-                    rootView: AnyView(commandPaletteOverlay),
-                    isVisible: isCommandPalettePresented,
-                    renderFingerprint: commandPaletteOverlayRenderFingerprint
-                )
+                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
             }
         }))
-
-        view = AnyView(view.onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
-            Task { @MainActor in
-                // Let the query-state transition settle first so the forced corpus refresh
-                // cannot rebuild the old command list after deleting the ">" prefix.
-                await Task.yield()
-                scheduleCommandPaletteResultsRefresh(
-                    query: commandPaletteQuery,
-                    forceSearchCorpusRefresh: true
-                )
-                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-                syncCommandPaletteDebugStateForObservedWindow()
-            }
-        })
 
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
@@ -3804,23 +3678,11 @@ struct ContentView: View {
                             Button {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
-                                Group {
-                                    if let liveTitleModel = result.command.liveTitleModel {
-                                        CommandPaletteLiveWorkspaceResultLabel(
-                                            liveTitleModel: liveTitleModel,
-                                            command: result.command,
-                                            matchingQuery: commandPaletteQueryForMatching,
-                                            fallbackMatchIndices: result.titleMatchIndices,
-                                            trailingLabel: trailingLabel
-                                        )
-                                    } else {
-                                        Self.commandPaletteResultLabelContent(
-                                            title: result.command.title,
-                                            matchedIndices: result.titleMatchIndices,
-                                            trailingLabel: trailingLabel
-                                        )
-                                    }
-                                }
+                                Self.commandPaletteResultLabelContent(
+                                    title: result.command.title,
+                                    matchedIndices: result.titleMatchIndices,
+                                    trailingLabel: trailingLabel
+                                )
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 2)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -3891,6 +3753,19 @@ struct ContentView: View {
             scheduleCommandPaletteResultsRefresh(query: newValue)
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
+        }
+        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
@@ -4262,78 +4137,6 @@ struct ContentView: View {
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
-    }
-
-    private var commandPaletteOverlayRenderFingerprint: Int {
-        var hasher = Hasher()
-        switch commandPaletteMode {
-        case .commands:
-            hasher.combine("commands")
-        case .renameInput(let target):
-            hasher.combine("renameInput")
-            combineCommandPaletteRenameTarget(target, into: &hasher)
-        case .renameConfirm(let target, let proposedName):
-            hasher.combine("renameConfirm")
-            combineCommandPaletteRenameTarget(target, into: &hasher)
-            hasher.combine(proposedName)
-        }
-        hasher.combine(commandPaletteQuery)
-        hasher.combine(commandPaletteRenameDraft)
-        hasher.combine(commandPaletteListScope.rawValue)
-        hasher.combine(commandPaletteSearchAllSurfaces)
-        hasher.combine(commandPaletteSelectedResultIndex)
-        hasher.combine(commandPaletteSelectionAnchorCommandID)
-        hasher.combine(commandPaletteHoveredResultIndex)
-        hasher.combine(commandPaletteScrollTargetIndex)
-        hasher.combine(commandPaletteScrollTargetAnchor?.x)
-        hasher.combine(commandPaletteScrollTargetAnchor?.y)
-        hasher.combine(commandPaletteVisibleResultsScope?.rawValue)
-        hasher.combine(commandPaletteVisibleResultsFingerprint)
-        hasher.combine(cachedCommandPaletteScope?.rawValue)
-        hasher.combine(cachedCommandPaletteFingerprint)
-        hasher.combine(isCommandPaletteSearchPending)
-        hasher.combine(commandPaletteSearchRequestID)
-        hasher.combine(commandPaletteResolvedSearchRequestID)
-        hasher.combine(commandPaletteResolvedSearchScope?.rawValue)
-        hasher.combine(commandPaletteResolvedSearchFingerprint)
-        hasher.combine(commandPaletteResolvedMatchingQuery)
-        hasher.combine(commandPaletteResultsRevision)
-        combineCommandPalettePendingActivation(commandPalettePendingActivation, into: &hasher)
-        return hasher.finalize()
-    }
-
-    private func combineCommandPaletteRenameTarget(
-        _ target: CommandPaletteRenameTarget,
-        into hasher: inout Hasher
-    ) {
-        switch target.kind {
-        case .workspace(let workspaceId):
-            hasher.combine("workspace")
-            hasher.combine(workspaceId)
-        case .tab(let workspaceId, let panelId):
-            hasher.combine("tab")
-            hasher.combine(workspaceId)
-            hasher.combine(panelId)
-        }
-    }
-
-    private func combineCommandPalettePendingActivation(
-        _ activation: CommandPalettePendingActivation?,
-        into hasher: inout Hasher
-    ) {
-        switch activation {
-        case .selected(let requestID, let fallbackSelectedIndex, let preferredCommandID):
-            hasher.combine("selected")
-            hasher.combine(requestID)
-            hasher.combine(fallbackSelectedIndex)
-            hasher.combine(preferredCommandID)
-        case .command(let requestID, let commandID):
-            hasher.combine("command")
-            hasher.combine(requestID)
-            hasher.combine(commandID)
-        case nil:
-            hasher.combine("none")
-        }
     }
 
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
@@ -4715,6 +4518,7 @@ struct ContentView: View {
         }
 
         return currentMatchingQuery == resolvedMatchingQuery
+            || currentMatchingQuery.hasPrefix(resolvedMatchingQuery)
     }
 
     private func scheduleCommandPaletteResultsRefresh(
@@ -4882,6 +4686,7 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
+                        displayName: workspaceDisplayName(workspace),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
@@ -5034,7 +4839,6 @@ struct ContentView: View {
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
-                        liveTitleModel: CommandPaletteLiveWorkspaceTitleModel(workspace: workspace),
                         dismissOnRun: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
@@ -6727,7 +6531,7 @@ struct ContentView: View {
             hasher.combine(context.workspaces.count)
             for workspace in context.workspaces {
                 hasher.combine(workspace.id)
-                // Keep animated workspace titles from invalidating the live switcher corpus.
+                hasher.combine(workspace.displayName)
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
@@ -7066,7 +6870,7 @@ struct ContentView: View {
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
                 CommandPaletteDebugResultRow(
                     commandId: result.command.id,
-                    title: result.command.displayTitle(),
+                    title: result.command.title,
                     shortcutHint: result.command.shortcutHint,
                     trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
                     score: result.score
