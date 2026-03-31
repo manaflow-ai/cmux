@@ -6175,44 +6175,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        guard let surface = surface else {
-            super.flagsChanged(with: event)
-            return
-        }
-
         let optionDown = event.modifierFlags.contains(.option)
         let hasRightOptionBit = event.modifierFlags.contains(Self.rightOptionModifierFlag)
+        var inferredRightOptionDown = rightOptionModifierDown
+        var inferredFallbackToggleArmed = rightOptionFallbackToggleArmed
+
         switch Int(event.keyCode) {
         case Int(kVK_RightOption):
             if hasRightOptionBit {
-                rightOptionModifierDown = true
-                rightOptionFallbackToggleArmed = true
+                inferredRightOptionDown = true
+                inferredFallbackToggleArmed = true
             } else if !optionDown {
-                rightOptionModifierDown = false
-                rightOptionFallbackToggleArmed = true
-            } else {
-                // Some keyboard layouts/OS combinations report only generic Option.
-                // Infer right-side transitions from right-Option flagsChanged events.
-                // We expect one event per physical edge; guard duplicate synthetic
-                // "down" events so they don't toggle back to false.
-                if rightOptionFallbackToggleArmed {
-                    rightOptionModifierDown.toggle()
-                    rightOptionFallbackToggleArmed = false
-                }
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
+            } else if inferredFallbackToggleArmed {
+                inferredRightOptionDown.toggle()
+                inferredFallbackToggleArmed = false
             }
         case Int(kVK_Option):
             if hasRightOptionBit {
-                rightOptionModifierDown = true
-                rightOptionFallbackToggleArmed = true
+                inferredRightOptionDown = true
+                inferredFallbackToggleArmed = true
             } else if !optionDown {
-                rightOptionModifierDown = false
-                rightOptionFallbackToggleArmed = true
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
             }
         default:
             if !optionDown {
-                rightOptionModifierDown = false
-                rightOptionFallbackToggleArmed = true
+                inferredRightOptionDown = false
+                inferredFallbackToggleArmed = true
             }
+        }
+
+        rightOptionModifierDown = inferredRightOptionDown
+        rightOptionFallbackToggleArmed = inferredFallbackToggleArmed
+
+        guard let surface = surface else {
+            super.flagsChanged(with: event)
+            return
         }
 
         var keyEvent = ghostty_input_key_s()
