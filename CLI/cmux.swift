@@ -1703,17 +1703,15 @@ struct CMUXCLI {
                 let resolved = resolvePath(cwdOpt)
                 params["cwd"] = resolved
             }
+            if let commandOpt, !commandOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                params["initial_command"] = commandOpt
+            }
             if let nameOpt {
                 params["title"] = nameOpt
             }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
-            if let commandText = commandOpt, !wsId.isEmpty {
-                let text = unescapeSendText(commandText + "\\n")
-                let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
-                _ = try client.sendV2(method: "surface.send_text", params: sendParams)
-            }
 
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
@@ -6409,7 +6407,7 @@ struct CMUXCLI {
             Flags:
               --name <title>    Set a custom name for the new workspace
               --cwd <path>      Set the working directory for the new workspace
-              --command <text>   Send text+Enter to the new workspace after creation
+              --command <text>  Run this as the new workspace's initial terminal command
 
             Example:
               cmux new-workspace
