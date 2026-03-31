@@ -56,10 +56,10 @@ export default function CmuxSshPage() {
       </p>
 
       <ul className="mt-4 space-y-1">
-        <li>Browser panes route traffic through the remote network, so <code>localhost:3000</code> reaches the remote dev server without <code>-L</code> flags or port forwarding</li>
+        <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
+        <li>Drag an image into a remote terminal to upload via scp</li>
         <li>Coding agents on the remote box send notifications to your local sidebar</li>
         <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
-        <li>Drag a file into a remote terminal to upload via scp</li>
         <li>The sidebar shows connection state and detected listening ports</li>
       </ul>
     </>
