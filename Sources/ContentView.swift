@@ -1724,6 +1724,36 @@ struct ContentView: View {
         )
     }
 
+    // Keep switcher titles live without letting cached search results retain whole workspaces.
+    private final class CommandPaletteLiveWorkspaceTitleModel: ObservableObject {
+        private weak var workspace: Workspace?
+        private var titleChangeSubscription: AnyCancellable?
+
+        init(workspace: Workspace) {
+            self.workspace = workspace
+            titleChangeSubscription = workspace.objectWillChange.sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+        }
+
+        func displayTitle(fallbackTitle: String) -> String {
+            guard let workspace else { return fallbackTitle }
+            return ContentView.commandPaletteWorkspaceDisplayName(workspace)
+        }
+
+        func displayTitleMatchIndices(
+            matchingQuery: String,
+            fallbackIndices: Set<Int>,
+            fallbackTitle: String
+        ) -> Set<Int> {
+            guard workspace != nil else { return fallbackIndices }
+            return CommandPaletteFuzzyMatcher.matchCharacterIndices(
+                query: matchingQuery,
+                candidate: displayTitle(fallbackTitle: fallbackTitle)
+            )
+        }
+    }
+
     private struct CommandPaletteCommand: Identifiable {
         let id: String
         let rank: Int
@@ -1732,7 +1762,7 @@ struct ContentView: View {
         let shortcutHint: String?
         let kindLabel: String?
         let keywords: [String]
-        let liveTitleWorkspace: Workspace?
+        let liveTitleModel: CommandPaletteLiveWorkspaceTitleModel?
         let dismissOnRun: Bool
         let action: () -> Void
 
@@ -1744,7 +1774,7 @@ struct ContentView: View {
             shortcutHint: String?,
             kindLabel: String?,
             keywords: [String],
-            liveTitleWorkspace: Workspace? = nil,
+            liveTitleModel: CommandPaletteLiveWorkspaceTitleModel? = nil,
             dismissOnRun: Bool,
             action: @escaping () -> Void
         ) {
@@ -1755,7 +1785,7 @@ struct ContentView: View {
             self.shortcutHint = shortcutHint
             self.kindLabel = kindLabel
             self.keywords = keywords
-            self.liveTitleWorkspace = liveTitleWorkspace
+            self.liveTitleModel = liveTitleModel
             self.dismissOnRun = dismissOnRun
             self.action = action
         }
@@ -1765,19 +1795,18 @@ struct ContentView: View {
         }
 
         func displayTitle() -> String {
-            guard let liveTitleWorkspace else { return title }
-            return ContentView.commandPaletteWorkspaceDisplayName(liveTitleWorkspace)
+            liveTitleModel?.displayTitle(fallbackTitle: title) ?? title
         }
 
         func displayTitleMatchIndices(
             matchingQuery: String,
             fallbackIndices: Set<Int>
         ) -> Set<Int> {
-            guard liveTitleWorkspace != nil else { return fallbackIndices }
-            return CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                query: matchingQuery,
-                candidate: displayTitle()
-            )
+            liveTitleModel?.displayTitleMatchIndices(
+                matchingQuery: matchingQuery,
+                fallbackIndices: fallbackIndices,
+                fallbackTitle: title
+            ) ?? fallbackIndices
         }
     }
 
@@ -2033,20 +2062,20 @@ struct ContentView: View {
     }
 
     private struct CommandPaletteLiveWorkspaceResultLabel: View {
-        @ObservedObject private var workspace: Workspace
+        @ObservedObject private var liveTitleModel: CommandPaletteLiveWorkspaceTitleModel
         private let command: CommandPaletteCommand
         private let matchingQuery: String
         private let fallbackMatchIndices: Set<Int>
         private let trailingLabel: CommandPaletteTrailingLabel?
 
         init(
-            workspace: Workspace,
+            liveTitleModel: CommandPaletteLiveWorkspaceTitleModel,
             command: CommandPaletteCommand,
             matchingQuery: String,
             fallbackMatchIndices: Set<Int>,
             trailingLabel: CommandPaletteTrailingLabel?
         ) {
-            _workspace = ObservedObject(wrappedValue: workspace)
+            _liveTitleModel = ObservedObject(wrappedValue: liveTitleModel)
             self.command = command
             self.matchingQuery = matchingQuery
             self.fallbackMatchIndices = fallbackMatchIndices
@@ -3776,9 +3805,9 @@ struct ContentView: View {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
                                 Group {
-                                    if let liveTitleWorkspace = result.command.liveTitleWorkspace {
+                                    if let liveTitleModel = result.command.liveTitleModel {
                                         CommandPaletteLiveWorkspaceResultLabel(
-                                            workspace: liveTitleWorkspace,
+                                            liveTitleModel: liveTitleModel,
                                             command: result.command,
                                             matchingQuery: commandPaletteQueryForMatching,
                                             fallbackMatchIndices: result.titleMatchIndices,
@@ -5005,7 +5034,7 @@ struct ContentView: View {
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
-                        liveTitleWorkspace: workspace,
+                        liveTitleModel: CommandPaletteLiveWorkspaceTitleModel(workspace: workspace),
                         dismissOnRun: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
