@@ -3946,6 +3946,18 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum MarkdownRendererSettings {
+    static let useWebViewKey = "markdownRenderer.useWebView"
+    static let defaultUseWebView = true
+
+    static func useWebView(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: useWebViewKey) == nil {
+            return defaultUseWebView
+        }
+        return defaults.bool(forKey: useWebViewKey)
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -4063,6 +4075,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(MarkdownRendererSettings.useWebViewKey)
+    private var markdownUseWebView = MarkdownRendererSettings.defaultUseWebView
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4733,6 +4747,18 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            "Markdown WebView Renderer",
+                            subtitle: "Use a web-based renderer for markdown panels. Supports multi-line text selection. Disable to use the native SwiftUI renderer."
+                        ) {
+                            Toggle("", isOn: $markdownUseWebView)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel("Markdown WebView Renderer")
                         }
 
                         SettingsCardDivider()
@@ -6033,6 +6059,7 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        markdownUseWebView = MarkdownRendererSettings.defaultUseWebView
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
