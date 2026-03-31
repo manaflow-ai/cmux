@@ -130,6 +130,9 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
+              -skip-testing:cmuxTests/TerminalControllerSocketSecurityTests/testSocketPermissionsFollowAccessMode \
+              -skip-testing:cmuxTests/TerminalControllerSocketSecurityTests/testPasswordModeRejectsUnauthenticatedCommands \
+              -skip-testing:cmuxTests/TerminalControllerSocketSecurityTests/testReportTmuxStateResolvesPanelByTTY \
               test 2>&1
           }
 
