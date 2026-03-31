@@ -2500,14 +2500,13 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .background({
-            // The terminal area has two stacked semi-transparent layers: the Bonsplit
-            // container chrome background plus Ghostty's own Metal-rendered background.
-            // Compute the effective composited opacity so the titlebar matches visually.
+            // The terminal background is provided by a single CALayer
+            // (backgroundView in GhosttySurfaceScrollView), so the titlebar
+            // opacity matches the configured value directly.
             let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return TitlebarLayerBackground(
                 backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                opacity: effective
+                opacity: alpha
             )
         }())
         .overlay(alignment: .bottom) {
@@ -14022,14 +14021,13 @@ private struct SidebarBackdrop: View {
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
 
         if matchTerminalBackground {
-            // The terminal area has two stacked semi-transparent layers (Bonsplit chrome +
-            // Ghostty Metal background). Compute the effective composited opacity to match.
+            // The terminal background is provided by a single CALayer, so
+            // the sidebar uses the configured opacity directly.
             let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return AnyView(
                 SidebarTerminalBackgroundView(
                     backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                    opacity: effective
+                    opacity: alpha
                 )
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in

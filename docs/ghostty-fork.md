@@ -102,6 +102,17 @@ The fork branch HEAD is now the section 6 zsh redraw follow-up commit.
 
 The fork branch HEAD is now the section 7 cmux theme picker helper commit.
 
+### 8) macos-background-from-layer config flag
+
+- Branch: `feat-layer-bg`
+- Files:
+  - `src/config/Config.zig`
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a `macos-background-from-layer` bool config (default false).
+  - When true, sets `bg_color[3] = 0` in the per-frame uniform update so the Metal renderer skips the full-screen background fill.
+  - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -129,5 +140,10 @@ These files change frequently upstream; be careful when rebasing the fork:
   - cmux now relies on the upstream picker UI plus local env-driven hooks for live preview and restore.
     If upstream reorganizes the preview loop or key handling, re-check the cmux mode path and keep the
     stock Ghostty behavior unchanged when the cmux env vars are absent.
+
+- `src/renderer/generic.zig`
+  - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
+    If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
+    paths still zero out `bg_color[3]` correctly.
 
 If you resolve a conflict, update this doc with what changed.
