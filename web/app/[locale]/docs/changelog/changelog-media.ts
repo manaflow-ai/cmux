@@ -26,6 +26,41 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.63.0": {
+    title: "SSH, Claude Code Teams, oh-my-openagent, Browser Import, Minimal Mode",
+    features: [
+      {
+        title: "SSH",
+        description:
+          "cmux ssh user@remote creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp. Coding agent notifications come home to your local sidebar. Reconnects on drops.",
+      },
+      {
+        title: "Claude Code Teams",
+        description:
+          "cmux claude-teams launches Claude Code's experimental teammate mode with one command. It sets up the environment, fakes a tmux session, and translates tmux commands into native cmux splits. Teammates stack vertically in a right column with sidebar metadata and notifications.",
+      },
+      {
+        title: "oh-my-openagent",
+        description:
+          "cmux omo integrates oh-my-openagent (formerly oh-my-opencode), which orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Same tmux shim as claude-teams, auto-installs the plugin, notifications route through cmux.",
+      },
+      {
+        title: "Browser Profile Import",
+        description:
+          "Import cookies, history, and sessions from Chrome, Arc, Brave, Firefox, Safari, and 20+ browsers. The import wizard detects installed browsers, lets you pick profiles, and injects everything into cmux's browser panes so you're already logged in.",
+      },
+      {
+        title: "Minimal Mode",
+        description:
+          "Hide the titlebar for a distraction-free terminal. Controls move to the sidebar and appear on hover. Toggle from the command palette or Settings.",
+      },
+      {
+        title: "Custom Commands",
+        description:
+          "Define project-specific actions in cmux.json that launch from the command palette. One file per repo, no global config needed.",
+      },
+    ],
+  },
   "0.62.0": {
     title: "Markdown Viewer, Browser Find, Vi Copy Mode, and Localization",
     features: [

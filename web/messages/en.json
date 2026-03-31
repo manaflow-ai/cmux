@@ -122,7 +122,7 @@
     },
     "gpl": {
       "metaTitle": "cmux is now GPL",
-      "metaDescription": "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier."
+      "metaDescription": "cmux relicensed from AGPL-3.0 to GPL-3.0."
     },
     "cmuxSsh": {
       "metaTitle": "cmux SSH",
@@ -145,7 +145,7 @@
         "title": "Claude Code teammate agents as native cmux panes",
         "summary": "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
         "date": "March 30, 2026",
-        "p1": "Claude Code has an experimental teammate mode that spawns sub-agents in parallel. It manages them by issuing tmux commands (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>, <code>select-layout</code>), so if you're not in tmux, it doesn't work. <code>cmux claude-teams</code> places a shim on PATH that intercepts every tmux call and translates it into cmux's split/workspace API. It sets a fake <code>TMUX</code> env var so Claude thinks it's in tmux, then execs into <code>claude --teammate-mode auto</code>.",
+        "p1": "Claude Code has an experimental <agentTeamsLink>teammate mode</agentTeamsLink> that spawns sub-agents in parallel. It requires tmux and setting <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>. <code>cmux claude-teams</code> handles all of that for you: it sets the env var, places a tmux shim on PATH that translates every tmux command (<code>split-window</code>, <code>send-keys</code>, <code>capture-pane</code>) into cmux's native split/workspace API, and execs into <code>claude --teammate-mode auto</code>. One command.",
         "p2": "The shim translates <code>split-window</code> into <code>surface.split</code>, <code>send-keys</code> into <code>surface.send_text</code>, <code>capture-pane</code> into <code>surface.read_text</code>. Teammates stack vertically in a right column, auto-equalizing as agents spawn and exit. Every pane shows up in the sidebar with notifications. Works over SSH via the Go relay daemon.",
         "p3": "The same shim powers <omoLink><code>cmux omo</code></omoLink> for oh-my-openagent (formerly oh-my-opencode)."
       },
@@ -158,11 +158,9 @@
       },
       "gpl": {
         "title": "cmux is now GPL",
-        "summary": "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier.",
+        "summary": "cmux relicensed from AGPL-3.0 to GPL-3.0.",
         "date": "March 30, 2026",
-        "p1": "cmux was AGPL-3.0. AGPL's network-use clause (Section 13) is designed for server software, requiring anyone who runs a modified version over a network to publish their source. cmux is a desktop app. Nobody runs cmux over a network. But several companies emailed us saying their org has a blanket AGPL ban, blocking adoption entirely.",
-        "p2": "We relicensed to GPL-3.0. GPL still requires any distributed fork to publish its full source under GPL, which prevents proprietary commercial forks. It drops only the network-use clause, which cmux never needed. This matches Zed's approach: GPL for the editor, AGPL only for server components.",
-        "p3": "The dual-license structure stays the same: GPL for open source, commercial license available for organizations that can't do GPL. Copyright stays with Manaflow. Personal and experimental forks remain fully allowed."
+        "p1": "cmux relicensed from AGPL-3.0 to GPL-3.0. AGPL's network-use clause is irrelevant for a desktop app, but many companies ban AGPL entirely. GPL drops that clause while still requiring forks to stay open source. Dual-license (GPL + commercial) stays the same."
       },
       "cmuxSsh": {
         "title": "cmux SSH",

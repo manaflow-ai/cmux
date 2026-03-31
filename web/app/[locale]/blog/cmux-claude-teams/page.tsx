@@ -62,6 +62,9 @@ export default function CmuxClaudeTeamsPage() {
       <p className="mt-6">
         {t.rich("p1", {
           code: (chunks) => <code>{chunks}</code>,
+          agentTeamsLink: (chunks) => (
+            <a href="https://code.claude.com/docs/en/agent-teams">{chunks}</a>
+          ),
         })}
       </p>
       <p>

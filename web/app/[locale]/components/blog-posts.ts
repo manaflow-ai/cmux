@@ -29,7 +29,7 @@ export const blogPosts = [
     title: "cmux is now GPL",
     date: "2026-03-30",
     summary:
-      "cmux relicensed from AGPL to GPL. Copyleft stays, corporate adoption gets easier.",
+      "cmux relicensed from AGPL-3.0 to GPL-3.0.",
   },
   {
     slug: "cmd-shift-u",
