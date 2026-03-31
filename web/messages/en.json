@@ -168,7 +168,7 @@
         "title": "cmux SSH",
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",
         "date": "March 30, 2026",
-        "p1": "<code>cmux ssh user@devbox</code> creates a workspace for the remote machine. It reads your <code>~/.ssh/config</code>, reconnects on drops, and deploys a small relay daemon to the remote host on first connect.",
+        "p1": "<code>cmux ssh user@devbox</code> creates a workspace for the remote machine. It reads your <code>~/.ssh/config</code> and reconnects on drops. On first connect it deploys a small relay daemon to the remote host, which handles browser traffic proxying (so browser panes can reach remote ports), bidirectional CLI relay (so remote agents can send notifications back to your local sidebar), and session reattach on reconnect.",
         "features": "Browser panes route traffic through the remote network, so localhost:3000 reaches the remote dev server without -L flags. Coding agents on the remote box send notifications to your local sidebar. cmux claude-teams and cmux omo work over SSH, spawning teammate panes locally while computation runs remote. Drag a file into a remote terminal to upload via scp. The sidebar shows connection state and detected listening ports."
       },
       "cmdShiftU": {
