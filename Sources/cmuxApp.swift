@@ -588,6 +588,16 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: openFolderMenuShortcut) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
+
+                Button(
+                    String(
+                        localized: "menu.file.openFolderInVSCodeInline",
+                        defaultValue: "Open Folder in VS Code (Inline)…"
+                    )
+                ) {
+                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
+                }
+                .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
             }
 
             // Close tab/workspace

@@ -5385,6 +5385,25 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openFolderInVSCodeInline",
+                title: constant(
+                    String(
+                        localized: "command.openFolderInVSCodeInline.title",
+                        defaultValue: "Open Folder in VS Code (Inline)…"
+                    )
+                ),
+                subtitle: constant(
+                    String(
+                        localized: "command.openFolderInVSCodeInline.subtitle",
+                        defaultValue: "VS Code Inline"
+                    )
+                ),
+                keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
+                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.newTerminalTab",
                 title: constant(String(localized: "command.newTerminalTab.title", defaultValue: "New Tab (Terminal)")),
                 subtitle: constant(String(localized: "command.newTerminalTab.subtitle", defaultValue: "Tab")),
@@ -6075,6 +6094,11 @@ struct ContentView: View {
                 if panel.runModal() == .OK, let url = panel.url {
                     tabManager.addWorkspace(workingDirectory: url.path)
                 }
+            }
+        }
+        registry.register(commandId: "palette.openFolderInVSCodeInline") {
+            DispatchQueue.main.async {
+                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
             }
         }
         registry.register(commandId: "palette.newWindow") {
@@ -7475,35 +7499,7 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL(),
-              let workspace = tabManager.selectedWorkspace,
-              let sourcePanelId = workspace.focusedPanelId else {
-            return false
-        }
-        let sourceTabId = workspace.id
-        let tabManager = tabManager
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
-                      directoryPath: directoryURL.path
-                  ) else {
-                NSSound.beep()
-                return
-            }
-            guard tabManager.newBrowserSplit(
-                tabId: sourceTabId,
-                fromPanelId: sourcePanelId,
-                orientation: SplitDirection.right.orientation,
-                insertFirst: SplitDirection.right.insertFirst,
-                url: openFolderURL,
-                focus: true
-            ) != nil else {
-                NSSound.beep()
-                return
-            }
-        }
-        return true
+        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
     }
 
     private func stopInlineVSCodeServeWeb() {

@@ -5661,6 +5661,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    @discardableResult
+    func openDirectoryInInlineVSCode(
+        _ directoryURL: URL,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+            return false
+        }
+
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.open.target")?.tabManager
+        guard let targetTabManager else {
+            return false
+        }
+
+        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
+            ?? targetTabManager.tabs.first?.id
+            ?? targetTabManager.addWorkspace(select: true).id
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: normalizedDirectoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+
+            guard targetTabManager.openBrowser(
+                inWorkspace: targetWorkspaceId,
+                url: openFolderURL,
+                preferSplitRight: true
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+
+        return true
+    }
+
+    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+            NSSound.beep()
+            return
+        }
+
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.panel.target")?.tabManager
+        guard let targetTabManager else {
+            NSSound.beep()
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = String(
+            localized: "menu.file.openFolderInVSCodeInline.panelTitle",
+            defaultValue: "Open Folder in VS Code (Inline)"
+        )
+        panel.prompt = String(
+            localized: "menu.file.openFolderInVSCodeInline.panelPrompt",
+            defaultValue: "Open in VS Code"
+        )
+        if let cwd = targetTabManager.selectedWorkspace?.currentDirectory,
+           !cwd.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: cwd)
+        }
+
+        if panel.runModal() == .OK,
+           let url = panel.url,
+           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+            NSSound.beep()
+        }
+    }
+
     @objc func openWindow(
         _ pasteboard: NSPasteboard,
         userData: String?,
