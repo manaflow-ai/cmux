@@ -321,23 +321,36 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
     let content: String
     let colorScheme: ColorScheme
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var lastContent: String?
+        var lastIsDark: Bool?
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
-        loadHTML(into: webView)
+        let isDark = colorScheme == .dark
+        context.coordinator.lastContent = content
+        context.coordinator.lastIsDark = isDark
+        loadHTML(into: webView, isDark: isDark)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        loadHTML(into: webView)
+        let isDark = colorScheme == .dark
+        guard content != context.coordinator.lastContent || isDark != context.coordinator.lastIsDark else { return }
+        context.coordinator.lastContent = content
+        context.coordinator.lastIsDark = isDark
+        loadHTML(into: webView, isDark: isDark)
     }
 
-    private func loadHTML(into webView: WKWebView) {
-        let isDark = colorScheme == .dark
+    private func loadHTML(into webView: WKWebView, isDark: Bool) {
         let html = Self.wrapInHTML(markdown: content, isDark: isDark)
-        webView.loadHTMLString(html, baseURL: nil)
+        webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
     }
 
     private static func escapeForJS(_ text: String) -> String {
@@ -431,7 +444,7 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
         img { max-width: 100%; }
         input[type="checkbox"] { margin-right: 6px; }
         </style>
-        <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+        <script src="marked.min.js"></script>
         </head>
         <body>
         <div id="content"></div>

@@ -4752,13 +4752,15 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
-                            "Markdown WebView Renderer",
-                            subtitle: "Use a web-based renderer for markdown panels. Supports multi-line text selection. Disable to use the native SwiftUI renderer."
+                            String(localized: "settings.app.markdownWebViewRenderer", defaultValue: "Markdown WebView Renderer"),
+                            subtitle: String(localized: "settings.app.markdownWebViewRenderer.subtitle", defaultValue: "Use a web-based renderer for markdown panels. Supports multi-line text selection. Disable to use the native SwiftUI renderer.")
                         ) {
                             Toggle("", isOn: $markdownUseWebView)
                                 .labelsHidden()
                                 .controlSize(.small)
-                                .accessibilityLabel("Markdown WebView Renderer")
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.markdownWebViewRenderer", defaultValue: "Markdown WebView Renderer")
+                                )
                         }
 
                         SettingsCardDivider()
