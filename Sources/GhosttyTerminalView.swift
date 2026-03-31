@@ -5839,7 +5839,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                handled = ghostty_surface_key(surface, keyEvent)
+                handled = sendGhosttyKey(surface, keyEvent)
                 #endif
             } else {
                 #if DEBUG
@@ -5848,7 +5848,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendGhosttyKey(surface, keyEvent)
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -5989,7 +5989,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        _ = sendGhosttyKey(surface, keyEvent)
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -6013,7 +6013,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             }
@@ -6034,7 +6034,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
 #endif
             }
         } else {
@@ -6055,7 +6055,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        _ = sendGhosttyKey(surface, keyEvent)
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -6079,7 +6079,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             } else {
@@ -6095,7 +6095,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
                 #endif
             }
         }
