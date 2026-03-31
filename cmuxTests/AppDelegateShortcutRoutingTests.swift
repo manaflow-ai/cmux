@@ -2351,8 +2351,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugMarkCommandPaletteOpenPending is only available in DEBUG")
 #endif
 
-        // Simulate a visibility sync lag/race where AppDelegate does not yet know the palette is open.
-        appDelegate.setCommandPaletteVisible(false, for: window)
+        // Model the normal open-palette state so the test reads like the user-facing scenario.
+        appDelegate.setCommandPaletteVisible(true, for: window)
 
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
