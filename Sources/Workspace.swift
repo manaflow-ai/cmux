@@ -112,7 +112,7 @@ func cmuxInheritedSurfaceConfig(
     return config
 }
 
-struct SidebarStatusEntry {
+struct SidebarStatusEntry: Equatable {
     let key: String
     let value: String
     let icon: String?
@@ -143,7 +143,7 @@ struct SidebarStatusEntry {
     }
 }
 
-struct SidebarMetadataBlock {
+struct SidebarMetadataBlock: Equatable {
     let key: String
     let markdown: String
     let priority: Int
@@ -4896,14 +4896,14 @@ enum SidebarLogLevel: String {
     case error
 }
 
-struct SidebarLogEntry {
+struct SidebarLogEntry: Equatable {
     let message: String
     let level: SidebarLogLevel
     let source: String?
     let timestamp: Date
 }
 
-struct SidebarProgressState {
+struct SidebarProgressState: Equatable {
     let value: Double
     let label: String?
 }
@@ -4911,6 +4911,14 @@ struct SidebarProgressState {
 struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
+}
+
+private struct SidebarPanelObservationState: Equatable {
+    let panelIds: [UUID]
+
+    init(panels: [UUID: any Panel]) {
+        panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
 }
 
 enum WorkspaceRemoteConnectionState: String {
@@ -5583,6 +5591,47 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    private func sidebarObservationSignal<Value: Equatable>(
+        _ publisher: Published<Value>.Publisher
+    ) -> AnyPublisher<Void, Never> {
+        publisher
+            .dropFirst()
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
+        let publishers: [AnyPublisher<Void, Never>] = [
+            sidebarObservationSignal($title),
+            sidebarObservationSignal($isPinned),
+            sidebarObservationSignal($customColor),
+            sidebarObservationSignal($currentDirectory),
+            $panels
+                .map(SidebarPanelObservationState.init)
+                .dropFirst()
+                .removeDuplicates()
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($statusEntries),
+            sidebarObservationSignal($metadataBlocks),
+            sidebarObservationSignal($logEntries),
+            sidebarObservationSignal($progress),
+            sidebarObservationSignal($gitBranch),
+            sidebarObservationSignal($panelGitBranches),
+            sidebarObservationSignal($pullRequest),
+            sidebarObservationSignal($panelPullRequests),
+            sidebarObservationSignal($remoteConfiguration),
+            sidebarObservationSignal($remoteConnectionState),
+            sidebarObservationSignal($remoteConnectionDetail),
+            sidebarObservationSignal($activeRemoteTerminalSessionCount),
+            sidebarObservationSignal($listeningPorts),
+        ]
+
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }()
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()

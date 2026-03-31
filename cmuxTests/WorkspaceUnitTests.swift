@@ -2191,6 +2191,54 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testSidebarObservationPublisherEmitsForFocusedGitBranchChangesOnlyOncePerState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let baselinePublishCount = publishCount
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected focused git branch updates to invalidate sidebar rows"
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical git metadata refreshes to be ignored by sidebar rows"
+        )
+    }
+
+    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.remoteHeartbeatCount = 1
+        workspace.remoteLastHeartbeatAt = Date()
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
+        )
+    }
+
     @MainActor
     func testSidebarPullRequestsTrackFocusedPanelOnly() {
         let workspace = Workspace()
