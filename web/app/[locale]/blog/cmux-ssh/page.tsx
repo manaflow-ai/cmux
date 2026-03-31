@@ -55,6 +55,17 @@ export default function CmuxSshPage() {
         })}
       </p>
 
+      <video
+        src="/blog/cmux-ssh-image-upload.mp4"
+        width={1824}
+        height={1080}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full h-auto"
+      />
+
       <ul className="mt-4 space-y-1">
         <li>Browser panes route through the remote machine, so <code>localhost:3000</code> reaches the remote dev server without port forwarding</li>
         <li>Drag an image into a remote terminal to upload via scp</li>
