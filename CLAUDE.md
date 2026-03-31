@@ -141,6 +141,14 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## Debug menu
+
+The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use it for visual iteration:
+
+- **Debug > Debug Windows** contains panels for tuning layout, colors, and behavior. Entries are alphabetical with no dividers.
+- To add a debug toggle or visual option: create an `NSWindowController` subclass with a `shared` singleton, add it to the "Debug Windows" menu in `Sources/cmuxApp.swift`, and add a SwiftUI view with `@AppStorage` bindings for live changes.
+- When the user says "debug menu" or "debug window", they mean this menu, not `defaults write`.
+
 ## Pitfalls
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).

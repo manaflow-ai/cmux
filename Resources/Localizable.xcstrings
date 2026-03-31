@@ -85120,7 +85120,7 @@
         }
       }
     },
-    "terminal.contextMenu.triggerFlash": {
+    "terminalContextMenu.triggerFlash": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -85137,7 +85137,7 @@
         }
       }
     },
-    "terminal.contextMenu.copy": {
+    "terminalContextMenu.copy": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -85154,7 +85154,7 @@
         }
       }
     },
-    "terminal.contextMenu.paste": {
+    "terminalContextMenu.paste": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -85171,7 +85171,7 @@
         }
       }
     },
-    "terminal.contextMenu.splitHorizontally": {
+    "terminalContextMenu.splitHorizontally": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -85188,7 +85188,7 @@
         }
       }
     },
-    "terminal.contextMenu.splitVertically": {
+    "terminalContextMenu.splitVertically": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -85201,6 +85201,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "垂直に分割"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.resetTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルをリセット"
           }
         }
       }

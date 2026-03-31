@@ -304,7 +304,7 @@ jobs:
           prepare_variant \
             "$APP_DIR" \
             "com.cmuxterm.app.nightly" \
-            "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
+            "https://files.cmux.com/nightly/appcast.xml"
 
           echo "Nightly app name: cmux NIGHTLY"
           echo "Nightly bundle ID: com.cmuxterm.app.nightly"
@@ -560,6 +560,28 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           overwrite_files: true
+
+      - name: Upload nightly appcast to R2
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
+
+          # Upload after GitHub Release publish so the appcast never references
+          # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
+          # is either the old version or the new one, never missing.
+          aws s3 cp appcast.xml \
+            "s3://cmux-binaries/nightly/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "R2 appcast upload complete: https://files.cmux.com/nightly/appcast.xml"
 
       - name: Cleanup keychain
         if: always()

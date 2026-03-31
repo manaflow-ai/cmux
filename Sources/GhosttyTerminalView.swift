@@ -6508,7 +6508,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let menu = NSMenu()
         if onTriggerFlash != nil {
             let flashItem = menu.addItem(
-                withTitle: String(localized: "terminal.contextMenu.triggerFlash", defaultValue: "Trigger Flash"),
+                withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
                 action: #selector(triggerFlash(_:)),
                 keyEquivalent: ""
             )
@@ -6517,21 +6517,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if ghostty_surface_has_selection(surface) {
             let item = menu.addItem(
-                withTitle: String(localized: "terminal.contextMenu.copy", defaultValue: "Copy"),
+                withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
                 keyEquivalent: ""
             )
             item.target = self
         }
         let pasteItem = menu.addItem(
-            withTitle: String(localized: "terminal.contextMenu.paste", defaultValue: "Paste"),
+            withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
             action: #selector(paste(_:)),
             keyEquivalent: ""
         )
         pasteItem.target = self
         menu.addItem(.separator())
         let splitHorizontallyItem = menu.addItem(
-            withTitle: String(localized: "terminal.contextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
+            withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
             action: #selector(splitHorizontally(_:)),
             keyEquivalent: "d"
         )
@@ -6543,7 +6543,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 
         let splitVerticallyItem = menu.addItem(
-            withTitle: String(localized: "terminal.contextMenu.splitVertically", defaultValue: "Split Vertically"),
+            withTitle: String(localized: "terminalContextMenu.splitVertically", defaultValue: "Split Vertically"),
             action: #selector(splitVertically(_:)),
             keyEquivalent: "d"
         )
