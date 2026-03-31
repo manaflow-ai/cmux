@@ -73,6 +73,10 @@ export default function CmuxSshPage() {
         <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
         <li>The sidebar shows connection state and detected listening ports</li>
       </ul>
+
+      <p className="mt-4">
+        <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>
+      </p>
     </>
   );
 }

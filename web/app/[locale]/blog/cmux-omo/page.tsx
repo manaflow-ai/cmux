@@ -61,6 +61,10 @@ export default function CmuxOmoPage() {
           code: (chunks) => <code>{chunks}</code>,
         })}
       </p>
+
+      <p className="mt-4">
+        <Link href="/docs/agent-integrations/oh-my-opencode">Read the docs &rarr;</Link>
+      </p>
     </>
   );
 }
