@@ -8828,8 +8828,11 @@ struct VerticalTabsSidebar: View {
                 }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
-                .onChange(of: tabManager.selectedTabId) { newId in
+                .onChange(of: tabManager.selectedTabId) { _, newId in
                     guard let newId else { return }
+                    #if DEBUG
+                    dlog("sidebar.scroll.selectedTab id=\(newId.uuidString.prefix(5))")
+                    #endif
                     withAnimation(.easeOut(duration: 0.15)) {
                         scrollProxy.scrollTo(newId, anchor: nil)
                     }
