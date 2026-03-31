@@ -342,10 +342,23 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let isDark = colorScheme == .dark
-        guard content != context.coordinator.lastContent || isDark != context.coordinator.lastIsDark else { return }
+        let contentChanged = content != context.coordinator.lastContent
+        let themeChanged = isDark != context.coordinator.lastIsDark
+        guard contentChanged || themeChanged else { return }
         context.coordinator.lastContent = content
         context.coordinator.lastIsDark = isDark
-        loadHTML(into: webView, isDark: isDark)
+
+        if themeChanged {
+            // Theme change requires full HTML reload to update CSS variables.
+            loadHTML(into: webView, isDark: isDark)
+        } else {
+            // Content-only change: update in-place via JS to preserve scroll position
+            // and avoid WKWebView dropping rapid loadHTMLString calls.
+            let escaped = Self.escapeForJS(content)
+            webView.evaluateJavaScript(
+                "document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);"
+            )
+        }
     }
 
     private func loadHTML(into webView: WKWebView, isDark: Bool) {
