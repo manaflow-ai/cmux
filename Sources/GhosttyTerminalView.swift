@@ -6240,22 +6240,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
+        let rightOptionActive: Bool
+        if let sourceEvent {
+            rightOptionActive = isRightOptionActive(event: sourceEvent, flags: flags)
+        } else {
+            rightOptionActive = flags.contains(Self.rightOptionModifierFlag) || rightOptionModifierDown
+        }
         if flags.contains(.option) {
             mods |= GHOSTTY_MODS_ALT.rawValue
-            let rightOptionActive: Bool
-            if let sourceEvent {
-                rightOptionActive = isRightOptionActive(event: sourceEvent, flags: flags)
-            } else {
-                rightOptionActive = flags.contains(Self.rightOptionModifierFlag) || rightOptionModifierDown
-            }
-            if rightOptionActive {
-                mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
-            }
+        }
+        if rightOptionActive {
+            mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue
         }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
     private func isRightOptionActive(event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        if event.type == .keyUp,
+           Int(event.keyCode) == Int(kVK_RightOption),
+           !flags.contains(.option) {
+            return false
+        }
         guard flags.contains(.option) else { return false }
         if flags.contains(Self.rightOptionModifierFlag) { return true }
         if Int(event.keyCode) == Int(kVK_RightOption) { return true }

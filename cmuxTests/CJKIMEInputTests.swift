@@ -1250,6 +1250,12 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             GHOSTTY_MODS_ALT_RIGHT.rawValue,
             "Right Option+Delete should include AltRight"
         )
+        XCTAssertEqual(
+            pressEvent.consumed_mods.rawValue,
+            GHOSTTY_MODS_NONE.rawValue,
+            "Non-printing delete should not consume Right Option as text input"
+        )
+        XCTAssertNil(pressEvent.text, "Delete should be encoded as a key event, not forwarded as DEL text")
     }
 
     func testRightOptionLiteralCharacterRetainsAltRightInConsumedMods() {
@@ -1289,8 +1295,9 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        let rightOptionOnly = NSEvent.ModifierFlags([.option, Self.rightOptionModifierFlag])
+        let rightOptionOnly = NSEvent.ModifierFlags([.option])
         hostedView.surfaceView.debugSetRightOptionModifierDownForUITest(true)
+        defer { hostedView.surfaceView.debugSetRightOptionModifierDownForUITest(false) }
 
         var capturedPress: ghostty_input_key_s?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
@@ -1325,7 +1332,5 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
             GHOSTTY_MODS_ALT_RIGHT.rawValue,
             "Right Option literal should consume AltRight"
         )
-
-        hostedView.surfaceView.debugSetRightOptionModifierDownForUITest(false)
     }
 }
