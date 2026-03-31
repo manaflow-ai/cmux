@@ -4858,11 +4858,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
         // or other layout churn. Only defer terminal resizes while an actual drag event
         // is in flight; otherwise pre-existing panes can stay stuck at their old size.
+        // Interactive geometry resize already has an explicit fast path for sidebar and
+        // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+            return false
+        }
         guard hasTabDragPasteboardTypes() else { return false }
         return isDragResizeEvent(NSApp.currentEvent?.type)
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
+        if inLiveResize || window?.inLiveResize == true {
+            return nil
+        }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
     }
 
