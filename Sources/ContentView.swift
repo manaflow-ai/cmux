@@ -980,6 +980,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var focusLockTimer: DispatchSourceTimer?
     private var scheduledFocusWorkItem: DispatchWorkItem?
     private var isPaletteVisible = false
+    private var currentRenderFingerprint: Int?
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
 
@@ -1230,7 +1231,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         editor.setSelectedRange(NSRange(location: length, length: 0))
     }
 
-    func update(rootView: AnyView, isVisible: Bool) {
+    func update(rootView: AnyView, isVisible: Bool, renderFingerprint: Int) {
         guard ensureInstalled() else { return }
         let shouldPromote = CommandPaletteOverlayPromotionPolicy.shouldPromote(
             previouslyVisible: isPaletteVisible,
@@ -1238,7 +1239,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         )
         isPaletteVisible = isVisible
         if isVisible {
-            hostingView.rootView = rootView
+            if currentRenderFingerprint != renderFingerprint {
+                hostingView.rootView = rootView
+                currentRenderFingerprint = renderFingerprint
+            }
             containerView.capturesMouseEvents = true
             containerView.isHidden = false
             containerView.alphaValue = 1
@@ -1252,6 +1256,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 _ = window.makeFirstResponder(nil)
             }
             hostingView.rootView = AnyView(EmptyView())
+            currentRenderFingerprint = nil
             containerView.capturesMouseEvents = false
             containerView.alphaValue = 0
             containerView.isHidden = true
@@ -3037,7 +3042,11 @@ struct ContentView: View {
                 let tmuxOverlayController = tmuxWorkspacePaneWindowOverlayController(for: window)
                 tmuxOverlayController.update(state: tmuxWorkspacePaneWindowOverlayState(for: window))
                 let overlayController = commandPaletteWindowOverlayController(for: window)
-                overlayController.update(rootView: AnyView(commandPaletteOverlay), isVisible: isCommandPalettePresented)
+                overlayController.update(
+                    rootView: AnyView(commandPaletteOverlay),
+                    isVisible: isCommandPalettePresented,
+                    renderFingerprint: commandPaletteOverlayRenderFingerprint
+                )
             }
         }))
 
@@ -4158,6 +4167,77 @@ struct ContentView: View {
             includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
+    }
+
+    private var commandPaletteOverlayRenderFingerprint: Int {
+        var hasher = Hasher()
+        switch commandPaletteMode {
+        case .commands:
+            hasher.combine("commands")
+        case .renameInput(let target):
+            hasher.combine("renameInput")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+        case .renameConfirm(let target, let proposedName):
+            hasher.combine("renameConfirm")
+            combineCommandPaletteRenameTarget(target, into: &hasher)
+            hasher.combine(proposedName)
+        }
+        hasher.combine(commandPaletteQuery)
+        hasher.combine(commandPaletteRenameDraft)
+        hasher.combine(commandPaletteListScope.rawValue)
+        hasher.combine(commandPaletteSelectedResultIndex)
+        hasher.combine(commandPaletteSelectionAnchorCommandID)
+        hasher.combine(commandPaletteHoveredResultIndex)
+        hasher.combine(commandPaletteScrollTargetIndex)
+        hasher.combine(commandPaletteScrollTargetAnchor?.x)
+        hasher.combine(commandPaletteScrollTargetAnchor?.y)
+        hasher.combine(commandPaletteVisibleResultsScope?.rawValue)
+        hasher.combine(commandPaletteVisibleResultsFingerprint)
+        hasher.combine(cachedCommandPaletteScope?.rawValue)
+        hasher.combine(cachedCommandPaletteFingerprint)
+        hasher.combine(isCommandPaletteSearchPending)
+        hasher.combine(commandPaletteSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchRequestID)
+        hasher.combine(commandPaletteResolvedSearchScope?.rawValue)
+        hasher.combine(commandPaletteResolvedSearchFingerprint)
+        hasher.combine(commandPaletteResolvedMatchingQuery)
+        hasher.combine(commandPaletteResultsRevision)
+        combineCommandPalettePendingActivation(commandPalettePendingActivation, into: &hasher)
+        return hasher.finalize()
+    }
+
+    private func combineCommandPaletteRenameTarget(
+        _ target: CommandPaletteRenameTarget,
+        into hasher: inout Hasher
+    ) {
+        switch target.kind {
+        case .workspace(let workspaceId):
+            hasher.combine("workspace")
+            hasher.combine(workspaceId)
+        case .tab(let workspaceId, let panelId):
+            hasher.combine("tab")
+            hasher.combine(workspaceId)
+            hasher.combine(panelId)
+        }
+    }
+
+    private func combineCommandPalettePendingActivation(
+        _ activation: CommandPalettePendingActivation?,
+        into hasher: inout Hasher
+    ) {
+        switch activation {
+        case .selected(let requestID, let fallbackSelectedIndex, let preferredCommandID):
+            hasher.combine("selected")
+            hasher.combine(requestID)
+            hasher.combine(fallbackSelectedIndex)
+            hasher.combine(preferredCommandID)
+        case .command(let requestID, let commandID):
+            hasher.combine("command")
+            hasher.combine(requestID)
+            hasher.combine(commandID)
+        case nil:
+            hasher.combine("none")
+        }
     }
 
     nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
@@ -6508,7 +6588,7 @@ struct ContentView: View {
             hasher.combine(context.workspaces.count)
             for workspace in context.workspaces {
                 hasher.combine(workspace.id)
-                hasher.combine(workspace.displayName)
+                // Keep animated workspace titles from invalidating the live switcher corpus.
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
