@@ -3960,6 +3960,7 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
@@ -5650,6 +5651,19 @@ struct SettingsView: View {
                         .accessibilityIdentifier("SettingsBrowserImportSection")
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
+                            subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+                        ) {
+                            TextField("", text: $reactGrabVersion)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                                .font(.system(.body, design: .monospaced))
+                                .accessibilityIdentifier("SettingsReactGrabVersionField")
+                        }
 
                         SettingsCardDivider()
 

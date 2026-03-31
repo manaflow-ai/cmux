@@ -1728,31 +1728,6 @@ final class BrowserPortalAnchorView: NSView {
     }
 }
 
-private class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
-    private let onStateChange: @MainActor (Bool) -> Void
-
-    init(onStateChange: @escaping @MainActor (Bool) -> Void) {
-        self.onStateChange = onStateChange
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        guard let body = message.body as? [String: Any],
-              let isActive = body["isActive"] as? Bool else { return }
-        #if DEBUG
-        dlog("reactGrab.messageHandler isActive=\(isActive)")
-        #endif
-        Task { @MainActor in
-            #if DEBUG
-            dlog("reactGrab.messageHandler.mainActor isActive=\(isActive)")
-            #endif
-            onStateChange(isActive)
-        }
-    }
-}
-
 @MainActor
 final class BrowserPanel: Panel, ObservableObject {
     private static let remoteLoopbackProxyAliasHost = "cmux-loopback.localtest.me"
@@ -2283,9 +2258,8 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
-    @Published private(set) var isReactGrabActive: Bool = false
-    private static let reactGrabMessageHandlerName = "cmuxReactGrab"
-    private var reactGrabMessageHandler: ReactGrabMessageHandler?
+    @Published var isReactGrabActive: Bool = false
+    var reactGrabMessageHandler: ReactGrabMessageHandler?
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -2578,14 +2552,6 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
     }
 
-    private func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] isActive in
-            self?.isReactGrabActive = isActive
-        }
-        reactGrabMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: Self.reactGrabMessageHandlerName)
-    }
-
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -2741,7 +2707,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
-        Self.prefetchReactGrabScript()
+        ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
@@ -4846,138 +4812,6 @@ extension BrowserPanel {
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
-    }
-
-    // MARK: - React Grab
-
-    // Pin exact version and integrity hash to prevent supply-chain attacks.
-    // To update: bump the version, fetch the new script, and update the hash.
-    private static let reactGrabScriptURL = URL(string: "https://unpkg.com/react-grab@0.1.29/dist/index.global.js")!
-    private static let reactGrabScriptSHA256 = "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b"
-    private static var cachedReactGrabScript: String?
-    private static var prefetchTask: Task<String?, Never>?
-
-    static func prefetchReactGrabScript() {
-        guard cachedReactGrabScript == nil else { return }
-        // Clear any previously failed task so we retry on failure.
-        if let existing = prefetchTask, existing.isCancelled { prefetchTask = nil }
-        guard prefetchTask == nil else { return }
-        prefetchTask = Task.detached(priority: .low) {
-            let result: String?
-            do {
-                let (data, _) = try await URLSession.shared.data(from: reactGrabScriptURL)
-                // Verify integrity before trusting the payload.
-                let hash = SHA256.hash(data: data)
-                let hex = hash.compactMap { String(format: "%02x", $0) }.joined()
-                guard hex == reactGrabScriptSHA256 else {
-                    NSLog("BrowserPanel: react-grab integrity mismatch (got %@)", hex)
-                    result = nil
-                    await MainActor.run { prefetchTask = nil }
-                    return nil
-                }
-                guard let script = String(data: data, encoding: .utf8) else {
-                    await MainActor.run { prefetchTask = nil }
-                    return nil
-                }
-                await MainActor.run { cachedReactGrabScript = script }
-                result = script
-            } catch {
-                result = nil
-            }
-            if result == nil {
-                await MainActor.run { prefetchTask = nil }
-            }
-            return result
-        }
-    }
-
-    private func fetchReactGrabScript() async -> String? {
-        if let cached = Self.cachedReactGrabScript { return cached }
-        Self.prefetchReactGrabScript()
-        return await Self.prefetchTask?.value
-    }
-
-    func injectReactGrab() async {
-        #if DEBUG
-        dlog("reactGrab.inject.start cached=\(Self.cachedReactGrabScript != nil)")
-        #endif
-        guard let scriptSource = await fetchReactGrabScript() else {
-            #if DEBUG
-            dlog("reactGrab.inject.fetchFailed")
-            #endif
-            return
-        }
-        #if DEBUG
-        dlog("reactGrab.inject.fetched len=\(scriptSource.count)")
-        #endif
-
-        let handlerName = Self.reactGrabMessageHandlerName
-        let combined = """
-        (function() {
-            if (window.__REACT_GRAB__) { window.__REACT_GRAB__.activate(); return; }
-            window.addEventListener('react-grab:init', function(e) {
-                var api = e.detail;
-                if (!api) return;
-                api.activate();
-                var lastActive;
-                api.registerPlugin({
-                    name: 'cmux-bridge',
-                    hooks: {
-                        onStateChange: function(state) {
-                            if (state.isActive === lastActive) return;
-                            lastActive = state.isActive;
-                            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-                            if (h) h.postMessage({ isActive: state.isActive });
-                        }
-                    }
-                });
-            }, { once: true });
-        })();
-        \(scriptSource)
-        """
-        #if DEBUG
-        dlog("reactGrab.inject.evalJS len=\(combined.count)")
-        #endif
-        // Don't set isReactGrabActive here — wait for the onStateChange callback
-        // via the message handler to confirm the script actually initialized.
-        webView.evaluateJavaScript(combined) { [weak self] _, error in
-            #if DEBUG
-            dlog("reactGrab.inject.evalJS.done error=\(error?.localizedDescription ?? "none")")
-            #endif
-            if let error {
-                NSLog("BrowserPanel: react-grab injection failed: %@", error.localizedDescription)
-                Task { @MainActor in self?.isReactGrabActive = false }
-            }
-        }
-        #if DEBUG
-        dlog("reactGrab.inject.end")
-        #endif
-    }
-
-    func toggleReactGrab() {
-        #if DEBUG
-        dlog("reactGrab.toggle.start")
-        #endif
-        // Don't send an explicit postMessage here — the plugin's onStateChange
-        // hook already posts when isActive flips, avoiding a duplicate callback.
-        let script = "window.__REACT_GRAB__?.toggle()"
-        webView.evaluateJavaScript(script, completionHandler: nil)
-        #if DEBUG
-        dlog("reactGrab.toggle.end")
-        #endif
-    }
-
-    /// Toggle react-grab if already injected, otherwise inject and activate.
-    func toggleOrInjectReactGrab() async {
-        if isReactGrabActive {
-            toggleReactGrab()
-        } else {
-            await injectReactGrab()
-        }
-    }
-
-    func resetReactGrabState() {
-        isReactGrabActive = false
     }
 
     // MARK: - Find in Page
