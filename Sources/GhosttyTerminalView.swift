@@ -2592,6 +2592,24 @@ class GhosttyApp {
                 }
             }
             return true
+        case ghostty_action_tag_e(rawValue: 64): // GHOSTTY_ACTION_SET_TAB_TITLE (moved to end to avoid shifting existing values)
+            let title = action.action.set_title.title
+                .flatMap { String(cString: $0) } ?? ""
+            if let tabId = surfaceView.tabId,
+               let surfaceId = surfaceView.terminalSurface?.id {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .ghosttyDidSetTitle,
+                        object: surfaceView,
+                        userInfo: [
+                            GhosttyNotificationKey.tabId: tabId,
+                            GhosttyNotificationKey.surfaceId: surfaceId,
+                            GhosttyNotificationKey.title: title,
+                        ]
+                    )
+                }
+            }
+            return true
         case GHOSTTY_ACTION_PWD:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id else { return true }
