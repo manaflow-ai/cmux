@@ -474,14 +474,12 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
-                    Button("Debug Window Controls…") {
-                        DebugWindowControlsWindowController.shared.show()
+                    Button("Background Debug…") {
+                        BackgroundDebugWindowController.shared.show()
                     }
-
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
-
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",
@@ -490,26 +488,21 @@ struct cmuxApp: App {
                     ) {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
-
-                    Button("Settings/About Titlebar Debug…") {
-                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    Button("Debug Window Controls…") {
+                        DebugWindowControlsWindowController.shared.show()
                     }
-
-                    Divider()
-                    Button("Sidebar Debug…") {
-                        SidebarDebugWindowController.shared.show()
-                    }
-
-                    Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
-                    }
-
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
-
-                    Divider()
-
+                    Button("Settings/About Titlebar Debug…") {
+                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    }
+                    Button("Sidebar Debug…") {
+                        SidebarDebugWindowController.shared.show()
+                    }
+                    Button("Split Button Layout Debug…") {
+                        SplitButtonLayoutDebugWindowController.shared.show()
+                    }
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
                     }
@@ -3334,6 +3327,76 @@ private struct MenuBarExtraDebugView: View {
 
     private func applyLiveUpdate() {
         AppDelegate.shared?.refreshMenuBarExtraForDebug()
+    }
+}
+
+// MARK: - Split Button Layout Debug Window
+
+private final class SplitButtonLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SplitButtonLayoutDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Split Button Layout"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct SplitButtonLayoutDebugView: View {
+    @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
+
+    private let options: [(Int, String)] = [
+        (0, "Pre-composited paneBackground"),
+        (1, "Raw paneBackground (opaque)"),
+        (2, "barBackground (tab chrome)"),
+        (3, "windowBackgroundColor"),
+        (4, "controlBackgroundColor"),
+        (5, "Pre-composited barBackground"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Button Backdrop Color")
+                .font(.headline)
+
+            ForEach(options, id: \.0) { id, label in
+                HStack {
+                    Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
+                    Text(label)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { backdropStyle = id }
+            }
+
+            Text("Changes apply live.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
