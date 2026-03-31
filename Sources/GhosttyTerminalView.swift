@@ -1379,21 +1379,11 @@ class GhosttyApp {
         }
     }
 
-    private func loadCopyOnSelectOverride(_ config: ghostty_config_t) {
-        loadInlineGhosttyConfig(
-            TerminalCopyOnSelectSettings.overrideConfigLine(),
-            into: config,
-            prefix: "cmux-copy-on-select",
-            logLabel: "copy-on-select override"
-        )
-    }
-
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
         // cmux provides the terminal background via backgroundView (CALayer)
         // instead of the GPU full-screen bg pass, so the layer can provide
