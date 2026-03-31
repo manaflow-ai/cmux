@@ -112,6 +112,14 @@
       "metaTitle": "The Zen of cmux",
       "metaDescription": "cmux is a primitive, not a solution. It gives you composable pieces and your workflow is up to you."
     },
+    "cmuxClaudeTeams": {
+      "metaTitle": "cmux claude-teams",
+      "metaDescription": "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications."
+    },
+    "cmuxOmo": {
+      "metaTitle": "cmux omo",
+      "metaDescription": "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams."
+    },
     "cmuxSsh": {
       "metaTitle": "cmux SSH",
       "metaDescription": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home."
@@ -129,6 +137,21 @@
       "metaDescription": "A native macOS terminal built on Ghostty, designed for running multiple AI coding agents side by side."
     },
     "posts": {
+      "cmuxClaudeTeams": {
+        "title": "cmux claude-teams",
+        "summary": "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
+        "date": "March 30, 2026",
+        "p1": "Claude Code has an experimental teammate mode that spawns sub-agents to work on different parts of a task in parallel. It manages those agents by issuing tmux commands: split-window, send-keys, capture-pane, list-panes, select-layout. If you're not inside tmux, teammate mode doesn't work. cmux claude-teams fixes this by placing a shim script on PATH that intercepts every tmux call and translates it into cmux's native split/workspace API. It sets a fake TMUX environment variable so Claude believes it's in tmux, then execs into claude --teammate-mode auto.",
+        "p2": "When Claude spawns a teammate, the shim translates split-window into a cmux surface.split call. The first teammate splits right of the leader pane. Subsequent teammates stack vertically in the right column (main-vertical layout), auto-equalizing as agents spawn and exit. send-keys becomes surface.send_text. capture-pane becomes surface.read_text. list-panes returns cmux pane geometry in tmux format strings. Every teammate pane shows up in the sidebar with metadata and notifications. Works over SSH too, where the same translation runs in a Go relay daemon on the remote host.",
+        "p3": "The same tmux shim architecture powers <omoLink>cmux omo</omoLink> for OpenCode. One translation layer, multiple agents."
+      },
+      "cmuxOmo": {
+        "title": "cmux omo",
+        "summary": "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams.",
+        "date": "March 30, 2026",
+        "p1": "OpenCode's oh-my-openagent plugin orchestrates Claude, GPT, Gemini, and Grok as specialized subagents working in parallel. Each subagent gets its own terminal pane, managed through tmux. cmux omo does the same trick as claude-teams: it places a tmux shim on PATH, sets fake TMUX/TMUX_PANE environment variables, and auto-installs the oh-my-openagent plugin into a shadow config directory (so the original ~/.config/opencode stays untouched). Every subagent pane becomes a native cmux split. Notifications route through cmux. One command, zero config.",
+        "p2": "Under the hood it's the same __tmux-compat translation layer that powers <claudeTeamsLink>cmux claude-teams</claudeTeamsLink>. split-window becomes surface.split, send-keys becomes surface.send_text, select-layout main-vertical equalizes the agent column. The shim also intercepts terminal-notifier calls and routes them through cmux notify. Works over SSH via the Go relay daemon."
+      },
       "cmuxSsh": {
         "title": "cmux SSH",
         "summary": "One command gives you persistent remote sessions, browser panes that reach remote ports, and agent notifications that come home.",

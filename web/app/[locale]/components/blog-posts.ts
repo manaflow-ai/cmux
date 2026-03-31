@@ -1,5 +1,21 @@
 export const blogPosts = [
   {
+    slug: "cmux-omo",
+    key: "cmuxOmo",
+    title: "cmux omo",
+    date: "2026-03-30",
+    summary:
+      "OpenCode's multi-model agents as native cmux splits, using the same tmux shim that powers claude-teams.",
+  },
+  {
+    slug: "cmux-claude-teams",
+    key: "cmuxClaudeTeams",
+    title: "cmux claude-teams",
+    date: "2026-03-30",
+    summary:
+      "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications.",
+  },
+  {
     slug: "cmux-ssh",
     key: "cmuxSsh",
     title: "cmux SSH",
