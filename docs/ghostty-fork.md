@@ -107,6 +107,11 @@ The fork branch HEAD is now the section 6 copy-mode compatibility commit.
 - Was local in the fork as `10a585754`.
 - Landed upstream as `bb646926f`, so it is no longer carried as a fork-only patch.
 
+### zsh prompt redraw follow-ups
+
+- Were local in the fork as `8ade43ce5`, `0cf559581`, `312c7b23a`, and `404a3f175`.
+- Dropped during the March 30, 2026 rebase because newer Ghostty prompt-marking changes on the refreshed base superseded these fork-only zsh redraw patches, so cmux no longer carries them separately.
+
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
