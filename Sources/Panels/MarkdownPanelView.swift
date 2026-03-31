@@ -328,10 +328,12 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
         var lastIsDark: Bool?
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    func makeNSView(context: Context) -> CmuxWebView {
         let config = WKWebViewConfiguration()
+        #if DEBUG
         config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        let webView = WKWebView(frame: .zero, configuration: config)
+        #endif
+        let webView = CmuxWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         let isDark = colorScheme == .dark
         context.coordinator.lastContent = content
@@ -340,7 +342,7 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ webView: CmuxWebView, context: Context) {
         let isDark = colorScheme == .dark
         let contentChanged = content != context.coordinator.lastContent
         let themeChanged = isDark != context.coordinator.lastIsDark
@@ -357,7 +359,14 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
             let escaped = Self.escapeForJS(content)
             webView.evaluateJavaScript(
                 "document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);"
-            )
+            ) { _, error in
+                if error != nil {
+                    // JS evaluation failed (e.g., page not yet loaded); reset cache
+                    // so the next updateNSView retries.
+                    context.coordinator.lastContent = nil
+                    context.coordinator.lastIsDark = nil
+                }
+            }
         }
     }
 
@@ -370,6 +379,7 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
         text.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "</", with: "<\\/")
     }
 
     static func wrapInHTML(markdown: String, isDark: Bool) -> String {
