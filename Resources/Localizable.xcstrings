@@ -19547,6 +19547,40 @@
         }
       }
     },
+    "command.openFolderInVSCodeInline.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Inline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code インライン"
+          }
+        }
+      }
+    },
+    "command.openFolderInVSCodeInline.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folder in VS Code (Inline)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを VS Code で開く（インライン）…"
+          }
+        }
+      }
+    },
     "command.openSettings.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -38567,6 +38601,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкрити теку"
+          }
+        }
+      }
+    },
+    "menu.file.openFolderInVSCodeInline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folder in VS Code (Inline)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを VS Code で開く（インライン）…"
+          }
+        }
+      }
+    },
+    "menu.file.openFolderInVSCodeInline.panelPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open in VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code で開く"
+          }
+        }
+      }
+    },
+    "menu.file.openFolderInVSCodeInline.panelTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folder in VS Code (Inline)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを VS Code で開く（インライン）"
           }
         }
       }
