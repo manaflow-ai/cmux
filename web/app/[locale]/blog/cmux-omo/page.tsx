@@ -43,7 +43,7 @@ export default function CmuxOmoPage() {
         </Link>
       </div>
 
-      <h1><code>{t("title")}</code></h1>
+      <h1>{t("title")}</h1>
       <time dateTime="2026-03-30" className="text-sm text-muted">
         {t("date")}
       </time>
@@ -51,14 +51,14 @@ export default function CmuxOmoPage() {
       <p className="mt-6">
         {t.rich("p1", {
           code: (chunks) => <code>{chunks}</code>,
+          claudeTeamsLink: (chunks) => (
+            <Link href="/blog/cmux-claude-teams">{chunks}</Link>
+          ),
         })}
       </p>
       <p>
         {t.rich("p2", {
           code: (chunks) => <code>{chunks}</code>,
-          claudeTeamsLink: (chunks) => (
-            <Link href="/blog/cmux-claude-teams">{chunks}</Link>
-          ),
         })}
       </p>
     </>

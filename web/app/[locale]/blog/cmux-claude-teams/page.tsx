@@ -43,7 +43,7 @@ export default function CmuxClaudeTeamsPage() {
         </Link>
       </div>
 
-      <h1><code>{t("title")}</code></h1>
+      <h1>{t("title")}</h1>
       <time dateTime="2026-03-30" className="text-sm text-muted">
         {t("date")}
       </time>
