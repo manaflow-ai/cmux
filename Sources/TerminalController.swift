@@ -440,8 +440,10 @@ class TerminalController {
         private let queue = DispatchQueue(label: "com.cmux.socket-fast-path")
         private var lastReportedDirectories: [SocketSurfaceKey: String] = [:]
         private var lastReportedShellStates: [SocketSurfaceKey: Workspace.PanelShellActivityState] = [:]
+        private var lastReportedTmuxStates: [SocketSurfaceKey: Bool] = [:]
         private let maxTrackedDirectories = 4096
         private let maxTrackedShellStates = 4096
+        private let maxTrackedTmuxStates = 4096
 
         func shouldPublishDirectory(workspaceId: UUID, panelId: UUID, directory: String) -> Bool {
             let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
@@ -474,6 +476,24 @@ class TerminalController {
                 return true
             }
         }
+
+        func shouldPublishTmuxState(
+            workspaceId: UUID,
+            panelId: UUID,
+            isInsideTmux: Bool
+        ) -> Bool {
+            let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+            return queue.sync {
+                if lastReportedTmuxStates[key] == isInsideTmux {
+                    return false
+                }
+                if lastReportedTmuxStates.count >= maxTrackedTmuxStates {
+                    lastReportedTmuxStates.removeAll(keepingCapacity: true)
+                }
+                lastReportedTmuxStates[key] = isInsideTmux
+                return true
+            }
+        }
     }
 
     private static let socketFastPathState = SocketFastPathState()
@@ -498,6 +518,42 @@ class TerminalController {
             return url.path
         }
         return trimmed
+    }
+
+    nonisolated static func normalizedReportedTTYName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed != "not a tty" else {
+            return nil
+        }
+        let components = trimmed.split(separator: "/")
+        if let last = components.last, !last.isEmpty {
+            return String(last)
+        }
+        return trimmed
+    }
+
+    static func resolvePanelIdByTTY(_ ttyName: String?, in tab: Tab) -> UUID? {
+        guard let ttyName = normalizedReportedTTYName(ttyName) else {
+            return nil
+        }
+
+        if let focusedPanelId = tab.focusedPanelId,
+           normalizedReportedTTYName(tab.surfaceTTYNames[focusedPanelId]) == ttyName,
+           tab.panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        let matches = tab.surfaceTTYNames.compactMap { (panelId, candidateTTY) -> UUID? in
+            guard tab.panels[panelId] != nil,
+                  normalizedReportedTTYName(candidateTTY) == ttyName else {
+                return nil
+            }
+            return panelId
+        }
+
+        guard matches.count == 1 else { return nil }
+        return matches[0]
     }
 
     nonisolated static func normalizedExportedScreenPath(_ raw: String?) -> String? {
@@ -540,6 +596,19 @@ class TerminalController {
             return .commandRunning
         case "unknown", "clear":
             return .unknown
+        default:
+            return nil
+        }
+    }
+
+    nonisolated static func parseReportedTmuxState(
+        _ rawState: String
+    ) -> Bool? {
+        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "inside", "tmux", "active", "1", "true", "yes":
+            return true
+        case "outside", "none", "inactive", "0", "false", "no", "clear":
+            return false
         default:
             return nil
         }
@@ -1803,6 +1872,9 @@ class TerminalController {
 
         case "report_shell_state":
             return reportShellState(args)
+
+        case "report_tmux_state":
+            return reportTmuxState(args)
 
         case "report_pwd":
             return reportPwd(args)
@@ -11117,6 +11189,7 @@ class TerminalController {
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
+          report_tmux_state <inside|outside> [--tab=X] [--panel=Y] [--tty=Z] - Report whether the shell is currently inside tmux
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -15165,6 +15238,80 @@ class TerminalController {
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return result
+    }
+
+    private func reportTmuxState(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawState = parsed.positional.first, !rawState.isEmpty else {
+            return "ERROR: Missing tmux state — usage: report_tmux_state <inside|outside> [--tab=X] [--panel=Y] [--tty=Z]"
+        }
+        guard let isInsideTmux = Self.parseReportedTmuxState(rawState) else {
+            return "ERROR: Invalid tmux state '\(rawState)' — expected inside or outside"
+        }
+
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
+        let fallbackPanelId: UUID?
+        if let panelArg {
+            if panelArg.isEmpty {
+                return "ERROR: Missing panel id — usage: report_tmux_state <inside|outside> [--tab=X] [--panel=Y] [--tty=Z]"
+            }
+            guard let parsedId = UUID(uuidString: panelArg) else {
+                return "ERROR: Invalid panel id '\(panelArg)'"
+            }
+            fallbackPanelId = parsedId
+        } else {
+            fallbackPanelId = nil
+        }
+        let reportedTTYName = Self.normalizedReportedTTYName(parsed.options["tty"])
+
+        if let scope = Self.explicitSocketScope(options: parsed.options) {
+            guard Self.socketFastPathState.shouldPublishTmuxState(
+                workspaceId: scope.workspaceId,
+                panelId: scope.panelId,
+                isInsideTmux: isInsideTmux
+            ) else {
+                return "OK"
+            }
+            DispatchQueue.main.async {
+                guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceId) else { return }
+                tabManager.updateSurfaceTmuxState(
+                    tabId: scope.workspaceId,
+                    surfaceId: scope.panelId,
+                    isInsideTmux: isInsideTmux
+                )
+            }
+            return "OK"
+        }
+
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let tab = self.tabForSidebarMutation(id: targetTabId) else {
+                return
+            }
+
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+
+            let surfaceId = fallbackPanelId
+                ?? Self.resolvePanelIdByTTY(reportedTTYName, in: tab)
+                ?? tab.focusedPanelId
+            guard let surfaceId, validSurfaceIds.contains(surfaceId) else { return }
+            guard Self.socketFastPathState.shouldPublishTmuxState(
+                workspaceId: tab.id,
+                panelId: surfaceId,
+                isInsideTmux: isInsideTmux
+            ) else {
+                return
+            }
+
+            tab.updatePanelTmuxState(panelId: surfaceId, isInsideTmux: isInsideTmux)
+        }
+        return "OK"
     }
 
     private func clearPorts(_ args: String) -> String {
