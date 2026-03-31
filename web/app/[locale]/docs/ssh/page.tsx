@@ -21,6 +21,14 @@ export default function SshPage() {
       <h1>{t("title")}</h1>
       <p>{t("intro")}</p>
 
+      <iframe
+        className="my-6 rounded-lg w-full aspect-video"
+        src="https://www.youtube.com/embed/RoR9pMOZWkk"
+        title="cmux SSH demo"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+
       <h2>{t("usage")}</h2>
       <CodeBlock lang="bash">{`cmux ssh user@remote
 cmux ssh user@remote --name "dev server"

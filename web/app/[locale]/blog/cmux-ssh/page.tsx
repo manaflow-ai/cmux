@@ -74,6 +74,14 @@ export default function CmuxSshPage() {
         <li>The sidebar shows connection state and detected listening ports</li>
       </ul>
 
+      <iframe
+        className="my-6 rounded-lg w-full aspect-video"
+        src="https://www.youtube.com/embed/RoR9pMOZWkk"
+        title="cmux SSH demo"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+
       <p className="mt-4">
         <Link href="/docs/ssh">Read the SSH docs &rarr;</Link>
       </p>

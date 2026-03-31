@@ -28,6 +28,17 @@ export default function OhMyOpenCodePage() {
 
       <p>{t("intro")}</p>
 
+      <video
+        src="/blog/cmux-omo-demo.mp4"
+        width={1824}
+        height={1080}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="my-6 rounded-lg w-full h-auto"
+      />
+
       <h2>{t("usage")}</h2>
       <CodeBlock lang="bash">{`cmux omo
 cmux omo --continue
