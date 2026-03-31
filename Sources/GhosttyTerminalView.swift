@@ -1389,6 +1389,15 @@ class GhosttyApp {
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
+        // cmux provides the terminal background via backgroundView (CALayer)
+        // instead of the GPU full-screen bg pass, so the layer can provide
+        // instant coverage during sidebar toggle and other layout transitions.
+        loadInlineGhosttyConfig(
+            "macos-background-from-layer = true",
+            into: config,
+            prefix: "cmux-layer-bg",
+            logLabel: "layer background"
+        )
         ghostty_config_finalize(config)
     }
 
@@ -7288,9 +7297,11 @@ final class GhosttySurfaceScrollView: NSView {
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
 
     private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
-        // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
-        // additional translucent layer here, alpha stacks and appears effectively opaque.
-        terminalBackgroundColor.alphaComponent < 0.999 ? .clear : terminalBackgroundColor
+        // The Ghostty renderer's GPU bg pass is disabled (macos-background-from-layer),
+        // so this CALayer is the sole provider of the terminal background color.
+        // It resizes instantly with its parent, eliminating the flash of desktop
+        // that would otherwise appear during sidebar toggles and layout transitions.
+        terminalBackgroundColor
     }
 
 #if DEBUG
