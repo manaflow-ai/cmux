@@ -1258,7 +1258,7 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         XCTAssertNil(pressEvent.text, "Delete should be encoded as a key event, not forwarded as DEL text")
     }
 
-    func testRightOptionLiteralCharacterRetainsAltRightInConsumedMods() {
+    func testRightOptionLiteralCharacterSetsAltRightInRawModsFallbackPath() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -1323,14 +1323,14 @@ final class GhosttyOptionDeleteRegressionTests: XCTestCase {
         }
 
         XCTAssertEqual(
-            capturedPress.consumed_mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
+            capturedPress.mods.rawValue & GHOSTTY_MODS_ALT.rawValue,
             GHOSTTY_MODS_ALT.rawValue,
-            "Right Option literal should consume Alt"
+            "Right Option fallback should keep Alt in raw mods"
         )
         XCTAssertEqual(
-            capturedPress.consumed_mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
+            capturedPress.mods.rawValue & GHOSTTY_MODS_ALT_RIGHT.rawValue,
             GHOSTTY_MODS_ALT_RIGHT.rawValue,
-            "Right Option literal should consume AltRight"
+            "Right Option fallback should set AltRight in raw mods"
         )
     }
 }
