@@ -4539,7 +4539,6 @@ struct ContentView: View {
         }
 
         return currentMatchingQuery == resolvedMatchingQuery
-            || currentMatchingQuery.hasPrefix(resolvedMatchingQuery)
     }
 
     private func scheduleCommandPaletteResultsRefresh(
