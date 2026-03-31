@@ -661,7 +661,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
@@ -682,7 +681,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/other"],
                                 branches: ["feature/search-speed"],
@@ -703,7 +701,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Beta",
                             metadata: CommandPaletteSwitcherSearchMetadata(
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
@@ -734,7 +731,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(
@@ -762,7 +758,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(
@@ -790,7 +785,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     workspaces: [
                         ContentView.CommandPaletteSwitcherFingerprintWorkspace(
                             id: workspaceID,
-                            displayName: "Workspace Alpha",
                             metadata: CommandPaletteSwitcherSearchMetadata(),
                             surfaces: [
                                 ContentView.CommandPaletteSwitcherFingerprintSurface(

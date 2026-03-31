@@ -2080,7 +2080,6 @@ struct ContentView: View {
 
     struct CommandPaletteSwitcherFingerprintWorkspace: Sendable {
         let id: UUID
-        let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
         let surfaces: [CommandPaletteSwitcherFingerprintSurface]
     }
@@ -3124,6 +3123,21 @@ struct ContentView: View {
             }
         }))
 
+        view = AnyView(view.onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
+            guard isCommandPalettePresented, case .commands = commandPaletteMode else { return }
+            Task { @MainActor in
+                // Let the query-state transition settle first so the forced corpus refresh
+                // cannot rebuild the old command list after deleting the ">" prefix.
+                await Task.yield()
+                scheduleCommandPaletteResultsRefresh(
+                    query: commandPaletteQuery,
+                    forceSearchCorpusRefresh: true
+                )
+                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
+                syncCommandPaletteDebugStateForObservedWindow()
+            }
+        })
+
         view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
             updateWindowGlassTint()
         })
@@ -3850,19 +3864,6 @@ struct ContentView: View {
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            Task { @MainActor in
-                // Let the query-state transition settle first so the forced corpus refresh
-                // cannot rebuild the old command list after deleting the ">" prefix.
-                await Task.yield()
-                scheduleCommandPaletteResultsRefresh(
-                    query: commandPaletteQuery,
-                    forceSearchCorpusRefresh: true
-                )
-                updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
-                syncCommandPaletteDebugStateForObservedWindow()
-            }
-        }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
             commandPaletteSelectedResultIndex = Self.commandPaletteResolvedSelectionIndex(
@@ -4251,6 +4252,7 @@ struct ContentView: View {
         hasher.combine(commandPaletteQuery)
         hasher.combine(commandPaletteRenameDraft)
         hasher.combine(commandPaletteListScope.rawValue)
+        hasher.combine(commandPaletteSearchAllSurfaces)
         hasher.combine(commandPaletteSelectedResultIndex)
         hasher.combine(commandPaletteSelectionAnchorCommandID)
         hasher.combine(commandPaletteHoveredResultIndex)
@@ -4853,7 +4855,6 @@ struct ContentView: View {
                 workspaces: commandPaletteOrderedSwitcherWorkspaces(for: context).map { workspace in
                     CommandPaletteSwitcherFingerprintWorkspace(
                         id: workspace.id,
-                        displayName: workspaceDisplayName(workspace),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
