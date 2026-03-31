@@ -49,6 +49,50 @@ final class FinderServicePathResolverTests: XCTestCase {
             ]
         )
     }
+
+    func testOrderedUniqueDirectoriesSkipsBundleAndEmbeddedPathsWhenExcludingBundleRoot() {
+        let bundleURL = URL(fileURLWithPath: "/Applications/Tools/../cmux.app", isDirectory: true)
+        let input: [URL] = [
+            bundleURL,
+            URL(fileURLWithPath: "/Applications/cmux.app/Contents/MacOS/cmux", isDirectory: false),
+            URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/cmux", isDirectory: false),
+            URL(fileURLWithPath: "/Users/tester/Projects/cmux", isDirectory: true),
+            URL(fileURLWithPath: "/Users/tester/Projects/cmux/README.md", isDirectory: false),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: input,
+            excludingDescendantsOf: [bundleURL]
+        )
+
+        XCTAssertEqual(
+            directories,
+            [
+                "/Users/tester/Projects/cmux",
+            ]
+        )
+    }
+
+    func testOrderedUniqueDirectoriesExclusionDoesNotFilterSiblingPaths() {
+        let bundleURL = URL(fileURLWithPath: "/Applications/cmux.app", isDirectory: true)
+        let input: [URL] = [
+            URL(fileURLWithPath: "/Applications/cmux.app backup/project", isDirectory: true),
+            URL(fileURLWithPath: "/Applications/cmux.app.beta/project/file.txt", isDirectory: false),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: input,
+            excludingDescendantsOf: [bundleURL]
+        )
+
+        XCTAssertEqual(
+            directories,
+            [
+                "/Applications/cmux.app backup/project",
+                "/Applications/cmux.app.beta/project",
+            ]
+        )
+    }
 }
 
 
