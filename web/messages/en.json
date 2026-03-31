@@ -117,7 +117,7 @@
       "metaDescription": "Claude Code's teammate mode requires tmux. cmux fakes it so teammates become native splits with sidebar metadata and notifications."
     },
     "cmuxOmo": {
-      "metaTitle": "oh-my-openagent's specialist agents as native cmux panes",
+      "metaTitle": "oh-my-openagent subagents as native cmux panes",
       "metaDescription": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits."
     },
     "gpl": {
@@ -150,7 +150,7 @@
         "p3": "The same shim powers <omoLink><code>cmux omo</code></omoLink> for OpenCode."
       },
       "cmuxOmo": {
-        "title": "oh-my-openagent's specialist agents as native cmux panes",
+        "title": "oh-my-openagent subagents as native cmux panes",
         "summary": "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
         "date": "March 30, 2026",
         "p1": "<code>cmux omo</code> integrates oh-my-openagent (formerly oh-my-opencode), a plugin for OpenCode that orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Each agent gets its own tmux pane. <code>cmux omo</code> uses the same tmux shim as <claudeTeamsLink><code>cmux claude-teams</code></claudeTeamsLink>: fake <code>TMUX</code> env var, every tmux command translated to cmux splits. It auto-installs the plugin into a shadow config so <code>~/.config/opencode</code> stays untouched.",

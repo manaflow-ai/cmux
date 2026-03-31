@@ -18,7 +18,7 @@ export const blogPosts = [
   {
     slug: "cmux-omo",
     key: "cmuxOmo",
-    title: "oh-my-openagent's specialist agents as native cmux panes",
+    title: "oh-my-openagent subagents as native cmux panes",
     date: "2026-03-30",
     summary:
       "oh-my-openagent (formerly oh-my-opencode) orchestrates parallel specialist agents across Claude, GPT, and Gemini. cmux omo turns their tmux panes into native splits.",
