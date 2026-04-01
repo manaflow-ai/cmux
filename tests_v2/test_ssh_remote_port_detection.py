@@ -198,12 +198,20 @@ def _debug_terminal_row(client: cmux, workspace_id: str, surface_id: str) -> dic
 def _wait_surface_tty(client: cmux, workspace_id: str, surface_id: str, timeout: float = 20.0) -> str:
     deadline = time.time() + timeout
     last_row = {}
+    last_error: Exception | None = None
     while time.time() < deadline:
-        last_row = _debug_terminal_row(client, workspace_id, surface_id)
+        try:
+            last_row = _debug_terminal_row(client, workspace_id, surface_id)
+        except cmuxError as exc:
+            last_error = exc
+            time.sleep(0.2)
+            continue
         tty_name = str(last_row.get("tty") or "").strip()
         if tty_name:
             return tty_name
         time.sleep(0.2)
+    if last_error is not None:
+        raise cmuxError(f"Timed out waiting for surface tty after terminal lookup retries: {last_error}")
     raise cmuxError(f"Timed out waiting for surface tty: {last_row}")
 
 
@@ -217,14 +225,19 @@ def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface
     env["CMUX_PANEL_ID"] = surface_id
 
     master_fd, slave_fd = pty.openpty()
-    proc = subprocess.Popen(
-        ["/bin/sh", "-lc", startup_command],
-        stdin=slave_fd,
-        stdout=slave_fd,
-        stderr=slave_fd,
-        env=env,
-        start_new_session=True,
-    )
+    try:
+        proc = subprocess.Popen(
+            ["/bin/sh", "-lc", startup_command],
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=env,
+            start_new_session=True,
+        )
+    except Exception:
+        os.close(slave_fd)
+        os.close(master_fd)
+        raise
     os.close(slave_fd)
     return proc, master_fd
 

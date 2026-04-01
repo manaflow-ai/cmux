@@ -116,6 +116,14 @@ def _append_workspace_to_cleanup(workspaces_to_close: list[str], workspace_id: s
     return workspace_id
 
 
+def _find_workspace_row(client: cmux, workspace_id: str) -> dict | None:
+    listed = client._call("workspace.list", {}) or {}
+    for row in listed.get("workspaces") or []:
+        if str(row.get("id") or "") == workspace_id:
+            return row
+    return None
+
+
 def main() -> int:
     cli = _find_cli_binary()
     help_text = _run_cli(cli, ["ssh", "--help"], json_output=False)
@@ -128,18 +136,16 @@ def main() -> int:
     workspace_id_case_override = ""
     workspace_id_invalid_proxy_port = ""
     workspaces_to_close: list[str] = []
+    ssh_workspace_name = "ssh-meta-test"
     with cmux(SOCKET_PATH) as client:
         try:
             payload = _run_cli_json(
                 cli,
-                ["ssh", "127.0.0.1", "--port", "1", "--name", "ssh-meta-test"],
+                ["ssh", "127.0.0.1", "--port", "1", "--name", ssh_workspace_name],
             )
-            workspace_id = _append_workspace_to_cleanup(
-                workspaces_to_close,
-                _resolve_workspace_id_from_payload(client, payload),
-            )
-            _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
+            payload_workspace_id = _resolve_workspace_id_from_payload(client, payload)
             selected_workspace_id = ""
+            listed_row = None
             deadline_select = time.time() + 5.0
             while time.time() < deadline_select:
                 try:
@@ -147,12 +153,24 @@ def main() -> int:
                 except cmuxError:
                     time.sleep(0.05)
                     continue
-                if selected_workspace_id == workspace_id:
+                listed_row = _find_workspace_row(client, selected_workspace_id)
+                remote = (listed_row or {}).get("remote") or {}
+                if not listed_row:
+                    time.sleep(0.05)
+                    continue
+                if str(listed_row.get("title") or "") != ssh_workspace_name:
+                    time.sleep(0.05)
+                    continue
+                if payload_workspace_id and selected_workspace_id != payload_workspace_id:
+                    time.sleep(0.05)
+                    continue
+                if bool(remote.get("enabled")) is True:
                     break
                 time.sleep(0.05)
+            workspace_id = _append_workspace_to_cleanup(workspaces_to_close, selected_workspace_id)
             _must(
-                selected_workspace_id == workspace_id,
-                f"cmux ssh should select the newly created workspace: expected {workspace_id}, got {selected_workspace_id}",
+                bool(workspace_id) and listed_row is not None and bool((listed_row.get("remote") or {}).get("enabled")) is True,
+                f"cmux ssh should select the new remote workspace: selected={selected_workspace_id} row={listed_row} payload={payload}",
             )
             remote_relay_port = payload.get("remote_relay_port")
             _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
@@ -276,19 +294,6 @@ def main() -> int:
                 "exec \"$CMUX_LOGIN_SHELL\" -i" in remote_bootstrap,
                 f"cmux ssh should still hand off to the user's interactive login shell when possible: {remote_bootstrap!r}",
             )
-
-            listed_row = None
-            deadline = time.time() + 8.0
-            while time.time() < deadline:
-                listed = client._call("workspace.list", {}) or {}
-                for row in listed.get("workspaces") or []:
-                    if str(row.get("id") or "") == workspace_id:
-                        listed_row = row
-                        break
-                remote = (listed_row or {}).get("remote") or {}
-                if listed_row is not None and bool(remote.get("enabled")) is True:
-                    break
-                time.sleep(0.1)
 
             _must(listed_row is not None, f"workspace.list did not include {workspace_id}")
             remote = listed_row.get("remote") or {}

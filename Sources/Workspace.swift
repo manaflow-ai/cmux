@@ -420,7 +420,12 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
-        let listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
+        let listeningPorts: [Int]
+        if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
+            listeningPorts = []
+        } else {
+            listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
+        }
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?

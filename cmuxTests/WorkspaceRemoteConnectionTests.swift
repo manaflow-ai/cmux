@@ -1757,6 +1757,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             1,
             "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
         )
+        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -lc"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
         XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
         XCTAssertFalse(remoteCommandArgs.contains("sh"))
         XCTAssertFalse(remoteCommandArgs.contains("-c"))

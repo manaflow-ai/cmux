@@ -3977,8 +3977,8 @@ struct CMUXCLI {
                 remoteRelayPort: options.remoteRelayPort
             )
         )
-        let remoteBootstrapInstallCommand = remoteBootstrapInstallShell(
-            remoteRelayPort: options.remoteRelayPort
+        let remoteBootstrapInstallCommand = "/bin/sh -lc " + shellQuote(
+            remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
