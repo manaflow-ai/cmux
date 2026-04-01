@@ -14,6 +14,16 @@ import UserNotifications
 #endif
 
 final class FinderServicePathResolverTests: XCTestCase {
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-finder-service-tests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return try body(root)
+    }
+
     func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
         let input: [URL] = [
             URL(fileURLWithPath: "/tmp/cmux-services/project", isDirectory: true),
@@ -92,6 +102,55 @@ final class FinderServicePathResolverTests: XCTestCase {
                 "/Applications/cmux.app.beta/project",
             ]
         )
+    }
+
+    func testOrderedUniqueDirectoriesPreservesSymlinkAliasPaths() throws {
+        try withTemporaryDirectory { root in
+            let actualDirectory = root.appendingPathComponent("actual/project", isDirectory: true)
+            let aliasDirectory = root.appendingPathComponent("alias-project", isDirectory: true)
+            let actualFile = actualDirectory.appendingPathComponent("README.md", isDirectory: false)
+            let aliasFile = aliasDirectory.appendingPathComponent("README.md", isDirectory: false)
+
+            try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: actualFile.path, contents: Data())
+            try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [aliasDirectory, aliasFile]
+            )
+
+            XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
+            XCTAssertNotEqual(directories, [actualDirectory.standardizedFileURL.path])
+        }
+    }
+
+    func testOrderedUniqueDirectoriesResolvesSymlinksOnlyForExcludedRootComparison() throws {
+        try withTemporaryDirectory { root in
+            let applicationsDirectory = root.appendingPathComponent("Applications", isDirectory: true)
+            let actualBundle = applicationsDirectory.appendingPathComponent("cmux.app", isDirectory: true)
+            let actualBinary = actualBundle.appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+            let aliasApplications = root.appendingPathComponent("Launcher", isDirectory: true)
+            let aliasWorkspace = aliasApplications.appendingPathComponent("workspace", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: actualBinary.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: actualBinary.path, contents: Data())
+            try FileManager.default.createDirectory(
+                at: applicationsDirectory.appendingPathComponent("workspace", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createSymbolicLink(at: aliasApplications, withDestinationURL: applicationsDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [
+                    aliasApplications.appendingPathComponent("cmux.app", isDirectory: true),
+                    aliasApplications.appendingPathComponent("cmux.app/Contents/MacOS/cmux", isDirectory: false),
+                    aliasWorkspace,
+                ],
+                excludingDescendantsOf: [actualBundle]
+            )
+
+            XCTAssertEqual(directories, [aliasWorkspace.standardizedFileURL.path])
+        }
     }
 }
 
