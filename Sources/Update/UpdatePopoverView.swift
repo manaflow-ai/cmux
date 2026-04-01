@@ -469,11 +469,15 @@ fileprivate struct UpdateErrorView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "update.popover.details", defaultValue: "Details"))
                     .font(.system(size: 11, weight: .semibold))
-                Text(details)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                ScrollView(.vertical) {
+                    Text(details)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 300)
             }
 
             HStack(spacing: 8) {

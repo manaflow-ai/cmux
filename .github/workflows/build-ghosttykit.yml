@@ -60,6 +60,14 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
+      - name: Cache Zig packages
+        if: steps.check-release.outputs.exists == 'false'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |

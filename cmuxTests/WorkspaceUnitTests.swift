@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1351,6 +1352,64 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Expected the clicked split pane to become first responder"
         )
     }
+
+    func testClearSuppressReparentFocusReassertsGhosttyFocusForCurrentFirstResponder() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
+            XCTFail("Expected left terminal surface view")
+            return
+        }
+
+        leftPanel.surface.setFocus(false)
+        rightPanel.surface.setFocus(true)
+        leftPanel.hostedView.suppressReparentFocus()
+
+        XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.surface.debugDesiredFocusState(),
+            "Suppressed reparent focus should not immediately flip the Ghostty focus bit"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(
+            leftPanel.surface.debugDesiredFocusState(),
+            "Clearing reparent-focus suppression should reassert Ghostty focus when the surface still owns first responder"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
 }
 
 
@@ -2051,6 +2110,133 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let ordered = workspace.sidebarGitBranchesInDisplayOrder()
         XCTAssertEqual(ordered.map(\.branch), ["main", "feature/sidebar"])
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
+    }
+
+    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let baselinePublishCount = publishCount
+
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected the first focused branch update to publish workspace changes"
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+        )
+    }
+
+    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+
+        var publishCount = 0
+        let cancellable = workspace.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2388,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+        let baselinePublishCount = publishCount
+
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected the first focused pull request update to publish workspace changes"
+        )
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2388,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
+        )
+    }
+
+    func testSidebarObservationPublisherEmitsForFocusedGitBranchChangesOnlyOncePerState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let baselinePublishCount = publishCount
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected focused git branch updates to invalidate sidebar rows"
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical git metadata refreshes to be ignored by sidebar rows"
+        )
+    }
+
+    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.remoteHeartbeatCount = 1
+        workspace.remoteLastHeartbeatAt = Date()
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
+        )
     }
 
     @MainActor

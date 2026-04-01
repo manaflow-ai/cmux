@@ -225,6 +225,7 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    let isFullScreen: Bool
     let workspacePortalPriority: Int
     let onThemeRefreshRequest: ((
         _ reason: String,
@@ -377,7 +378,7 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if isMinimalMode {
+            if isMinimalMode && !isFullScreen {
                 bonsplitView
                     .ignoresSafeArea(.container, edges: .top)
             } else {

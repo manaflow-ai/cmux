@@ -65,8 +65,28 @@ Sidebjælken viser git-branch, tilknyttet PR-status/nummer, arbejdsmappe, lytten
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Lodrette faner og delte paneler" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> kører Claude Codes holdkammeratstilstand med én kommando. Holdkammerater oprettes som native opdelinger med metadata i sidebjælken og notifikationer. Ingen tmux påkrævet.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Browserimport** — Importér cookies, historik og sessioner fra Chrome, Firefox, Arc og 20+ andre browsere, så browserpaneler starter autentificerede
+- **Brugerdefinerede kommandoer** — Definér projektspecifikke handlinger i [`cmux.json`](https://cmux.com/docs/custom-commands), der startes fra kommandopaletten
 - **Scriptbar** — CLI og socket API til at oprette workspaces, dele paneler, sende tastetryk og automatisere browseren
 - **Nativ macOS-app** — Bygget med Swift og AppKit, ikke Electron. Hurtig opstart, lavt hukommelsesforbrug.
 - **Ghostty-kompatibel** — Læser din eksisterende `~/.config/ghostty/config` til temaer, skrifttyper og farver
@@ -268,6 +288,6 @@ cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte ud
 
 ## Licens
 
-cmux er open source under [AGPL-3.0-or-later](LICENSE).
+cmux er open source under [GPL-3.0-or-later](LICENSE).
 
-Hvis din organisation ikke kan overholde AGPL, er en kommerciel licens tilgængelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.
+Hvis din organisation ikke kan overholde GPL, er en kommerciel licens tilgængelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.

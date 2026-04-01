@@ -1302,6 +1302,12 @@ class GhosttyApp {
                 return
             }
 
+            loadInlineGhosttyConfig(
+                "macos-background-from-layer = true",
+                into: fallbackConfig,
+                prefix: "cmux-layer-bg",
+                logLabel: "layer background (fallback)"
+            )
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
 
@@ -1349,12 +1355,45 @@ class GhosttyApp {
         #endif
     }
 
+    private func loadInlineGhosttyConfig(
+        _ contents: String,
+        into config: ghostty_config_t,
+        prefix: String,
+        logLabel: String
+    ) {
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString).conf")
+        do {
+            try trimmed.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            tmpURL.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        } catch {
+            #if DEBUG
+            dlog("ghostty.config.inlineLoad.failed label=\(logLabel) error=\(error.localizedDescription)")
+            #endif
+        }
+    }
+
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
+        // cmux provides the terminal background via backgroundView (CALayer)
+        // instead of the GPU full-screen bg pass, so the layer can provide
+        // instant coverage during sidebar toggle and other layout transitions.
+        loadInlineGhosttyConfig(
+            "macos-background-from-layer = true",
+            into: config,
+            prefix: "cmux-layer-bg",
+            logLabel: "layer background"
+        )
         ghostty_config_finalize(config)
     }
 
@@ -1376,20 +1415,12 @@ class GhosttyApp {
         let lines = mappings.map { range, font in
             "font-codepoint-map = \(range)=\(font)"
         }.joined(separator: "\n")
-
-        let tmpURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cjk-font-fallback-\(UUID().uuidString).conf")
-        do {
-            try lines.write(to: tmpURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tmpURL) }
-            tmpURL.path.withCString { path in
-                ghostty_config_load_file(config, path)
-            }
-        } catch {
-            #if DEBUG
-            Self.initLog("failed to write CJK font fallback config: \(error)")
-            #endif
-        }
+        loadInlineGhosttyConfig(
+            lines,
+            into: config,
+            prefix: "cmux-cjk-font-fallback",
+            logLabel: "CJK font fallback"
+        )
     }
 
     /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).
@@ -3368,6 +3399,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private func allowsRuntimeSurfaceCreation() -> Bool {
+        portalLifecycleState == .live
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
@@ -3433,12 +3468,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    #if DEBUG
+#if DEBUG
     private static let surfaceLogPath = "/tmp/cmux-ghostty-surface.log"
     private static let sizeLogPath = "/tmp/cmux-ghostty-size.log"
 
     func debugCurrentPixelSize() -> (width: UInt32, height: UInt32) {
         (lastPixelWidth, lastPixelHeight)
+    }
+
+    func debugDesiredFocusState() -> Bool {
+        desiredFocusState
     }
 
     private static func surfaceLog(_ message: String) {
@@ -3538,6 +3577,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // If surface doesn't exist yet, create it once the view is in a real window so
         // content scale and pixel geometry are derived from the actual backing context.
         if surface == nil {
+            guard allowsRuntimeSurfaceCreation() else {
+#if DEBUG
+                dlog(
+                    "surface.attach.skip surface=\(id.uuidString.prefix(5)) " +
+                    "reason=lifecycle.\(portalLifecycleState.rawValue)"
+                )
+#endif
+                return
+            }
             guard view.window != nil else {
 #if DEBUG
                 dlog(
@@ -3567,6 +3615,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private func createSurface(for view: GhosttyNSView) {
+        guard allowsRuntimeSurfaceCreation() else {
+#if DEBUG
+            dlog(
+                "surface.create.skip surface=\(id.uuidString.prefix(5)) " +
+                "reason=lifecycle.\(portalLifecycleState.rawValue)"
+            )
+            Self.surfaceLog(
+                "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
+            )
+#endif
+            return
+        }
         #if DEBUG
         let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
         let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"
@@ -4114,6 +4174,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 
+        guard allowsRuntimeSurfaceCreation() else { return }
         guard surface == nil, attachedView != nil else { return }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
@@ -4121,6 +4182,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
+            guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
@@ -4416,6 +4478,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keySequence: [ghostty_input_trigger_s] = []
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
+    private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeViewportRow: Int?
@@ -4664,6 +4727,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
+        }
+        // Balance the cursor stack if the view is removed while hover is active
+        if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
         }
 #if DEBUG
         dlog(
@@ -5002,6 +5070,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize(size: bounds.size)
         applySurfaceColorScheme(force: true)
         return surface
+    }
+
+    private func requestInputRecoveryAfterSurfaceMiss(reason: String) {
+        terminalSurface?.requestBackgroundSurfaceStartIfNeeded()
+#if DEBUG
+        dlog(
+            "focus.input_recovery surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "reason=\(reason) inWindow=\(window != nil ? 1 : 0)"
+        )
+#endif
     }
 
     func performBindingAction(_ action: String) -> Bool {
@@ -5434,12 +5512,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             desiredFocus = false
+            terminalSurface?.recordExternalFocusState(false)
         }
         if result, let surface = surface {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
-            terminalSurface?.recordExternalFocusState(false)
             ghostty_surface_set_focus(surface, false)
         }
         return result
@@ -5663,6 +5741,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
+            requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -6117,6 +6196,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.text = nil
         keyEvent.composing = false
         _ = ghostty_surface_key(surface, keyEvent)
+        // Refresh ghostty's mouse position so quicklook_word uses current coordinates
+        // when Cmd is pressed while the pointer is stationary.
+        let point = convert(event.locationInWindow, from: nil)
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        updateWordPathHover(cmdHeld: event.modifierFlags.contains(.command))
     }
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
@@ -6356,7 +6440,89 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         dlog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
         guard let surface = surface else { return }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+
+        // Fallback: if Cmd was held and ghostty didn't handle the click as a link,
+        // check if the word under cursor is a valid file/directory in the terminal's CWD.
+        // This enables cmd-click on bare filenames from commands like `ls`.
+        if !consumed && event.modifierFlags.contains(.command) {
+            // Refresh ghostty's cached mouse position so quicklook_word reads
+            // up-to-date coordinates (mouseDown skips pos update on double-click).
+            let point = convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+            tryOpenWordAsPath()
+        }
+    }
+
+    /// Attempt to open the word under the mouse cursor as a file path, resolved
+    /// against the terminal panel's current working directory.
+    private func tryOpenWordAsPath() {
+        guard let resolvedPath = resolveWordUnderCursorAsPath() else { return }
+
+        #if DEBUG
+        dlog("link.wordFallback resolved=\(resolvedPath)")
+        #endif
+
+        PreferredEditorSettings.open(URL(fileURLWithPath: resolvedPath))
+    }
+
+    /// Check if the word under the mouse cursor resolves to an existing file/directory
+    /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
+    private func resolveWordUnderCursorAsPath() -> String? {
+        guard let surface = surface else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_quicklook_word(surface, &text) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+
+        guard text.text_len > 0, let ptr = text.text else { return nil }
+        let wordData = Data(bytes: ptr, count: Int(text.text_len))
+        guard let decodedWord = String(bytes: wordData, encoding: .utf8) else { return nil }
+        let word = decodedWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty, !word.hasPrefix("/") else { return nil }
+
+        guard let termSurface = terminalSurface,
+              let workspace = termSurface.owningWorkspace(),
+              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+
+        // Use the same CWD fallback chain as Workspace split creation:
+        // panelDirectories (live OSC 7) → requestedWorkingDirectory → workspace currentDirectory
+        let cwd: String? = {
+            if let dir = workspace.panelDirectories[termSurface.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty { return dir }
+            if let dir = workspace.terminalPanel(for: termSurface.id)?
+                .requestedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !dir.isEmpty { return dir }
+            let dir = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            return dir.isEmpty ? nil : dir
+        }()
+        guard let cwd else { return nil }
+
+        let resolvedPath = (cwd as NSString).appendingPathComponent(word)
+        guard FileManager.default.fileExists(atPath: resolvedPath) else { return nil }
+        return resolvedPath
+    }
+
+    /// Update the pointing-hand cursor when Cmd-hovering over a bare filename
+    /// that exists in the terminal's CWD.
+    private func updateWordPathHover(cmdHeld: Bool) {
+        guard cmdHeld else {
+            if wordPathHoverActive {
+                wordPathHoverActive = false
+                NSCursor.pop()
+            }
+            return
+        }
+
+        if resolveWordUnderCursorAsPath() != nil {
+            if !wordPathHoverActive {
+                wordPathHoverActive = true
+                NSCursor.pointingHand.push()
+            }
+        } else if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -6419,19 +6585,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let menu = NSMenu()
         if onTriggerFlash != nil {
-            let flashItem = menu.addItem(withTitle: "Trigger Flash", action: #selector(triggerFlash(_:)), keyEquivalent: "")
+            let flashItem = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.triggerFlash", defaultValue: "Trigger Flash"),
+                action: #selector(triggerFlash(_:)),
+                keyEquivalent: ""
+            )
             flashItem.target = self
             menu.addItem(.separator())
         }
         if ghostty_surface_has_selection(surface) {
-            let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
+            let item = menu.addItem(
+                withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
+                action: #selector(copy(_:)),
+                keyEquivalent: ""
+            )
             item.target = self
         }
-        let pasteItem = menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "")
+        let pasteItem = menu.addItem(
+            withTitle: String(localized: "terminalContextMenu.paste", defaultValue: "Paste"),
+            action: #selector(paste(_:)),
+            keyEquivalent: ""
+        )
         pasteItem.target = self
         menu.addItem(.separator())
         let splitHorizontallyItem = menu.addItem(
-            withTitle: "Split Horizontally",
+            withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
             action: #selector(splitHorizontally(_:)),
             keyEquivalent: "d"
         )
@@ -6443,7 +6621,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 
         let splitVerticallyItem = menu.addItem(
-            withTitle: "Split Vertically",
+            withTitle: String(localized: "terminalContextMenu.splitVertically", defaultValue: "Split Vertically"),
             action: #selector(splitVertically(_:)),
             keyEquivalent: "d"
         )
@@ -6451,6 +6629,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         splitVerticallyItem.keyEquivalentModifierMask = [.command]
         splitVerticallyItem.image = NSImage(
             systemSymbolName: "rectangle.righthalf.inset.filled",
+            accessibilityDescription: nil
+        )
+        menu.addItem(.separator())
+        let resetTerminalItem = menu.addItem(
+            withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
+            action: #selector(resetTerminal(_:)),
+            keyEquivalent: ""
+        )
+        resetTerminalItem.target = self
+        resetTerminalItem.image = NSImage(
+            systemSymbolName: "arrow.trianglehead.2.clockwise",
             accessibilityDescription: nil
         )
         return menu
@@ -6490,11 +6679,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         onTriggerFlash?()
     }
 
+    @objc private func resetTerminal(_ sender: Any?) {
+        _ = performBindingAction("reset")
+    }
+
     override func mouseMoved(with event: NSEvent) {
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        updateWordPathHover(cmdHeld: event.modifierFlags.contains(.command))
     }
 
     override func mouseEntered(with event: NSEvent) {
@@ -6523,6 +6717,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        if wordPathHoverActive {
+            wordPathHoverActive = false
+            NSCursor.pop()
+        }
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
@@ -7094,11 +7292,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
 
-    private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
-        // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
-        // additional translucent layer here, alpha stacks and appears effectively opaque.
-        terminalBackgroundColor.alphaComponent < 0.999 ? .clear : terminalBackgroundColor
-    }
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
@@ -7286,9 +7479,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         let initialTerminalBackground = GhosttyApp.shared.defaultBackgroundColor
             .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-        let initialPanelFill = Self.panelBackgroundFillColor(for: initialTerminalBackground)
-        backgroundView.layer?.backgroundColor = initialPanelFill.cgColor
-        backgroundView.layer?.isOpaque = initialPanelFill.alphaComponent >= 1.0
+        backgroundView.layer?.backgroundColor = initialTerminalBackground.cgColor
+        backgroundView.layer?.isOpaque = initialTerminalBackground.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
         inactiveOverlayView.wantsLayer = true
@@ -7854,11 +8046,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor) {
         guard let layer = backgroundView.layer else { return }
-        let fillColor = Self.panelBackgroundFillColor(for: color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = fillColor.cgColor
-        layer.isOpaque = fillColor.alphaComponent >= 1.0
+        layer.backgroundColor = color.cgColor
+        layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
     }
 
@@ -8839,6 +9030,33 @@ final class GhosttySurfaceScrollView: NSView {
 
     func clearSuppressReparentFocus() {
         surfaceView.suppressingReparentFocus = false
+        let hasUsablePortalGeometry: Bool = {
+            let size = bounds.size
+            return size.width > 1 && size.height > 1
+        }()
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+
+        guard surfaceView.desiredFocus else { return }
+        guard isSurfaceViewFirstResponder() else { return }
+        guard isActive else { return }
+        guard surfaceView.isVisibleInUI else { return }
+        guard let window, window.isKeyWindow else { return }
+        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+#if DEBUG
+            dlog(
+                "focus.reparent.resume.defer surface=\(surfaceShort) " +
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            scheduleAutomaticFirstResponderApply(reason: "clearSuppressReparentFocus.hiddenOrTiny")
+            return
+        }
+#if DEBUG
+        dlog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")
+#endif
+        reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus")
     }
 
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
@@ -8865,6 +9083,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func reassertTerminalSurfaceFocus(reason: String) {
         guard let terminalSurface = surfaceView.terminalSurface else { return }
+        if terminalSurface.surface == nil {
+            terminalSurface.requestBackgroundSurfaceStartIfNeeded()
+        }
 #if DEBUG
         dlog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
