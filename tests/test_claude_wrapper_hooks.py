@@ -38,13 +38,15 @@ def parse_settings_arg(argv: list[str]) -> dict:
     return json.loads(argv[index + 1])
 
 
-def run_wrapper(*, socket_state: str, argv: list[str]) -> tuple[int, list[str], list[str], str, str]:
+def run_wrapper(*, socket_state: str, argv: list[str]) -> tuple[int, list[str], list[str], str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
         real_dir = tmp / "real-bin"
+        bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         real_dir.mkdir(parents=True, exist_ok=True)
+        bundled_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -52,6 +54,7 @@ def run_wrapper(*, socket_state: str, argv: list[str]) -> tuple[int, list[str], 
 
         real_args_log = tmp / "real-args.log"
         real_claudecode_log = tmp / "real-claudecode.log"
+        hook_cmux_bin_log = tmp / "hook-cmux-bin.log"
         cmux_log = tmp / "cmux.log"
         socket_path = str(tmp / "cmux.sock")
 
@@ -61,6 +64,7 @@ def run_wrapper(*, socket_state: str, argv: list[str]) -> tuple[int, list[str], 
 set -euo pipefail
 : > "$FAKE_REAL_ARGS_LOG"
 printf '%s\\n' "${CLAUDECODE-__UNSET__}" > "$FAKE_REAL_CLAUDECODE_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
@@ -84,6 +88,13 @@ fi
 exit 0
 """,
         )
+        bundled_cli_path = bundled_dir / "cmux"
+        make_executable(
+            bundled_cli_path,
+            """#!/usr/bin/env bash
+exit 0
+""",
+        )
 
         test_socket: socket.socket | None = None
         if socket_state in {"live", "stale"}:
@@ -96,8 +107,10 @@ exit 0
         env["CMUX_SOCKET_PATH"] = socket_path
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_CLAUDECODE_LOG"] = str(real_claudecode_log)
+        env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
 
         try:
@@ -114,8 +127,17 @@ exit 0
                 test_socket.close()
 
         claudecode_lines = read_lines(real_claudecode_log)
+        hook_cmux_bin_lines = read_lines(hook_cmux_bin_log)
         claudecode_value = claudecode_lines[0] if claudecode_lines else ""
-        return proc.returncode, read_lines(real_args_log), read_lines(cmux_log), proc.stderr.strip(), claudecode_value
+        hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
+        return (
+            proc.returncode,
+            read_lines(real_args_log),
+            read_lines(cmux_log),
+            proc.stderr.strip(),
+            claudecode_value,
+            hook_cmux_bin_value,
+        )
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -124,7 +146,7 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
 
 
 def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode = run_wrapper(socket_state="live", argv=["hello"])
+    code, real_argv, cmux_log, stderr, claudecode, hook_cmux_bin = run_wrapper(socket_state="live", argv=["hello"])
     expect(code == 0, f"live socket: wrapper exited {code}: {stderr}", failures)
     expect("--settings" in real_argv, f"live socket: missing --settings in args: {real_argv}", failures)
     expect("--session-id" in real_argv, f"live socket: missing --session-id in args: {real_argv}", failures)
@@ -136,11 +158,26 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
         failures,
     )
     expect(claudecode == "__UNSET__", f"live socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(hook_cmux_bin.endswith("/bundled cli/cmux"), f"live socket: expected bundled cmux pin, got {hook_cmux_bin!r}", failures)
 
     settings = parse_settings_arg(real_argv)
     hooks = settings.get("hooks", {})
     expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
+    for hook_name, expected_subcommand in {
+        "SessionStart": "session-start",
+        "Stop": "stop",
+        "SessionEnd": "session-end",
+        "Notification": "notification",
+        "UserPromptSubmit": "prompt-submit",
+        "PreToolUse": "pre-tool-use",
+    }.items():
+        hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
+        expect(
+            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" claude-hook {expected_subcommand}',
+            f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
+            failures,
+        )
     # PreToolUse should be async to avoid blocking tool execution
     pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
     expect(
@@ -158,15 +195,16 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
 
 
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode = run_wrapper(socket_state="missing", argv=["hello"])
+    code, real_argv, cmux_log, stderr, claudecode, hook_cmux_bin = run_wrapper(socket_state="missing", argv=["hello"])
     expect(code == 0, f"missing socket: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["hello"], f"missing socket: expected passthrough args, got {real_argv}", failures)
     expect(cmux_log == [], f"missing socket: expected no cmux calls, got {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"missing socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"missing socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
 def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode = run_wrapper(socket_state="stale", argv=["hello"])
+    code, real_argv, cmux_log, stderr, claudecode, hook_cmux_bin = run_wrapper(socket_state="stale", argv=["hello"])
     expect(code == 0, f"stale socket: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["hello"], f"stale socket: expected passthrough args, got {real_argv}", failures)
     expect(any(" ping" in line for line in cmux_log), f"stale socket: expected cmux ping probe, got {cmux_log}", failures)
@@ -176,6 +214,7 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
         failures,
     )
     expect(claudecode == "__UNSET__", f"stale socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
 def main() -> int:
