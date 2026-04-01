@@ -9900,9 +9900,13 @@ extension GhosttyNSView: NSTextInputClient {
                 continue
             }
 
-            if byte == 0x9B {
-                index = consumeLeadingCSISequence(in: bytes, from: index + 1)
-                continue
+            if byte == 0xC2 {
+                let next = index + 1
+                if next < bytes.count, bytes[next] == 0x9B {
+                    // U+009B (C1 CSI) is encoded as the UTF-8 byte pair C2 9B.
+                    index = consumeLeadingCSISequence(in: bytes, from: next + 1)
+                    continue
+                }
             }
 
             break
