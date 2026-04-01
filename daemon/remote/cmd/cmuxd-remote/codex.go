@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -19,14 +20,12 @@ type codexHookParsedInput struct {
 }
 
 type codexHookSessionRecord struct {
-	SessionID    string  `json:"sessionId"`
-	WorkspaceID  string  `json:"workspaceId"`
-	SurfaceID    string  `json:"surfaceId"`
-	CWD          string  `json:"cwd,omitempty"`
-	LastSubtitle string  `json:"lastSubtitle,omitempty"`
-	LastBody     string  `json:"lastBody,omitempty"`
-	StartedAt    float64 `json:"startedAt"`
-	UpdatedAt    float64 `json:"updatedAt"`
+	SessionID   string  `json:"sessionId"`
+	WorkspaceID string  `json:"workspaceId"`
+	SurfaceID   string  `json:"surfaceId"`
+	CWD         string  `json:"cwd,omitempty"`
+	StartedAt   float64 `json:"startedAt"`
+	UpdatedAt   float64 `json:"updatedAt"`
 }
 
 type codexHookSessionStoreFile struct {
@@ -43,6 +42,8 @@ const (
 	codexHookMaxStateAge      = 7 * 24 * time.Hour
 )
 
+var codexHookEvents = []string{"session-start", "prompt-submit", "stop"}
+
 func runCodexCommand(args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "cmux codex: requires a subcommand (install-hooks, uninstall-hooks)")
@@ -51,7 +52,7 @@ func runCodexCommand(args []string) int {
 
 	switch strings.ToLower(strings.TrimSpace(args[0])) {
 	case "install-hooks":
-		if err := installCodexHooks(); err != nil {
+		if err := installCodexHooks(args[1:]); err != nil {
 			fmt.Fprintf(os.Stderr, "cmux codex: %v\n", err)
 			return 1
 		}
@@ -82,6 +83,16 @@ func runCodexHookCommand(socketPath string, args []string, refreshAddr func() st
 		subcommand = strings.ToLower(strings.TrimSpace(args[0]))
 	}
 
+	switch subcommand {
+	case "session-start", "prompt-submit", "stop":
+	case "help", "--help", "-h":
+		fmt.Fprintln(os.Stderr, "Usage: cmux codex-hook <session-start|prompt-submit|stop>")
+		return 0
+	default:
+		fmt.Fprintf(os.Stderr, "cmux codex-hook: unknown subcommand %q\n", subcommand)
+		return 2
+	}
+
 	rawInputBytes, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cmux codex-hook: failed to read stdin: %v\n", err)
@@ -94,7 +105,7 @@ func runCodexHookCommand(socketPath string, args []string, refreshAddr func() st
 	case "session-start":
 		workspaceID, surfaceID := codexHookContext(parsed.sessionID, store)
 		if parsed.sessionID != "" && workspaceID != "" {
-			if err := store.upsert(parsed.sessionID, workspaceID, surfaceID, parsed.cwd, "", ""); err != nil {
+			if err := store.upsert(parsed.sessionID, workspaceID, surfaceID, parsed.cwd); err != nil {
 				fmt.Fprintf(os.Stderr, "cmux codex-hook: %v\n", err)
 				return 1
 			}
@@ -148,7 +159,7 @@ func runCodexHookCommand(socketPath string, args []string, refreshAddr func() st
 		}
 
 		if parsed.sessionID != "" && workspaceID != "" {
-			if err := store.upsert(parsed.sessionID, workspaceID, surfaceID, cwd, "Completed", lastMessage); err != nil {
+			if err := store.upsert(parsed.sessionID, workspaceID, surfaceID, cwd); err != nil {
 				fmt.Fprintf(os.Stderr, "cmux codex-hook: %v\n", err)
 				return 1
 			}
@@ -184,18 +195,22 @@ func runCodexHookCommand(socketPath string, args []string, refreshAddr func() st
 		}
 		fmt.Println("{}")
 		return 0
-
-	case "help", "--help", "-h":
-		fmt.Fprintln(os.Stderr, "Usage: cmux codex-hook <session-start|prompt-submit|stop>")
-		return 0
-
-	default:
-		fmt.Fprintf(os.Stderr, "cmux codex-hook: unknown subcommand %q\n", subcommand)
-		return 2
 	}
+
+	return 0
 }
 
-func installCodexHooks() error {
+func installCodexHooks(args []string) error {
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		switch trimmed {
+		case "", "--yes":
+			continue
+		default:
+			return fmt.Errorf("unknown flag %q", arg)
+		}
+	}
+
 	codexHome := os.Getenv("CODEX_HOME")
 	if strings.TrimSpace(codexHome) == "" {
 		codexHome = "~/.codex"
@@ -204,7 +219,7 @@ func installCodexHooks() error {
 	hooksPath := filepath.Join(codexHome, "hooks.json")
 	configPath := filepath.Join(codexHome, "config.toml")
 
-	if err := os.MkdirAll(codexHome, 0o755); err != nil {
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
 		return err
 	}
 
@@ -225,12 +240,12 @@ func installCodexHooks() error {
 	}
 
 	if hooksChanged {
-		if err := os.WriteFile(hooksPath, []byte(newHooksContent), 0o644); err != nil {
+		if err := writeFileAtomic(hooksPath, []byte(newHooksContent), 0o600); err != nil {
 			return err
 		}
 	}
 	if configChanged {
-		if err := os.WriteFile(configPath, []byte(newConfigContent), 0o644); err != nil {
+		if err := writeFileAtomic(configPath, []byte(newConfigContent), 0o600); err != nil {
 			return err
 		}
 	}
@@ -267,12 +282,12 @@ func uninstallCodexHooks() error {
 	}
 
 	if removedCount > 0 {
-		if err := os.WriteFile(hooksPath, []byte(newHooksContent), 0o644); err != nil {
+		if err := writeFileAtomic(hooksPath, []byte(newHooksContent), 0o600); err != nil {
 			return err
 		}
 	}
 	if configChanged {
-		if err := os.WriteFile(configPath, []byte(newConfigContent), 0o644); err != nil {
+		if err := writeFileAtomic(configPath, []byte(newConfigContent), 0o600); err != nil {
 			return err
 		}
 	}
@@ -283,7 +298,9 @@ func uninstallCodexHooks() error {
 func buildCodexHooksContent(existingContent string) (string, error) {
 	existing := map[string]any{}
 	if strings.TrimSpace(existingContent) != "" {
-		_ = json.Unmarshal([]byte(existingContent), &existing)
+		if err := json.Unmarshal([]byte(existingContent), &existing); err != nil {
+			return "", fmt.Errorf("invalid hooks.json: %w", err)
+		}
 	}
 
 	hooks, _ := existing["hooks"].(map[string]any)
@@ -359,7 +376,7 @@ func codexHooksDefinition() map[string][]map[string]any {
 			{
 				"hooks": []map[string]any{{
 					"type":    "command",
-					"command": codexHookCommandRemote("session-start"),
+					"command": codexOwnedHookCommandRemote("session-start"),
 					"timeout": 10,
 				}},
 			},
@@ -368,7 +385,7 @@ func codexHooksDefinition() map[string][]map[string]any {
 			{
 				"hooks": []map[string]any{{
 					"type":    "command",
-					"command": codexHookCommandRemote("prompt-submit"),
+					"command": codexOwnedHookCommandRemote("prompt-submit"),
 					"timeout": 10,
 				}},
 			},
@@ -377,7 +394,7 @@ func codexHooksDefinition() map[string][]map[string]any {
 			{
 				"hooks": []map[string]any{{
 					"type":    "command",
-					"command": codexHookCommandRemote("stop"),
+					"command": codexOwnedHookCommandRemote("stop"),
 					"timeout": 10,
 				}},
 			},
@@ -387,6 +404,10 @@ func codexHooksDefinition() map[string][]map[string]any {
 
 func codexHookCommandRemote(event string) string {
 	return fmt.Sprintf(`[ -n "$CMUX_SURFACE_ID" ] && command -v cmux >/dev/null 2>&1 && cmux codex-hook %s || echo '{}'`, event)
+}
+
+func codexOwnedHookCommandRemote(event string) string {
+	return codexHookCommandRemote(event) + " # cmux-managed"
 }
 
 func codexGroupOwnedByCmux(group map[string]any) bool {
@@ -400,11 +421,27 @@ func codexGroupOwnedByCmux(group map[string]any) bool {
 	}
 	for _, hook := range hooks {
 		command, _ := hook["command"].(string)
-		if !strings.Contains(command, "cmux codex-hook") {
+		if !codexCommandOwnedByCmux(command) {
 			return false
 		}
 	}
 	return true
+}
+
+func codexCommandOwnedByCmux(command string) bool {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasSuffix(trimmed, "# cmux-managed") {
+		return true
+	}
+	for _, event := range codexHookEvents {
+		if trimmed == codexHookCommandRemote(event) {
+			return true
+		}
+	}
+	return false
 }
 
 func anySliceToMapSlice(value any) []map[string]any {
@@ -426,19 +463,19 @@ func anySliceToMapSlice(value any) []map[string]any {
 
 func buildConfigWithCodexHooksRemote(content string) string {
 	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if isTOMLKeyRemote(line, "codex_hooks") {
-			lines[i] = "codex_hooks = true"
-			return strings.Join(lines, "\n")
+	sectionRanges := tomlSectionRanges(lines)
+	if featuresRange, ok := sectionRanges["features"]; ok {
+		for i := featuresRange.start; i < featuresRange.end; i++ {
+			if isTOMLKeyRemote(lines[i], "codex_hooks") {
+				lines[i] = "codex_hooks = true"
+				return strings.Join(lines, "\n")
+			}
 		}
-	}
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "[features]" {
-			updated := append([]string{}, lines[:i+1]...)
-			updated = append(updated, "codex_hooks = true")
-			updated = append(updated, lines[i+1:]...)
-			return strings.Join(updated, "\n")
-		}
+		insertAt := featuresRange.end
+		updated := append([]string{}, lines[:insertAt]...)
+		updated = append(updated, "codex_hooks = true")
+		updated = append(updated, lines[insertAt:]...)
+		return strings.Join(updated, "\n")
 	}
 	result := content
 	if result != "" && !strings.HasSuffix(result, "\n") {
@@ -450,27 +487,39 @@ func buildConfigWithCodexHooksRemote(content string) string {
 
 func buildConfigWithoutCodexHooksRemote(content string) string {
 	lines := strings.Split(content, "\n")
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if !isTOMLKeyRemote(line, "codex_hooks") {
-			filtered = append(filtered, line)
-		}
+	sectionRanges := tomlSectionRanges(lines)
+	featuresRange, ok := sectionRanges["features"]
+	if !ok {
+		return content
 	}
-	for i, line := range filtered {
-		if strings.TrimSpace(line) != "[features]" {
-			continue
-		}
-		nextNonEmpty := -1
-		for j := i + 1; j < len(filtered); j++ {
-			if strings.TrimSpace(filtered[j]) != "" {
-				nextNonEmpty = j
-				break
+
+	featuresHasContent := false
+	for i, line := range lines {
+		if i >= featuresRange.start && i < featuresRange.end {
+			trimmed := strings.TrimSpace(line)
+			if isTOMLKeyRemote(line, "codex_hooks") {
+				continue
+			}
+			if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+				featuresHasContent = true
 			}
 		}
-		if nextNonEmpty == -1 || strings.HasPrefix(strings.TrimSpace(filtered[nextNonEmpty]), "[") {
-			return strings.Join(append(filtered[:i], filtered[i+1:]...), "\n")
+	}
+
+	filtered := make([]string, 0, len(lines))
+	removingFeaturesHeader := !featuresHasContent
+	for i, line := range lines {
+		if removingFeaturesHeader && i == featuresRange.headerIndex {
+			continue
 		}
-		break
+		if i >= featuresRange.start && i < featuresRange.end && isTOMLKeyRemote(line, "codex_hooks") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+
+	if featuresHasContent {
+		return strings.Join(filtered, "\n")
 	}
 	return strings.Join(filtered, "\n")
 }
@@ -482,6 +531,55 @@ func isTOMLKeyRemote(line, key string) bool {
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, key))
 	return strings.HasPrefix(rest, "=")
+}
+
+type tomlSectionRange struct {
+	headerIndex int
+	start       int
+	end         int
+}
+
+func tomlSectionRanges(lines []string) map[string]tomlSectionRange {
+	ranges := map[string]tomlSectionRange{}
+	currentName := ""
+	currentHeader := -1
+	currentStart := -1
+	for i, line := range lines {
+		sectionName, ok := parseTOMLSectionName(line)
+		if !ok {
+			continue
+		}
+		if currentName != "" {
+			ranges[currentName] = tomlSectionRange{
+				headerIndex: currentHeader,
+				start:       currentStart,
+				end:         i,
+			}
+		}
+		currentName = sectionName
+		currentHeader = i
+		currentStart = i + 1
+	}
+	if currentName != "" {
+		ranges[currentName] = tomlSectionRange{
+			headerIndex: currentHeader,
+			start:       currentStart,
+			end:         len(lines),
+		}
+	}
+	return ranges
+}
+
+func parseTOMLSectionName(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "[[") || !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") {
+		return "", false
+	}
+	name := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+	if name == "" || strings.Contains(name, ".") {
+		return "", false
+	}
+	return name, true
 }
 
 func parseCodexHookInput(rawInput string) codexHookParsedInput {
@@ -601,53 +699,47 @@ func (s *codexHookSessionStore) lookup(sessionID string) (*codexHookSessionRecor
 	if normalized == "" {
 		return nil, nil
 	}
-	state, err := s.load()
-	if err != nil {
-		return nil, err
-	}
-	record, ok := state.Sessions[normalized]
-	if !ok {
-		return nil, nil
-	}
-	return &record, nil
+	var record *codexHookSessionRecord
+	err := s.withLockedState(true, func(state *codexHookSessionStoreFile) error {
+		stored, ok := state.Sessions[normalized]
+		if !ok {
+			return nil
+		}
+		copyRecord := stored
+		record = &copyRecord
+		return nil
+	})
+	return record, err
 }
 
-func (s *codexHookSessionStore) upsert(sessionID, workspaceID, surfaceID, cwd, lastSubtitle, lastBody string) error {
+func (s *codexHookSessionStore) upsert(sessionID, workspaceID, surfaceID, cwd string) error {
 	normalized := normalizeCodexHookString(sessionID)
 	if normalized == "" {
 		return nil
 	}
-	state, err := s.load()
-	if err != nil {
-		return err
-	}
-	now := float64(time.Now().Unix())
-	record, ok := state.Sessions[normalized]
-	if !ok {
-		record = codexHookSessionRecord{
-			SessionID:   normalized,
-			WorkspaceID: normalizeCodexHookString(workspaceID),
-			SurfaceID:   normalizeCodexHookString(surfaceID),
-			StartedAt:   now,
-			UpdatedAt:   now,
+	return s.withLockedState(false, func(state *codexHookSessionStoreFile) error {
+		now := float64(time.Now().Unix())
+		record, ok := state.Sessions[normalized]
+		if !ok {
+			record = codexHookSessionRecord{
+				SessionID:   normalized,
+				WorkspaceID: normalizeCodexHookString(workspaceID),
+				SurfaceID:   normalizeCodexHookString(surfaceID),
+				StartedAt:   now,
+				UpdatedAt:   now,
+			}
 		}
-	}
-	record.WorkspaceID = normalizeCodexHookString(workspaceID)
-	if normalizedSurfaceID := normalizeCodexHookString(surfaceID); normalizedSurfaceID != "" {
-		record.SurfaceID = normalizedSurfaceID
-	}
-	if normalizedCWD := normalizeCodexHookString(cwd); normalizedCWD != "" {
-		record.CWD = normalizedCWD
-	}
-	if normalizedSubtitle := normalizeCodexHookString(lastSubtitle); normalizedSubtitle != "" {
-		record.LastSubtitle = normalizedSubtitle
-	}
-	if normalizedBody := normalizeCodexHookString(lastBody); normalizedBody != "" {
-		record.LastBody = normalizedBody
-	}
-	record.UpdatedAt = now
-	state.Sessions[normalized] = record
-	return s.save(state)
+		record.WorkspaceID = normalizeCodexHookString(workspaceID)
+		if normalizedSurfaceID := normalizeCodexHookString(surfaceID); normalizedSurfaceID != "" {
+			record.SurfaceID = normalizedSurfaceID
+		}
+		if normalizedCWD := normalizeCodexHookString(cwd); normalizedCWD != "" {
+			record.CWD = normalizedCWD
+		}
+		record.UpdatedAt = now
+		state.Sessions[normalized] = record
+		return nil
+	})
 }
 
 func (s *codexHookSessionStore) load() (*codexHookSessionStoreFile, error) {
@@ -662,7 +754,12 @@ func (s *codexHookSessionStore) load() (*codexHookSessionStoreFile, error) {
 		}
 		return nil, err
 	}
-	_ = json.Unmarshal(data, state)
+	if len(data) == 0 {
+		return state, nil
+	}
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, fmt.Errorf("decode hook state: %w", err)
+	}
 	if state.Sessions == nil {
 		state.Sessions = map[string]codexHookSessionRecord{}
 	}
@@ -677,14 +774,82 @@ func (s *codexHookSessionStore) load() (*codexHookSessionStoreFile, error) {
 
 func (s *codexHookSessionStore) save(state *codexHookSessionStoreFile) error {
 	parentDir := filepath.Dir(s.statePath)
-	if err := os.MkdirAll(parentDir, 0o755); err != nil {
+	if err := os.MkdirAll(parentDir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.statePath, append(data, '\n'), 0o644)
+	return writeFileAtomic(s.statePath, append(data, '\n'), 0o600)
+}
+
+func (s *codexHookSessionStore) withLockedState(readOnly bool, fn func(state *codexHookSessionStoreFile) error) error {
+	lockFile, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+		_ = lockFile.Close()
+	}()
+
+	state, err := s.load()
+	if err != nil {
+		return err
+	}
+	if err := fn(state); err != nil {
+		return err
+	}
+	if readOnly {
+		return nil
+	}
+	return s.save(state)
+}
+
+func (s *codexHookSessionStore) lock() (*os.File, error) {
+	parentDir := filepath.Dir(s.statePath)
+	if err := os.MkdirAll(parentDir, 0o700); err != nil {
+		return nil, err
+	}
+	lockPath := s.statePath + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		_ = lockFile.Close()
+		return nil, err
+	}
+	return lockFile, nil
+}
+
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	parentDir := filepath.Dir(path)
+	if err := os.MkdirAll(parentDir, 0o700); err != nil {
+		return err
+	}
+	tempFile, err := os.CreateTemp(parentDir, filepath.Base(path)+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer func() { _ = os.Remove(tempPath) }()
+	if err := tempFile.Chmod(mode); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if _, err := tempFile.Write(data); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
 }
 
 func codexHookContext(sessionID string, store *codexHookSessionStore) (string, string) {

@@ -121,6 +121,23 @@
         }
       }
     },
+    "workspace.remoteDaemon.missingRequiredCapability": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote daemon missing required capability %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンに必要な機能 %@ がありません"
+          }
+        }
+      }
+    },
     "cli.claude-teams.usage": {
       "extractionState": "manual",
       "localizations": {

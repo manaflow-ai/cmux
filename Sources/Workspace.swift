@@ -3219,6 +3219,19 @@ final class WorkspaceRemoteSessionController {
 
     private static let requiredCodexHooksCapability = "cli.codex.hooks"
 
+    private var requiresCodexHooksCapability: Bool {
+        guard let relayPort = configuration.relayPort, relayPort > 0,
+              let relayID = configuration.relayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayID.isEmpty,
+              let relayToken = configuration.relayToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayToken.isEmpty,
+              let localSocketPath = configuration.localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !localSocketPath.isEmpty else {
+            return false
+        }
+        return true
+    }
+
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     private var proxyEndpoint: BrowserProxyEndpoint?
@@ -3354,9 +3367,15 @@ final class WorkspaceRemoteSessionController {
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello = try bootstrapDaemonLocked()
-            if let missingCapability = Self.firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) {
+            if let missingCapability = firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(missingCapability)",
+                    NSLocalizedDescriptionKey: String(
+                        format: String(
+                            localized: "workspace.remoteDaemon.missingRequiredCapability",
+                            defaultValue: "Remote daemon missing required capability %@"
+                        ),
+                        missingCapability
+                    ),
                 ])
             }
             daemonReady = true
@@ -3994,7 +4013,7 @@ final class WorkspaceRemoteSessionController {
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
-        if hadExistingBinary, Self.firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) != nil {
+        if hadExistingBinary, firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) != nil {
             debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
@@ -4598,11 +4617,11 @@ final class WorkspaceRemoteSessionController {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
-    private static func firstMissingRequiredRemoteDaemonCapability(in capabilities: [String]) -> String? {
-        let requiredCapabilities = [
-            WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability,
-            requiredCodexHooksCapability,
-        ]
+    private func firstMissingRequiredRemoteDaemonCapability(in capabilities: [String]) -> String? {
+        var requiredCapabilities = [WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability]
+        if requiresCodexHooksCapability {
+            requiredCapabilities.append(Self.requiredCodexHooksCapability)
+        }
         for capability in requiredCapabilities where !capabilities.contains(capability) {
             return capability
         }

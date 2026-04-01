@@ -9,13 +9,6 @@ cd "$PROJECT_DIR"
 echo "==> Initializing submodules..."
 git submodule update --init --recursive
 
-echo "==> Checking for zig..."
-if ! command -v zig &> /dev/null; then
-    echo "Error: zig is not installed."
-    echo "Install via: brew install zig"
-    exit 1
-fi
-
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
 CACHE_DIR="$CACHE_ROOT/$GHOSTTY_SHA"
@@ -54,6 +47,12 @@ download_prebuilt_ghosttykit() {
 }
 
 build_local_ghosttykit() {
+    echo "==> Checking for zig..."
+    if ! command -v zig >/dev/null 2>&1; then
+        echo "Error: zig is required to build GhosttyKit.xcframework locally."
+        echo "Install via: brew install zig"
+        return 1
+    fi
     echo "==> Building GhosttyKit.xcframework locally (this may take a few minutes)..."
     (
         cd ghostty
@@ -87,7 +86,7 @@ while ! mkdir "$LOCK_DIR" 2>/dev/null; do
     echo "==> Waiting for GhosttyKit cache lock for $GHOSTTY_SHA..."
     sleep 1
 done
-trap 'rm -rf "$TMP_ROOT" >/dev/null 2>&1 || true; rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
+trap 'if [ -n "$TMP_ROOT" ]; then rm -rf "$TMP_ROOT" >/dev/null 2>&1 || true; fi; rmdir "$LOCK_DIR" >/dev/null 2>&1 || true' EXIT
 
 if [ -d "$CACHE_XCFRAMEWORK" ]; then
     echo "==> Reusing cached GhosttyKit.xcframework"
