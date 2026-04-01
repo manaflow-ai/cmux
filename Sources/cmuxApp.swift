@@ -3931,7 +3931,8 @@ enum ClaudeCodeIntegrationSettings {
     }
 
     static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
-        let value = defaults.string(forKey: customClaudePathKey) ?? ""
+        let value = defaults.string(forKey: customClaudePathKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
     }
 }

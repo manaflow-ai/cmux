@@ -8,10 +8,19 @@
 
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
-    # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path
-    if [[ -n "${CMUX_CUSTOM_CLAUDE_PATH:-}" && -x "$CMUX_CUSTOM_CLAUDE_PATH" ]]; then
-        printf '%s' "$CMUX_CUSTOM_CLAUDE_PATH"
-        return 0
+    # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path.
+    # Guard against self-reference (user pointing back to this wrapper).
+    local custom="${CMUX_CUSTOM_CLAUDE_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
+    custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        local custom_real self_real
+        custom_real="$(cd "$(dirname "$custom")" && pwd)/$(basename "$custom")"
+        self_real="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+        if [[ "$custom_real" != "$self_real" ]]; then
+            printf '%s' "$custom"
+            return 0
+        fi
     fi
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
