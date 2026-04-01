@@ -157,7 +157,7 @@ final class WindowTerminalHostView: NSView {
                 kind.cursor.set()
                 TerminalWindowPortalRegistry.noteSplitDividerInteraction(
                     in: window,
-                    eventType: currentEvent?.type
+                    event: currentEvent
                 )
                 return nil
             }
@@ -1707,6 +1707,7 @@ enum TerminalWindowPortalRegistry {
     private static var externalGeometrySyncForAllWindowsGeneration: UInt64 = 0
     private static var interactiveGeometryResizeCount = 0
     private static var activeSplitDividerDragWindowId: ObjectIdentifier?
+    private static var activeSplitDividerDragEventNumber: Int?
 #if DEBUG
     private static var blockedBindCount: Int = 0
     private static var blockedBindReasons: [String: Int] = [:]
@@ -1723,41 +1724,37 @@ enum TerminalWindowPortalRegistry {
     private static func isCurrentEventSplitDividerDrag() -> Bool {
         let isLeftButtonDown = (NSEvent.pressedMouseButtons & 1) != 0
         guard isLeftButtonDown else {
-            activeSplitDividerDragWindowId = nil
+            clearActiveSplitDividerDrag()
             return false
-        }
-
-        if let activeSplitDividerDragWindowId {
-            let hasActiveWindow = NSApp.windows.contains { ObjectIdentifier($0) == activeSplitDividerDragWindowId }
-            if hasActiveWindow {
-                return true
-            }
-            Self.activeSplitDividerDragWindowId = nil
         }
 
         guard let event = NSApp.currentEvent else { return false }
 
         switch event.type {
         case .leftMouseUp:
-            activeSplitDividerDragWindowId = nil
+            clearActiveSplitDividerDrag()
             return false
-        default:
-            break
-        }
-
-        let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
-
-        switch event.type {
         case .leftMouseDown, .leftMouseDragged:
             break
         default:
             return false
         }
 
+        if let activeSplitDividerDragWindowId, let activeSplitDividerDragEventNumber {
+            let hasActiveWindow = NSApp.windows.contains { ObjectIdentifier($0) == activeSplitDividerDragWindowId }
+            if hasActiveWindow, event.eventNumber == activeSplitDividerDragEventNumber {
+                return true
+            }
+            clearActiveSplitDividerDrag()
+        }
+
+        let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
+
         let mouseLocation = NSEvent.mouseLocation
         for window in candidateWindows {
             if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
                 activeSplitDividerDragWindowId = ObjectIdentifier(window)
+                activeSplitDividerDragEventNumber = event.eventNumber
                 return true
             }
         }
@@ -1765,13 +1762,19 @@ enum TerminalWindowPortalRegistry {
         return false
     }
 
-    fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, eventType: NSEvent.EventType?) {
-        guard let window else { return }
+    private static func clearActiveSplitDividerDrag() {
+        activeSplitDividerDragWindowId = nil
+        activeSplitDividerDragEventNumber = nil
+    }
+
+    fileprivate static func noteSplitDividerInteraction(in window: NSWindow?, event: NSEvent?) {
+        guard let window, let event else { return }
         guard (NSEvent.pressedMouseButtons & 1) != 0 else { return }
 
-        switch eventType {
+        switch event.type {
         case .leftMouseDown, .leftMouseDragged:
             activeSplitDividerDragWindowId = ObjectIdentifier(window)
+            activeSplitDividerDragEventNumber = event.eventNumber
         default:
             break
         }
