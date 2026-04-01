@@ -15,6 +15,7 @@ Validates that shell integration:
    the HEAD baseline
 9) stops parent-shell PR tracking before nested shells start in the same panel
 10) preserves ports polling throttling after an explicit ports kick
+11) preserves cached PR results across ordinary preexec cycles
 """
 
 from __future__ import annotations
@@ -276,6 +277,16 @@ def _shell_command(kind: str, scenario: str) -> str:
             '_cmux_prompt_entry\n'
             '_cmux_cleanup\n'
         ),
+        "preexec_preserves_pr_cache": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_regular_command_entry\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_cleanup\n'
+        ),
     }[scenario]
 
     if kind == "zsh":
@@ -285,6 +296,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             _cmux_send() {{ print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_precmd; }}
             _cmux_nested_shell_entry() {{ _cmux_preexec zsh; }}
+            _cmux_regular_command_entry() {{ _cmux_preexec "echo hi"; }}
             _cmux_cleanup() {{ _cmux_zshexit; }}
             {shared}"""
         )
@@ -296,6 +308,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
             _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook; }}
+            _cmux_regular_command_entry() {{ _cmux_bash_preexec_hook; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
             {shared}"""
         )
@@ -458,6 +471,17 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     if scenario == "nested_shell_stops_parent_poll":
         return (0, f"{shell}/{scenario}: ok")
 
+    if scenario == "preexec_preserves_pr_cache":
+        if gh_count != 1:
+            return (
+                1,
+                f"{shell}/{scenario}: expected cached PR result to survive ordinary preexec, saw {gh_count} gh calls\n"
+                + "\n".join(gh_args_lines),
+            )
+        if _report_line(1138) not in send_lines:
+            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+        return (0, f"{shell}/{scenario}: ok")
+
     return (1, f"{shell}/{scenario}: unhandled scenario")
 
 
@@ -476,6 +500,7 @@ def main() -> int:
         "initial_prompt_preserves_pr_badge",
         "nested_shell_stops_parent_poll",
         "ports_kick_throttle",
+        "preexec_preserves_pr_cache",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"

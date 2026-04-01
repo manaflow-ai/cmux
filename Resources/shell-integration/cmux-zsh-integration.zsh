@@ -681,7 +681,7 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
-_cmux_stop_pr_poll_loop() {
+_cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
         # negative PID kills the loop + all descendants (gh, sleep) without
@@ -693,6 +693,10 @@ _cmux_stop_pr_poll_loop() {
     [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_stop_pr_poll_loop() {
+    _cmux_halt_pr_poll_loop
     _cmux_pr_cache_clear
 }
 
@@ -712,7 +716,7 @@ _cmux_start_pr_poll_loop() {
     fi
 
     if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        _cmux_stop_pr_poll_loop
+        _cmux_halt_pr_poll_loop
     else
         _CMUX_PR_POLL_PID=""
     fi
@@ -866,7 +870,7 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
-    _cmux_stop_pr_poll_loop
+    _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     if _cmux_command_starts_nested_shell "$cmd"; then
         return 0
