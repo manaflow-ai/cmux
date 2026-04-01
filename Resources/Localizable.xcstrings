@@ -53123,6 +53123,57 @@
         }
       }
     },
+    "settings.automation.claudeCode.customPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Binary Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeバイナリパス"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeCode.customPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. /usr/local/bin/claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: /usr/local/bin/claude"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeCode.customPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom path to the claude binary. Leave empty to use PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claudeバイナリのカスタムパス。空欄の場合はPATHを使用します。"
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode.note": {
       "extractionState": "manual",
       "localizations": {

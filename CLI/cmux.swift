@@ -9688,12 +9688,30 @@ struct CMUXCLI {
             .deletingLastPathComponent()
             .appendingPathComponent("claude", isDirectory: false)
             .path
-        let claudeExecutablePath = resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
-            ?? {
-                guard let bundledClaudePath,
-                      FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
-                return bundledClaudePath
-            }()
+        let claudeExecutablePath: String? = {
+            // Check custom path from Settings > Automation > Claude Code.
+            // Try env var first (set by the app per-session), then UserDefaults.
+            let candidates = [
+                launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
+                UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
+            ]
+            for raw in candidates {
+                guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !trimmed.isEmpty else { continue }
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir),
+                      !isDir.boolValue,
+                      FileManager.default.isExecutableFile(atPath: trimmed),
+                      !isCmuxClaudeWrapper(at: trimmed) else { continue }
+                return trimmed
+            }
+            return resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
+                ?? {
+                    guard let bundledClaudePath,
+                          FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
+                    return bundledClaudePath
+                }()
+        }()
         configureClaudeTeamsEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
