@@ -13,7 +13,7 @@ Validates that shell integration:
 7) falls back to explicit branch lookup when implicit gh branch resolution fails
 8) does not clear an existing PR badge on the first prompt while establishing
    the HEAD baseline
-9) stops a parent PR poller before nested shells start in the same panel
+9) stops parent-shell PR tracking before nested shells start in the same panel
 10) preserves ports polling throttling after an explicit ports kick
 """
 
@@ -259,6 +259,11 @@ def _shell_command(kind: str, scenario: str) -> str:
             'if kill -0 "$parent_pid" 2>/dev/null; then\n'
             '  echo "parent poller still running" >&2\n'
             '  exit 42\n'
+            'fi\n'
+            'parent_watch_pid="${_CMUX_GIT_HEAD_WATCH_PID:-}"\n'
+            'if [ -n "$parent_watch_pid" ] && kill -0 "$parent_watch_pid" 2>/dev/null; then\n'
+            '  echo "parent HEAD watcher still running" >&2\n'
+            '  exit 43\n'
             'fi\n'
             '_cmux_cleanup\n'
         ),

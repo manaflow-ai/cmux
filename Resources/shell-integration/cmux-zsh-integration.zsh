@@ -792,6 +792,56 @@ _cmux_start_git_head_watch() {
     _CMUX_GIT_HEAD_WATCH_PID=$!
 }
 
+_cmux_command_starts_nested_shell() {
+    local cmd="$1"
+    local -a words
+    words=("${(z)cmd}")
+
+    local index=1
+    local word base
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index <= ${#words} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word:t}"
+        case "$base" in
+            bash|zsh|sh|fish|nu|nix-shell)
+                return 0 ;;
+            nix)
+                local next_index=$(( index + 1 ))
+                local next_word="${words[next_index]}"
+                case "$next_word" in
+                    develop|shell)
+                        return 0 ;;
+                esac ;;
+        esac
+
+        return 1
+    done
+
+    return 1
+}
+
 _cmux_preexec() {
     _cmux_tmux_sync_cmux_environment
 
@@ -817,6 +867,10 @@ _cmux_preexec() {
     _cmux_report_tty_once
     _cmux_ports_kick
     _cmux_stop_pr_poll_loop
+    _cmux_stop_git_head_watch
+    if _cmux_command_starts_nested_shell "$cmd"; then
+        return 0
+    fi
     _cmux_start_git_head_watch
 }
 
