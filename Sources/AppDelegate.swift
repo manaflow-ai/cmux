@@ -4988,14 +4988,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        if TerminalController.shouldSuppressSocketCommandActivation() {
-            if window.isMiniaturized {
-                window.deminiaturize(nil)
-            }
-            if TerminalController.socketCommandAllowsInAppFocusMutations() {
-                window.orderFront(nil)
-                setActiveMainWindow(window)
-            }
+        if TerminalController.shouldSuppressSocketCommandActivation(),
+           !TerminalController.socketCommandAllowsInAppFocusMutations() {
+            setActiveMainWindow(window)
             return true
         }
         bringToFront(window)
@@ -11890,6 +11885,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func bringToFront(_ window: NSWindow) {
+        if TerminalController.shouldSuppressSocketCommandActivation(),
+           !TerminalController.socketCommandAllowsInAppFocusMutations() {
+            return
+        }
+        setActiveMainWindow(window)
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }
