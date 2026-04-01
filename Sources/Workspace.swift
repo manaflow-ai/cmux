@@ -3258,6 +3258,7 @@ final class WorkspaceRemoteSessionController {
     private var remotePortScanCoalesceWorkItem: DispatchWorkItem?
     private var remotePortPollTimer: DispatchSourceTimer?
     private var polledRemotePorts: [Int] = []
+    private var keepPolledRemotePortsUntilTTYScan = false
     private var reverseRelayStderrPipe: Pipe?
     private var reverseRelayRestartWorkItem: DispatchWorkItem?
     private var reverseRelayStderrBuffer = ""
@@ -3365,6 +3366,7 @@ final class WorkspaceRemoteSessionController {
         remoteScannedPortsByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
+        keepPolledRemotePortsUntilTTYScan = false
 
         proxyLease?.release()
         proxyLease = nil
@@ -3647,6 +3649,7 @@ final class WorkspaceRemoteSessionController {
             remoteScannedPortsByPanel.removeAll()
             stopRemotePortPollingLocked()
             polledRemotePorts = []
+            keepPolledRemotePortsUntilTTYScan = false
             proxyEndpoint = nil
             publishProxyEndpoint(nil)
             publishPortsSnapshotLocked()
@@ -4960,13 +4963,27 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func updateRemotePortScanTTYsLocked(_ ttyNames: [UUID: String]) {
+        let previousTTYNames = remotePortScanTTYNames
         let nextTTYNames = ttyNames.reduce(into: [UUID: String]()) { result, entry in
             guard let ttyName = Self.normalizedRemotePortScanTTYName(entry.value) else { return }
             result[entry.key] = ttyName
         }
-        guard remotePortScanTTYNames != nextTTYNames else { return }
+        guard previousTTYNames != nextTTYNames else { return }
+        keepPolledRemotePortsUntilTTYScan =
+            !previousTTYNames.isEmpty
+            ? keepPolledRemotePortsUntilTTYScan
+            : shouldUseFallbackRemotePortPollingLocked() && !polledRemotePorts.isEmpty && !nextTTYNames.isEmpty
+        remoteScannedPortsByPanel = remoteScannedPortsByPanel.filter { panelId, _ in
+            guard let oldTTY = previousTTYNames[panelId],
+                  let newTTY = nextTTYNames[panelId] else {
+                return false
+            }
+            return oldTTY == newTTY
+        }
         remotePortScanTTYNames = nextTTYNames
-        remoteScannedPortsByPanel = remoteScannedPortsByPanel.filter { remotePortScanTTYNames[$0.key] != nil }
+        if nextTTYNames.isEmpty {
+            keepPolledRemotePortsUntilTTYScan = false
+        }
         updateRemotePortPollingStateLocked()
         publishPortsSnapshotLocked()
     }
@@ -5038,12 +5055,15 @@ final class WorkspaceRemoteSessionController {
         let ttyNamesByPanel = remotePortScanTTYNames
         guard !ttyNamesByPanel.isEmpty else {
             remoteScannedPortsByPanel.removeAll()
+            keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
         }
 
         do {
             remoteScannedPortsByPanel = try scanRemotePortsByPanelLocked(ttyNamesByPanel: ttyNamesByPanel)
+            keepPolledRemotePortsUntilTTYScan = false
+            polledRemotePorts = []
             publishPortsSnapshotLocked()
         } catch {
             debugLog("remote.ports.scan.failed error=\(error.localizedDescription) \(debugConfigSummary())")
@@ -5093,7 +5113,9 @@ final class WorkspaceRemoteSessionController {
     private func updateRemotePortPollingStateLocked() {
         guard daemonReady, !isStopping, shouldUseFallbackRemotePortPollingLocked(), remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
+            if !keepPolledRemotePortsUntilTTYScan {
+                polledRemotePorts = []
+            }
             return
         }
         startRemotePortPollingLocked()
@@ -5105,12 +5127,15 @@ final class WorkspaceRemoteSessionController {
         guard shouldUseFallbackRemotePortPollingLocked() else {
             stopRemotePortPollingLocked()
             polledRemotePorts = []
+            keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
         }
         guard remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
-            polledRemotePorts = []
+            if !keepPolledRemotePortsUntilTTYScan {
+                polledRemotePorts = []
+            }
             publishPortsSnapshotLocked()
             return
         }
@@ -5122,6 +5147,7 @@ final class WorkspaceRemoteSessionController {
                 timeout: 8
             )
             polledRemotePorts = Self.parseRemotePorts(output: result.stdout)
+            keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
         } catch {
             debugLog("remote.ports.poll.failed error=\(error.localizedDescription) \(debugConfigSummary())")

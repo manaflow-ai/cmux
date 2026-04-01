@@ -202,6 +202,25 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
     }
 
+    func testInteractiveRemoteShellScriptKeepsTabIDSurfaceScoped() {
+        let script = CMUXCLI().buildInteractiveRemoteShellScript(
+            remoteRelayPort: 64011,
+            shellFeatures: ""
+        )
+
+        XCTAssertTrue(
+            script.contains("export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'; fi"),
+            script
+        )
+        XCTAssertFalse(script.contains("export CMUX_TAB_ID='__CMUX_WORKSPACE_ID__'"), script)
+        XCTAssertTrue(
+            script.contains(
+                "export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; export CMUX_PANEL_ID='__CMUX_SURFACE_ID__'; export CMUX_TAB_ID='__CMUX_SURFACE_ID__'; fi"
+            ),
+            script
+        )
+    }
+
     func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
         let process = Process()
         let stderrPipe = Pipe()
