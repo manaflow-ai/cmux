@@ -277,7 +277,7 @@ _cmux_ports_kick() {
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _CMUX_PORTS_LAST_RUN=$SECONDS
+    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     {
         _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     } >/dev/null 2>&1 & disown
@@ -649,6 +649,7 @@ _cmux_preexec_command() {
     _cmux_report_shell_activity_state running
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_stop_pr_poll_loop
 }
 
 _cmux_bash_preexec_hook() {

@@ -816,6 +816,7 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
+    _cmux_stop_pr_poll_loop
     _cmux_start_git_head_watch
 }
 

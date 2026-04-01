@@ -13,6 +13,8 @@ Validates that shell integration:
 7) falls back to explicit branch lookup when implicit gh branch resolution fails
 8) does not clear an existing PR badge on the first prompt while establishing
    the HEAD baseline
+9) stops a parent PR poller before nested shells start in the same panel
+10) preserves ports polling throttling after an explicit ports kick
 """
 
 from __future__ import annotations
@@ -246,6 +248,29 @@ def _shell_command(kind: str, scenario: str) -> str:
             'sleep 2\n'
             '_cmux_cleanup\n'
         ),
+        "nested_shell_stops_parent_poll": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'parent_pid="$_CMUX_PR_POLL_PID"\n'
+            '[ -n "$parent_pid" ] || { echo "missing parent poll pid" >&2; exit 41; }\n'
+            '_cmux_nested_shell_entry\n'
+            'sleep 1\n'
+            'if kill -0 "$parent_pid" 2>/dev/null; then\n'
+            '  echo "parent poller still running" >&2\n'
+            '  exit 42\n'
+            'fi\n'
+            '_cmux_cleanup\n'
+        ),
+        "ports_kick_throttle": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_ports_kick\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_prompt_entry\n'
+            '_cmux_cleanup\n'
+        ),
     }[scenario]
 
     if kind == "zsh":
@@ -254,6 +279,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_precmd; }}
+            _cmux_nested_shell_entry() {{ _cmux_preexec zsh; }}
             _cmux_cleanup() {{ _cmux_zshexit; }}
             {shared}"""
         )
@@ -264,6 +290,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
+            _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
             {shared}"""
         )
@@ -413,6 +440,19 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
             )
         return (0, f"{shell}/{scenario}: ok")
 
+    if scenario == "ports_kick_throttle":
+        ports_kicks = [line for line in send_lines if line.startswith("ports_kick ")]
+        if len(ports_kicks) != 1:
+            return (
+                1,
+                f"{shell}/{scenario}: expected exactly one ports_kick across explicit kick + throttled prompts\n"
+                + "\n".join(send_lines),
+            )
+        return (0, f"{shell}/{scenario}: ok")
+
+    if scenario == "nested_shell_stops_parent_poll":
+        return (0, f"{shell}/{scenario}: ok")
+
     return (1, f"{shell}/{scenario}: unhandled scenario")
 
 
@@ -429,6 +469,8 @@ def main() -> int:
         "timeout_recovery",
         "explicit_branch_fallback",
         "initial_prompt_preserves_pr_badge",
+        "nested_shell_stops_parent_poll",
+        "ports_kick_throttle",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"
