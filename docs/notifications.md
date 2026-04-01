@@ -130,6 +130,10 @@ Then use:
 notify = ["bash", "~/.local/bin/codex-notify.sh"]
 ```
 
+For remote shells launched with `cmux ssh`, cmux now installs the Codex hook config on the remote host automatically so `codex-hook` events route back to the local workspace over the relay. Plain `ssh user@host` sessions still do not carry the `CMUX_*` context automatically.
+
+If Codex runs inside a Docker container on the remote host, see [docker.md](../docker.md) for the required network, environment, and mount setup.
+
 ### OpenCode Plugin
 
 Create `.opencode/plugins/cmux-notify.js`:

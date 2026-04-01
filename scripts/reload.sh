@@ -47,6 +47,15 @@ set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
 CLI_PATH_OWNER="\$(stat -f '%u' "\$CLI_PATH_FILE" 2>/dev/null || stat -c '%u' "\$CLI_PATH_FILE" 2>/dev/null || echo -1)"
+SOCKET_PATH_FILE="/tmp/cmux-last-socket-path"
+SOCKET_PATH_OWNER="\$(stat -f '%u' "\$SOCKET_PATH_FILE" 2>/dev/null || stat -c '%u' "\$SOCKET_PATH_FILE" 2>/dev/null || echo -1)"
+if [[ -r "\$SOCKET_PATH_FILE" ]] && [[ ! -L "\$SOCKET_PATH_FILE" ]] && [[ "\$SOCKET_PATH_OWNER" == "\$(id -u)" ]]; then
+  SOCKET_PATH="\$(cat "\$SOCKET_PATH_FILE")"
+  if [[ -n "\$SOCKET_PATH" ]]; then
+    export CMUX_SOCKET_PATH="\$SOCKET_PATH"
+    unset CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET || true
+  fi
+fi
 if [[ -r "\$CLI_PATH_FILE" ]] && [[ ! -L "\$CLI_PATH_FILE" ]] && [[ "\$CLI_PATH_OWNER" == "\$(id -u)" ]]; then
   CLI_PATH="\$(cat "\$CLI_PATH_FILE")"
   if [[ -x "\$CLI_PATH" ]]; then

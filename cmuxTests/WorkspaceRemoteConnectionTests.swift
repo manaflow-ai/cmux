@@ -176,6 +176,48 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
     }
 
+    func testRemoteRelayMetadataInstallScriptRunsRemoteCodexHookInstall() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-install-\(UUID().uuidString)")
+        let fakeBinDir = home.appendingPathComponent("bin")
+        let fakeDaemonURL = fakeBinDir.appendingPathComponent("fake-cmuxd")
+        let daemonLogURL = home.appendingPathComponent("daemon.log")
+        defer { try? fileManager.removeItem(at: home) }
+
+        try fileManager.createDirectory(at: fakeBinDir, withIntermediateDirectories: true)
+        try """
+        #!/usr/bin/env bash
+        set -euo pipefail
+        printf '%s\\n' "$@" >> "\(daemonLogURL.path)"
+        """.write(to: fakeDaemonURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
+        let script = WorkspaceRemoteSessionController.remoteRelayMetadataInstallScript(
+            daemonRemotePath: "bin/fake-cmuxd",
+            relayPort: 64021,
+            relayID: "relay-id",
+            relayToken: String(repeating: "a", count: 64)
+        )
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(
+            try String(contentsOf: daemonLogURL, encoding: .utf8),
+            "codex\ninstall-hooks\n--yes\n"
+        )
+    }
+
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
         let histfile = try runRelayZshHistfile { home in
             try ":\n".write(to: home.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)

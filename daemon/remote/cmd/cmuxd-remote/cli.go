@@ -124,6 +124,13 @@ doneFlags:
 		cliUsage()
 		return 0
 	}
+	if cmdName == "codex" {
+		return runCodexCommand(cmdArgs)
+	}
+	if cmdName == "codex-hook" && strings.TrimSpace(os.Getenv("CMUX_SURFACE_ID")) == "" {
+		fmt.Println("{}")
+		return 0
+	}
 
 	// refreshAddr is set when the address came from socket_addr file (not env/flag),
 	// allowing one stale-address refresh if another workspace has replaced socket_addr.
@@ -153,6 +160,9 @@ doneFlags:
 	}
 	if cmdName == "omo" {
 		return runOMORelay(socketPath, cmdArgs, refreshAddr)
+	}
+	if cmdName == "codex-hook" {
+		return runCodexHookCommand(socketPath, cmdArgs, refreshAddr)
 	}
 
 	// Tmux compatibility layer (used by agent shims)
@@ -770,5 +780,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands (open, navigate, back, forward, reload, get-url)")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
+	fmt.Fprintln(os.Stderr, "  codex <sub>                Manage Codex hooks on this remote host")
+	fmt.Fprintln(os.Stderr, "  codex-hook <event>         Handle a Codex lifecycle hook")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
 }

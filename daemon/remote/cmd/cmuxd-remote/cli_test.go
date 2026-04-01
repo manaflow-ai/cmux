@@ -43,6 +43,28 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+	original := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdin: %v", err)
+	}
+	if _, err := writer.WriteString(input); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = original
+		_ = reader.Close()
+	}()
+
+	fn()
+}
+
 func makeShortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
@@ -592,6 +614,49 @@ func TestCLINoSocket(t *testing.T) {
 	}
 }
 
+func TestCLICodexInstallHooksDoesNotRequireSocket(t *testing.T) {
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CMUX_SOCKET_PATH", "")
+
+	code := runCLI([]string{"codex", "install-hooks"})
+	if code != 0 {
+		t.Fatalf("codex install-hooks should return 0, got %d", code)
+	}
+
+	hooksContent, err := os.ReadFile(filepath.Join(codexHome, "hooks.json"))
+	if err != nil {
+		t.Fatalf("read hooks.json: %v", err)
+	}
+	if !strings.Contains(string(hooksContent), "cmux codex-hook stop") {
+		t.Fatalf("expected hooks.json to install cmux-owned stop hook, got %q", string(hooksContent))
+	}
+
+	configContent, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if !strings.Contains(string(configContent), "codex_hooks = true") {
+		t.Fatalf("expected config.toml to enable codex_hooks, got %q", string(configContent))
+	}
+}
+
+func TestCLICodexHookWithoutSurfaceNoOpsWithoutSocket(t *testing.T) {
+	t.Setenv("CMUX_SURFACE_ID", "")
+	t.Setenv("CMUX_SOCKET_PATH", "")
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"codex-hook", "stop"})
+		if code != 0 {
+			t.Fatalf("codex-hook should no-op outside cmux, got %d", code)
+		}
+	})
+
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("expected codex-hook no-op output, got %q", output)
+	}
+}
+
 func TestCLISocketEnvVar(t *testing.T) {
 	sockPath := startMockSocket(t, "pong")
 	os.Setenv("CMUX_SOCKET_PATH", sockPath)
@@ -600,6 +665,110 @@ func TestCLISocketEnvVar(t *testing.T) {
 	code := runCLI([]string{"ping"})
 	if code != 0 {
 		t.Fatalf("ping with env socket should return 0, got %d", code)
+	}
+}
+
+func TestCLICodexHookStopNotifiesTargetSurfaceAndSetsIdleStatus(t *testing.T) {
+	sockPath := makeShortUnixSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	received := make(chan string, 4)
+	go func() {
+		for i := 0; i < 2; i++ {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				payload := strings.TrimSpace(string(buf[:n]))
+				received <- payload
+
+				if strings.HasPrefix(payload, "{") {
+					var req map[string]any
+					_ = json.Unmarshal(buf[:n], &req)
+					resp := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
+					encoded, _ := json.Marshal(resp)
+					_, _ = conn.Write(append(encoded, '\n'))
+					return
+				}
+
+				_, _ = conn.Write([]byte("OK\n"))
+			}(conn)
+		}
+	}()
+
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
+	t.Setenv("CMUX_WORKSPACE_ID", "workspace-1")
+	t.Setenv("CMUX_SURFACE_ID", "surface-1")
+
+	withStdin(t, `{"session_id":"sess-1","cwd":"/tmp/research-proj","last_assistant_message":"Need your approval on the final patch."}`, func() {
+		output := captureStdout(t, func() {
+			code := runCLI([]string{"codex-hook", "stop"})
+			if code != 0 {
+				t.Fatalf("codex-hook stop should return 0, got %d", code)
+			}
+		})
+		if strings.TrimSpace(output) != "{}" {
+			t.Fatalf("expected codex-hook stop to print {}, got %q", output)
+		}
+	})
+
+	readReceived := func() string {
+		t.Helper()
+		select {
+		case payload := <-received:
+			return payload
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for codex-hook socket payload")
+			return ""
+		}
+	}
+
+	first := readReceived()
+	second := readReceived()
+
+	var requestPayload string
+	var statusPayload string
+	if strings.HasPrefix(first, "{") {
+		requestPayload = first
+		statusPayload = second
+	} else {
+		requestPayload = second
+		statusPayload = first
+	}
+
+	var request map[string]any
+	if err := json.Unmarshal([]byte(requestPayload), &request); err != nil {
+		t.Fatalf("decode notification request: %v", err)
+	}
+	if got := request["method"]; got != "notification.create_for_target" {
+		t.Fatalf("expected notification.create_for_target, got %v", got)
+	}
+	params, _ := request["params"].(map[string]any)
+	if got := params["workspace_id"]; got != "workspace-1" {
+		t.Fatalf("expected workspace_id workspace-1, got %v", got)
+	}
+	if got := params["surface_id"]; got != "surface-1" {
+		t.Fatalf("expected surface_id surface-1, got %v", got)
+	}
+	if got := params["title"]; got != "Codex" {
+		t.Fatalf("expected title Codex, got %v", got)
+	}
+	if got := params["subtitle"]; got != "Completed in research-proj" {
+		t.Fatalf("expected project subtitle, got %v", got)
+	}
+	if got := params["body"]; got != "Need your approval on the final patch." {
+		t.Fatalf("expected last assistant message body, got %v", got)
+	}
+	if statusPayload != "set_status codex Idle --icon=pause.circle.fill --color=#8E8E93 --tab=workspace-1" {
+		t.Fatalf("unexpected status payload: %q", statusPayload)
 	}
 }
 

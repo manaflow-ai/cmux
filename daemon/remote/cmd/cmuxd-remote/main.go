@@ -313,6 +313,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 				"capabilities": []string{
 					"session.basic",
 					"session.resize.min",
+					"cli.codex.hooks",
 					"proxy.http_connect",
 					"proxy.socks5",
 					"proxy.stream",
