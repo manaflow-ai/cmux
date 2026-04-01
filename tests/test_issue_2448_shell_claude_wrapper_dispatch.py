@@ -139,8 +139,36 @@ def run_bash_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tupl
             "--noprofile",
             "--norc",
             "-ic",
-            f'alias claude="echo alias"; source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            f'alias claude="$CMUX_TEST_REAL_BIN/user-claude"; source "{shell_dir / "cmux-bash-integration.bash"}"; '
             'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-alias-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_bash_with_function(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-ic",
+            f'claude() {{ "$CMUX_TEST_REAL_BIN/user-claude-function" "$@"; }}; '
+            f'source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-function-case',
         ],
         env=env,
         capture_output=True,
@@ -175,6 +203,20 @@ set -euo pipefail
 printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
+        write_executable(
+            real_bin / "user-claude",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'user-alias:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        write_executable(
+            real_bin / "user-claude-function",
+            """#!/usr/bin/env bash
+set -euo pipefail
+printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
 
         zsh_log = tmp / "zsh.log"
         rc, output, lines = run_zsh(shell_dir, real_bin, zsh_log)
@@ -201,8 +243,15 @@ printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
         rc, output, lines = run_bash_with_alias(shell_dir, real_bin, bash_alias_log)
         if rc != 0:
             failures.append(f"bash alias case exited non-zero rc={rc}: {output}")
-        elif lines != ["wrapper:bash-alias-case"]:
-            failures.append(f"bash alias case expected wrapper dispatch, saw {lines!r}")
+        elif lines != ["user-alias:bash-alias-case"]:
+            failures.append(f"bash alias case should preserve user alias, saw {lines!r}")
+
+        bash_function_log = tmp / "bash-function.log"
+        rc, output, lines = run_bash_with_function(shell_dir, real_bin, bash_function_log)
+        if rc != 0:
+            failures.append(f"bash function case exited non-zero rc={rc}: {output}")
+        elif lines != ["user-function:bash-function-case"]:
+            failures.append(f"bash function case should preserve user function, saw {lines!r}")
 
     if failures:
         print("FAIL: shell integration did not keep claude on the bundled wrapper")
