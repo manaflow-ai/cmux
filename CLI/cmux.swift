@@ -11874,6 +11874,8 @@ struct CMUXCLI {
 
         for key in [
             "tool_name",
+            "last_assistant_message",
+            "lastAssistantMessage",
             "event",
             "event_name",
             "hook_event_name",
