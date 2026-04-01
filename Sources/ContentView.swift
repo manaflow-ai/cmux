@@ -175,6 +175,7 @@ struct ShortcutHintPillBackground: View {
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
 enum WindowGlassEffect {
     private static var glassViewKey: UInt8 = 0
+    private static var originalContentViewKey: UInt8 = 0
     private static var tintOverlayKey: UInt8 = 0
 
     static var isAvailable: Bool {
@@ -226,6 +227,7 @@ enum WindowGlassEffect {
 
         if usingGlassEffectView {
             // NSGlassEffectView is a full replacement for the contentView.
+            objc_setAssociatedObject(window, &originalContentViewKey, originalContentView, .OBJC_ASSOCIATION_RETAIN)
             window.contentView = glassView
 
             // Re-add the original SwiftUI hosting view on top of the glass, filling entire area.
@@ -297,9 +299,24 @@ enum WindowGlassEffect {
     }
 
     static func remove(from window: NSWindow) {
-        // Note: Removing would require restoring original contentView structure
-        // For now, just clear the reference
+        guard let glassView = objc_getAssociatedObject(window, &glassViewKey) as? NSView else {
+            return
+        }
+
+        if glassView.className == "NSGlassEffectView" {
+            if let originalContentView = objc_getAssociatedObject(window, &originalContentViewKey) as? NSView {
+                originalContentView.removeFromSuperview()
+                originalContentView.translatesAutoresizingMaskIntoConstraints = true
+                originalContentView.autoresizingMask = [.width, .height]
+                originalContentView.frame = glassView.bounds
+                window.contentView = originalContentView
+            }
+        } else {
+            glassView.removeFromSuperview()
+        }
+
         objc_setAssociatedObject(window, &glassViewKey, nil, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(window, &originalContentViewKey, nil, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(window, &tintOverlayKey, nil, .OBJC_ASSOCIATION_RETAIN)
     }
 }
@@ -3169,16 +3186,17 @@ struct ContentView: View {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
-            // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
-            // or incorrectly tinted SwiftUI content. Keep native window rendering there so
-            // Ghostty theme colors remain authoritative.
+            // User settings decide whether window glass is active. The native Tahoe
+            // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
+            // inside WindowGlassEffect.apply.
             let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
-            let shouldApplyWindowGlassFallback =
-                sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
-                && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable
+            let shouldApplyWindowGlass = cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: sidebarBlendMode,
+                bgGlassEnabled: bgGlassEnabled,
+                glassEffectAvailable: WindowGlassEffect.isAvailable
+            )
             let shouldForceTransparentHosting =
-                shouldApplyWindowGlassFallback || currentThemeBackground.alphaComponent < 0.999
+                shouldApplyWindowGlass || currentThemeBackground.alphaComponent < 0.999
 
             if shouldForceTransparentHosting {
                 window.isOpaque = false
@@ -3196,10 +3214,12 @@ struct ContentView: View {
                 window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
             }
 
-            if shouldApplyWindowGlassFallback {
+            if shouldApplyWindowGlass {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
+            } else {
+                WindowGlassEffect.remove(from: window)
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)

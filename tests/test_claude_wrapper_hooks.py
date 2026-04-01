@@ -44,13 +44,15 @@ def run_wrapper(
     argv: list[str],
     node_options: str | None = None,
     tmpdir: str | None = None,
-) -> tuple[int, list[str], list[str], str, str, str, str, str]:
+) -> tuple[int, list[str], list[str], str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
         wrapper_dir = tmp / "wrapper-bin"
         real_dir = tmp / "real-bin"
+        bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
         real_dir.mkdir(parents=True, exist_ok=True)
+        bundled_dir.mkdir(parents=True, exist_ok=True)
 
         wrapper = wrapper_dir / "claude"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -61,6 +63,7 @@ def run_wrapper(
         real_node_options_log = tmp / "real-node-options.log"
         real_runtime_node_options_log = tmp / "real-runtime-node-options.log"
         real_child_node_options_log = tmp / "real-child-node-options.log"
+        hook_cmux_bin_log = tmp / "hook-cmux-bin.log"
         cmux_log = tmp / "cmux.log"
         socket_path = str(tmp / "cmux.sock")
 
@@ -71,6 +74,7 @@ set -euo pipefail
 : > "$FAKE_REAL_ARGS_LOG"
 printf '%s\\n' "${CLAUDECODE-__UNSET__}" > "$FAKE_REAL_CLAUDECODE_LOG"
 printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_REAL_NODE_OPTIONS_LOG"
+printf '%s\\n' "${CMUX_CLAUDE_HOOK_CMUX_BIN-__UNSET__}" > "$FAKE_HOOK_CMUX_BIN_LOG"
 for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
@@ -129,6 +133,13 @@ fi
 exit 0
 """,
         )
+        bundled_cli_path = bundled_dir / "cmux"
+        make_executable(
+            bundled_cli_path,
+            """#!/usr/bin/env bash
+exit 0
+""",
+        )
 
         test_socket: socket.socket | None = None
         if socket_state in {"live", "stale"}:
@@ -145,8 +156,10 @@ exit 0
         env["FAKE_REAL_RUNTIME_NODE_OPTIONS_LOG"] = str(real_runtime_node_options_log)
         env["FAKE_REAL_CHILD_NODE_OPTIONS_LOG"] = str(real_child_node_options_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_dir / "claude-real.js")
+        env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
         env.pop("NODE_OPTIONS", None)
         if tmpdir is not None:
@@ -168,6 +181,7 @@ exit 0
                 test_socket.close()
 
         claudecode_lines = read_lines(real_claudecode_log)
+        hook_cmux_bin_lines = read_lines(hook_cmux_bin_log)
         claudecode_value = claudecode_lines[0] if claudecode_lines else ""
         node_options_lines = read_lines(real_node_options_log)
         node_options_value = node_options_lines[0] if node_options_lines else ""
@@ -175,6 +189,7 @@ exit 0
         runtime_node_options_value = runtime_node_options_lines[0] if runtime_node_options_lines else ""
         child_node_options_lines = read_lines(real_child_node_options_log)
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
+        hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         return (
             proc.returncode,
             read_lines(real_args_log),
@@ -184,6 +199,7 @@ exit 0
             node_options_value,
             runtime_node_options_value,
             child_node_options_value,
+            hook_cmux_bin_value,
         )
 
 
@@ -193,7 +209,7 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
 
 
 def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options = run_wrapper(
+    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin = run_wrapper(
         socket_state="live",
         argv=["hello"],
     )
@@ -221,11 +237,26 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
     )
     expect(runtime_node_options == "__UNSET__", f"live socket: expected runtime NODE_OPTIONS restored, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"live socket: expected child NODE_OPTIONS restored, got {child_node_options!r}", failures)
+    expect(hook_cmux_bin.endswith("/bundled cli/cmux"), f"live socket: expected bundled cmux pin, got {hook_cmux_bin!r}", failures)
 
     settings = parse_settings_arg(real_argv)
     hooks = settings.get("hooks", {})
     expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
+    for hook_name, expected_subcommand in {
+        "SessionStart": "session-start",
+        "Stop": "stop",
+        "SessionEnd": "session-end",
+        "Notification": "notification",
+        "UserPromptSubmit": "prompt-submit",
+        "PreToolUse": "pre-tool-use",
+    }.items():
+        hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
+        expect(
+            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" claude-hook {expected_subcommand}',
+            f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
+            failures,
+        )
     # PreToolUse should be async to avoid blocking tool execution
     pre_tool_use_hooks = hooks.get("PreToolUse", [{}])[0].get("hooks", [{}])
     expect(
@@ -244,7 +275,7 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
 
 def test_live_socket_enforces_heap_cap_for_space_separated_flag(failures: list[str]) -> None:
     existing = "--max-old-space-size 2048 --trace-warnings"
-    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options = run_wrapper(
+    code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _ = run_wrapper(
         socket_state="live",
         argv=["hello"],
         node_options=existing,
@@ -270,7 +301,7 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-bad-tmp-") as td:
         bad_tmpdir = Path(td) / "not-a-directory"
         bad_tmpdir.write_text("occupied", encoding="utf-8")
-        code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options = run_wrapper(
+        code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, _ = run_wrapper(
             socket_state="live",
             argv=["hello"],
             tmpdir=str(bad_tmpdir),
@@ -286,7 +317,7 @@ def test_live_socket_tmpdir_failure_skips_node_options_injection(failures: list[
 
 
 def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options = run_wrapper(
+    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin = run_wrapper(
         socket_state="missing",
         argv=["hello"],
     )
@@ -297,10 +328,11 @@ def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(node_options == "__UNSET__", f"missing socket: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"missing socket: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"missing socket: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"missing socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
 def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
-    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options = run_wrapper(
+    code, real_argv, cmux_log, stderr, claudecode, node_options, runtime_node_options, child_node_options, hook_cmux_bin = run_wrapper(
         socket_state="stale",
         argv=["hello"],
     )
@@ -316,6 +348,7 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(node_options == "__UNSET__", f"stale socket: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"stale socket: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"stale socket: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
+    expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
 def main() -> int:

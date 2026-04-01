@@ -54,6 +54,24 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+typeset -g _CMUX_CLAUDE_WRAPPER=""
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    builtin unalias claude >/dev/null 2>&1 || true
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+}
+_cmux_install_claude_wrapper
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
