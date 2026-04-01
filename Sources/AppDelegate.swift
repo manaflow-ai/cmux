@@ -426,6 +426,17 @@ enum FinderServicePathResolver {
         return canonical
     }
 
+    private static func normalizedComparisonURL(_ url: URL) -> URL {
+        url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private static func isSameOrDescendant(_ url: URL, of rootURL: URL) -> Bool {
+        let urlPathComponents = normalizedComparisonURL(url).pathComponents
+        let rootPathComponents = normalizedComparisonURL(rootURL).pathComponents
+        guard urlPathComponents.count >= rootPathComponents.count else { return false }
+        return Array(urlPathComponents.prefix(rootPathComponents.count)) == rootPathComponents
+    }
+
     private static func resolvedDirectoryURL(from url: URL) -> URL {
         let standardized = url.standardizedFileURL
         if standardized.hasDirectoryPath {
@@ -438,12 +449,18 @@ enum FinderServicePathResolver {
         return standardized.deletingLastPathComponent()
     }
 
-    static func orderedUniqueDirectories(from pathURLs: [URL]) -> [String] {
+    static func orderedUniqueDirectories(
+        from pathURLs: [URL],
+        excludingDescendantsOf excludedRootURLs: [URL] = []
+    ) -> [String] {
         var seen: Set<String> = []
         var directories: [String] = []
 
         for url in pathURLs {
             let directoryURL = resolvedDirectoryURL(from: url)
+            guard !excludedRootURLs.contains(where: { isSameOrDescendant(directoryURL, of: $0) }) else {
+                continue
+            }
             let path = canonicalDirectoryPath(directoryURL.path(percentEncoded: false))
             guard !path.isEmpty else { continue }
             if seen.insert(path).inserted {
@@ -5762,8 +5779,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         target: ServiceOpenTarget,
         error: AutoreleasingUnsafeMutablePointer<NSString>
     ) {
-        prepareForExplicitOpenIntentAtStartup()
-
         let pathURLs = servicePathURLs(from: pasteboard)
         guard !pathURLs.isEmpty else {
             error.pointee = Self.serviceErrorNoPath
@@ -5776,6 +5791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
+        prepareForExplicitOpenIntentAtStartup()
         for directory in directories {
             switch target {
             case .window:
@@ -5830,7 +5846,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func externalOpenDirectories(from urls: [URL]) -> [String] {
-        FinderServicePathResolver.orderedUniqueDirectories(from: urls.filter { $0.isFileURL })
+        // LaunchServices can surface the running app bundle on relaunch; ignore self paths so
+        // they do not get treated as explicit folder opens and suppress session restore.
+        FinderServicePathResolver.orderedUniqueDirectories(
+            from: urls.filter { $0.isFileURL },
+            excludingDescendantsOf: [Bundle.main.bundleURL]
+        )
     }
 
     private func openWorkspaceForExternalDirectory(

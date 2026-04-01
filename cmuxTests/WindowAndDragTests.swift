@@ -260,6 +260,39 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertNotNil(createdWorkspace)
         XCTAssertEqual(createdWorkspace?.currentDirectory, droppedDirectory.path)
     }
+
+    func testApplicationOpenURLsIgnoresBundleSelfPaths() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer { window.orderOut(nil) }
+
+        let manager = TabManager()
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState()
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: window)
+
+        let existingWorkspaceIds = Set(manager.tabs.map(\.id))
+        let embeddedExecutableURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+
+        app.application(
+            NSApplication.shared,
+            open: [embeddedExecutableURL]
+        )
+
+        let createdWorkspace = manager.tabs.first { !existingWorkspaceIds.contains($0.id) }
+        XCTAssertNil(createdWorkspace)
+    }
 }
 
 
