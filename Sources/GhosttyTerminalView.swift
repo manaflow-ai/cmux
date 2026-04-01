@@ -4071,6 +4071,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         guard let currentSurface = self.surface else { return }
 
+        // Reconcile occlusion: ensure Ghostty's visibility matches the view's.
+        // If a prior setOcclusion call was dropped (e.g. terminalSurface was nil),
+        // the renderer may think this surface is occluded. Re-asserting here
+        // provides a recovery path on focus changes, geometry updates, and
+        // manual cmux refresh-surfaces invocations.
+        setOcclusion(view.isVisibleInUI)
+
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
         // The surface can be invalidated between calls when AppKit layout triggers
