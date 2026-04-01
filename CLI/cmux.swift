@@ -9575,6 +9575,17 @@ struct CMUXCLI {
         }
     }
 
+    private static let claudeNodeOptionsRestoreModule = """
+    const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
+    if (hadOriginalNodeOptions) {
+        process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
+    } else {
+        delete process.env.NODE_OPTIONS;
+    }
+    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
+    delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+    """
+
     private func configureClaudeTeamsEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -9597,7 +9608,26 @@ struct CMUXCLI {
                 (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
             ]
         )
-        setenv("NODE_OPTIONS", mergedNodeOptions(existing: processEnvironment["NODE_OPTIONS"]), 1)
+        guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
+            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
+            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+            return
+        }
+        if let existing = processEnvironment["NODE_OPTIONS"] {
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1", 1)
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing, 1)
+        } else {
+            setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0", 1)
+            unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+        }
+        setenv(
+            "NODE_OPTIONS",
+            mergedNodeOptions(
+                existing: processEnvironment["NODE_OPTIONS"],
+                restoreModulePath: restoreModuleURL.path
+            ),
+            1
+        )
     }
 
     private func createTmuxCompatShimDirectory(
@@ -9624,6 +9654,15 @@ struct CMUXCLI {
             directoryName: "claude-teams-bin",
             tmuxShimScript: script
         )
+    }
+
+    private func createClaudeNodeOptionsRestoreModule() throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
+        let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
+        try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
+        return restoreModuleURL
     }
 
     private func runClaudeTeams(
@@ -9730,11 +9769,37 @@ struct CMUXCLI {
 
     private func writeShimIfChanged(_ script: String, to url: URL) throws {
         let normalized = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fileManager = FileManager.default
         let existing = try? String(contentsOf: url, encoding: .utf8)
-        if existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized {
-            try script.write(to: url, atomically: false, encoding: .utf8)
+        guard existing?.trimmingCharacters(in: .whitespacesAndNewlines) != normalized else {
+            try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return
         }
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        let directoryURL = url.deletingLastPathComponent()
+        let tempURL = directoryURL.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        try script.write(to: tempURL, atomically: false, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempURL.path)
+        do {
+            if fileManager.fileExists(atPath: url.path) {
+                _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
+            } else {
+                try fileManager.moveItem(at: tempURL, to: url)
+            }
+        } catch {
+            let current = try? String(contentsOf: url, encoding: .utf8)
+            if current?.trimmingCharacters(in: .whitespacesAndNewlines) == normalized {
+                try? fileManager.removeItem(at: tempURL)
+                return
+            }
+            if fileManager.fileExists(atPath: url.path) {
+                do {
+                    _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
+                    return
+                } catch {}
+            }
+            try? fileManager.removeItem(at: tempURL)
+            throw error
+        }
     }
 
     private static let omoPluginName = "oh-my-opencode"
@@ -11852,7 +11917,10 @@ struct CMUXCLI {
               let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
               let object = json as? [String: Any] else {
-            let fallback = trimmed.isEmpty ? nil : truncate(normalizedSingleLine(trimmed), maxLength: 180)
+            let fallback = trimmed.isEmpty ? nil : truncate(
+                normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
+                maxLength: 180
+            )
             return ClaudeHookParsedInput(object: nil, rawFallback: fallback, sessionId: nil, cwd: nil, transcriptPath: nil)
         }
 
@@ -11891,7 +11959,10 @@ struct CMUXCLI {
             "error",
             "description",
         ] {
-            if let value = firstString(in: object, keys: [key]) {
+            if let value = compactClaudeHookStringValue(
+                object[key],
+                maxLength: claudeHookCompactFieldLimit(for: key)
+            ) {
                 compact[key] = value
             }
         }
@@ -11899,22 +11970,24 @@ struct CMUXCLI {
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
             for key in ["file_path", "command", "pattern", "description", "query"] {
-                if let value = firstString(in: toolInput, keys: [key]) {
+                if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
             }
             if let questions = toolInput["questions"] as? [[String: Any]] {
                 compactToolInput["questions"] = questions.prefix(1).map { question in
                     var compactQuestion: [String: Any] = [:]
-                    if let value = firstString(in: question, keys: ["question"]) {
+                    if let value = compactClaudeHookStringValue(question["question"], maxLength: 180) {
                         compactQuestion["question"] = value
                     }
-                    if let value = firstString(in: question, keys: ["header"]) {
+                    if let value = compactClaudeHookStringValue(question["header"], maxLength: 80) {
                         compactQuestion["header"] = value
                     }
                     if let options = question["options"] as? [[String: Any]] {
                         let compactOptions: [[String: Any]] = options.compactMap { option in
-                            guard let label = firstString(in: option, keys: ["label"]) else { return nil }
+                            guard let label = compactClaudeHookStringValue(option["label"], maxLength: 60) else {
+                                return nil
+                            }
                             return ["label": label] as [String: Any]
                         }
                         compactQuestion["options"] = compactOptions
@@ -11931,7 +12004,10 @@ struct CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in ["type", "kind", "reason", "message", "body", "text", "prompt", "error", "description"] {
-                if let value = firstString(in: nested, keys: [nestedKey]) {
+                if let value = compactClaudeHookStringValue(
+                    nested[nestedKey],
+                    maxLength: claudeHookCompactFieldLimit(for: nestedKey)
+                ) {
                     compactNested[nestedKey] = value
                 }
             }
@@ -11941,6 +12017,50 @@ struct CMUXCLI {
         }
 
         return compact
+    }
+
+    private func claudeHookCompactFieldLimit(for key: String) -> Int {
+        switch key {
+        case "tool_name", "event", "event_name", "hook_event_name", "type", "kind", "notification_type", "matcher", "reason":
+            return 80
+        case "last_assistant_message", "lastAssistantMessage", "message", "body", "text", "prompt", "error", "description":
+            return 240
+        default:
+            return 160
+        }
+    }
+
+    private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
+        switch key {
+        case "file_path":
+            return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
+        case "command":
+            return compactClaudeHookStringValue(rawValue, maxLength: 120)
+        case "pattern", "query":
+            return compactClaudeHookStringValue(rawValue, maxLength: 120)
+        case "description":
+            return compactClaudeHookStringValue(rawValue, maxLength: 180)
+        default:
+            return compactClaudeHookStringValue(rawValue, maxLength: 160)
+        }
+    }
+
+    private func compactClaudeHookStringValue(
+        _ rawValue: Any?,
+        maxLength: Int,
+        keepSuffix: Bool = false
+    ) -> String? {
+        guard let rawString = rawValue as? String else { return nil }
+        let previewLength = max(maxLength, min(maxLength * 4, 1024))
+        let preview = keepSuffix
+            ? String(rawString.suffix(previewLength))
+            : String(rawString.prefix(previewLength))
+        let normalized = normalizedSingleLine(preview)
+        guard !normalized.isEmpty else { return nil }
+        if keepSuffix, normalized.count > maxLength {
+            return "…" + String(normalized.suffix(maxLength - 1))
+        }
+        return truncate(normalized, maxLength: maxLength)
     }
 
     private func extractClaudeHookSessionId(from object: [String: Any]) -> String? {
@@ -12159,16 +12279,54 @@ struct CMUXCLI {
             .replacingOccurrences(of: "|", with: "¦")
     }
 
-    private func mergedNodeOptions(existing: String?) -> String {
+    private func redactClaudeSensitiveSpans(_ value: String) -> String {
+        let patterns: [(pattern: String, replacement: String)] = [
+            (#"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}"#, "<email>"),
+            (#"(?:~|/)[^\s\"']+"#, "<path>"),
+            (#"\b(?:sk|rk|sess|token|key|secret|api[_-]?key)[A-Za-z0-9._:-]{8,}\b"#, "<token>"),
+            (#"\b[A-Za-z0-9_-]{24,}\b"#, "<token>")
+        ]
+        return patterns.reduce(value) { partial, entry in
+            partial.replacingOccurrences(
+                of: entry.pattern,
+                with: entry.replacement,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+    }
+
+    private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
+        let requireOption = "--require=\(restoreModulePath)"
         let memoryOption = "--max-old-space-size=4096"
-        let trimmedExisting = existing?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedExisting.contains("--max-old-space-size=") else {
-            return trimmedExisting
+        let cleanedExisting = cleanedNodeOptions(existing)
+        guard !cleanedExisting.isEmpty else {
+            return "\(requireOption) \(memoryOption)"
         }
-        guard !trimmedExisting.isEmpty else {
-            return memoryOption
+        return "\(requireOption) \(memoryOption) \(cleanedExisting)"
+    }
+
+    private func cleanedNodeOptions(_ existing: String?) -> String {
+        let tokens = (existing ?? "")
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard !tokens.isEmpty else { return "" }
+
+        var filtered: [String] = []
+        var index = 0
+        while index < tokens.count {
+            let token = tokens[index]
+            if token == "--max-old-space-size" {
+                index += min(2, tokens.count - index)
+                continue
+            }
+            if token.hasPrefix("--max-old-space-size=") {
+                index += 1
+                continue
+            }
+            filtered.append(token)
+            index += 1
         }
-        return "\(memoryOption) \(trimmedExisting)"
+        return filtered.joined(separator: " ")
     }
 
     // MARK: - Codex hooks

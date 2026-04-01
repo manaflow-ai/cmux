@@ -392,17 +392,24 @@ func TestClaudeTeamsLaunchArgs(t *testing.T) {
 }
 
 func TestMergeNodeOptions(t *testing.T) {
-	if got := mergeNodeOptions(""); got != "--max-old-space-size=4096" {
+	const restoreModulePath = "/tmp/restore-node-options.cjs"
+
+	if got := mergeNodeOptions("", restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096" {
 		t.Fatalf("mergeNodeOptions(\"\") = %q", got)
 	}
 
-	if got := mergeNodeOptions("--trace-warnings"); got != "--max-old-space-size=4096 --trace-warnings" {
+	if got := mergeNodeOptions("--trace-warnings", restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
 		t.Fatalf("mergeNodeOptions preserves existing flags = %q", got)
 	}
 
 	existing := "--max-old-space-size=2048 --trace-warnings"
-	if got := mergeNodeOptions(existing); got != existing {
-		t.Fatalf("mergeNodeOptions should not duplicate existing size flag = %q", got)
+	if got := mergeNodeOptions(existing, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should replace existing size flag = %q", got)
+	}
+
+	spaceSeparated := "--max-old-space-size 2048 --trace-warnings"
+	if got := mergeNodeOptions(spaceSeparated, restoreModulePath); got != "--require=/tmp/restore-node-options.cjs --max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions should replace space-separated size flag = %q", got)
 	}
 }
 

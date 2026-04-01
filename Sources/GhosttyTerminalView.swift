@@ -101,13 +101,9 @@ enum GhosttyPasteboardHelper {
                 .joined(separator: " ")
         }
 
-        if let value = pasteboard.string(forType: .string) {
-            return value
-        }
-
-        if let value = pasteboard.string(forType: utf8PlainTextType) {
-            return value
-        }
+        let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html)
+        let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf)
+        let rtfdText = attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
 
         if hasImageData(in: pasteboard),
            let html = pasteboard.string(forType: .html),
@@ -115,25 +111,24 @@ enum GhosttyPasteboardHelper {
             return nil
         }
 
-        if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
-            return htmlText
+        if hasImageData(in: pasteboard) {
+            if let htmlText { return htmlText }
+            if let rtfText { return rtfText }
+            return rtfdText
         }
 
-        if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {
-            return rtfText
+        if let value = plainTextContents(from: pasteboard) {
+            return value
         }
 
-        return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+        if let htmlText { return htmlText }
+        if let rtfText { return rtfText }
+        return rtfdText
     }
 
     static func hasString(for location: ghostty_clipboard_e) -> Bool {
         guard let pasteboard = pasteboard(for: location) else { return false }
-        let types = pasteboard.types ?? []
-        if types.contains(.fileURL) || types.contains(.string) || types.contains(utf8PlainTextType)
-            || types.contains(.html) || types.contains(.rtf) || types.contains(.rtfd) {
-            return true
-        }
-        return hasImageData(in: pasteboard)
+        return hasPasteableContents(in: pasteboard)
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
@@ -176,6 +171,41 @@ enum GhosttyPasteboardHelper {
 
         guard let sanitized, !sanitized.isEmpty else { return nil }
         return sanitized
+    }
+
+    private static func plainTextContents(from pasteboard: NSPasteboard) -> String? {
+        for type in pasteboard.types ?? [] {
+            guard isPlainTextType(type) else { continue }
+            guard let value = pasteboard.string(forType: type), !value.isEmpty else { continue }
+            return value
+        }
+
+        return nil
+    }
+
+    private static func hasPasteableContents(in pasteboard: NSPasteboard) -> Bool {
+        let types = pasteboard.types ?? []
+        if types.contains(.fileURL) || types.contains(.html) || types.contains(.rtf) || types.contains(.rtfd) {
+            return true
+        }
+        if types.contains(where: isPlainTextType) {
+            return true
+        }
+        return hasImageData(in: pasteboard)
+    }
+
+    private static func isPlainTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        if type == .string || type == utf8PlainTextType {
+            return true
+        }
+
+        guard type != .html,
+              type != .rtf,
+              type != .rtfd,
+              type != .fileURL,
+              let utType = UTType(type.rawValue) else { return false }
+
+        return utType.conforms(to: .plainText)
     }
 
     private static func attributedString(
