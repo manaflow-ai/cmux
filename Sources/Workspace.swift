@@ -5050,7 +5050,7 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func updateRemotePortPollingStateLocked() {
-        guard daemonReady, !isStopping, remotePortScanTTYNames.isEmpty else {
+        guard daemonReady, !isStopping, shouldUseFallbackRemotePortPollingLocked(), remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
             polledRemotePorts = []
             return
@@ -5061,6 +5061,12 @@ final class WorkspaceRemoteSessionController {
     private func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
+        guard shouldUseFallbackRemotePortPollingLocked() else {
+            stopRemotePortPollingLocked()
+            polledRemotePorts = []
+            publishPortsSnapshotLocked()
+            return
+        }
         guard remotePortScanTTYNames.isEmpty else {
             stopRemotePortPollingLocked()
             polledRemotePorts = []
@@ -5090,6 +5096,15 @@ final class WorkspaceRemoteSessionController {
             excluded.insert(configuredPort)
         }
         return excluded
+    }
+
+    private func shouldUseFallbackRemotePortPollingLocked() -> Bool {
+        // `cmux ssh` owns the remote shell bootstrap and can report the remote
+        // TTY precisely. Falling back to host-wide port scans in that path leaks
+        // unrelated listeners from the remote machine into the workspace card.
+        let startupCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return startupCommand?.isEmpty != false
     }
 
     private static func parseRemoteTTYPortPairs(output: String, trackedTTYNames: Set<String>) -> [String: [Int]] {

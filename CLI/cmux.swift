@@ -4257,7 +4257,7 @@ struct CMUXCLI {
     }
 
     private func interactiveRemoteRelayWarmupLines(remoteRelayPort: Int) -> [String] {
-        guard remoteRelayPort > 0 else { return [] }
+        let _ = remoteRelayPort
         return []
     }
 

@@ -313,6 +313,44 @@ def _wait_for_remote_port(
     )
 
 
+def _assert_remote_ports_absent(
+    client: cmux,
+    workspace_id: str,
+    forbidden_ports: set[int],
+    *,
+    timeout: float = 3.0,
+) -> tuple[dict, dict]:
+    deadline = time.time() + timeout
+    last_status = {}
+    last_row = {}
+
+    while time.time() < deadline:
+        last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+        remote = last_status.get("remote") or {}
+        detected_ports = {
+            int(value)
+            for value in (remote.get("detected_ports") or [])
+            if str(value).isdigit()
+        }
+
+        last_row = _workspace_row(client, workspace_id)
+        listening_ports = {
+            int(value)
+            for value in (last_row.get("listening_ports") or [])
+            if str(value).isdigit()
+        }
+
+        leaked = forbidden_ports.intersection(detected_ports.union(listening_ports))
+        _must(
+            not leaked,
+            "remote workspace leaked unrelated host ports before shell-specific detection: "
+            f"ports={sorted(leaked)} status={last_status} workspace={last_row}",
+        )
+        time.sleep(0.2)
+
+    return last_status, last_row
+
+
 def _scrollback_has_all_lines(
     client: cmux,
     workspace_id: str,
@@ -487,6 +525,12 @@ def main() -> int:
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = surfaces[0][1]
+            _assert_remote_ports_absent(
+                client,
+                workspace_id,
+                {FIXTURE_REMOTE_HTTP_PORT, FIXTURE_REMOTE_WS_PORT},
+                timeout=3.0,
+            )
             terminal_text = client.read_terminal_text(surface_id)
             _must(
                 "Reconstructed via infocmp" not in terminal_text,
