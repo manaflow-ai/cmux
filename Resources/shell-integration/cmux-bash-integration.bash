@@ -72,6 +72,8 @@ _cmux_relay_rpc() {
     local method="$1"
     local params="$2"
     _cmux_socket_uses_remote_relay || return 1
+    # Keep the first report_tty synchronous so a failed relay send can retry
+    # on the next prompt instead of latching _CMUX_TTY_REPORTED too early.
     command cmux rpc "$method" "$params" >/dev/null 2>&1
 }
 
@@ -91,10 +93,15 @@ _cmux_report_tty_via_relay() {
 }
 
 _cmux_ports_kick_via_relay() {
+    local reason="${1:-command}"
     _cmux_socket_uses_remote_relay || return 1
     [[ -n "$CMUX_TAB_ID" ]] || return 1
-    [[ -n "$CMUX_PANEL_ID" ]] || return 1
-    _cmux_relay_rpc_bg "surface.ports_kick" "{\"workspace_id\":\"$CMUX_TAB_ID\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
+    local params="{\"workspace_id\":\"$CMUX_TAB_ID\",\"reason\":\"$reason\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.ports_kick" "$params"
 }
 
 _cmux_restore_scrollback_once() {
@@ -335,18 +342,21 @@ _cmux_report_shell_activity_state() {
 }
 
 _cmux_ports_kick() {
+    local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
     # The app coalesces kicks across all panels and runs a single ps+lsof.
     _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
     _CMUX_PORTS_LAST_RUN=$SECONDS
     if _cmux_socket_is_unix; then
         {
-            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
         } >/dev/null 2>&1 & disown
     else
-        _cmux_ports_kick_via_relay
+        _cmux_ports_kick_via_relay "$reason"
     fi
 }
 
@@ -588,7 +598,7 @@ _cmux_preexec_command() {
 
     _cmux_report_shell_activity_state running
     _cmux_report_tty_once
-    _cmux_ports_kick
+    _cmux_ports_kick command
     _cmux_stop_pr_poll_loop
 }
 
@@ -614,14 +624,17 @@ _cmux_prompt_command() {
     if [[ -n "$CMUX_PANEL_ID" ]]; then
         _cmux_report_shell_activity_state prompt
     fi
-    _cmux_report_tmux_state
     _cmux_report_tty_once
 
-    (( cmux_has_unix_socket )) || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_report_shell_activity_state prompt
-
     local now=$SECONDS
+    if (( ! cmux_has_unix_socket )); then
+        if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
+            _cmux_ports_kick refresh
+        fi
+        return 0
+    fi
+
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
@@ -742,7 +755,7 @@ _cmux_prompt_command() {
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-        _cmux_ports_kick
+        _cmux_ports_kick refresh
     fi
 }
 

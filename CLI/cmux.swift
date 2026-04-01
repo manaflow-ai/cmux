@@ -8840,7 +8840,12 @@ struct CMUXCLI {
         guard let data = raw.data(using: .utf8) else {
             throw CLIError(message: "rpc params must be valid UTF-8 JSON")
         }
-        let object = try JSONSerialization.jsonObject(with: data, options: [])
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            throw CLIError(message: "rpc params must be valid JSON: \(error.localizedDescription)")
+        }
         guard let params = object as? [String: Any] else {
             throw CLIError(message: "rpc params must be a JSON object")
         }

@@ -3184,6 +3184,29 @@ private final class WorkspaceRemoteCLIRelayServer {
 }
 
 final class WorkspaceRemoteSessionController {
+    enum PortScanKickReason: String {
+        case command
+        case refresh
+
+        var burstOffsets: [Double] {
+            switch self {
+            case .command:
+                return [0.5, 1.5, 3.0, 5.0, 7.5, 10.0]
+            case .refresh:
+                return [0.0]
+            }
+        }
+
+        func merged(with other: Self) -> Self {
+            switch (self, other) {
+            case (.command, _), (_, .command):
+                return .command
+            case (.refresh, .refresh):
+                return .refresh
+            }
+        }
+    }
+
     private struct RetrySchedule {
         let retry: Int
         let delay: TimeInterval
@@ -3229,7 +3252,8 @@ final class WorkspaceRemoteSessionController {
     private var remotePortScanTTYNames: [UUID: String] = [:]
     private var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
     private var remotePortScanBurstActive = false
-    private var remotePortScanKickPending = false
+    private var remotePortScanActiveReason: PortScanKickReason?
+    private var remotePortScanPendingReason: PortScanKickReason?
     private var remotePortScanGeneration: UInt64 = 0
     private var remotePortScanCoalesceWorkItem: DispatchWorkItem?
     private var remotePortPollTimer: DispatchSourceTimer?
@@ -3335,7 +3359,8 @@ final class WorkspaceRemoteSessionController {
         stopReverseRelayLocked()
         remotePortScanGeneration &+= 1
         remotePortScanBurstActive = false
-        remotePortScanKickPending = false
+        remotePortScanActiveReason = nil
+        remotePortScanPendingReason = nil
         remotePortScanTTYNames.removeAll()
         remoteScannedPortsByPanel.removeAll()
         stopRemotePortPollingLocked()
@@ -3615,7 +3640,8 @@ final class WorkspaceRemoteSessionController {
             debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
             remotePortScanGeneration &+= 1
             remotePortScanBurstActive = false
-            remotePortScanKickPending = false
+            remotePortScanActiveReason = nil
+            remotePortScanPendingReason = nil
             remotePortScanCoalesceWorkItem?.cancel()
             remotePortScanCoalesceWorkItem = nil
             remoteScannedPortsByPanel.removeAll()
@@ -4927,9 +4953,9 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    func kickRemotePortScan(panelId: UUID) {
+    func kickRemotePortScan(panelId: UUID, reason: PortScanKickReason = .command) {
         queue.async { [weak self] in
-            self?.kickRemotePortScanLocked(panelId: panelId)
+            self?.kickRemotePortScanLocked(panelId: panelId, reason: reason)
         }
     }
 
@@ -4945,11 +4971,14 @@ final class WorkspaceRemoteSessionController {
         publishPortsSnapshotLocked()
     }
 
-    private func kickRemotePortScanLocked(panelId: UUID) {
+    private func kickRemotePortScanLocked(panelId: UUID, reason: PortScanKickReason) {
         guard !isStopping else { return }
         guard daemonReady else { return }
         guard remotePortScanTTYNames[panelId] != nil else { return }
-        remotePortScanKickPending = true
+        if remotePortScanBurstActive, remotePortScanActiveReason == .command, reason == .refresh {
+            return
+        }
+        remotePortScanPendingReason = remotePortScanPendingReason?.merged(with: reason) ?? reason
         scheduleRemotePortScanCoalesceLocked()
     }
 
@@ -4962,22 +4991,29 @@ final class WorkspaceRemoteSessionController {
             guard let self else { return }
             guard self.remotePortScanGeneration == generation else { return }
             self.remotePortScanCoalesceWorkItem = nil
-            guard self.remotePortScanKickPending else { return }
-            self.remotePortScanKickPending = false
+            guard let reason = self.remotePortScanPendingReason else { return }
+            self.remotePortScanPendingReason = nil
             self.remotePortScanBurstActive = true
-            self.runRemotePortScanBurstLocked(index: 0, generation: generation)
+            self.remotePortScanActiveReason = reason
+            self.runRemotePortScanBurstLocked(index: 0, generation: generation, reason: reason)
         }
         remotePortScanCoalesceWorkItem = workItem
         queue.asyncAfter(deadline: .now() + 0.2, execute: workItem)
     }
 
-    private func runRemotePortScanBurstLocked(index: Int, generation: UInt64, burstStart: DispatchTime? = nil) {
+    private func runRemotePortScanBurstLocked(
+        index: Int,
+        generation: UInt64,
+        reason: PortScanKickReason,
+        burstStart: DispatchTime? = nil
+    ) {
         guard remotePortScanGeneration == generation else { return }
 
-        let burstOffsets: [Double] = [0.5, 1.5, 3.0, 5.0, 7.5, 10.0]
+        let burstOffsets = reason.burstOffsets
         guard index < burstOffsets.count else {
             remotePortScanBurstActive = false
-            if remotePortScanKickPending && remotePortScanCoalesceWorkItem == nil {
+            remotePortScanActiveReason = nil
+            if remotePortScanPendingReason != nil && remotePortScanCoalesceWorkItem == nil {
                 scheduleRemotePortScanCoalesceLocked()
             }
             return
@@ -4989,7 +5025,12 @@ final class WorkspaceRemoteSessionController {
             guard let self else { return }
             guard self.remotePortScanGeneration == generation else { return }
             self.performRemotePortScanLocked()
-            self.runRemotePortScanBurstLocked(index: index + 1, generation: generation, burstStart: start)
+            self.runRemotePortScanBurstLocked(
+                index: index + 1,
+                generation: generation,
+                reason: reason,
+                burstStart: start
+            )
         }
     }
 
@@ -7307,10 +7348,10 @@ final class Workspace: Identifiable, ObservableObject {
         remoteSessionController?.updateRemotePortScanTTYs(surfaceTTYNames)
     }
 
-    func kickRemotePortScan(panelId: UUID) {
+    func kickRemotePortScan(panelId: UUID, reason: WorkspaceRemoteSessionController.PortScanKickReason = .command) {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
-        remoteSessionController?.kickRemotePortScan(panelId: panelId)
+        remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
     }
 
     func remoteStatusPayload() -> [String: Any] {
