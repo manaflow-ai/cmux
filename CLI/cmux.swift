@@ -11898,7 +11898,7 @@ struct CMUXCLI {
 
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description"] {
+            for key in ["file_path", "command", "pattern", "description", "query"] {
                 if let value = firstString(in: toolInput, keys: [key]) {
                     compactToolInput[key] = value
                 }
