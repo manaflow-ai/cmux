@@ -380,9 +380,7 @@ _cmux_report_tty_once() {
         payload="$(_cmux_report_tty_payload)"
         [[ -n "$payload" ]] || return 0
         _CMUX_TTY_REPORTED=1
-        {
-            _cmux_send "$payload"
-        } >/dev/null 2>&1 & disown
+        ( _cmux_send "$payload" >/dev/null 2>&1 & )
     else
         [[ -n "$_CMUX_TTY_NAME" ]] || return 0
         # Keep the first relay TTY report synchronous so the server can resolve
@@ -400,9 +398,7 @@ _cmux_report_shell_activity_state() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
-    {
-        _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    ( _cmux_send "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 & )
 }
 
 _cmux_ports_kick() {
@@ -416,9 +412,7 @@ _cmux_ports_kick() {
     fi
     _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     if _cmux_socket_is_unix; then
-        {
-            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
-        } >/dev/null 2>&1 & disown
+        ( _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason" >/dev/null 2>&1 & )
     else
         _cmux_ports_kick_via_relay "$reason"
     fi
@@ -1004,10 +998,10 @@ _cmux_prompt_command() {
     # CWD: keep the app in sync with the actual shell directory.
     if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
-        {
+        (
             local qpwd="${pwd//\"/\\\"}"
-            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-        } >/dev/null 2>&1 & disown
+            _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID" >/dev/null 2>&1 &
+        )
     fi
 
     # Branch can change via aliases/tools while an older probe is still in flight.
