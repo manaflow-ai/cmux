@@ -3561,10 +3561,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Display reconnection window restoration
 
     /// Cache the current frame of a managed window, keyed by its current display.
+    /// Clears entries for this window on all other displays so that only the most
+    /// recent display is remembered (prevents restoring a window the user
+    /// intentionally moved away).
     private func cacheWindowFrameForDisplay(_ window: NSWindow) {
         guard mainWindowContexts[ObjectIdentifier(window)] != nil else { return }
         guard let displayID = window.screen?.cmuxDisplayID else { return }
-        displayWindowFrameCache[displayID, default: [:]][ObjectIdentifier(window)] = window.frame
+        let windowID = ObjectIdentifier(window)
+        for otherDisplayID in displayWindowFrameCache.keys where otherDisplayID != displayID {
+            displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
+        }
+        displayWindowFrameCache[displayID, default: [:]][windowID] = window.frame
     }
 
     @objc private func handleWindowDidMove(_ notification: Notification) {
@@ -11559,6 +11566,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+
+        // Purge per-display frame cache for the closing window to prevent
+        // address-reuse collisions with future windows.
+        let closingID = ObjectIdentifier(window)
+        for displayID in displayWindowFrameCache.keys {
+            displayWindowFrameCache[displayID]?.removeValue(forKey: closingID)
+        }
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
