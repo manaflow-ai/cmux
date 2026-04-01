@@ -74,6 +74,7 @@
 		A5001650 /* CmuxConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001651 /* CmuxConfig.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
 		A5001654 /* CmuxDirectoryTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001655 /* CmuxDirectoryTrust.swift */; };
+		A5001660 /* SerialConsole.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* SerialConsole.swift */; };
 		A5001100 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5001101 /* Assets.xcassets */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000001A1B2C3D4E5F60719 /* cmux.swift */; };
@@ -268,6 +269,7 @@
 		A5001651 /* CmuxConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfig.swift; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
 		A5001655 /* CmuxDirectoryTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDirectoryTrust.swift; sourceTree = "<group>"; };
+		A5001661 /* SerialConsole.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SerialConsole.swift; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		B8F266256A1A3D9A45BD840F /* SidebarHelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarHelpMenuUITests.swift; sourceTree = "<group>"; };
@@ -511,6 +513,7 @@
 				A5001651 /* CmuxConfig.swift */,
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001655 /* CmuxDirectoryTrust.swift */,
+				A5001661 /* SerialConsole.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -833,7 +836,8 @@
 				A5001650 /* CmuxConfig.swift in Sources */,
 			A5001652 /* CmuxConfigExecutor.swift in Sources */,
 			A5001654 /* CmuxDirectoryTrust.swift in Sources */,
-		);
+			A5001660 /* SerialConsole.swift in Sources */,
+			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		D1320AA0D1320AA0D1320AB0 /* Sources */ = {

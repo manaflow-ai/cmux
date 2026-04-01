@@ -46,6 +46,123 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
     }
 
+    @MainActor
+    func testWorkspaceSessionSnapshotRestoresSerialTerminalConfiguration() throws {
+        let configuration = SerialConsoleConfiguration(
+            devicePath: "/dev/cu.usbserial-1410",
+            baudRate: 115_200,
+            dataBits: .seven,
+            stopBits: .two,
+            parity: .even,
+            flowControl: .hardware
+        )
+
+        let workspace = Workspace(
+            title: configuration.displayTitle,
+            initialTerminalSerialConfiguration: configuration
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let terminalSnapshot = try XCTUnwrap(snapshot.panels.first?.terminal)
+        XCTAssertEqual(terminalSnapshot.serialConfiguration, configuration)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanel = try XCTUnwrap(restored.focusedTerminalPanel)
+        XCTAssertEqual(restoredPanel.serialConfiguration, configuration)
+    }
+
+    func testLoadDecodesSerialConfigurationWithUnknownEnumValues() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let panelID = UUID()
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].focusedPanelId = panelID
+        snapshot.windows[0].tabManager.workspaces[0].layout = .pane(
+            SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)
+        )
+        snapshot.windows[0].tabManager.workspaces[0].panels = [
+            SessionPanelSnapshot(
+                id: panelID,
+                type: .terminal,
+                title: "Serial",
+                customTitle: nil,
+                directory: "/tmp",
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: "/tmp",
+                    scrollback: "boot log",
+                    serialConfiguration: SerialConsoleConfiguration(
+                        devicePath: "/dev/cu.usbserial-1410",
+                        baudRate: 115_200,
+                        dataBits: .seven,
+                        stopBits: .two,
+                        parity: .even,
+                        flowControl: .hardware
+                    )
+                ),
+                browser: nil,
+                markdown: nil
+            )
+        ]
+
+        let encoded = try JSONEncoder().encode(snapshot)
+        var jsonObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        var windows = try XCTUnwrap(jsonObject["windows"] as? [[String: Any]])
+        var window = try XCTUnwrap(windows.first)
+        var tabManager = try XCTUnwrap(window["tabManager"] as? [String: Any])
+        var workspaces = try XCTUnwrap(tabManager["workspaces"] as? [[String: Any]])
+        var workspace = try XCTUnwrap(workspaces.first)
+        var panels = try XCTUnwrap(workspace["panels"] as? [[String: Any]])
+        var panel = try XCTUnwrap(panels.first)
+        var terminal = try XCTUnwrap(panel["terminal"] as? [String: Any])
+        var serialConfiguration = try XCTUnwrap(
+            terminal["serialConfiguration"] as? [String: Any]
+        )
+        serialConfiguration["dataBits"] = 99
+        serialConfiguration["stopBits"] = 3
+        serialConfiguration["parity"] = "mark"
+        serialConfiguration["flowControl"] = "custom"
+        terminal["serialConfiguration"] = serialConfiguration
+        panel["terminal"] = terminal
+        panels[0] = panel
+        workspace["panels"] = panels
+        workspaces[0] = workspace
+        tabManager["workspaces"] = workspaces
+        window["tabManager"] = tabManager
+        windows[0] = window
+        jsonObject["windows"] = windows
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let mutated = try JSONSerialization.data(withJSONObject: jsonObject)
+        try mutated.write(to: snapshotURL)
+
+        let loaded = try XCTUnwrap(SessionPersistenceStore.load(fileURL: snapshotURL))
+        let serialConfigurationAfterLoad = try XCTUnwrap(
+            loaded.windows.first?
+                .tabManager.workspaces.first?
+                .panels.first?
+                .terminal?
+                .serialConfiguration
+        )
+        XCTAssertEqual(serialConfigurationAfterLoad.devicePath, "/dev/cu.usbserial-1410")
+        XCTAssertEqual(serialConfigurationAfterLoad.baudRate, 115_200)
+        XCTAssertEqual(serialConfigurationAfterLoad.dataBits, .eight)
+        XCTAssertEqual(serialConfigurationAfterLoad.stopBits, .one)
+        XCTAssertEqual(serialConfigurationAfterLoad.parity, .none)
+        XCTAssertEqual(serialConfigurationAfterLoad.flowControl, .none)
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)

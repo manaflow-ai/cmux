@@ -309,7 +309,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialTerminalSerialConfiguration: SerialConsoleConfiguration?
         ) -> Workspace {
             beforeCreateWorkspace?()
             return super.makeWorkspaceForCreation(
@@ -318,7 +319,8 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalSerialConfiguration: initialTerminalSerialConfiguration
             )
         }
     }
@@ -568,7 +570,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             portOrdinal: Int,
             configTemplate: CmuxSurfaceConfigTemplate?,
             initialTerminalCommand: String?,
-            initialTerminalEnvironment: [String: String]
+            initialTerminalEnvironment: [String: String],
+            initialTerminalSerialConfiguration: SerialConsoleConfiguration?
         ) -> Workspace {
             capturedConfigTemplate = configTemplate
             return super.makeWorkspaceForCreation(
@@ -577,7 +580,8 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
                 portOrdinal: portOrdinal,
                 configTemplate: configTemplate,
                 initialTerminalCommand: initialTerminalCommand,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalSerialConfiguration: initialTerminalSerialConfiguration
             )
         }
     }

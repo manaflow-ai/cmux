@@ -3052,6 +3052,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let workingDirectory: String?
     private let initialCommand: String?
     private let initialEnvironmentOverrides: [String: String]
+    let serialConfiguration: SerialConsoleConfiguration?
+    private let initialManualOutput: String?
     var requestedWorkingDirectory: String? { workingDirectory }
     private var additionalEnvironment: [String: String]
     let hostedView: GhosttySurfaceScrollView
@@ -3070,6 +3072,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let maxPendingTextBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    private var serialIO: SerialTerminalIO?
+    private var retainedSerialIO: Unmanaged<SerialTerminalIO>?
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface` syncs
     /// it on creation. Also used as a dedup guard to avoid redundant
@@ -3140,7 +3144,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        serialConfiguration: SerialConsoleConfiguration? = nil,
+        initialManualOutput: String? = nil
     ) {
         self.id = UUID()
         self.tabId = tabId
@@ -3150,6 +3156,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
+        self.serialConfiguration = serialConfiguration
+        self.initialManualOutput = initialManualOutput
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
@@ -3157,6 +3165,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let view = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         self.surfaceView = view
         self.hostedView = GhosttySurfaceScrollView(surfaceView: view)
+        if let serialConfiguration {
+            let serialIO = SerialTerminalIO(
+                configuration: serialConfiguration,
+                onReceiveData: { [weak self] data in
+                    self?.processManualOutput(data)
+                },
+                onRuntimeMessage: { [weak self] message in
+                    self?.processSerialRuntimeMessage(message)
+                }
+            )
+            self.serialIO = serialIO
+            self.retainedSerialIO = Unmanaged.passRetained(serialIO)
+        }
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
         TerminalSurfaceRegistry.shared.register(self)
@@ -3484,6 +3505,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        invalidateManualIO()
+        let retainedSerialIO = retainedSerialIO
+        self.retainedSerialIO = nil
 
         let surfaceToFree = surface
         if let surfaceToFree {
@@ -3493,6 +3517,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         guard let surfaceToFree else {
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 
@@ -3500,6 +3525,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 #endif
@@ -3509,6 +3535,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            retainedSerialIO?.release()
         }
     }
 
@@ -3703,6 +3730,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if let retainedSerialIO {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = { userdata, bytes, count in
+                guard let userdata, let bytes else { return }
+                let serialIO = Unmanaged<SerialTerminalIO>.fromOpaque(userdata).takeUnretainedValue()
+                serialIO.write(bytes, count: Int(count))
+            }
+            surfaceConfig.io_write_userdata = retainedSerialIO.toOpaque()
+        } else {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_EXEC
+            surfaceConfig.io_write_cb = nil
+            surfaceConfig.io_write_userdata = nil
+        }
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         dlog(
@@ -3858,18 +3898,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         let resolvedWorkingDirectory: String? = {
+            guard serialConfiguration == nil else { return nil }
             if let workingDirectory, !workingDirectory.isEmpty {
                 return workingDirectory
             }
             return baseConfig.workingDirectory
         }()
         let resolvedCommand: String? = {
+            guard serialConfiguration == nil else { return nil }
             if let initialCommand, !initialCommand.isEmpty {
                 return initialCommand
             }
             return baseConfig.command
         }()
-        let resolvedInitialInput = baseConfig.initialInput
+        let resolvedInitialInput = serialConfiguration == nil ? baseConfig.initialInput : nil
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
             guard let value else {
                 return body(nil)
@@ -3978,6 +4020,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ]
         )
 
+        if let initialManualOutput, !initialManualOutput.isEmpty,
+           let replayData = initialManualOutput.data(using: .utf8) {
+            processManualOutput(replayData)
+        }
+        serialIO?.activate()
         flushPendingTextIfNeeded()
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
@@ -4129,6 +4176,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     func needsConfirmClose() -> Bool {
+        if serialConfiguration != nil {
+            return false
+        }
 #if DEBUG
         if let needsConfirmCloseOverrideForTesting {
             return needsConfirmCloseOverrideForTesting
@@ -4248,6 +4298,46 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private func processManualOutput(_ data: Data) {
+        guard !data.isEmpty else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                processManualOutputOnMain(data)
+            }
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            self?.processManualOutputOnMain(data)
+        }
+    }
+
+    @MainActor
+    private func processManualOutputOnMain(_ data: Data) {
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "serial.processManualOutput") else { return }
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func processSerialRuntimeMessage(_ message: String) {
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let data = "\r\n[\(message)]\r\n".data(using: .utf8) else {
+            return
+        }
+        processManualOutput(data)
+    }
+
+    private func invalidateManualIO() {
+        serialIO?.invalidate()
+    }
+
+    private func releaseRetainedSerialIO() {
+        retainedSerialIO?.release()
+        retainedSerialIO = nil
+    }
+
     private func enqueuePendingText(_ data: Data) {
         let incomingBytes = data.count
         while !pendingTextQueue.isEmpty && pendingTextBytes + incomingBytes > maxPendingTextBytes {
@@ -4327,9 +4417,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func releaseSurfaceForTesting() {
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        invalidateManualIO()
+        let retainedSerialIO = retainedSerialIO
+        self.retainedSerialIO = nil
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 
@@ -4337,6 +4431,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surface = nil
         ghostty_surface_free(surfaceToFree)
         callbackContext?.release()
+        retainedSerialIO?.release()
     }
 
     /// Test-only helper to simulate a stale Swift wrapper whose native surface
@@ -4347,9 +4442,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        invalidateManualIO()
+        let retainedSerialIO = retainedSerialIO
+        self.retainedSerialIO = nil
 
         guard let surfaceToFree = surface else {
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 
@@ -4357,6 +4456,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_free(surfaceToFree)
         runtimeSurfaceFreedOutOfBandForTesting = true
         callbackContext?.release()
+        retainedSerialIO?.release()
     }
 #endif
 
@@ -4365,6 +4465,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         let callbackContext = surfaceCallbackContext
         surfaceCallbackContext = nil
+        invalidateManualIO()
+        let retainedSerialIO = retainedSerialIO
+        self.retainedSerialIO = nil
 
         // Nil out the surface pointer so any in-flight closures (e.g. geometry
         // reconcile dispatched via DispatchQueue.main.async) that read self.surface
@@ -4384,6 +4487,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )
 #endif
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 
@@ -4391,6 +4495,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if runtimeSurfaceFreedOutOfBandForTesting {
             runtimeSurfaceFreedOutOfBandForTesting = false
             callbackContext?.release()
+            retainedSerialIO?.release()
             return
         }
 #endif
@@ -4411,6 +4516,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         Task { @MainActor in
             ghostty_surface_free(surfaceToFree)
             callbackContext?.release()
+            retainedSerialIO?.release()
 #if DEBUG
             dlog(
                 "surface.lifecycle.deinit.end surface=\(surfaceToken) " +

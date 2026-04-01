@@ -71,6 +71,10 @@ final class TerminalPanel: Panel, ObservableObject {
         surface.requestedWorkingDirectory
     }
 
+    var serialConfiguration: SerialConsoleConfiguration? {
+        surface.serialConfiguration
+    }
+
     init(workspaceId: UUID, surface: TerminalSurface) {
         self.id = surface.id
         self.workspaceId = workspaceId
@@ -95,7 +99,10 @@ final class TerminalPanel: Panel, ObservableObject {
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
-        additionalEnvironment: [String: String] = [:]
+        additionalEnvironment: [String: String] = [:],
+        serialConfiguration: SerialConsoleConfiguration? = nil,
+        initialTitle: String? = nil,
+        initialManualOutput: String? = nil
     ) {
         let surface = TerminalSurface(
             tabId: workspaceId,
@@ -104,10 +111,17 @@ final class TerminalPanel: Panel, ObservableObject {
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment
+            additionalEnvironment: additionalEnvironment,
+            serialConfiguration: serialConfiguration,
+            initialManualOutput: initialManualOutput
         )
         surface.portOrdinal = portOrdinal
         self.init(workspaceId: workspaceId, surface: surface)
+        if let initialTitle {
+            updateTitle(initialTitle)
+        } else if let serialConfiguration {
+            updateTitle(serialConfiguration.displayTitle)
+        }
     }
 
     func updateTitle(_ newTitle: String) {
@@ -210,7 +224,7 @@ final class TerminalPanel: Panel, ObservableObject {
     func shouldPersistScrollbackForSessionSnapshot() -> Bool {
         // Session restore only replays terminal output into a fresh shell. If Ghostty
         // says we are not safely at a prompt, replaying that state later is misleading.
-        !surface.needsConfirmClose()
+        serialConfiguration != nil || !surface.needsConfirmClose()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {

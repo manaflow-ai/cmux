@@ -591,6 +591,15 @@ struct cmuxApp: App {
 
                 Button(
                     String(
+                        localized: "menu.file.openSerialConsole",
+                        defaultValue: "Open Serial Console…"
+                    )
+                ) {
+                    AppDelegate.shared?.showOpenSerialConsolePanel()
+                }
+
+                Button(
+                    String(
                         localized: "menu.file.openFolderInVSCodeInline",
                         defaultValue: "Open Folder in VS Code (Inline)…"
                     )

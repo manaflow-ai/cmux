@@ -445,7 +445,8 @@ extension Workspace {
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                serialConfiguration: terminalPanel.serialConfiguration
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -616,19 +617,31 @@ extension Workspace {
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
-            let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: snapshot.terminal?.scrollback
-            )
-            guard let terminalPanel = newTerminalSurface(
-                inPane: paneId,
-                focus: false,
-                workingDirectory: workingDirectory,
-                startupEnvironment: replayEnvironment
-            ) else {
+            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
+            let terminalPanel: TerminalPanel?
+            if let serialConfiguration = snapshot.terminal?.serialConfiguration {
+                terminalPanel = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    serialConfiguration: serialConfiguration,
+                    initialTitle: snapshot.title,
+                    initialManualOutput: fallbackScrollback
+                )
+            } else {
+                let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
+                let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+                    for: snapshot.terminal?.scrollback
+                )
+                terminalPanel = newTerminalSurface(
+                    inPane: paneId,
+                    focus: false,
+                    workingDirectory: workingDirectory,
+                    startupEnvironment: replayEnvironment
+                )
+            }
+            guard let terminalPanel else {
                 return nil
             }
-            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {
@@ -5788,7 +5801,8 @@ final class Workspace: Identifiable, ObservableObject {
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
-        initialTerminalEnvironment: [String: String] = [:]
+        initialTerminalEnvironment: [String: String] = [:],
+        initialTerminalSerialConfiguration: SerialConsoleConfiguration? = nil
     ) {
         self.id = UUID()
         self.portOrdinal = portOrdinal
@@ -5835,7 +5849,9 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: hasWorkingDirectory ? trimmedWorkingDirectory : nil,
             portOrdinal: portOrdinal,
             initialCommand: initialTerminalCommand,
-            initialEnvironmentOverrides: initialTerminalEnvironment
+            initialEnvironmentOverrides: initialTerminalEnvironment,
+            serialConfiguration: initialTerminalSerialConfiguration,
+            initialTitle: initialTerminalSerialConfiguration?.displayTitle
         )
         configureTerminalPanel(terminalPanel)
         panels[terminalPanel.id] = terminalPanel
@@ -7653,7 +7669,10 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        serialConfiguration: SerialConsoleConfiguration? = nil,
+        initialTitle: String? = nil,
+        initialManualOutput: String? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -7670,7 +7689,10 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: startupEnvironment,
+            serialConfiguration: serialConfiguration,
+            initialTitle: initialTitle,
+            initialManualOutput: initialManualOutput
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

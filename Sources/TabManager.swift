@@ -1181,7 +1181,8 @@ class TabManager: ObservableObject {
         portOrdinal: Int,
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        initialTerminalSerialConfiguration: SerialConsoleConfiguration?
     ) -> Workspace {
         Workspace(
             title: title,
@@ -1189,7 +1190,8 @@ class TabManager: ObservableObject {
             portOrdinal: portOrdinal,
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialTerminalSerialConfiguration: initialTerminalSerialConfiguration
         )
     }
 
@@ -1227,6 +1229,7 @@ class TabManager: ObservableObject {
         workingDirectory overrideWorkingDirectory: String? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
+        initialTerminalSerialConfiguration: SerialConsoleConfiguration? = nil,
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
@@ -1273,7 +1276,8 @@ class TabManager: ObservableObject {
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialTerminalSerialConfiguration: initialTerminalSerialConfiguration
             )
             newWorkspace.owningTabManager = self
             if title != nil {

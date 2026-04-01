@@ -5673,6 +5673,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    func showOpenSerialConsolePanel() {
+        guard let configuration = SerialConsoleOpenDialog.present() else {
+            return
+        }
+
+        do {
+            try SerialTerminalIO.validate(configuration: configuration)
+        } catch {
+            presentSerialConsoleOpenError(error, configuration: configuration)
+            return
+        }
+
+        openSerialConsole(configuration, debugSource: "menu.openSerialConsole")
+    }
+
+    private func presentSerialConsoleOpenError(
+        _ error: Error,
+        configuration: SerialConsoleConfiguration
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "serial.error.openFailed.title",
+            defaultValue: "Couldn't Open Serial Device"
+        )
+        alert.informativeText = String.localizedStringWithFormat(
+            String(
+                localized: "serial.error.openFailed.message",
+                defaultValue: "cmux couldn't open %@.\n\n%@"
+            ),
+            configuration.trimmedDevicePath,
+            error.localizedDescription
+        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.runModal()
+    }
+
+    private func openSerialConsole(
+        _ configuration: SerialConsoleConfiguration,
+        debugSource: String
+    ) {
+        prepareForExplicitOpenIntentAtStartup()
+        let workspaceTitle = configuration.displayTitle
+        if addWorkspaceInPreferredMainWindow(
+            title: workspaceTitle,
+            shouldBringToFront: true,
+            debugSource: debugSource,
+            initialTerminalSerialConfiguration: configuration
+        ) != nil {
+            return
+        }
+
+        let windowId = createMainWindow()
+        guard let manager = tabManagerFor(windowId: windowId) else { return }
+        let bootstrapWorkspace = manager.selectedWorkspace
+        let serialWorkspace = manager.addWorkspace(
+            title: workspaceTitle,
+            initialTerminalSerialConfiguration: configuration,
+            select: true
+        )
+        if let bootstrapWorkspace,
+           bootstrapWorkspace.id != serialWorkspace.id,
+           manager.tabs.count > 1 {
+            manager.closeWorkspace(bootstrapWorkspace)
+        }
+    }
+
     @discardableResult
     func openDirectoryInInlineVSCode(
         _ directoryURL: URL,
@@ -5870,10 +5937,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func addWorkspaceInPreferredMainWindow(
+        title: String? = nil,
         workingDirectory: String? = nil,
         shouldBringToFront: Bool = false,
         event: NSEvent? = nil,
-        debugSource: String = "unspecified"
+        debugSource: String = "unspecified",
+        initialTerminalSerialConfiguration: SerialConsoleConfiguration? = nil
     ) -> UUID? {
         #if DEBUG
         logWorkspaceCreationRouting(
@@ -5918,8 +5987,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let workspace: Workspace
-        if let workingDirectory {
-            workspace = context.tabManager.addWorkspace(workingDirectory: workingDirectory, select: true)
+        if title != nil || workingDirectory != nil || initialTerminalSerialConfiguration != nil {
+            workspace = context.tabManager.addWorkspace(
+                title: title,
+                workingDirectory: workingDirectory,
+                initialTerminalSerialConfiguration: initialTerminalSerialConfiguration,
+                select: true
+            )
         } else {
             workspace = context.tabManager.addTab(select: true)
         }

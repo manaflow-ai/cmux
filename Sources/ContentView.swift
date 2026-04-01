@@ -5405,6 +5405,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.openSerialConsole",
+                title: constant(String(localized: "menu.file.openSerialConsole", defaultValue: "Open Serial Console…")),
+                subtitle: constant(String(localized: "serial.panel.title.default", defaultValue: "Serial")),
+                keywords: ["open", "serial", "console", "uart", "tty", "device", "usb"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.openFolderInVSCodeInline",
                 title: constant(
                     String(
@@ -6114,6 +6122,11 @@ struct ContentView: View {
                 if panel.runModal() == .OK, let url = panel.url {
                     tabManager.addWorkspace(workingDirectory: url.path)
                 }
+            }
+        }
+        registry.register(commandId: "palette.openSerialConsole") {
+            DispatchQueue.main.async {
+                AppDelegate.shared?.showOpenSerialConsolePanel()
             }
         }
         registry.register(commandId: "palette.openFolderInVSCodeInline") {
