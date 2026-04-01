@@ -467,7 +467,7 @@ _cmux_pr_debug_log() {
 
     local branch="$1"
     local event="$2"
-    local now="${EPOCHSECONDS:-0}"
+    local now="${EPOCHSECONDS:-$SECONDS}"
     printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> /tmp/cmux-pr-debug.log
 }
 
@@ -513,7 +513,7 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
-    local now="${EPOCHSECONDS:-0}"
+    local now="${EPOCHSECONDS:-$SECONDS}"
     local prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
     local cache_branch="" cache_result="" cache_no_pr_branch=""
     local -a gh_repo_args
@@ -653,7 +653,7 @@ _cmux_run_pr_probe_with_timeout() {
     local repo_path="$1"
     local force_probe="${2:-0}"
     local probe_pid=""
-    local started_at=$EPOCHSECONDS
+    local started_at="${EPOCHSECONDS:-$SECONDS}"
     local now=$started_at
 
     (
@@ -663,7 +663,7 @@ _cmux_run_pr_probe_with_timeout() {
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
         sleep 1
-        now=$EPOCHSECONDS
+        now="${EPOCHSECONDS:-$SECONDS}"
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
             _cmux_kill_process_tree "$probe_pid" TERM
             sleep 0.2
