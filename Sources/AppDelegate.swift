@@ -2303,8 +2303,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Per-display window frame cache for restoring positions when external displays reconnect.
-    /// Keyed by CGDirectDisplayID, values map window identity to the last known frame on that display.
-    private var displayWindowFrameCache: [UInt32: [ObjectIdentifier: CGRect]] = [:]
+    /// Keyed by CGDirectDisplayID, values map stable window UUID to the last known frame on that display.
+    private var displayWindowFrameCache: [UInt32: [UUID: CGRect]] = [:]
     /// Set of display IDs that were connected at last check, used to detect reconnections.
     private var knownConnectedDisplayIDs: Set<UInt32> = []
 
@@ -3565,9 +3565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// disconnect-driven relocation to the primary display doesn't erase the
     /// frame we need for restoration.
     private func cacheWindowFrameForDisplay(_ window: NSWindow) {
-        guard mainWindowContexts[ObjectIdentifier(window)] != nil else { return }
+        guard let ctx = mainWindowContexts[ObjectIdentifier(window)] else { return }
         guard let displayID = window.screen?.cmuxDisplayID else { return }
-        let windowID = ObjectIdentifier(window)
+        let windowID = ctx.windowId
         for otherDisplayID in displayWindowFrameCache.keys where otherDisplayID != displayID {
             // Only prune entries for displays that are still connected.
             // Disconnected display entries are preserved for restoration.
@@ -3605,8 +3605,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == displayID }) else {
                 continue
             }
-            for (windowID, frame) in cachedFrames {
-                guard let (_, ctx) = mainWindowContexts.first(where: { $0.key == windowID }),
+            for (windowUUID, frame) in cachedFrames {
+                guard let ctx = mainWindowContexts.values.first(where: { $0.windowId == windowUUID }),
                       let window = ctx.window else {
                     continue
                 }
@@ -11572,11 +11572,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
 
-        // Purge per-display frame cache for the closing window to prevent
-        // address-reuse collisions with future windows.
-        let closingID = ObjectIdentifier(window)
+        // Purge per-display frame cache for the closing window.
         for displayID in displayWindowFrameCache.keys {
-            displayWindowFrameCache[displayID]?.removeValue(forKey: closingID)
+            displayWindowFrameCache[displayID]?.removeValue(forKey: removed.windowId)
         }
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
