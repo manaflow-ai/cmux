@@ -3027,15 +3027,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
-    /// C surface exists (e.g. during layout restoration); `createSurface` syncs
-    /// it on creation. Also used as a dedup guard to avoid redundant
-    /// `ghostty_surface_set_focus` calls (prevents prompt redraws with P10k).
+    /// C surface exists (e.g. during layout restoration); `createSurface` seeds
+    /// the initial runtime focus state from this value, then keeps using it as a
+    /// dedup guard to avoid redundant `ghostty_surface_set_focus` calls
+    /// (prevents prompt redraws with P10k).
     ///
     /// Start unfocused and only opt into focus when the workspace/AppKit focus
-    /// path explicitly requests it. Fresh Ghostty surfaces otherwise inherit the
-    /// core default of focused=true long enough to emit focus events during pane
-    /// creation, which can leak `CSI I/O` into shells that never focused that
-    /// pane yet.
+    /// path explicitly requests it. `createSurface` passes this through as the
+    /// runtime surface's initial focus state so background panes never need a
+    /// synthetic focus-loss transition during creation.
     private var desiredFocusState: Bool = false
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
@@ -3663,6 +3663,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
+        surfaceConfig.focused = desiredFocusState
         surfaceConfig.context = surfaceContext
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
@@ -3923,11 +3924,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
         }
 
-        // Sync the desired focus state to the newly created C surface. Ghostty
-        // surfaces default to focused=true, but this surface may have been
-        // logically unfocused before the C surface existed (e.g. during layout
-        // restoration). Always sync unconditionally so we don't couple to
-        // Ghostty's default.
+        // Re-apply the desired focus state after creation so the live runtime
+        // surface converges with any focus changes that happened while the
+        // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
         NotificationCenter.default.post(

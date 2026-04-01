@@ -279,6 +279,8 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+"$PWD/scripts/ensure-ghosttykit.sh"
+
 if should_skip_ghostty_cli_helper_zig_build; then
   if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
     echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
