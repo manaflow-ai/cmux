@@ -152,6 +152,10 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+_cmux_now() {
+    print -r -- "${EPOCHSECONDS:-$SECONDS}"
+}
+
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 _cmux_install_claude_wrapper() {
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
@@ -504,7 +508,7 @@ _cmux_ports_kick() {
     if _cmux_socket_is_unix; then
         [[ -n "$CMUX_PANEL_ID" ]] || return 0
     fi
-    _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
+    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
     if _cmux_socket_is_unix; then
         _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
     else
@@ -986,7 +990,7 @@ _cmux_preexec() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _CMUX_CMD_START=$EPOCHSECONDS
+    _CMUX_CMD_START="$(_cmux_now)"
     _cmux_report_shell_activity_state running
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
@@ -1032,7 +1036,7 @@ _cmux_precmd() {
 
     _cmux_report_tty_once
 
-    local now=$EPOCHSECONDS
+    local now="$(_cmux_now)"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
     local cmd_dur=0

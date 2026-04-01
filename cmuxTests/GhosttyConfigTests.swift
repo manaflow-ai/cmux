@@ -3025,7 +3025,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             command: """
             : > "\(logPath.path)"
             _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=0
+            _CMUX_PORTS_LAST_RUN=-999
             _cmux_precmd
             repeat 20; do
               [[ -s "\(logPath.path)" ]] && break
@@ -3114,7 +3114,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             command: """
             : > "\(logPath.path)"
             _CMUX_TTY_REPORTED=1
-            _CMUX_PORTS_LAST_RUN=0
+            _CMUX_PORTS_LAST_RUN=-999
             _cmux_prompt_command
             for _cmux_i in $(seq 1 20); do
               [ -s "\(logPath.path)" ] && break
