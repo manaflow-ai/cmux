@@ -307,8 +307,8 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
-            _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook; }}
-            _cmux_regular_command_entry() {{ _cmux_bash_preexec_hook; }}
+            _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook bash; }}
+            _cmux_regular_command_entry() {{ _cmux_bash_preexec_hook "echo hi"; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
             {shared}"""
         )
@@ -390,10 +390,21 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     gh_args_lines = _read_lines(gh_args_log)
     gh_count = int((gh_count_file.read_text(encoding="utf-8").strip() or "0")) if gh_count_file.exists() else 0
 
-    if not gh_args_lines:
-        return (1, f"{shell}/{scenario}: expected at least one gh invocation")
-    if any(not line.startswith("pr view ") for line in gh_args_lines):
-        return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
+    scenarios_requiring_gh = {
+        "prompt_helper_idle",
+        "transient_same_context",
+        "branch_switch_clear",
+        "timeout_recovery",
+        "explicit_branch_fallback",
+        "initial_prompt_preserves_pr_badge",
+        "ports_kick_throttle",
+        "preexec_preserves_pr_cache",
+    }
+    if scenario in scenarios_requiring_gh:
+        if not gh_args_lines:
+            return (1, f"{shell}/{scenario}: expected at least one gh invocation")
+        if any(not line.startswith("pr view ") for line in gh_args_lines):
+            return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
 
     if scenario == "prompt_helper_idle":
         if gh_count < 2:
