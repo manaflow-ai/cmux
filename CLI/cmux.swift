@@ -1551,7 +1551,8 @@ struct CMUXCLI {
             }
             let params = try parseRPCParams(Array(commandArgs.dropFirst()))
             let response = try client.sendV2(method: method, params: params)
-            print(jsonString(formatIDs(response, mode: idFormat)))
+            let output: Any = idFormatArg == nil ? response : formatIDs(response, mode: idFormat)
+            print(jsonString(output))
 
         case "identify":
             var params: [String: Any] = [:]

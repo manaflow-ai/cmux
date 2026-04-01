@@ -319,9 +319,9 @@ def main() -> int:
             if workspace_id:
                 try:
                     client.close_workspace(workspace_id)
+                    workspace_id = ""
                 except Exception:
                     pass
-                workspace_id = ""
 
         print("PASS: remote SSH workspace surfaces listening ports from the live remote shell")
         return 0
