@@ -164,8 +164,8 @@ def main() -> int:
             )
             ssh_startup_command = str(payload.get("ssh_startup_command") or "")
             _must(
-                ssh_startup_command.startswith("/bin/zsh -ilc "),
-                f"cmux ssh should launch startup command via interactive zsh for shell integration: {ssh_startup_command!r}",
+                "cmux-ssh-startup-" in ssh_startup_command and ssh_startup_command.rstrip("'").endswith(".sh"),
+                f"cmux ssh should launch a generated startup script that preserves shell integration and cleanup: {ssh_startup_command!r}",
             )
             ssh_env_overrides = payload.get("ssh_env_overrides") or {}
             _must(
@@ -188,6 +188,22 @@ def main() -> int:
             _must(
                 f"export CMUX_SOCKET_PATH=127.0.0.1:{int(remote_relay_port)}" in ssh_command,
                 f"cmux ssh should still pin the relay socket path in RemoteCommand: {ssh_command!r}",
+            )
+            _must(
+                "export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'" in ssh_command,
+                f"cmux ssh should export the remote workspace id into the bootstrap shell: {ssh_command!r}",
+            )
+            _must(
+                "export CMUX_TAB_ID='__CMUX_WORKSPACE_ID__'" in ssh_command,
+                f"cmux ssh should keep CMUX_TAB_ID aligned with the workspace id for shell integration: {ssh_command!r}",
+            )
+            _must(
+                "export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'" in ssh_command,
+                f"cmux ssh should export the remote surface id into the bootstrap shell: {ssh_command!r}",
+            )
+            _must(
+                "export CMUX_PANEL_ID='__CMUX_SURFACE_ID__'" in ssh_command,
+                f"cmux ssh should keep CMUX_PANEL_ID aligned with the surface id for shell integration: {ssh_command!r}",
             )
             _must(
                 "case \"${CMUX_LOGIN_SHELL##*/}\" in" in ssh_command,

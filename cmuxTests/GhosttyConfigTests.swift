@@ -738,18 +738,45 @@ final class WindowTransparencyDecisionTests: XCTestCase {
         }
     }
 
-    func testBehindWindowGlassPathStillControlsTransparentWindowFallback() {
+    func testGlassEnabledDecisionIgnoresGlassImplementationAvailability() {
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: false
+            )
+        )
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "withinWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: false,
+                glassEffectAvailable: true
+            )
+        )
+    }
+
+    func testBehindWindowGlassPathKeepsTransparentWindowEnabled() {
         withTemporaryWindowBackgroundDefaults {
             let defaults = UserDefaults.standard
             defaults.set("behindWindow", forKey: sidebarBlendModeKey)
             defaults.set(true, forKey: bgGlassEnabledKey)
 
-            let expectedTransparentFallback = !WindowGlassEffect.isAvailable
-            XCTAssertEqual(cmuxShouldUseTransparentBackgroundWindow(), expectedTransparentFallback)
-            XCTAssertEqual(
-                cmuxShouldUseClearWindowBackground(for: 1.0),
-                expectedTransparentFallback
-            )
+            XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
         }
     }
 
@@ -2845,6 +2872,49 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111")
     }
 
+    func testShellIntegrationRelayReportTTYUsesWorkspaceIDInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-report-tty-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_NAME=ttys777
+            _cmux_report_tty_via_relay
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys777","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output
+        )
+    }
+
     func testShellIntegrationRelayPortsKickOmitsSurfaceIDUntilAvailableInZsh() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2879,7 +2949,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": "127.0.0.1:64011",
-                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "",
             ]
         )
@@ -2927,7 +2998,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": "127.0.0.1:64011",
-                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             ]
         )
@@ -2935,6 +3007,48 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(
             output.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
             output
+        )
+    }
+
+    func testShellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-report-tty-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_NAME=ttys888
+            _cmux_report_tty_via_relay
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
         )
     }
 
@@ -2973,7 +3087,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_SOCKET_PATH": "127.0.0.1:64011",
-                "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
             ]
         )
