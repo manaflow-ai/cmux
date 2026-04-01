@@ -3030,8 +3030,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// C surface exists (e.g. during layout restoration); `createSurface` syncs
     /// it on creation. Also used as a dedup guard to avoid redundant
     /// `ghostty_surface_set_focus` calls (prevents prompt redraws with P10k).
-    /// Initialized to `true` to match Ghostty's default (Terminal.zig focused=true).
-    private var desiredFocusState: Bool = true
+    ///
+    /// Start unfocused and only opt into focus when the workspace/AppKit focus
+    /// path explicitly requests it. Fresh Ghostty surfaces otherwise inherit the
+    /// core default of focused=true long enough to emit focus events during pane
+    /// creation, which can leak `CSI I/O` into shells that never focused that
+    /// pane yet.
+    private var desiredFocusState: Bool = false
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
     private var runtimeSurfaceFreedOutOfBandForTesting = false
