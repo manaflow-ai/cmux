@@ -175,6 +175,7 @@ struct ShortcutHintPillBackground: View {
 /// Applies NSGlassEffectView (macOS 26+) to a window, falling back to NSVisualEffectView
 enum WindowGlassEffect {
     private static var glassViewKey: UInt8 = 0
+    private static var originalContentViewKey: UInt8 = 0
     private static var tintOverlayKey: UInt8 = 0
 
     static var isAvailable: Bool {
@@ -226,6 +227,7 @@ enum WindowGlassEffect {
 
         if usingGlassEffectView {
             // NSGlassEffectView is a full replacement for the contentView.
+            objc_setAssociatedObject(window, &originalContentViewKey, originalContentView, .OBJC_ASSOCIATION_RETAIN)
             window.contentView = glassView
 
             // Re-add the original SwiftUI hosting view on top of the glass, filling entire area.
@@ -297,9 +299,24 @@ enum WindowGlassEffect {
     }
 
     static func remove(from window: NSWindow) {
-        // Note: Removing would require restoring original contentView structure
-        // For now, just clear the reference
+        guard let glassView = objc_getAssociatedObject(window, &glassViewKey) as? NSView else {
+            return
+        }
+
+        if glassView.className == "NSGlassEffectView" {
+            if let originalContentView = objc_getAssociatedObject(window, &originalContentViewKey) as? NSView {
+                originalContentView.removeFromSuperview()
+                originalContentView.translatesAutoresizingMaskIntoConstraints = true
+                originalContentView.autoresizingMask = [.width, .height]
+                originalContentView.frame = glassView.bounds
+                window.contentView = originalContentView
+            }
+        } else {
+            glassView.removeFromSuperview()
+        }
+
         objc_setAssociatedObject(window, &glassViewKey, nil, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(window, &originalContentViewKey, nil, .OBJC_ASSOCIATION_RETAIN)
         objc_setAssociatedObject(window, &tintOverlayKey, nil, .OBJC_ASSOCIATION_RETAIN)
     }
 }
@@ -3201,6 +3218,8 @@ struct ContentView: View {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
+            } else {
+                WindowGlassEffect.remove(from: window)
             }
             AppDelegate.shared?.attachUpdateAccessory(to: window)
             AppDelegate.shared?.applyWindowDecorations(to: window)
