@@ -351,6 +351,23 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
     expect(hook_cmux_bin == "__UNSET__", f"stale socket: expected hook cmux unset, got {hook_cmux_bin!r}", failures)
 
 
+def test_print_flag_skips_hook_injection(failures: list[str]) -> None:
+    """Non-interactive flags (-p/--print) should bypass hooks entirely.  See #2206."""
+    for flag, label in [
+        ("-p", "-p"),
+        ("--print", "--print"),
+        ("--output-format", "--output-format"),
+        ("--output-format=json", "--output-format=json"),
+        ("--print-auth-token", "--print-auth-token"),
+    ]:
+        argv = [flag, ".", "--model", "haiku"] if flag in ("-p", "--print") else [flag]
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(socket_state="live", argv=argv)
+        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
+        expect("--settings" not in real_argv, f"{label}: expected no --settings (hooks), got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{label}: expected no --session-id, got {real_argv}", failures)
+
+
+
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks(failures)
@@ -358,6 +375,7 @@ def main() -> int:
     test_live_socket_tmpdir_failure_skips_node_options_injection(failures)
     test_missing_socket_skips_hook_injection(failures)
     test_stale_socket_skips_hook_injection(failures)
+    test_print_flag_skips_hook_injection(failures)
 
     if failures:
         print("FAIL: claude wrapper regression checks failed")
