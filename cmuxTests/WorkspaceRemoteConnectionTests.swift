@@ -119,11 +119,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64008.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64008.daemon_path")
+        let ttyURL = relayDir.appendingPathComponent("64008.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64008".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "ttys001".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
         let result = runProcess(
@@ -142,6 +144,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
     func testRemoteRelayMetadataCleanupScriptPreservesDifferentSocketAddr() {
@@ -151,11 +154,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64009.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64009.daemon_path")
+        let ttyURL = relayDir.appendingPathComponent("64009.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64010".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "ttys002".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
         let result = runProcess(
@@ -174,6 +179,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {

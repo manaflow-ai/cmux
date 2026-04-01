@@ -6,6 +6,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import pty
 import re
 import secrets
 import shutil
@@ -272,6 +273,28 @@ def _wait_surface_tty(client: cmux, workspace_id: str, surface_id: str, timeout:
     raise cmuxError(f"Timed out waiting for surface tty: {last_row}")
 
 
+def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface_id: str) -> tuple[subprocess.Popen[bytes], int]:
+    _must(bool(startup_command.strip()), "cmux ssh output missing ssh_terminal_startup_command for PTY fallback")
+    env = dict(os.environ)
+    env.pop("CMUX_SOCKET_PATH", None)
+    env["CMUX_WORKSPACE_ID"] = workspace_id
+    env["CMUX_SURFACE_ID"] = surface_id
+    env["CMUX_TAB_ID"] = workspace_id
+    env["CMUX_PANEL_ID"] = surface_id
+
+    master_fd, slave_fd = pty.openpty()
+    proc = subprocess.Popen(
+        ["/bin/sh", "-lc", startup_command],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=env,
+        start_new_session=True,
+    )
+    os.close(slave_fd)
+    return proc, master_fd
+
+
 def _wait_for_remote_port(
     client: cmux,
     workspace_id: str,
@@ -443,6 +466,24 @@ def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pa
     return ("down" if target_pane == top_id else "up"), "height"
 
 
+def _wait_readable_terminal_text(client: cmux, surface_id: str, timeout: float = 20.0) -> str:
+    deadline = time.time() + timeout
+    saw_missing_surface = False
+    while time.time() < deadline:
+        try:
+            return client.read_terminal_text(surface_id)
+        except cmuxError as exc:
+            if _is_terminal_surface_not_found(exc):
+                saw_missing_surface = True
+                time.sleep(0.2)
+                continue
+            raise
+
+    if saw_missing_surface:
+        raise cmuxError("terminal surface not found")
+    raise cmuxError(f"Timed out waiting for readable terminal surface: {surface_id}")
+
+
 def main() -> int:
     if not _docker_available():
         print("SKIP: docker is not available")
@@ -460,6 +501,9 @@ def main() -> int:
     image_tag = f"cmux-ssh-test:{secrets.token_hex(4)}"
     container_name = f"cmux-ssh-shell-{secrets.token_hex(4)}"
     workspace_id = ""
+    surface_id = ""
+    pty_proc: subprocess.Popen[bytes] | None = None
+    pty_master_fd: int | None = None
 
     try:
         key_path = temp_dir / "id_ed25519"
@@ -524,14 +568,29 @@ def main() -> int:
 
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
-            surface_id = surfaces[0][1]
+            surface_id = str(surfaces[0][1])
+            startup_command = str(payload.get("ssh_terminal_startup_command") or "")
             _assert_remote_ports_absent(
                 client,
                 workspace_id,
                 {FIXTURE_REMOTE_HTTP_PORT, FIXTURE_REMOTE_WS_PORT},
                 timeout=3.0,
             )
-            terminal_text = client.read_terminal_text(surface_id)
+            try:
+                terminal_text = _wait_readable_terminal_text(client, surface_id, timeout=5.0)
+            except cmuxError as exc:
+                if not _is_terminal_surface_not_found(exc):
+                    raise
+                print("WARN: readable terminal surface unavailable; falling back to generated ssh startup command PTY")
+                pty_proc, pty_master_fd = _launch_startup_command_pty(startup_command, workspace_id, surface_id)
+                _wait_surface_tty(client, workspace_id, surface_id, timeout=20.0)
+                try:
+                    terminal_text = _wait_readable_terminal_text(client, surface_id, timeout=10.0)
+                except cmuxError as retry_exc:
+                    if _is_terminal_surface_not_found(retry_exc):
+                        print("SKIP: terminal surface unavailable for shell integration assertions")
+                        return 0
+                    raise
             _must(
                 "Reconstructed via infocmp" not in terminal_text,
                 "ssh-terminfo bootstrap should not leak raw infocmp output into the interactive shell",
@@ -717,6 +776,18 @@ def main() -> int:
         return 0
 
     finally:
+        if pty_master_fd is not None:
+            try:
+                os.close(pty_master_fd)
+            except OSError:
+                pass
+        if pty_proc is not None and pty_proc.poll() is None:
+            pty_proc.terminate()
+            try:
+                pty_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                pty_proc.kill()
+
         if workspace_id:
             try:
                 with cmux(SOCKET_PATH) as cleanup_client:

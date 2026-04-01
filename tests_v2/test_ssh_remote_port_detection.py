@@ -6,6 +6,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import pty
 import re
 import secrets
 import shutil
@@ -69,7 +70,7 @@ def _run_cli_json(cli: str, args: list[str]) -> dict:
     try:
         return json.loads(proc.stdout or "{}")
     except Exception as exc:  # noqa: BLE001
-        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})")
+        raise cmuxError(f"Invalid JSON output for {' '.join(args)}: {proc.stdout!r} ({exc})") from exc
 
 
 def _docker_available() -> bool:
@@ -184,6 +185,50 @@ def _workspace_row(client: cmux, workspace_id: str) -> dict:
     raise cmuxError(f"workspace {workspace_id} missing from workspace.list payload: {payload}")
 
 
+def _debug_terminal_row(client: cmux, workspace_id: str, surface_id: str) -> dict:
+    payload = client._call("debug.terminals", {}) or {}
+    for row in payload.get("terminals") or []:
+        if str(row.get("workspace_id") or "") == workspace_id and str(row.get("surface_id") or "") == surface_id:
+            return row
+    raise cmuxError(
+        f"debug.terminals missing workspace={workspace_id!r} surface={surface_id!r}: {payload}"
+    )
+
+
+def _wait_surface_tty(client: cmux, workspace_id: str, surface_id: str, timeout: float = 20.0) -> str:
+    deadline = time.time() + timeout
+    last_row = {}
+    while time.time() < deadline:
+        last_row = _debug_terminal_row(client, workspace_id, surface_id)
+        tty_name = str(last_row.get("tty") or "").strip()
+        if tty_name:
+            return tty_name
+        time.sleep(0.2)
+    raise cmuxError(f"Timed out waiting for surface tty: {last_row}")
+
+
+def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface_id: str) -> tuple[subprocess.Popen[bytes], int]:
+    _must(bool(startup_command.strip()), "cmux ssh output missing ssh_terminal_startup_command for PTY fallback")
+    env = dict(os.environ)
+    env.pop("CMUX_SOCKET_PATH", None)
+    env["CMUX_WORKSPACE_ID"] = workspace_id
+    env["CMUX_SURFACE_ID"] = surface_id
+    env["CMUX_TAB_ID"] = workspace_id
+    env["CMUX_PANEL_ID"] = surface_id
+
+    master_fd, slave_fd = pty.openpty()
+    proc = subprocess.Popen(
+        ["/bin/sh", "-lc", startup_command],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=env,
+        start_new_session=True,
+    )
+    os.close(slave_fd)
+    return proc, master_fd
+
+
 def _wait_for_remote_port(client: cmux, workspace_id: str, port: int, timeout: float = 15.0) -> tuple[dict, dict]:
     deadline = time.time() + timeout
     last_status = {}
@@ -229,6 +274,8 @@ def main() -> int:
     container_name = f"cmux-ssh-port-detect-{secrets.token_hex(4)}"
     workspace_id = ""
     surface_id = ""
+    pty_proc: subprocess.Popen[bytes] | None = None
+    pty_master_fd: int | None = None
 
     try:
         key_path = temp_dir / "id_ed25519"
@@ -284,14 +331,52 @@ def main() -> int:
                         break
             _must(bool(workspace_id), f"cmux ssh output missing workspace_id: {payload}")
 
-            _wait_remote_ready(client, workspace_id)
+            ready_status = _wait_remote_ready(client, workspace_id)
+            initial_remote = ready_status.get("remote") or {}
+            initial_detected_ports = {
+                int(value)
+                for value in (initial_remote.get("detected_ports") or [])
+                if str(value).isdigit()
+            }
+            listed = client._call("workspace.list", {}) or {}
+            initial_row = next(
+                (row for row in (listed.get("workspaces") or []) if str(row.get("id") or "") == workspace_id),
+                {},
+            )
+            initial_listening_ports = {
+                int(value)
+                for value in (initial_row.get("listening_ports") or [])
+                if str(value).isdigit()
+            }
+            _must(
+                not initial_detected_ports,
+                f"remote SSH workspace should not surface unrelated startup ports before the shell opens one: {ready_status}",
+            )
+            _must(
+                not initial_listening_ports,
+                f"workspace.list should not leak unrelated startup ports before the shell opens one: {initial_row}",
+            )
 
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
             surface_id = str(surfaces[0][1])
+            startup_command = str(payload.get("ssh_terminal_startup_command") or "")
 
-            client.send_surface(surface_id, f"python3 -m http.server {REMOTE_HTTP_PORT}\n")
-            _wait_surface_contains(client, workspace_id, surface_id, f"port {REMOTE_HTTP_PORT}", timeout=20.0)
+            server_started_via_surface = True
+            try:
+                client.send_surface(surface_id, f"python3 -m http.server {REMOTE_HTTP_PORT}\n")
+                _wait_surface_contains(client, workspace_id, surface_id, f"port {REMOTE_HTTP_PORT}", timeout=20.0)
+            except cmuxError as exc:
+                if _is_terminal_surface_not_found(exc):
+                    print("WARN: readable terminal surface unavailable; falling back to generated ssh startup command PTY")
+                    server_started_via_surface = False
+                else:
+                    raise
+
+            if not server_started_via_surface:
+                pty_proc, pty_master_fd = _launch_startup_command_pty(startup_command, workspace_id, surface_id)
+                _wait_surface_tty(client, workspace_id, surface_id, timeout=20.0)
+                os.write(pty_master_fd, f"python3 -m http.server {REMOTE_HTTP_PORT}\n".encode("utf-8"))
 
             status, row = _wait_for_remote_port(client, workspace_id, REMOTE_HTTP_PORT, timeout=15.0)
             remote = status.get("remote") or {}
@@ -315,7 +400,10 @@ def main() -> int:
             )
 
             if surface_id:
-                client.send_key_surface(surface_id, "ctrl-c")
+                if pty_master_fd is not None:
+                    os.write(pty_master_fd, b"\x03")
+                else:
+                    client.send_key_surface(surface_id, "ctrl-c")
             if workspace_id:
                 try:
                     client.close_workspace(workspace_id)
@@ -327,6 +415,19 @@ def main() -> int:
         return 0
 
     finally:
+        if pty_master_fd is not None:
+            try:
+                os.close(pty_master_fd)
+            except OSError:
+                pass
+        if pty_proc is not None:
+            if pty_proc.poll() is None:
+                pty_proc.terminate()
+                try:
+                    pty_proc.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    pty_proc.kill()
+
         if surface_id and workspace_id:
             try:
                 with cmux(SOCKET_PATH) as cleanup_client:

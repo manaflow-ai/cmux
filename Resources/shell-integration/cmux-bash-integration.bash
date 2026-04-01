@@ -36,11 +36,19 @@ _cmux_socket_is_unix() {
     [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
 }
 
+_cmux_relay_cli_path() {
+    if [[ -n "${CMUX_BUNDLED_CLI_PATH:-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
+        printf '%s\n' "${CMUX_BUNDLED_CLI_PATH}"
+        return 0
+    fi
+    command -v cmux 2>/dev/null
+}
+
 _cmux_socket_uses_remote_relay() {
     [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
     [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
     [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
-    command -v cmux >/dev/null 2>&1
+    [[ -n "$(_cmux_relay_cli_path)" ]]
 }
 
 _cmux_has_port_scan_transport() {
@@ -61,9 +69,11 @@ _cmux_json_escape() {
 _cmux_relay_rpc_bg() {
     local method="$1"
     local params="$2"
+    local relay_cli=""
     _cmux_socket_uses_remote_relay || return 1
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
     {
-        command cmux rpc "$method" "$params" >/dev/null 2>&1 || true
+        "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true
     } >/dev/null 2>&1 &
     disown 2>/dev/null || true
 }
@@ -71,14 +81,18 @@ _cmux_relay_rpc_bg() {
 _cmux_relay_rpc() {
     local method="$1"
     local params="$2"
-    _cmux_socket_uses_remote_relay || return 1
-    # Keep the first report_tty synchronous so a failed relay send can retry
-    # on the next prompt instead of latching _CMUX_TTY_REPORTED too early.
+    local relay_cli=""
     local response=""
-    response="$(command cmux rpc "$method" "$params" 2>/dev/null)" || return 1
+    _cmux_socket_uses_remote_relay || return 1
+    # Relay `cmux rpc` exits nonzero on server error. The real remote CLI prints
+    # only the JSON result payload on success, while some test stubs return the
+    # full `{"ok":...}` envelope. Retry only on explicit `ok:false`.
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    response="$("$relay_cli" rpc "$method" "$params" 2>/dev/null)" || return 1
     response="${response//$'\n'/}"
     response="${response//$'\r'/}"
-    [[ "$response" == *'"ok":true'* || "$response" == *'"ok": true'* ]]
+    [[ "$response" == *'"ok":false'* || "$response" == *'"ok": false'* ]] && return 1
+    return 0
 }
 
 _cmux_relay_workspace_id() {

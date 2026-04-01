@@ -3241,6 +3241,34 @@ final class WorkspaceRemoteSessionController {
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
 
+    private enum RemotePortPollingMode {
+        case hostWide
+        case hostWideDelta
+        case ttyScoped
+
+        var initialDelay: TimeInterval {
+            switch self {
+            case .hostWide:
+                return 0.5
+            case .hostWideDelta:
+                return 0.5
+            case .ttyScoped:
+                return 1.0
+            }
+        }
+
+        var repeatInterval: TimeInterval {
+            switch self {
+            case .hostWide:
+                return 2.0
+            case .hostWideDelta:
+                return 5.0
+            case .ttyScoped:
+                return 5.0
+            }
+        }
+    }
+
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     private var proxyEndpoint: BrowserProxyEndpoint?
@@ -3257,8 +3285,14 @@ final class WorkspaceRemoteSessionController {
     private var remotePortScanGeneration: UInt64 = 0
     private var remotePortScanCoalesceWorkItem: DispatchWorkItem?
     private var remotePortPollTimer: DispatchSourceTimer?
+    private var remotePortPollMode: RemotePortPollingMode?
     private var polledRemotePorts: [Int] = []
+    private var remotePortPollBaselinePorts: Set<Int>?
     private var keepPolledRemotePortsUntilTTYScan = false
+    private var bootstrapRemoteTTYResolved = false
+    private var bootstrapRemoteTTYRetryWorkItem: DispatchWorkItem?
+    private var bootstrapRemoteTTYFetchInFlight = false
+    private var bootstrapRemoteTTYRetryCount = 0
     private var reverseRelayStderrPipe: Pipe?
     private var reverseRelayRestartWorkItem: DispatchWorkItem?
     private var reverseRelayStderrBuffer = ""
@@ -3366,7 +3400,13 @@ final class WorkspaceRemoteSessionController {
         remoteScannedPortsByPanel.removeAll()
         stopRemotePortPollingLocked()
         polledRemotePorts = []
+        remotePortPollBaselinePorts = nil
         keepPolledRemotePortsUntilTTYScan = false
+        bootstrapRemoteTTYResolved = false
+        bootstrapRemoteTTYRetryWorkItem?.cancel()
+        bootstrapRemoteTTYRetryWorkItem = nil
+        bootstrapRemoteTTYFetchInFlight = false
+        bootstrapRemoteTTYRetryCount = 0
 
         proxyLease?.release()
         proxyLease = nil
@@ -3384,6 +3424,13 @@ final class WorkspaceRemoteSessionController {
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         reconnectWorkItem = nil
+        bootstrapRemoteTTYRetryWorkItem?.cancel()
+        bootstrapRemoteTTYRetryWorkItem = nil
+        bootstrapRemoteTTYFetchInFlight = false
+        if remotePortScanTTYNames.isEmpty {
+            bootstrapRemoteTTYResolved = false
+            bootstrapRemoteTTYRetryCount = 0
+        }
         let connectDetail: String
         let bootstrapDetail: String
         if reconnectRetryCount > 0 {
@@ -3415,6 +3462,7 @@ final class WorkspaceRemoteSessionController {
             )
             recordHeartbeatActivityLocked()
             startReverseRelayLocked(remotePath: hello.remotePath)
+            requestBootstrapRemoteTTYIfNeededLocked()
             startProxyLocked()
         } catch {
             daemonReady = false
@@ -3637,6 +3685,7 @@ final class WorkspaceRemoteSessionController {
                 .connected,
                 detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
             )
+            requestBootstrapRemoteTTYIfNeededLocked()
             recordHeartbeatActivityLocked()
         case .error(let detail):
             debugLog("remote.proxy.error detail=\(detail) \(debugConfigSummary())")
@@ -3775,6 +3824,73 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    private func requestBootstrapRemoteTTYIfNeededLocked() {
+        guard !bootstrapRemoteTTYResolved else { return }
+        guard let relayPort = configuration.relayPort, relayPort > 0 else { return }
+        if !remotePortScanTTYNames.isEmpty {
+            bootstrapRemoteTTYResolved = true
+            bootstrapRemoteTTYRetryWorkItem?.cancel()
+            bootstrapRemoteTTYRetryWorkItem = nil
+            bootstrapRemoteTTYRetryCount = 0
+            return
+        }
+        guard !bootstrapRemoteTTYFetchInFlight else { return }
+        bootstrapRemoteTTYFetchInFlight = true
+        defer { bootstrapRemoteTTYFetchInFlight = false }
+
+        let command = "sh -c \(Self.shellSingleQuoted("tty_path=\"$HOME/.cmux/relay/\(relayPort).tty\"; if [ -r \"$tty_path\" ]; then cat \"$tty_path\"; fi"))"
+        do {
+            let result = try sshExec(
+                arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
+                timeout: 2
+            )
+            guard result.status == 0 else {
+                scheduleBootstrapRemoteTTYRetryLocked()
+                return
+            }
+            guard let ttyName = Self.normalizedRemotePortScanTTYName(result.stdout) else {
+                scheduleBootstrapRemoteTTYRetryLocked()
+                return
+            }
+            bootstrapRemoteTTYResolved = true
+            bootstrapRemoteTTYRetryWorkItem?.cancel()
+            bootstrapRemoteTTYRetryWorkItem = nil
+            bootstrapRemoteTTYRetryCount = 0
+            debugLog("remote.tty.bootstrap.ready tty=\(ttyName) \(debugConfigSummary())")
+            publishBootstrapRemoteTTY(ttyName)
+        } catch {
+            debugLog("remote.tty.bootstrap.failed error=\(error.localizedDescription) \(debugConfigSummary())")
+            scheduleBootstrapRemoteTTYRetryLocked()
+        }
+    }
+
+    private func scheduleBootstrapRemoteTTYRetryLocked() {
+        guard !isStopping else { return }
+        guard daemonReady else { return }
+        guard !bootstrapRemoteTTYResolved else { return }
+        guard remotePortScanTTYNames.isEmpty else { return }
+        guard bootstrapRemoteTTYRetryCount < Self.bootstrapRemoteTTYRetryLimit else { return }
+        guard bootstrapRemoteTTYRetryWorkItem == nil else { return }
+
+        bootstrapRemoteTTYRetryCount += 1
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.bootstrapRemoteTTYRetryWorkItem = nil
+            self.requestBootstrapRemoteTTYIfNeededLocked()
+        }
+        bootstrapRemoteTTYRetryWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + Self.bootstrapRemoteTTYRetryDelay, execute: workItem)
+    }
+
+    private func publishBootstrapRemoteTTY(_ ttyName: String) {
+        let controllerID = self.controllerID
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.applyBootstrapRemoteTTY(ttyName)
+        }
+    }
+
     private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
         // `-o ControlPath=none` is not enough on macOS OpenSSH, the client can still
         // attach to an existing master and exit immediately with its status.
@@ -3793,6 +3909,8 @@ final class WorkspaceRemoteSessionController {
     private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
     private static let remotePlatformProbeArchMarker = "__CMUX_REMOTE_ARCH__="
     private static let remotePlatformProbeExistsMarker = "__CMUX_REMOTE_EXISTS__="
+    private static let bootstrapRemoteTTYRetryDelay: TimeInterval = 0.5
+    private static let bootstrapRemoteTTYRetryLimit = 8
 
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
@@ -4129,7 +4247,7 @@ final class WorkspaceRemoteSessionController {
         if [ -r "$socket_addr_file" ] && [ "$(tr -d '\\r\\n' < "$socket_addr_file")" = "$relay_socket" ]; then
           rm -f "$socket_addr_file"
         fi
-        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path"
+        rm -f "$HOME/.cmux/relay/\(relayPort).auth" "$HOME/.cmux/relay/\(relayPort).daemon_path" "$HOME/.cmux/relay/\(relayPort).tty"
         """
     }
 
@@ -4662,8 +4780,8 @@ final class WorkspaceRemoteSessionController {
 
     static func remoteCLIWrapperScript() -> String {
         """
-        #!/usr/bin/env bash
-        set -euo pipefail
+        #!/bin/sh
+        set -eu
 
         daemon="$HOME/.cmux/bin/cmuxd-remote-current"
         socket_path="${CMUX_SOCKET_PATH:-}"
@@ -4969,6 +5087,12 @@ final class WorkspaceRemoteSessionController {
             result[entry.key] = ttyName
         }
         guard previousTTYNames != nextTTYNames else { return }
+        if !nextTTYNames.isEmpty {
+            bootstrapRemoteTTYResolved = true
+            bootstrapRemoteTTYRetryWorkItem?.cancel()
+            bootstrapRemoteTTYRetryWorkItem = nil
+            bootstrapRemoteTTYRetryCount = 0
+        }
         keepPolledRemotePortsUntilTTYScan =
             !previousTTYNames.isEmpty
             ? keepPolledRemotePortsUntilTTYScan
@@ -5079,6 +5203,12 @@ final class WorkspaceRemoteSessionController {
             arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
             timeout: 8
         )
+        guard result.status == 0 else {
+            let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+            throw NSError(domain: "cmux.remote.ports", code: 90, userInfo: [
+                NSLocalizedDescriptionKey: "remote port scan failed: \(detail)",
+            ])
+        }
 
         let portsByTTY = Self.parseRemoteTTYPortPairs(
             output: result.stdout,
@@ -5090,16 +5220,19 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
-    private func startRemotePortPollingLocked() {
-        guard remotePortScanTTYNames.isEmpty else { return }
-        guard remotePortPollTimer == nil else { return }
+    private func startRemotePortPollingLocked(mode: RemotePortPollingMode) {
+        if remotePortPollTimer != nil, remotePortPollMode == mode {
+            return
+        }
+        stopRemotePortPollingLocked()
 
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 0.5, repeating: 2.0)
+        timer.schedule(deadline: .now() + mode.initialDelay, repeating: mode.repeatInterval)
         timer.setEventHandler { [weak self] in
             self?.pollRemotePortsLocked()
         }
         remotePortPollTimer = timer
+        remotePortPollMode = mode
         timer.resume()
         pollRemotePortsLocked()
     }
@@ -5108,25 +5241,43 @@ final class WorkspaceRemoteSessionController {
         remotePortPollTimer?.setEventHandler {}
         remotePortPollTimer?.cancel()
         remotePortPollTimer = nil
+        remotePortPollMode = nil
     }
 
     private func updateRemotePortPollingStateLocked() {
-        guard daemonReady, !isStopping, shouldUseFallbackRemotePortPollingLocked(), remotePortScanTTYNames.isEmpty else {
+        guard daemonReady, !isStopping, let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
             if !keepPolledRemotePortsUntilTTYScan {
                 polledRemotePorts = []
             }
+            remotePortPollBaselinePorts = nil
             return
         }
-        startRemotePortPollingLocked()
+        startRemotePortPollingLocked(mode: pollingMode)
     }
 
     private func pollRemotePortsLocked() {
         guard !isStopping else { return }
         guard daemonReady else { return }
-        guard shouldUseFallbackRemotePortPollingLocked() else {
+        if !remotePortScanTTYNames.isEmpty {
+            guard shouldUseTTYFallbackRemotePortPollingLocked() else {
+                stopRemotePortPollingLocked()
+                if !keepPolledRemotePortsUntilTTYScan {
+                    polledRemotePorts = []
+                }
+                publishPortsSnapshotLocked()
+                return
+            }
+            if remotePortScanBurstActive || remotePortScanCoalesceWorkItem != nil || remotePortScanPendingReason != nil {
+                return
+            }
+            performRemotePortScanLocked()
+            return
+        }
+        guard let pollingMode = remotePortPollingModeLocked() else {
             stopRemotePortPollingLocked()
             polledRemotePorts = []
+            remotePortPollBaselinePorts = nil
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
             return
@@ -5136,6 +5287,7 @@ final class WorkspaceRemoteSessionController {
             if !keepPolledRemotePortsUntilTTYScan {
                 polledRemotePorts = []
             }
+            remotePortPollBaselinePorts = nil
             publishPortsSnapshotLocked()
             return
         }
@@ -5146,7 +5298,28 @@ final class WorkspaceRemoteSessionController {
                 arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
                 timeout: 8
             )
-            polledRemotePorts = Self.parseRemotePorts(output: result.stdout)
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
+                throw NSError(domain: "cmux.remote.ports", code: 90, userInfo: [
+                    NSLocalizedDescriptionKey: "remote port scan failed: \(detail)",
+                ])
+            }
+            let currentPorts = Set(Self.parseRemotePorts(output: result.stdout))
+            switch pollingMode {
+            case .hostWide:
+                polledRemotePorts = currentPorts.sorted()
+                remotePortPollBaselinePorts = nil
+            case .hostWideDelta:
+                if let baselinePorts = remotePortPollBaselinePorts {
+                    polledRemotePorts = currentPorts.subtracting(baselinePorts).sorted()
+                } else {
+                    remotePortPollBaselinePorts = currentPorts
+                    polledRemotePorts = []
+                }
+            case .ttyScoped:
+                polledRemotePorts = []
+                remotePortPollBaselinePorts = nil
+            }
             keepPolledRemotePortsUntilTTYScan = false
             publishPortsSnapshotLocked()
         } catch {
@@ -5172,6 +5345,28 @@ final class WorkspaceRemoteSessionController {
         let startupCommand = configuration.terminalStartupCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return startupCommand?.isEmpty != false
+    }
+
+    private func shouldUseTTYFallbackRemotePortPollingLocked() -> Bool {
+        // `cmux ssh` can still land in shells without our command hooks, such as
+        // `/bin/sh` in the Docker fixture. Once the workspace knows the TTY,
+        // keep a low-frequency TTY-scoped poll so unsupported shells still
+        // surface ports without bringing back noisy host-wide scans.
+        let startupCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return startupCommand?.isEmpty == false
+    }
+
+    private func remotePortPollingModeLocked() -> RemotePortPollingMode? {
+        if !remotePortScanTTYNames.isEmpty {
+            return shouldUseTTYFallbackRemotePortPollingLocked() ? .ttyScoped : nil
+        }
+        let startupCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if startupCommand?.isEmpty == false {
+            return .hostWideDelta
+        }
+        return shouldUseFallbackRemotePortPollingLocked() ? .hostWide : nil
     }
 
     private static func parseRemoteTTYPortPairs(output: String, trackedTTYNames: Set<String>) -> [String: [Int]] {
@@ -6476,6 +6671,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var pendingDetachedSurfaces: [TabID: DetachedSurfaceTransfer] = [:]
     private var activeDetachCloseTransactions: Int = 0
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
+    private var pendingRemoteSurfaceTTYName: String?
+    private var pendingRemoteSurfaceTTYSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
@@ -7526,6 +7723,8 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         activeRemoteTerminalSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
+        pendingRemoteSurfaceTTYName = nil
+        pendingRemoteSurfaceTTYSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -7576,6 +7775,7 @@ final class Workspace: Identifiable, ObservableObject {
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
     }
 
     private func untrackRemoteTerminalSurface(_ panelId: UUID) {
@@ -7594,6 +7794,55 @@ final class Workspace: Identifiable, ObservableObject {
             }
             disconnectRemoteConnection(clearConfiguration: true)
         }
+    }
+
+    @MainActor
+    func rememberPendingRemoteSurfaceTTY(_ ttyName: String, requestedSurfaceId: UUID?) {
+        let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTTY.isEmpty else { return }
+        pendingRemoteSurfaceTTYName = trimmedTTY
+        pendingRemoteSurfaceTTYSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
+    private func applyPendingRemoteSurfaceTTYIfNeeded(to panelId: UUID) {
+        guard let ttyName = pendingRemoteSurfaceTTYName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ttyName.isEmpty else {
+            return
+        }
+        if let requestedSurfaceId = pendingRemoteSurfaceTTYSurfaceId, requestedSurfaceId != panelId {
+            return
+        }
+        surfaceTTYNames[panelId] = ttyName
+        pendingRemoteSurfaceTTYName = nil
+        pendingRemoteSurfaceTTYSurfaceId = nil
+        syncRemotePortScanTTYs()
+        kickRemotePortScan(panelId: panelId, reason: .command)
+    }
+
+    @MainActor
+    fileprivate func applyBootstrapRemoteTTY(_ ttyName: String) {
+        let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTTY.isEmpty else { return }
+
+        let candidateSurfaceId: UUID? = {
+            if let focusedPanelId, activeRemoteTerminalSurfaceIds.contains(focusedPanelId) {
+                return focusedPanelId
+            }
+            if activeRemoteTerminalSurfaceIds.count == 1 {
+                return activeRemoteTerminalSurfaceIds.first
+            }
+            return nil
+        }()
+
+        guard let candidateSurfaceId else {
+            rememberPendingRemoteSurfaceTTY(trimmedTTY, requestedSurfaceId: nil)
+            return
+        }
+
+        surfaceTTYNames[candidateSurfaceId] = trimmedTTY
+        syncRemotePortScanTTYs()
+        kickRemotePortScan(panelId: candidateSurfaceId, reason: .command)
     }
 
     private func cleanupTransferredRemoteConnectionIfNeeded(surfaceId: UUID, relayPort: Int?) -> Bool {
