@@ -55,6 +55,20 @@ fi
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
+merge_node_options() {
+    local memory_flag="--max-old-space-size=4096"
+    local existing="${NODE_OPTIONS:-}"
+    if [[ "$existing" == *"--max-old-space-size="* ]]; then
+        printf '%s' "$existing"
+        return 0
+    fi
+    if [[ -n "$existing" ]]; then
+        printf '%s %s' "$memory_flag" "$existing"
+    else
+        printf '%s' "$memory_flag"
+    fi
+}
+
 # Pass through subcommands that don't support session/hook flags.
 case "${1:-}" in
     mcp|config|api-key|rc|remote-control) exec "$REAL_CLAUDE" "$@" ;;
@@ -79,6 +93,7 @@ done
 # Export the wrapper's PID. Because we exec claude below, this PID becomes
 # the actual claude process PID, which hooks use for stale-session detection.
 export CMUX_CLAUDE_PID=$$
+export NODE_OPTIONS="$(merge_node_options)"
 
 # Build hooks settings JSON.
 # Claude Code merges --settings additively with the user's own settings.json.

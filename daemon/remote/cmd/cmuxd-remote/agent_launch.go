@@ -31,16 +31,17 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:         shimDir,
-		socketPath:      socketPath,
-		focused:         focused,
-		tmuxPathPrefix:  "cmux-claude-teams",
-		cmuxBinEnvVar:   "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-		termEnvVar:      "CMUX_CLAUDE_TEAMS_TERM",
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-claude-teams",
+		cmuxBinEnvVar:  "CMUX_CLAUDE_TEAMS_CMUX_BIN",
+		termEnvVar:     "CMUX_CLAUDE_TEAMS_TERM",
 		extraEnv: map[string]string{
 			"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
 		},
 	})
+	os.Setenv("NODE_OPTIONS", mergeNodeOptions(os.Getenv("NODE_OPTIONS")))
 
 	launchArgs := claudeTeamsLaunchArgs(args)
 
@@ -235,6 +236,18 @@ func getFocusedContext(rc *rpcContext) *focusedContext {
 		paneHandle:  strings.TrimSpace(paneId),
 		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
 	}
+}
+
+func mergeNodeOptions(existing string) string {
+	const memoryFlag = "--max-old-space-size=4096"
+	trimmed := strings.TrimSpace(existing)
+	if strings.Contains(trimmed, "--max-old-space-size=") {
+		return trimmed
+	}
+	if trimmed == "" {
+		return memoryFlag
+	}
+	return memoryFlag + " " + trimmed
 }
 
 func stringFromAny(values ...any) string {

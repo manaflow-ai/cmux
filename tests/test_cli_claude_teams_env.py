@@ -46,6 +46,7 @@ def main() -> int:
         term_program_log = tmp / "term-program.log"
         socket_path_log = tmp / "socket-path.log"
         socket_password_log = tmp / "socket-password.log"
+        node_options_log = tmp / "node-options.log"
         fake_home = tmp / "home"
         fake_home.mkdir(parents=True, exist_ok=True)
 
@@ -63,6 +64,7 @@ printf '%s\\n' "${TERM-__UNSET__}" > "$FAKE_TERM_LOG"
 printf '%s\\n' "${TERM_PROGRAM-__UNSET__}" > "$FAKE_TERM_PROGRAM_LOG"
 printf '%s\\n' "${CMUX_SOCKET_PATH-__UNSET__}" > "$FAKE_SOCKET_PATH_LOG"
 printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
+printf '%s\\n' "${NODE_OPTIONS-__UNSET__}" > "$FAKE_NODE_OPTIONS_LOG"
 """,
         )
 
@@ -79,10 +81,12 @@ printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
         env["FAKE_TERM_PROGRAM_LOG"] = str(term_program_log)
         env["FAKE_SOCKET_PATH_LOG"] = str(socket_path_log)
         env["FAKE_SOCKET_PASSWORD_LOG"] = str(socket_password_log)
+        env["FAKE_NODE_OPTIONS_LOG"] = str(node_options_log)
         env["TMUX"] = "__HOST_TMUX__"
         env["TMUX_PANE"] = "%999"
         env["TERM"] = "xterm-256color"
         env["TERM_PROGRAM"] = "__HOST_TERM_PROGRAM__"
+        env["NODE_OPTIONS"] = "--trace-warnings"
         explicit_socket_path = str(tmp / "explicit-cmux.sock")
         explicit_socket_password = "topsecret"
 
@@ -181,6 +185,14 @@ printf '%s\\n' "${CMUX_SOCKET_PASSWORD-__UNSET__}" > "$FAKE_SOCKET_PASSWORD_LOG"
             print(
                 "FAIL: expected CMUX_SOCKET_PASSWORD to preserve the explicit CLI override, "
                 f"got {socket_password_value!r}"
+            )
+            return 1
+
+        node_options_value = read_text(node_options_log)
+        if node_options_value != "--max-old-space-size=4096 --trace-warnings":
+            print(
+                "FAIL: expected NODE_OPTIONS to prepend the V8 heap cap, "
+                f"got {node_options_value!r}"
             )
             return 1
 

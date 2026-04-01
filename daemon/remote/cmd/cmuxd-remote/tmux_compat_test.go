@@ -308,7 +308,7 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 		"CMUX_CLAUDE_TEAMS_CMUX_BIN", "PATH", "TMUX", "TMUX_PANE",
 		"TERM", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "TERM_PROGRAM",
 		"CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
-		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "COLORTERM",
 	}
 	saved := make(map[string]string)
 	for _, k := range envKeys {
@@ -327,8 +327,8 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	os.Setenv("TERM_PROGRAM", "should-be-removed")
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:        "/tmp/test-shim",
-		socketPath:     "127.0.0.1:54321",
+		shimDir:    "/tmp/test-shim",
+		socketPath: "127.0.0.1:54321",
 		focused: &focusedContext{
 			workspaceId: "ws-abc",
 			windowId:    "win-123",
@@ -388,6 +388,21 @@ func TestClaudeTeamsLaunchArgs(t *testing.T) {
 	args = claudeTeamsLaunchArgs([]string{"--teammate-mode", "off"})
 	if args[0] != "--teammate-mode" || args[1] != "off" {
 		t.Errorf("args = %v, should not prepend when already present", args)
+	}
+}
+
+func TestMergeNodeOptions(t *testing.T) {
+	if got := mergeNodeOptions(""); got != "--max-old-space-size=4096" {
+		t.Fatalf("mergeNodeOptions(\"\") = %q", got)
+	}
+
+	if got := mergeNodeOptions("--trace-warnings"); got != "--max-old-space-size=4096 --trace-warnings" {
+		t.Fatalf("mergeNodeOptions preserves existing flags = %q", got)
+	}
+
+	existing := "--max-old-space-size=2048 --trace-warnings"
+	if got := mergeNodeOptions(existing); got != existing {
+		t.Fatalf("mergeNodeOptions should not duplicate existing size flag = %q", got)
 	}
 }
 
