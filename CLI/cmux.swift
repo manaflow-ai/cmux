@@ -9697,7 +9697,10 @@ struct CMUXCLI {
             ]
             for raw in candidates {
                 guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !trimmed.isEmpty,
+                      !trimmed.isEmpty else { continue }
+                var isDir: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir),
+                      !isDir.boolValue,
                       FileManager.default.isExecutableFile(atPath: trimmed),
                       !isCmuxClaudeWrapper(at: trimmed) else { continue }
                 return trimmed
