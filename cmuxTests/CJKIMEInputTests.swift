@@ -880,6 +880,13 @@ final class ExternalCommittedTextSanitizationTests: XCTestCase {
         )
     }
 
+    func testStripsLeadingC1CSISequenceFromExternalCommittedText() {
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("\u{009B}1;5Chello"),
+            "hello"
+        )
+    }
+
     func testStripsMultipleLeadingControlAndEscapeSequences() {
         XCTAssertEqual(
             GhosttyNSView.sanitizeExternalCommittedText("\u{1B}[1;5C\u{1B}OChello"),
