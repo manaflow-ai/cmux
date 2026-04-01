@@ -5212,29 +5212,38 @@ final class WorkspaceRemoteSessionController {
           printf '%s\\t%s\\n' "$cmux_tty" "$cmux_port"
         }
 
+        cmux_used_ss=0
         if [ -d /proc ] && command -v ss >/dev/null 2>&1; then
-          ss -ltnpH 2>/dev/null | while IFS= read -r cmux_line; do
-            [ -n "$cmux_line" ] || continue
-            cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
-            [ -n "$cmux_port" ] || continue
-            printf '%s\\n' "$cmux_line" | awk '
-              {
-                line = $0
-                while (match(line, /pid=[0-9]+/)) {
-                  print substr(line, RSTART + 4, RLENGTH - 4)
-                  line = substr(line, RSTART + RLENGTH)
-                }
-              }
-            ' | while IFS= read -r cmux_pid; do
-              [ -n "$cmux_pid" ] || continue
-              cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
-              [ -n "$cmux_tty_path" ] || continue
-              cmux_tty="${cmux_tty_path##*/}"
-              [ -n "$cmux_tty" ] || continue
-              cmux_emit_port "$cmux_tty" "$cmux_port"
-            done
-          done
-        elif command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
+          cmux_ss_output="$(ss -ltnpH 2>/dev/null || true)"
+          case "$cmux_ss_output" in
+            *pid=*)
+              cmux_used_ss=1
+              printf '%s\\n' "$cmux_ss_output" | while IFS= read -r cmux_line; do
+                [ -n "$cmux_line" ] || continue
+                cmux_port="$(printf '%s\\n' "$cmux_line" | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\\1/' | awk '/^[0-9]+$/ { print $1; exit }')"
+                [ -n "$cmux_port" ] || continue
+                printf '%s\\n' "$cmux_line" | awk '
+                  {
+                    line = $0
+                    while (match(line, /pid=[0-9]+/)) {
+                      print substr(line, RSTART + 4, RLENGTH - 4)
+                      line = substr(line, RSTART + RLENGTH)
+                    }
+                  }
+                ' | while IFS= read -r cmux_pid; do
+                  [ -n "$cmux_pid" ] || continue
+                  cmux_tty_path="$(readlink "/proc/$cmux_pid/fd/0" 2>/dev/null || true)"
+                  [ -n "$cmux_tty_path" ] || continue
+                  cmux_tty="${cmux_tty_path##*/}"
+                  [ -n "$cmux_tty" ] || continue
+                  cmux_emit_port "$cmux_tty" "$cmux_port"
+                done
+              done
+              ;;
+          esac
+        fi
+
+        if [ "$cmux_used_ss" -eq 0 ] && command -v lsof >/dev/null 2>&1 && [ -n "$cmux_tty_csv" ]; then
           cmux_tmpdir="$(mktemp -d 2>/dev/null || mktemp -d -t cmux-ports)"
           trap 'rm -rf "$cmux_tmpdir"' EXIT INT TERM
           cmux_pid_tty_map="$cmux_tmpdir/pid_tty"
