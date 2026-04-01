@@ -1748,8 +1748,9 @@ enum TerminalWindowPortalRegistry {
             clearActiveSplitDividerDrag()
         }
 
-        let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
+        guard event.type == .leftMouseDown else { return false }
 
+        let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
         let mouseLocation = NSEvent.mouseLocation
         for window in candidateWindows {
             if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
