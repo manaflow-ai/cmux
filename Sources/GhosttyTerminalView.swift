@@ -12,11 +12,25 @@ import IOSurface
 import UniformTypeIdentifiers
 
 #if os(macOS)
+func cmuxShouldApplyWindowGlass(
+    sidebarBlendMode: String,
+    bgGlassEnabled: Bool,
+    glassEffectAvailable _: Bool
+) -> Bool {
+    // Native NSGlassEffectView vs NSVisualEffectView fallback is chosen inside
+    // WindowGlassEffect.apply. User settings alone decide whether glass is on.
+    sidebarBlendMode == "behindWindow" && bgGlassEnabled
+}
+
 func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     let defaults = UserDefaults.standard
     let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
     let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false
-    return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
+    return cmuxShouldApplyWindowGlass(
+        sidebarBlendMode: sidebarBlendMode,
+        bgGlassEnabled: bgGlassEnabled,
+        glassEffectAvailable: WindowGlassEffect.isAvailable
+    )
 }
 
 func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {

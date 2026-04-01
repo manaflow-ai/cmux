@@ -3169,16 +3169,17 @@ struct ContentView: View {
                 UpdateLogStore.shared.append("ui test window accessor: id=\(windowIdentifier) visible=\(window.isVisible)")
             }
 #endif
-            // Background glass: skip on macOS 26+ where NSGlassEffectView can cause blank
-            // or incorrectly tinted SwiftUI content. Keep native window rendering there so
-            // Ghostty theme colors remain authoritative.
+            // User settings decide whether window glass is active. The native Tahoe
+            // NSGlassEffectView path vs the older NSVisualEffectView fallback is chosen
+            // inside WindowGlassEffect.apply.
             let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
-            let shouldApplyWindowGlassFallback =
-                sidebarBlendMode == SidebarBlendModeOption.behindWindow.rawValue
-                && bgGlassEnabled
-                && !WindowGlassEffect.isAvailable
+            let shouldApplyWindowGlass = cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: sidebarBlendMode,
+                bgGlassEnabled: bgGlassEnabled,
+                glassEffectAvailable: WindowGlassEffect.isAvailable
+            )
             let shouldForceTransparentHosting =
-                shouldApplyWindowGlassFallback || currentThemeBackground.alphaComponent < 0.999
+                shouldApplyWindowGlass || currentThemeBackground.alphaComponent < 0.999
 
             if shouldForceTransparentHosting {
                 window.isOpaque = false
@@ -3196,7 +3197,7 @@ struct ContentView: View {
                 window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
             }
 
-            if shouldApplyWindowGlassFallback {
+            if shouldApplyWindowGlass {
                 // Apply liquid glass effect to the window with tint from settings
                 let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
                 WindowGlassEffect.apply(to: window, tintColor: tintColor)
