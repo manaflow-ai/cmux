@@ -3390,6 +3390,214 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
     }
 
+    // MARK: - Physical-first keyCode matching (Dvorak/Colemak)
+
+    func testDvorakCmdPhysicalCProducingJMatchesShortcutBoundToJ() {
+        // On Dvorak, physical C key (keyCode 8) produces "j".
+        // A shortcut bound to "j" should match via character matching, not physical keyCode.
+        // Physical matching would look for keyCodeForShortcutKey("j") = 38, but event keyCode is 8.
+        // Character matching finds "j" == "j".
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
+        ) {
+            // Dvorak: physical ANSI "C" key (keyCode 8) produces "j".
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "j",
+                charactersIgnoringModifiers: "j",
+                isARepeat: false,
+                keyCode: 8 // kVK_ANSI_C
+            ) else {
+                XCTFail("Failed to construct Dvorak Cmd+J event on physical ANSI C key")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Dvorak: Cmd+physical-C producing 'j' should match shortcut bound to 'j'"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testDvorakCmdPhysicalCDoesNotMatchShortcutBoundToC() {
+        // On Dvorak, physical C key (keyCode 8) produces "j", not "c".
+        // A shortcut bound to "c" should NOT match because the character identity is "j".
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "c", command: true, shift: false, option: false, control: false)
+        ) {
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "j",
+                charactersIgnoringModifiers: "j",
+                isARepeat: false,
+                keyCode: 8 // kVK_ANSI_C (produces "j" on Dvorak)
+            ) else {
+                XCTFail("Failed to construct Dvorak event on physical ANSI C key")
+                return
+            }
+
+#if DEBUG
+            XCTAssertFalse(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Dvorak: physical C producing 'j' should NOT match shortcut bound to 'c'"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testColemakCmdPhysicalFProducingEMatchesShortcutBoundToE() {
+        // On Colemak, physical F key (keyCode 3) produces "e".
+        // A shortcut bound to "e" should match via character matching.
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        withTemporaryShortcut(
+            action: .showNotifications,
+            shortcut: StoredShortcut(key: "e", command: true, shift: false, option: false, control: false)
+        ) {
+            // Colemak: physical ANSI "F" key (keyCode 3) produces "e".
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "e",
+                charactersIgnoringModifiers: "e",
+                isARepeat: false,
+                keyCode: 3 // kVK_ANSI_F
+            ) else {
+                XCTFail("Failed to construct Colemak Cmd+E event on physical ANSI F key")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(
+                appDelegate.debugHandleCustomShortcut(event: event),
+                "Colemak: Cmd+physical-F producing 'e' should match shortcut bound to 'e'"
+            )
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+    }
+
+    func testPhysicalKeyCodeMatchWorksForRussianWithoutSpecialGuards() {
+        // With the physical-first approach, Russian layout shortcuts work via
+        // physical keyCode matching (primary path), not through special non-Latin
+        // guards. This test verifies that Cmd+N (new workspace) works with Russian
+        // layout active, where charactersIgnoringModifiers returns Cyrillic "т".
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let tabCountBefore = manager.tabs.count
+
+        // Simulate Russian keyboard: layout provider returns "n" via ASCII fallback.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 45 ? "n" : nil
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "т", // Cyrillic т (Russian layout)
+            isARepeat: false,
+            keyCode: 45 // kVK_ANSI_N
+        ) else {
+            XCTFail("Failed to construct Russian-layout Cmd+N event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+N should be handled with Russian keyboard layout via physical keyCode"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(
+            manager.tabs.count, tabCountBefore + 1,
+            "Russian Cmd+N via physical keyCode should create a new workspace"
+        )
+    }
+
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,

@@ -10962,6 +10962,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Match a shortcut against an event, handling normal keys.
+    ///
+    /// Uses physical keyCode as the primary match path (aligned with Ghostty's
+    /// `Binding.Set.getEvent()` which checks physical key before character),
+    /// then falls back to character-based matching for alternative layouts
+    /// (Dvorak, Colemak) where users bind to logical characters.
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
@@ -10974,9 +10979,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return event.keyCode == 36 || event.keyCode == 76
         }
 
-        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        // --- Primary path: physical keyCode matching ---
+        // Check if the event's physical ANSI key position matches the shortcut.
+        // This handles non-Latin layouts (Russian, Korean, Arabic, etc.) where
+        // charactersIgnoringModifiers returns non-ASCII characters that can never
+        // match a Latin shortcut key, without needing special-case guards.
+        if let expectedKeyCode = keyCodeForShortcutKey(shortcutKey),
+           event.keyCode == expectedKeyCode {
+            if isLetterShortcutKey(shortcutKey) {
+                // For letter shortcuts, verify the character identity doesn't disagree.
+                // On Dvorak/Colemak, physical key I produces "c", so pressing that key
+                // should NOT match a Cmd+I shortcut (the user intends Cmd+C).
+                let eventChars = event.charactersIgnoringModifiers ?? ""
+                let hasUsableEventChars = !eventChars.isEmpty
+                    && eventChars.allSatisfy { $0.isASCII && ($0.asciiValue ?? 0) >= 0x20 }
+                if hasUsableEventChars {
+                    let normalized = normalizedShortcutEventCharacter(
+                        eventChars,
+                        applyShiftSymbolNormalization: flags.contains(.shift),
+                        eventKeyCode: event.keyCode
+                    )
+                    if normalized == shortcutKey { return true }
+                    // Character disagrees: fall through to character matching (Dvorak override)
+                } else {
+                    // No usable ASCII chars (non-Latin layout, control chars, empty).
+                    // Check layout translation for disambiguation.
+                    let layoutChar = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+                    let hasUsableLayoutChar = !(layoutChar?.isEmpty ?? true)
+                        && (layoutChar?.allSatisfy(\.isASCII) ?? false)
+                    if !hasUsableLayoutChar || layoutChar?.lowercased() == shortcutKey {
+                        // No layout info to contradict, or layout agrees: accept physical match
+                        return true
+                    }
+                    // Layout translation disagrees: fall through to character matching
+                }
+            } else {
+                // Non-letter shortcuts (digits, punctuation, symbols): physical match accepted.
+                // Digit/punctuation key positions are stable across Latin layouts, and non-Latin
+                // layouts need the physical fallback for these keys (e.g. AZERTY Cmd+1).
+                return true
+            }
+        }
+
+        // --- Fallback: character-based matching ---
+        // Try matching via event.charactersIgnoringModifiers for alternative Latin layouts
+        // (Dvorak, Colemak) where logical character identity differs from physical position.
         if shortcutCharacterMatches(
-            eventCharacter: eventCharsIgnoringModifiers,
+            eventCharacter: event.charactersIgnoringModifiers,
             shortcutKey: shortcutKey,
             applyShiftSymbolNormalization: flags.contains(.shift),
             eventKeyCode: event.keyCode
@@ -10984,24 +11033,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // For command-based shortcuts, trust AppKit's layout-aware characters when present.
-        // Keep this strict for letter shortcuts to avoid physical-key collisions across layouts,
-        // while still allowing keyCode fallback for digit/punctuation shortcuts on non-US layouts.
-        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
-        // charactersIgnoringModifiers returns non-ASCII characters that can never match
-        // a Latin shortcut key — skip this guard and fall through to layout-based matching.
-        let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
-        let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
-        if hasEventChars,
-           eventCharsAreASCII,
-           flags.contains(.command),
-           !flags.contains(.control),
-           shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
-            return false
-        }
-
-        // Match using the current keyboard layout so Command shortcuts stay character-based
-        // across layouts (QWERTY, Dvorak, etc.) instead of being tied to ANSI physical keys.
+        // Try layout translation (UCKeyTranslate) for cases where charactersIgnoringModifiers
+        // is unavailable or non-ASCII but the layout can still resolve the key.
         let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
         if shortcutCharacterMatches(
             eventCharacter: layoutCharacter,
@@ -11012,28 +11045,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Control-key combos can surface as ASCII control characters (e.g. Ctrl+H => backspace),
-        // so keep ANSI keyCode fallback for control-modified shortcuts. Also allow fallback for
-        // command punctuation shortcuts, since some non-US layouts report different characters
-        // for the same physical key even when menu-equivalent semantics should still apply.
-        // When a non-Latin input source is active (Russian, Korean, Chinese, Japanese, etc.),
-        // event chars carry no usable Latin key identity. Always allow keyCode fallback as a
-        // safety net — even when the layout-based translation resolved a character, the
-        // physical key code is the definitive identifier for the intended shortcut.
-        // For empty-character events (synthetic/browser key equivalents), preserve the original
-        // behavior: only fall back when the layout translation also failed.
-        let hasUsableEventChars = hasEventChars && eventCharsAreASCII
-        let allowANSIKeyCodeFallback = flags.contains(.control)
-            || (flags.contains(.command)
-                && !flags.contains(.control)
-                && (
-                    !shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (hasEventChars && !eventCharsAreASCII)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
-                ))
-        if allowANSIKeyCodeFallback, let expectedKeyCode = keyCodeForShortcutKey(shortcutKey) {
-            return event.keyCode == expectedKeyCode
-        }
         return false
     }
 
@@ -11077,7 +11088,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return digit
     }
 
-    private func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
+    private func isLetterShortcutKey(_ shortcutKey: String) -> Bool {
         guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
             return false
         }
