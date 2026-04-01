@@ -9456,9 +9456,12 @@ final class Workspace: Identifiable, ObservableObject {
         var visiblePanelIds: Set<UUID> = []
 
         for paneId in renderedPaneIds {
-            let selectedTab = bonsplitController.selectedTab(inPane: paneId) ?? bonsplitController.tabs(inPane: paneId).first
-            guard let selectedTab,
-                  let panelId = panelIdFromSurfaceId(selectedTab.id),
+            let selectedTabId = visibleTabIdForPaneSelection(
+                selectedTabId: bonsplitController.selectedTab(inPane: paneId)?.id,
+                tabsInPane: bonsplitController.tabs(inPane: paneId)
+            )
+            guard let selectedTabId,
+                  let panelId = panelIdFromSurfaceId(selectedTabId),
                   panels[panelId] != nil else {
                 continue
             }

@@ -79,6 +79,41 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testVisibleTabIdForPaneSelectionPrefersSelectedTab() {
+        let first = Bonsplit.Tab(id: TabID(), title: "First")
+        let second = Bonsplit.Tab(id: TabID(), title: "Second")
+
+        XCTAssertEqual(
+            visibleTabIdForPaneSelection(
+                selectedTabId: second.id,
+                tabsInPane: [first, second]
+            ),
+            second.id
+        )
+    }
+
+    func testVisibleTabIdForPaneSelectionFallsBackToFirstTabDuringSelectionGap() {
+        let first = Bonsplit.Tab(id: TabID(), title: "First")
+        let second = Bonsplit.Tab(id: TabID(), title: "Second")
+
+        XCTAssertEqual(
+            visibleTabIdForPaneSelection(
+                selectedTabId: nil,
+                tabsInPane: [first, second]
+            ),
+            first.id
+        )
+    }
+
+    func testVisibleTabIdForPaneSelectionReturnsNilForEmptyPane() {
+        XCTAssertNil(
+            visibleTabIdForPaneSelection(
+                selectedTabId: nil,
+                tabsInPane: []
+            )
+        )
+    }
+
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(
