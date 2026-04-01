@@ -3756,6 +3756,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
+            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

@@ -8,6 +8,11 @@
 
 # Find the real claude binary, skipping our own directory.
 find_real_claude() {
+    # Honor custom path from Settings > Automation > Claude Code > Claude Binary Path
+    if [[ -n "${CMUX_CUSTOM_CLAUDE_PATH:-}" && -x "$CMUX_CUSTOM_CLAUDE_PATH" ]]; then
+        printf '%s' "$CMUX_CUSTOM_CLAUDE_PATH"
+        return 0
+    fi
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
