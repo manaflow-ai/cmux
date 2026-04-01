@@ -3,12 +3,52 @@
 import { useEffect, useState } from "react";
 import posthog from "posthog-js";
 
+const STARS_CACHE_TTL_MS = 300_000;
+let cachedStars: number | null = null;
+let cachedStarsFetchedAt = 0;
+let pendingStarsRequest: Promise<number | null> | null = null;
+
 function formatStars(count: number): string {
   if (count >= 1000) {
     const k = Number((count / 1000).toFixed(1));
     return `${k}k`;
   }
   return String(count);
+}
+
+function hasFreshStarsCache() {
+  return (
+    cachedStars !== null &&
+    Date.now() - cachedStarsFetchedAt < STARS_CACHE_TTL_MS
+  );
+}
+
+function loadGitHubStars(): Promise<number | null> {
+  if (hasFreshStarsCache()) {
+    return Promise.resolve(cachedStars);
+  }
+
+  if (pendingStarsRequest) {
+    return pendingStarsRequest;
+  }
+
+  pendingStarsRequest = fetch("/api/github-stars")
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.stars != null) {
+        cachedStars = data.stars;
+        cachedStarsFetchedAt = Date.now();
+        return data.stars;
+      }
+
+      return cachedStars;
+    })
+    .catch(() => cachedStars)
+    .finally(() => {
+      pendingStarsRequest = null;
+    });
+
+  return pendingStarsRequest;
 }
 
 const GITHUB_ICON = (
@@ -30,16 +70,21 @@ export function GitHubStarsBadge({
   location?: string;
   className?: string;
 } = {}) {
-  const [stars, setStars] = useState<number | null>(null);
-  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in ${className ?? ""}`;
+  const [stars, setStars] = useState<number | null>(() => cachedStars);
+  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors ${className ?? ""}`;
 
   useEffect(() => {
-    fetch("/api/github-stars")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.stars != null) setStars(d.stars);
-      })
-      .catch(() => {});
+    let cancelled = false;
+
+    loadGitHubStars().then((nextStars) => {
+      if (!cancelled && nextStars != null) {
+        setStars(nextStars);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (stars === null) return null;
