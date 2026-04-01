@@ -6837,7 +6837,7 @@ class TerminalController {
                     }
                 }
             } else {
-                // macOS < 11.0: contentWorld parameter is ignored; JS runs in .page
+                // macOS < 11.0: WKContentWorld API unavailable; JS always runs in .page world
                 webView.evaluateJavaScript(script) { value, error in
                     if let error {
                         finish(nil, error.localizedDescription)
