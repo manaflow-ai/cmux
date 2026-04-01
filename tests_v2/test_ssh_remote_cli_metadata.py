@@ -336,24 +336,41 @@ def main() -> int:
                 str(daemon.get("state") or "") in {"unavailable", "bootstrapping", "ready", "error"},
                 f"workspace.remote.status should include daemon state metadata: {status_remote}",
             )
-            # Fail-fast regression: unreachable SSH target should surface bootstrap error explicitly.
+            # Fail-fast regression: unreachable SSH target should not stay stuck connecting forever.
+            # Current main can either keep the failed remote config around long enough to expose
+            # a daemon bootstrap error, or drop back to a disconnected local workspace once the
+            # failed terminal session has fully torn down.
             deadline_daemon = time.time() + 12.0
             last_status = status
+            saw_bootstrap_error = False
             while time.time() < deadline_daemon:
                 last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
                 last_remote = last_status.get("remote") or {}
                 last_daemon = last_remote.get("daemon") or {}
                 if str(last_daemon.get("state") or "") == "error":
+                    saw_bootstrap_error = True
+                    break
+                if bool(last_remote.get("enabled")) is False and str(last_remote.get("state") or "") == "disconnected":
                     break
                 time.sleep(0.2)
             else:
-                raise cmuxError(f"unreachable host should drive daemon state to error: {last_status}")
+                raise cmuxError(f"unreachable host should fail fast instead of hanging in connecting: {last_status}")
 
             last_remote = last_status.get("remote") or {}
             last_daemon = last_remote.get("daemon") or {}
-            detail = str(last_daemon.get("detail") or "")
-            _must("bootstrap failed" in detail.lower(), f"daemon error should mention bootstrap failure: {last_status}")
-            _must(re.search(r"retry\s+\d+", detail.lower()) is not None, f"daemon error should include retry count: {last_status}")
+            if saw_bootstrap_error:
+                detail = str(last_daemon.get("detail") or "")
+                _must("bootstrap failed" in detail.lower(), f"daemon error should mention bootstrap failure: {last_status}")
+                _must(re.search(r"retry\s+\d+", detail.lower()) is not None, f"daemon error should include retry count: {last_status}")
+            else:
+                _must(
+                    str(last_remote.get("state") or "") == "disconnected",
+                    f"unreachable host should eventually disconnect if it clears remote config: {last_status}",
+                )
+                _must(
+                    str(last_daemon.get("state") or "") == "unavailable",
+                    f"daemon state should reset when the failed remote session tears down: {last_status}",
+                )
 
             # Lifecycle regression: disconnect with clear should reset remote/daemon metadata.
             disconnected = client._call(
