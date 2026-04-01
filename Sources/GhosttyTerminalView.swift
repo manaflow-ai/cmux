@@ -101,14 +101,14 @@ enum GhosttyPasteboardHelper {
                 .joined(separator: " ")
         }
 
-        if let value = plainTextContents(from: pasteboard) {
-            return value
-        }
-
         if hasImageData(in: pasteboard),
            let html = pasteboard.string(forType: .html),
            htmlHasNoVisibleText(html) {
             return nil
+        }
+
+        if let value = plainTextContents(from: pasteboard) {
+            return value
         }
 
         if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
