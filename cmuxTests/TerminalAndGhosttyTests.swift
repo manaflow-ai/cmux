@@ -35,6 +35,38 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
     }
 
+    func testAlternatePlainTextUTIExtractsPlainText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-plain-text-uti-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from public.plain-text",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from public.plain-text"
+        )
+    }
+
+    func testEmptyPlainTextFallsBackToRichTextPayload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("", forType: .string)
+
+        let attributed = NSAttributedString(string: "hello from rtf fallback")
+        let rtfData = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from rtf fallback"
+        )
+    }
+
     func testImageHTMLClipboardFallsBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
