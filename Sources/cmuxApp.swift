@@ -171,6 +171,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.sendFeedback.defaultsKey) private var sendFeedbackShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -391,6 +392,70 @@ struct cmuxApp: App {
                     appDelegate.checkForUpdates(nil)
                 }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel)
+            }
+
+            CommandGroup(replacing: .help) {
+                Button(String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!")) {
+                    AppDelegate.shared?.openWelcomeWorkspace()
+                }
+
+                splitCommandButton(
+                    title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
+                    shortcut: sendFeedbackMenuShortcut
+                ) {
+                    FeedbackComposerBridge.openComposer()
+                }
+
+                Divider()
+
+                Button(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")) {
+                    if let appDelegate = AppDelegate.shared {
+                        appDelegate.openPreferencesWindow(
+                            debugSource: "menu.help.keyboardShortcuts",
+                            navigationTarget: .keyboardShortcuts
+                        )
+                    } else {
+                        AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                    }
+                }
+
+                Divider()
+
+                if let docsURL = URL(string: "https://cmux.dev/docs") {
+                    Button(String(localized: "about.docs", defaultValue: "Docs")) {
+                        NSWorkspace.shared.open(docsURL)
+                    }
+                }
+
+                if let changelogURL = URL(string: "https://cmux.dev/docs/changelog") {
+                    Button(String(localized: "sidebar.help.changelog", defaultValue: "Changelog")) {
+                        NSWorkspace.shared.open(changelogURL)
+                    }
+                }
+
+                if let githubURL = URL(string: "https://github.com/manaflow-ai/cmux") {
+                    Button(String(localized: "about.github", defaultValue: "GitHub")) {
+                        NSWorkspace.shared.open(githubURL)
+                    }
+                }
+
+                if let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues") {
+                    Button(String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues")) {
+                        NSWorkspace.shared.open(githubIssuesURL)
+                    }
+                }
+
+                if let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ") {
+                    Button(String(localized: "sidebar.help.discord", defaultValue: "Discord")) {
+                        NSWorkspace.shared.open(discordURL)
+                    }
+                }
+
+                Divider()
+
+                Button(String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates")) {
+                    AppDelegate.shared?.checkForUpdates(nil)
+                }
             }
 
 #if DEBUG
@@ -978,6 +1043,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var sendFeedbackMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: sendFeedbackShortcutData,
+            fallback: KeyboardShortcutSettings.Action.sendFeedback.defaultShortcut
         )
     }
 
