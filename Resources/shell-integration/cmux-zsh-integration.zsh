@@ -427,6 +427,8 @@ _cmux_report_tty_once() {
         _CMUX_TTY_REPORTED=1
         _cmux_send_bg "$payload"
     else
+        # Keep the first relay TTY report synchronous so the server can resolve
+        # the target surface before command-start kicks begin their scan burst.
         _cmux_report_tty_via_relay || return 0
         _CMUX_TTY_REPORTED=1
     fi
