@@ -2302,6 +2302,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
     private var mainWindowControllers: [MainWindowController] = []
 
+    /// Per-display window frame cache for restoring positions when external displays reconnect.
+    /// Keyed by CGDirectDisplayID, values map window identity to the last known frame on that display.
+    private var displayWindowFrameCache: [UInt32: [ObjectIdentifier: CGRect]] = [:]
+    /// Set of display IDs that were connected at last check, used to detect reconnections.
+    private var knownConnectedDisplayIDs: Set<UInt32> = []
+
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
     private var lastCascadePoint = NSPoint.zero
@@ -2424,6 +2430,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             name: CmuxThemeNotifications.reloadConfig,
             object: nil,
             suspensionBehavior: .deliverImmediately
+        )
+
+        // Track external display connect/disconnect for window position restoration.
+        knownConnectedDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenParametersDidChange(_:)),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidChangeScreen(_:)),
+            name: NSWindow.didChangeScreenNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidMove(_:)),
+            name: NSWindow.didMoveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWindowDidResize(_:)),
+            name: NSWindow.didResizeNotification,
+            object: nil
         )
 
 #if DEBUG
@@ -3523,6 +3556,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: SessionRectSnapshot(screen.frame),
             visibleFrame: SessionRectSnapshot(screen.visibleFrame)
         )
+    }
+
+    // MARK: - Display reconnection window restoration
+
+    /// Cache the current frame of a managed window, keyed by its current display.
+    private func cacheWindowFrameForDisplay(_ window: NSWindow) {
+        guard mainWindowContexts[ObjectIdentifier(window)] != nil else { return }
+        guard let displayID = window.screen?.cmuxDisplayID else { return }
+        displayWindowFrameCache[displayID, default: [:]][ObjectIdentifier(window)] = window.frame
+    }
+
+    @objc private func handleWindowDidMove(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleWindowDidResize(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleWindowDidChangeScreen(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        cacheWindowFrameForDisplay(window)
+    }
+
+    @objc private func handleScreenParametersDidChange(_ notification: Notification) {
+        let currentDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        let reconnected = currentDisplayIDs.subtracting(knownConnectedDisplayIDs)
+        knownConnectedDisplayIDs = currentDisplayIDs
+
+        guard !reconnected.isEmpty else { return }
+
+        for displayID in reconnected {
+            guard let cachedFrames = displayWindowFrameCache[displayID],
+                  let screen = NSScreen.screens.first(where: { $0.cmuxDisplayID == displayID }) else {
+                continue
+            }
+            for (windowID, frame) in cachedFrames {
+                guard let (_, ctx) = mainWindowContexts.first(where: { $0.key == windowID }),
+                      let window = ctx.window else {
+                    continue
+                }
+                let clamped = Self.clampFrame(
+                    frame,
+                    within: screen.visibleFrame,
+                    minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
+                    minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+                )
+                window.setFrame(clamped, display: true, animate: true)
+            }
+        }
     }
 
     private func startSessionAutosaveTimerIfNeeded() {
