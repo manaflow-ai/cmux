@@ -5370,13 +5370,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let inject = {
-            self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.withExternalCommittedText {
+                self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
         }
         if Thread.isMainThread {
             inject()
         } else {
             DispatchQueue.main.async(execute: inject)
         }
+    }
+
+    private func withExternalCommittedText<T>(_ body: () -> T) -> T {
+        externalCommittedTextDepth += 1
+        defer { externalCommittedTextDepth -= 1 }
+        return body()
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
@@ -5527,6 +5535,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var lastPerformKeyEvent: TimeInterval?
+    private var externalCommittedTextDepth = 0
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -5573,7 +5582,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// responder-chain `insertText:` action (single-argument form).
     /// Route that into our NSTextInputClient path so text lands in the terminal.
     override func insertText(_ insertString: Any) {
-        insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
+        withExternalCommittedText {
+            insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -9855,10 +9866,11 @@ final class GhosttySurfaceScrollView: NSView {
 // MARK: - NSTextInputClient
 
 extension GhosttyNSView: NSTextInputClient {
-    /// Deliver committed IME/AX text using typed-input semantics so shells and
-    /// editors keep their normal interactive behaviors (autosuggestions,
-    /// bracketed-paste handling, Return execution, etc.).
-    fileprivate func sendTextToSurface(_ chars: String) {
+    /// Deliver committed text using typed-input semantics so shells and editors
+    /// keep their normal interactive behaviors (autosuggestions, Return
+    /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
+    /// automation payloads remain byte-for-byte stable.
+    fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard let surface = surface else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -9921,8 +9933,12 @@ extension GhosttyNSView: NSTextInputClient {
                 sendControlKey(0x30) // kVK_Tab
                 previousWasCR = false
             case 0x1B:
-                flushBufferedText()
-                sendControlKey(0x35) // kVK_Escape
+                if preserveLiteralEscape {
+                    bufferedText.unicodeScalars.append(scalar)
+                } else {
+                    flushBufferedText()
+                    sendControlKey(0x35) // kVK_Escape
+                }
                 previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
@@ -10273,7 +10289,11 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
-        let sanitizedChars = if NSApp.currentEvent == nil {
+        let isExternalCommittedText = externalCommittedTextDepth > 0
+        let sanitizedChars = if isExternalCommittedText {
+            // Only sanitize explicit external committed-text paths used by
+            // AX/dictation integrations. Programmatic NSTextInputClient callers
+            // may intentionally start with ESC/CSI bytes.
             Self.sanitizeExternalCommittedText(chars)
         } else {
             chars
@@ -10291,7 +10311,10 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
-        sendTextToSurface(sanitizedChars)
+        sendTextToSurface(
+            sanitizedChars,
+            preserveLiteralEscape: !isExternalCommittedText
+        )
     }
 }
 
