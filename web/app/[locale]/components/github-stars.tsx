@@ -31,6 +31,7 @@ export function GitHubStarsBadge({
   className?: string;
 } = {}) {
   const [stars, setStars] = useState<number | null>(null);
+  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in ${className ?? ""}`;
 
   useEffect(() => {
     fetch("/api/github-stars")
@@ -51,7 +52,7 @@ export function GitHubStarsBadge({
       onClick={() =>
         posthog.capture("cmuxterm_github_clicked", { location })
       }
-      className={className ?? "inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in"}
+      className={classes}
     >
       {GITHUB_ICON}
       <span className="text-xs tabular-nums">{formatStars(stars)}</span>
