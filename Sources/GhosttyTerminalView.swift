@@ -101,25 +101,29 @@ enum GhosttyPasteboardHelper {
                 .joined(separator: " ")
         }
 
+        let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html)
+        let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf)
+        let rtfdText = attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+
         if hasImageData(in: pasteboard),
            let html = pasteboard.string(forType: .html),
            htmlHasNoVisibleText(html) {
             return nil
         }
 
+        if hasImageData(in: pasteboard) {
+            if let htmlText { return htmlText }
+            if let rtfText { return rtfText }
+            return rtfdText
+        }
+
         if let value = plainTextContents(from: pasteboard) {
             return value
         }
 
-        if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
-            return htmlText
-        }
-
-        if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {
-            return rtfText
-        }
-
-        return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+        if let htmlText { return htmlText }
+        if let rtfText { return rtfText }
+        return rtfdText
     }
 
     static func hasString(for location: ghostty_clipboard_e) -> Bool {
@@ -201,7 +205,7 @@ enum GhosttyPasteboardHelper {
               type != .fileURL,
               let utType = UTType(type.rawValue) else { return false }
 
-        return utType.conforms(to: .plainText) || utType.conforms(to: .text)
+        return utType.conforms(to: .plainText)
     }
 
     private static func attributedString(
