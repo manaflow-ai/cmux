@@ -5388,6 +5388,10 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(
                             String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
                             subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
@@ -5399,10 +5403,6 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
                         }
-
-                        SettingsCardDivider()
-
-                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
                     }
 
                     SettingsCard {
