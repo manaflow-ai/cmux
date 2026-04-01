@@ -3561,15 +3561,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Display reconnection window restoration
 
     /// Cache the current frame of a managed window, keyed by its current display.
-    /// Clears entries for this window on all other displays so that only the most
-    /// recent display is remembered (prevents restoring a window the user
-    /// intentionally moved away).
+    /// Only clears entries on other *currently connected* displays so that a
+    /// disconnect-driven relocation to the primary display doesn't erase the
+    /// frame we need for restoration.
     private func cacheWindowFrameForDisplay(_ window: NSWindow) {
         guard mainWindowContexts[ObjectIdentifier(window)] != nil else { return }
         guard let displayID = window.screen?.cmuxDisplayID else { return }
         let windowID = ObjectIdentifier(window)
         for otherDisplayID in displayWindowFrameCache.keys where otherDisplayID != displayID {
-            displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
+            // Only prune entries for displays that are still connected.
+            // Disconnected display entries are preserved for restoration.
+            if knownConnectedDisplayIDs.contains(otherDisplayID) {
+                displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
+            }
         }
         displayWindowFrameCache[displayID, default: [:]][windowID] = window.frame
     }
@@ -4156,6 +4160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
 #endif
         notifyMainWindowContextsDidChange()
+        cacheWindowFrameForDisplay(window)
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
