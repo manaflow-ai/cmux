@@ -893,6 +893,17 @@ final class ExternalCommittedTextSanitizationTests: XCTestCase {
             "[Code] review"
         )
     }
+
+    func testPreservesLeadingControlBytesUsedByAutomation() {
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("\n"),
+            "\n"
+        )
+        XCTAssertEqual(
+            GhosttyNSView.sanitizeExternalCommittedText("\tfoo"),
+            "\tfoo"
+        )
+    }
 }
 
 // MARK: - Shift+Space fallback suppression (IME source-switch shortcut)
