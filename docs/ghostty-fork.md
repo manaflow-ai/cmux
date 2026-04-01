@@ -98,7 +98,19 @@ tend to conflict together during rebases.
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
 
-The fork branch HEAD is now the section 6 copy-mode compatibility commit.
+### 7) macos-background-from-layer config flag
+
+- Commit: `ae3cc5d29` (Restore macOS layer background hook)
+- Files:
+  - `src/config/Config.zig`
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a `macos-background-from-layer` bool config (default false).
+  - When true, sets `bg_color[3] = 0` in the per-frame uniform update so the Metal renderer skips the full-screen background fill.
+  - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
+  - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
+
+The fork branch HEAD is now the section 7 layer-background restore commit.
 
 ## Upstreamed fork changes
 
@@ -135,5 +147,10 @@ These files change frequently upstream; be careful when rebasing the fork:
 - `include/ghostty.h`, `src/Surface.zig`, `src/apprt/embedded.zig`
   - Upstream removed cmux-used selection exports. Preserve the re-exported
     `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection` functions.
+
+- `src/renderer/generic.zig`
+  - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
+    If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
+    paths still zero out `bg_color[3]` correctly.
 
 If you resolve a conflict, update this doc with what changed.
