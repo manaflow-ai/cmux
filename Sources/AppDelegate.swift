@@ -2307,6 +2307,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var displayWindowFrameCache: [UInt32: [UUID: CGRect]] = [:]
     /// Set of display IDs that were connected at last check, used to detect reconnections.
     private var knownConnectedDisplayIDs: Set<UInt32> = []
+    /// Brief flag set during system-driven display relayout to suppress pruning
+    /// of disconnected display cache entries.
+    private var isHandlingDisplayDisconnect = false
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
     /// Reset to `.zero` so the first window seeds the point from its own position.
@@ -3561,19 +3564,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // MARK: - Display reconnection window restoration
 
     /// Cache the current frame of a managed window, keyed by its current display.
-    /// Only clears entries on other *currently connected* displays so that a
-    /// disconnect-driven relocation to the primary display doesn't erase the
-    /// frame we need for restoration.
+    /// During system-driven relayout (display disconnect), disconnected display
+    /// entries are preserved. User-initiated moves clear all other entries so
+    /// the window won't snap back to a display it was moved away from.
     private func cacheWindowFrameForDisplay(_ window: NSWindow) {
         guard let ctx = mainWindowContexts[ObjectIdentifier(window)] else { return }
         guard let displayID = window.screen?.cmuxDisplayID else { return }
         let windowID = ctx.windowId
         for otherDisplayID in displayWindowFrameCache.keys where otherDisplayID != displayID {
-            // Only prune entries for displays that are still connected.
-            // Disconnected display entries are preserved for restoration.
-            if knownConnectedDisplayIDs.contains(otherDisplayID) {
-                displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
+            if isHandlingDisplayDisconnect && !knownConnectedDisplayIDs.contains(otherDisplayID) {
+                // Preserve disconnected display entries during system relayout.
+                continue
             }
+            displayWindowFrameCache[otherDisplayID]?.removeValue(forKey: windowID)
         }
         displayWindowFrameCache[displayID, default: [:]][windowID] = window.frame
     }
@@ -3596,7 +3599,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @objc private func handleScreenParametersDidChange(_ notification: Notification) {
         let currentDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
         let reconnected = currentDisplayIDs.subtracting(knownConnectedDisplayIDs)
+        let disconnected = knownConnectedDisplayIDs.subtracting(currentDisplayIDs)
         knownConnectedDisplayIDs = currentDisplayIDs
+
+        // Briefly suppress pruning of disconnected display entries so that
+        // the system-driven window relocation preserves the restore frame.
+        if !disconnected.isEmpty {
+            isHandlingDisplayDisconnect = true
+            DispatchQueue.main.async { [weak self] in
+                self?.isHandlingDisplayDisconnect = false
+            }
+        }
 
         guard !reconnected.isEmpty else { return }
 
