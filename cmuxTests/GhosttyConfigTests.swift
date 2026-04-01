@@ -1285,6 +1285,44 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
     }
 }
 
+final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
+    func testOrphanedCMUXRemoteSSHPIDsMatchesOnlyParentOneRelayAndDaemonTransports() {
+        let psOutput = """
+          101 1 /usr/bin/ssh -N -T -S none -o ControlPath=/tmp/cmux-ssh-501-56080-%C -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          102 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          103 999 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
+          104 1 /usr/bin/ssh -tt cmux-macmini
+          105 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56082:127.0.0.1:64050 other-host
+          106 1 /usr/bin/ssh -T -S none cmux-macmini /bin/sh
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini"
+            ),
+            [101, 102]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsCanRestrictCleanupToSpecificRelayPort() {
+        let psOutput = """
+          201 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          202 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
+          203 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081
+            ),
+            [202]
+        )
+    }
+}
+
 final class TitlebarDoubleClickPreferenceTests: XCTestCase {
     func testResolvesZoomForFillPreference() {
         XCTAssertEqual(

@@ -285,7 +285,8 @@ def main() -> int:
                     if str(row.get("id") or "") == workspace_id:
                         listed_row = row
                         break
-                if listed_row is not None:
+                remote = (listed_row or {}).get("remote") or {}
+                if listed_row is not None and bool(remote.get("enabled")) is True:
                     break
                 time.sleep(0.1)
 
@@ -320,6 +321,7 @@ def main() -> int:
             if terminal_text is not None:
                 _must("ControlPersist=600" not in terminal_text, f"cmux ssh should not inject raw ssh command text: {terminal_text!r}")
                 _must("GHOSTTY_SHELL_FEATURES=" not in terminal_text, f"cmux ssh should not inject env assignment text: {terminal_text!r}")
+                _must("BASH_EXECUTION_STRING=set" not in terminal_text, f"cmux ssh should not print the remote shell environment dump on connect: {terminal_text!r}")
 
             status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
             status_remote = status.get("remote") or {}

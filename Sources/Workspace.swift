@@ -1069,6 +1069,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
     private let pendingCalls = WorkspaceRemoteDaemonPendingCallRegistry()
 
     private var process: Process?
+    private var stdinPipe: Pipe?
+    private var stdoutPipe: Pipe?
+    private var stderrPipe: Pipe?
     private var stdinHandle: FileHandle?
     private var stdoutHandle: FileHandle?
     private var stderrHandle: FileHandle?
@@ -1094,6 +1097,12 @@ private final class WorkspaceRemoteDaemonRPCClient {
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
+
+        stateQueue.sync {
+            self.stdinPipe = stdinPipe
+            self.stdoutPipe = stdoutPipe
+            self.stderrPipe = stderrPipe
+        }
 
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = Self.daemonArguments(configuration: configuration, remotePath: remotePath)
@@ -1403,6 +1412,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
 
         isClosed = true
         self.process = nil
+        stdinPipe = nil
+        stdoutPipe = nil
+        stderrPipe = nil
         stdinHandle = nil
         stdoutHandle?.readabilityHandler = nil
         stdoutHandle = nil
@@ -1432,6 +1444,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
             let capturedStderr = stderrHandle
 
             process = nil
+            stdinPipe = nil
+            stdoutPipe = nil
+            stderrPipe = nil
             stdinHandle = nil
             stdoutHandle = nil
             stderrHandle = nil
@@ -3421,6 +3436,7 @@ final class WorkspaceRemoteSessionController {
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
+        Self.killOrphanedRemoteSSHProcesses(destination: configuration.destination)
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         reconnectWorkItem = nil
@@ -3527,7 +3543,10 @@ final class WorkspaceRemoteSessionController {
             )
             relayServer = server
             let localRelayPort = try server.start()
-            Self.killOrphanedRelayProcesses(relayPort: relayPort, destination: configuration.destination)
+            Self.killOrphanedRemoteSSHProcesses(
+                destination: configuration.destination,
+                relayPort: relayPort
+            )
 
             let process = Process()
             let stderrPipe = Pipe()
@@ -4928,18 +4947,127 @@ final class WorkspaceRemoteSessionController {
         ".cmux/bin/cmuxd-remote/\(version)/\(goOS)-\(goArch)/cmuxd-remote"
     }
 
-    private static func killOrphanedRelayProcesses(relayPort: Int, destination: String) {
+    static func orphanedCMUXRemoteSSHPIDs(
+        psOutput: String,
+        destination: String,
+        relayPort: Int? = nil
+    ) -> [Int] {
+        let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDestination.isEmpty else { return [] }
+
+        return psOutput
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .compactMap { line -> Int? in
+                guard let parsed = parsePSLine(line) else { return nil }
+                guard parsed.ppid == 1 else { return nil }
+                guard isOrphanedCMUXRemoteSSHCommand(
+                    parsed.command,
+                    destination: trimmedDestination,
+                    relayPort: relayPort
+                ) else {
+                    return nil
+                }
+                return parsed.pid
+            }
+            .sorted()
+    }
+
+    private static func killOrphanedRemoteSSHProcesses(destination: String, relayPort: Int? = nil) {
+        guard let output = captureCommandStandardOutput(
+            executablePath: "/bin/ps",
+            arguments: ["-axo", "pid=,ppid=,command="]
+        ) else {
+            return
+        }
+
+        for pid in orphanedCMUXRemoteSSHPIDs(
+            psOutput: output,
+            destination: destination,
+            relayPort: relayPort
+        ) {
+            _ = Darwin.kill(pid_t(pid), SIGTERM)
+        }
+    }
+
+    private static func captureCommandStandardOutput(
+        executablePath: String,
+        arguments: [String]
+    ) -> String? {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        process.arguments = ["-f", "ssh.*-R.*127\\.0\\.0\\.1:\(relayPort):127\\.0\\.0\\.1:[0-9]+.*\(destination)"]
-        process.standardOutput = FileHandle.nullDevice
+        let stdoutPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
+
         do {
             try process.run()
+            let outputData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            guard process.terminationStatus == 0,
+                  let output = String(data: outputData, encoding: .utf8),
+                  !output.isEmpty else {
+                return nil
+            }
+            return output
         } catch {
             // Best effort cleanup only.
+            return nil
         }
+    }
+
+    private static func parsePSLine(_ line: Substring) -> (pid: Int, ppid: Int, command: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let scanner = Scanner(string: trimmed)
+        var pidValue: Int = 0
+        var ppidValue: Int = 0
+        guard scanner.scanInt(&pidValue), scanner.scanInt(&ppidValue) else {
+            return nil
+        }
+
+        let commandStart = scanner.currentIndex
+        let command = String(trimmed[commandStart...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return nil }
+        return (pidValue, ppidValue, command)
+    }
+
+    private static func isOrphanedCMUXRemoteSSHCommand(
+        _ command: String,
+        destination: String,
+        relayPort: Int?
+    ) -> Bool {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard trimmed.hasPrefix("/usr/bin/ssh ") || trimmed.hasPrefix("ssh ") else { return false }
+        guard commandContainsDestination(trimmed, destination: destination) else { return false }
+
+        if let relayPort {
+            return trimmed.contains(" -N ")
+                && trimmed.contains(" -R 127.0.0.1:\(relayPort):127.0.0.1:")
+        }
+
+        if trimmed.contains(" -N ") && trimmed.contains(" -R 127.0.0.1:") {
+            return true
+        }
+        if trimmed.contains("cmuxd-remote") && trimmed.contains(" serve --stdio") {
+            return true
+        }
+        return false
+    }
+
+    private static func commandContainsDestination(_ command: String, destination: String) -> Bool {
+        guard !destination.isEmpty else { return false }
+        let escaped = NSRegularExpression.escapedPattern(for: destination)
+        guard let regex = try? NSRegularExpression(
+            pattern: "(^|[\\s'\\\"])\(escaped)($|[\\s'\\\"])",
+            options: []
+        ) else {
+            return command.contains(destination)
+        }
+        let range = NSRange(command.startIndex..<command.endIndex, in: command)
+        return regex.firstMatch(in: command, options: [], range: range) != nil
     }
 
     private static func which(_ executable: String) -> String? {

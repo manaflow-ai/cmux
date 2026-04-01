@@ -3986,7 +3986,7 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(shellQuote(options.destination)) sh -c \(shellQuote(remoteBootstrapInstallCommand)); then",
+            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
             "  exit 1",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
