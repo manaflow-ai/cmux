@@ -457,7 +457,7 @@ enum FinderServicePathResolver {
         var directories: [String] = []
 
         for url in pathURLs {
-            let directoryURL = normalizedComparisonURL(resolvedDirectoryURL(from: url))
+            let directoryURL = resolvedDirectoryURL(from: url)
             guard !excludedRootURLs.contains(where: { isSameOrDescendant(directoryURL, of: $0) }) else {
                 continue
             }
