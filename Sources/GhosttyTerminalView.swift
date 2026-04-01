@@ -9886,8 +9886,8 @@ extension GhosttyNSView: NSTextInputClient {
     }
 
     /// External accessibility/dictation tools should commit plain text, but
-    /// some inject a leading escape/control sequence first. Strip those bytes
-    /// on the committed-text path so they can't leak into the PTY as literals.
+    /// some inject a leading escape sequence first. Strip those bytes on the
+    /// committed-text path so they can't leak into the PTY as literals.
     static func sanitizeExternalCommittedText(_ text: String) -> String {
         let bytes = Array(text.utf8)
         guard !bytes.isEmpty else { return text }
@@ -9902,11 +9902,6 @@ extension GhosttyNSView: NSTextInputClient {
 
             if byte == 0x9B {
                 index = consumeLeadingCSISequence(in: bytes, from: index + 1)
-                continue
-            }
-
-            if byte < 0x20 || byte == 0x7F {
-                index += 1
                 continue
             }
 
