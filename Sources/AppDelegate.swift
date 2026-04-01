@@ -5789,6 +5789,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             backing: .buffered,
             defer: false
         )
+        // Disable macOS native window state restoration. cmux manages its own
+        // session persistence via SessionPersistenceStore; letting macOS also
+        // restore windows causes duplicate windows on relaunch.
+        window.isRestorable = false
         window.title = ""
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true

@@ -2801,6 +2801,10 @@ struct ContentView: View {
 
         view = AnyView(view.background(WindowAccessor { [sidebarBlendMode, bgGlassEnabled, bgGlassTintHex, bgGlassTintOpacity] window in
             window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
+            // Disable macOS native window state restoration. cmux manages its own
+            // session persistence; letting macOS also restore windows causes
+            // duplicate windows on relaunch.
+            window.isRestorable = false
             window.titlebarAppearsTransparent = true
             // Do not make the entire background draggable; it interferes with drag gestures
             // like sidebar tab reordering in multi-window mode.

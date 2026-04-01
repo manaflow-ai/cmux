@@ -240,6 +240,12 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
 
+        // Preserve the restored title so new shell process titles don't
+        // immediately overwrite it (see updatePanelTitle guard).
+        if snapshot.customTitle == nil, !snapshot.processTitle.isEmpty {
+            restoredSessionProcessTitle = snapshot.processTitle
+        }
+
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
         // restarts because the processes that set them are gone.
@@ -5104,6 +5110,13 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var processTitle: String
 
+    /// When non-nil, the workspace title was restored from a session snapshot.
+    /// The first shell process title update is suppressed to prevent the new
+    /// shell's generic title (e.g. "zsh") from overwriting the meaningful
+    /// restored title. Cleared once a *different* process title arrives,
+    /// indicating the user has started a new command.
+    private var restoredSessionProcessTitle: String?
+
     private enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
@@ -5808,6 +5821,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func setCustomTitle(_ title: String?) {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        restoredSessionProcessTitle = nil
         if trimmed.isEmpty {
             customTitle = nil
             self.title = processTitle
@@ -6018,14 +6032,33 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
-        // If this is the only panel and no custom title, update workspace title
+        // If this is the only panel and no custom title, update workspace title.
+        // After session restore, suppress the first title update (the new shell
+        // reporting a generic title like "zsh") to preserve the restored title.
+        // Once a genuinely different title arrives, clear the guard and resume
+        // normal auto-updating.
         if panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
-                self.title = trimmed
-                didMutate = true
-            }
-            if processTitle != trimmed {
-                processTitle = trimmed
+            if let restoredTitle = restoredSessionProcessTitle {
+                // The new shell's initial title matches or is less informative
+                // than the restored title — keep the restored one.
+                if trimmed != restoredTitle {
+                    restoredSessionProcessTitle = nil
+                    if self.title != trimmed {
+                        self.title = trimmed
+                        didMutate = true
+                    }
+                    if processTitle != trimmed {
+                        processTitle = trimmed
+                    }
+                }
+            } else {
+                if self.title != trimmed {
+                    self.title = trimmed
+                    didMutate = true
+                }
+                if processTitle != trimmed {
+                    processTitle = trimmed
+                }
             }
         }
 
