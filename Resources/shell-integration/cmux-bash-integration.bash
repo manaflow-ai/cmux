@@ -44,6 +44,25 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+_CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    unalias claude >/dev/null 2>&1 || true
+    claude() {
+        "$_CMUX_CLAUDE_WRAPPER" "$@"
+    }
+}
+_cmux_install_claude_wrapper
+
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
 _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
