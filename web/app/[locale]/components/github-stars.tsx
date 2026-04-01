@@ -5,8 +5,8 @@ import posthog from "posthog-js";
 
 function formatStars(count: number): string {
   if (count >= 1000) {
-    const k = count / 1000;
-    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+    const k = Number((count / 1000).toFixed(1));
+    return `${k}k`;
   }
   return String(count);
 }
