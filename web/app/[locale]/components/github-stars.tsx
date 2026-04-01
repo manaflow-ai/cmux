@@ -7,6 +7,7 @@ const STARS_CACHE_TTL_MS = 300_000;
 let cachedStars: number | null = null;
 let cachedStarsFetchedAt = 0;
 let pendingStarsRequest: Promise<number | null> | null = null;
+let hasAnimatedPrimaryStarsBadge = false;
 
 function formatStars(count: number): string {
   if (count >= 1000) {
@@ -71,7 +72,16 @@ export function GitHubStarsBadge({
   className?: string;
 } = {}) {
   const [stars, setStars] = useState<number | null>(() => cachedStars);
-  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors ${className ?? ""}`;
+  const [shouldAnimate] = useState(
+    () => location === "stars_badge" && !hasAnimatedPrimaryStarsBadge
+  );
+  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors ${shouldAnimate ? "animate-fade-in" : ""} ${className ?? ""}`;
+
+  useEffect(() => {
+    if (shouldAnimate) {
+      hasAnimatedPrimaryStarsBadge = true;
+    }
+  }, [shouldAnimate]);
 
   useEffect(() => {
     let cancelled = false;
