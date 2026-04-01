@@ -64,12 +64,11 @@ _cmux_install_claude_wrapper() {
     local wrapper_path="$bundle_dir/bin/claude"
     [[ -x "$wrapper_path" ]] || return 0
 
-    # Keep the bundled claude wrapper ahead of later PATH mutations.
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
     _CMUX_CLAUDE_WRAPPER="$wrapper_path"
     builtin unalias claude >/dev/null 2>&1 || true
-    claude() {
-        "$_CMUX_CLAUDE_WRAPPER" "$@"
-    }
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
 }
 _cmux_install_claude_wrapper
 

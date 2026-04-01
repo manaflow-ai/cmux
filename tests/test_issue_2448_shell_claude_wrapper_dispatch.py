@@ -74,6 +74,31 @@ def run_zsh(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, 
     return result.returncode, combined, read_lines(log_path)
 
 
+def run_zsh_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'alias claude="echo alias"; source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude zsh-alias-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
 def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
     env = dict(os.environ)
     env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
@@ -89,6 +114,33 @@ def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str,
             "--norc",
             "-c",
             f'source "{shell_dir / "cmux-bash-integration.bash"}"; PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_bash_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-ic",
+            f'alias claude="echo alias"; source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-alias-case',
         ],
         env=env,
         capture_output=True,
@@ -137,6 +189,20 @@ printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"bash exited non-zero rc={rc}: {output}")
         elif lines != ["wrapper:bash-case"]:
             failures.append(f"bash expected wrapper dispatch, saw {lines!r}")
+
+        zsh_alias_log = tmp / "zsh-alias.log"
+        rc, output, lines = run_zsh_with_alias(shell_dir, real_bin, zsh_alias_log)
+        if rc != 0:
+            failures.append(f"zsh alias case exited non-zero rc={rc}: {output}")
+        elif lines != ["wrapper:zsh-alias-case"]:
+            failures.append(f"zsh alias case expected wrapper dispatch, saw {lines!r}")
+
+        bash_alias_log = tmp / "bash-alias.log"
+        rc, output, lines = run_bash_with_alias(shell_dir, real_bin, bash_alias_log)
+        if rc != 0:
+            failures.append(f"bash alias case exited non-zero rc={rc}: {output}")
+        elif lines != ["wrapper:bash-alias-case"]:
+            failures.append(f"bash alias case expected wrapper dispatch, saw {lines!r}")
 
     if failures:
         print("FAIL: shell integration did not keep claude on the bundled wrapper")
