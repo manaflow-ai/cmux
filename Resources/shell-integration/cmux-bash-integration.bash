@@ -62,8 +62,6 @@ _CMUX_PR_POLL_PWD="${_CMUX_PR_POLL_PWD:-}"
 _CMUX_PR_LAST_BRANCH="${_CMUX_PR_LAST_BRANCH:-}"
 _CMUX_PR_NO_PR_BRANCH="${_CMUX_PR_NO_PR_BRANCH:-}"
 _CMUX_PR_POLL_INTERVAL="${_CMUX_PR_POLL_INTERVAL:-45}"
-_CMUX_PR_RESULT_TTL="${_CMUX_PR_RESULT_TTL:-300}"
-_CMUX_PR_NO_PR_TTL="${_CMUX_PR_NO_PR_TTL:-300}"
 _CMUX_PR_FORCE="${_CMUX_PR_FORCE:-0}"
 _CMUX_PR_DEBUG="${_CMUX_PR_DEBUG:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
@@ -380,31 +378,6 @@ _cmux_pr_request_probe() {
     : >| "$signal_path"
 }
 
-_cmux_pr_emit_cached_result() {
-    local branch="$1"
-    local result_line="$2"
-    local kind="" number="" state="" url="" status_opt=""
-
-    if [[ "$result_line" == "none" ]]; then
-        _cmux_clear_pr_for_panel
-        return 0
-    fi
-
-    IFS=$'\t' read -r kind number state url <<< "$result_line"
-    [[ "$kind" == "pr" ]] || return 1
-    [[ -n "$number" && -n "$url" ]] || return 1
-
-    case "$state" in
-        MERGED) status_opt="--state=merged" ;;
-        OPEN) status_opt="--state=open" ;;
-        CLOSED) status_opt="--state=closed" ;;
-        *) return 1 ;;
-    esac
-
-    local quoted_branch="${branch//\"/\\\"}"
-    _cmux_send "report_pr $number $url $status_opt --branch=\"$quoted_branch\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-}
-
 _cmux_report_pr_for_path() {
     local repo_path="$1"
     local force_probe="${2:-0}"
@@ -424,7 +397,7 @@ _cmux_report_pr_for_path() {
 
     local branch repo_slug="" gh_output="" gh_error="" err_file="" gh_status number state url status_opt=""
     local now prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
-    local cache_branch="" cache_repo_path="" cache_result="" cache_timestamp="" cache_no_pr_branch="" cache_ttl=0 cache_age=0
+    local cache_branch="" cache_result="" cache_no_pr_branch=""
     local -a gh_repo_args=()
     now="$(_cmux_now)"
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
@@ -443,31 +416,17 @@ _cmux_report_pr_for_path() {
         timestamp_file="${prefix}.timestamp"
         no_pr_branch_file="${prefix}.no-pr-branch"
         [[ -r "$branch_file" ]] && cache_branch="$(<"$branch_file")"
-        [[ -r "$repo_file" ]] && cache_repo_path="$(<"$repo_file")"
         [[ -r "$result_file" ]] && cache_result="$(<"$result_file")"
-        [[ -r "$timestamp_file" ]] && cache_timestamp="$(<"$timestamp_file")"
         [[ -r "$no_pr_branch_file" ]] && cache_no_pr_branch="$(<"$no_pr_branch_file")"
     fi
 
     _CMUX_PR_LAST_BRANCH="$cache_branch"
     _CMUX_PR_NO_PR_BRANCH="$cache_no_pr_branch"
-
-    if [[ "$cache_no_pr_branch" == "$branch" ]] || [[ "$cache_result" == "none" ]]; then
-        cache_ttl="${_CMUX_PR_NO_PR_TTL:-300}"
+    if [[ "$cache_branch" == "$branch" && -n "$cache_result" ]]; then
+        _cmux_pr_debug_log "$branch" "cache-refresh"
     else
-        cache_ttl="${_CMUX_PR_RESULT_TTL:-300}"
+        _cmux_pr_debug_log "$branch" "cache-miss"
     fi
-
-    if [[ "$force_probe" != "1" && -n "$cache_branch" && -n "$cache_result" && -n "$cache_timestamp" ]] \
-        && [[ "$cache_branch" == "$branch" && "$cache_repo_path" == "$repo_path" ]]; then
-        cache_age=$(( now - cache_timestamp ))
-        if (( cache_age >= 0 && cache_age < cache_ttl )); then
-            _cmux_pr_debug_log "$branch" "cache-hit"
-            _cmux_pr_emit_cached_result "$branch" "$cache_result"
-            return $?
-        fi
-    fi
-    _cmux_pr_debug_log "$branch" "cache-miss"
 
     repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
     if [[ -n "$repo_slug" ]]; then

@@ -3,7 +3,7 @@
 Regression coverage for issue #1138.
 
 Validates that shell integration:
-1) keeps a background PR loop alive while reusing cached results on idle branches
+1) keeps polling PR state while idle and recovers after a transient gh failure
 2) resolves the current branch PR via `gh pr view` instead of repository-wide
    branch-name matching
 3) clears stale PR state when the branch changes and the new probe fails
@@ -13,7 +13,6 @@ Validates that shell integration:
 7) falls back to explicit branch lookup when implicit gh branch resolution fails
 8) does not clear an existing PR badge on the first prompt while establishing
    the HEAD baseline
-9) caches negative lookups instead of re-querying `gh pr view` every interval
 """
 
 from __future__ import annotations
@@ -145,10 +144,6 @@ def _gh_stub() -> str:
           prompt_helper_idle)
             printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
             ;;
-          no_pr_cached)
-            printf 'no pull requests found for branch "%s"\\n' "$branch" >&2
-            exit 1
-            ;;
           initial_prompt_preserves_pr_badge)
             printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
             ;;
@@ -213,13 +208,6 @@ def _shell_command(kind: str, scenario: str) -> str:
             '_cmux_cleanup\n'
         ),
         "transient_same_context": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=1\n'
-            '_cmux_prompt_entry\n'
-            'sleep 3\n'
-            '_cmux_cleanup\n'
-        ),
-        "no_pr_cached": (
             'cd "$CMUX_TEST_REPO"\n'
             '_CMUX_PR_POLL_INTERVAL=1\n'
             '_cmux_prompt_entry\n'
@@ -363,8 +351,8 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
         return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
 
     if scenario == "prompt_helper_idle":
-        if gh_count != 1:
-            return (1, f"{shell}/{scenario}: expected cached idle branch to hit gh once, saw {gh_count}")
+        if gh_count < 2:
+            return (1, f"{shell}/{scenario}: expected idle polling to survive prompt helpers, saw {gh_count}")
         if _report_line(1138) not in send_lines:
             return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
@@ -391,13 +379,6 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
             return (1, f"{shell}/{scenario}: expected clear_pr after branch change\n" + "\n".join(send_lines))
         if clear_indices[0] <= old_index:
             return (1, f"{shell}/{scenario}: clear_pr happened before old report\n" + "\n".join(send_lines))
-        return (0, f"{shell}/{scenario}: ok")
-
-    if scenario == "no_pr_cached":
-        if gh_count != 1:
-            return (1, f"{shell}/{scenario}: expected one cached negative gh probe, saw {gh_count}")
-        if not any(line.startswith("clear_pr ") for line in send_lines):
-            return (1, f"{shell}/{scenario}: expected clear_pr payload\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
 
     if scenario == "timeout_recovery":
@@ -444,7 +425,6 @@ def main() -> int:
     scenarios = [
         "prompt_helper_idle",
         "transient_same_context",
-        "no_pr_cached",
         "branch_switch_clear",
         "timeout_recovery",
         "explicit_branch_fallback",
@@ -478,7 +458,7 @@ def main() -> int:
                 print(failure)
             return 1
 
-        print("PASS: shell integrations reuse cached PR state while still recovering across transient failures, branch changes, and timeouts")
+        print("PASS: shell integrations poll PR state robustly across transient failures, branch changes, and timeouts")
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)
