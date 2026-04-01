@@ -11911,10 +11911,11 @@ struct CMUXCLI {
                         compactQuestion["header"] = value
                     }
                     if let options = question["options"] as? [[String: Any]] {
-                        compactQuestion["options"] = options.compactMap { option in
+                        let compactOptions: [[String: Any]] = options.compactMap { option in
                             guard let label = firstString(in: option, keys: ["label"]) else { return nil }
-                            return ["label": label]
+                            return ["label": label] as [String: Any]
                         }
+                        compactQuestion["options"] = compactOptions
                     }
                     return compactQuestion
                 }
