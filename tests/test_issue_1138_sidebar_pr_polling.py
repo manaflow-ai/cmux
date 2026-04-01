@@ -13,6 +13,9 @@ Validates that shell integration:
 7) falls back to explicit branch lookup when implicit gh branch resolution fails
 8) does not clear an existing PR badge on the first prompt while establishing
    the HEAD baseline
+9) stops parent-shell PR tracking before nested shells start in the same panel
+10) preserves ports polling throttling after an explicit ports kick
+11) preserves cached PR results across ordinary preexec cycles
 """
 
 from __future__ import annotations
@@ -246,6 +249,44 @@ def _shell_command(kind: str, scenario: str) -> str:
             'sleep 2\n'
             '_cmux_cleanup\n'
         ),
+        "nested_shell_stops_parent_poll": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'parent_pid="$_CMUX_PR_POLL_PID"\n'
+            '[ -n "$parent_pid" ] || { echo "missing parent poll pid" >&2; exit 41; }\n'
+            '_cmux_nested_shell_entry\n'
+            'sleep 1\n'
+            'if kill -0 "$parent_pid" 2>/dev/null; then\n'
+            '  echo "parent poller still running" >&2\n'
+            '  exit 42\n'
+            'fi\n'
+            'parent_watch_pid="${_CMUX_GIT_HEAD_WATCH_PID:-}"\n'
+            'if [ -n "$parent_watch_pid" ] && kill -0 "$parent_watch_pid" 2>/dev/null; then\n'
+            '  echo "parent HEAD watcher still running" >&2\n'
+            '  exit 43\n'
+            'fi\n'
+            '_cmux_cleanup\n'
+        ),
+        "ports_kick_throttle": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_ports_kick\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_prompt_entry\n'
+            '_cmux_cleanup\n'
+        ),
+        "preexec_preserves_pr_cache": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_regular_command_entry\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_cleanup\n'
+        ),
     }[scenario]
 
     if kind == "zsh":
@@ -254,6 +295,8 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_precmd; }}
+            _cmux_nested_shell_entry() {{ _cmux_preexec zsh; }}
+            _cmux_regular_command_entry() {{ _cmux_preexec "echo hi"; }}
             _cmux_cleanup() {{ _cmux_zshexit; }}
             {shared}"""
         )
@@ -264,6 +307,8 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
+            _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook bash; }}
+            _cmux_regular_command_entry() {{ _cmux_bash_preexec_hook "echo hi"; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
             {shared}"""
         )
@@ -345,10 +390,21 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     gh_args_lines = _read_lines(gh_args_log)
     gh_count = int((gh_count_file.read_text(encoding="utf-8").strip() or "0")) if gh_count_file.exists() else 0
 
-    if not gh_args_lines:
-        return (1, f"{shell}/{scenario}: expected at least one gh invocation")
-    if any(not line.startswith("pr view ") for line in gh_args_lines):
-        return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
+    scenarios_requiring_gh = {
+        "prompt_helper_idle",
+        "transient_same_context",
+        "branch_switch_clear",
+        "timeout_recovery",
+        "explicit_branch_fallback",
+        "initial_prompt_preserves_pr_badge",
+        "ports_kick_throttle",
+        "preexec_preserves_pr_cache",
+    }
+    if scenario in scenarios_requiring_gh:
+        if not gh_args_lines:
+            return (1, f"{shell}/{scenario}: expected at least one gh invocation")
+        if any(not line.startswith("pr view ") for line in gh_args_lines):
+            return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
 
     if scenario == "prompt_helper_idle":
         if gh_count < 2:
@@ -413,6 +469,30 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
             )
         return (0, f"{shell}/{scenario}: ok")
 
+    if scenario == "ports_kick_throttle":
+        ports_kicks = [line for line in send_lines if line.startswith("ports_kick ")]
+        if len(ports_kicks) != 1:
+            return (
+                1,
+                f"{shell}/{scenario}: expected exactly one ports_kick across explicit kick + throttled prompts\n"
+                + "\n".join(send_lines),
+            )
+        return (0, f"{shell}/{scenario}: ok")
+
+    if scenario == "nested_shell_stops_parent_poll":
+        return (0, f"{shell}/{scenario}: ok")
+
+    if scenario == "preexec_preserves_pr_cache":
+        if gh_count != 1:
+            return (
+                1,
+                f"{shell}/{scenario}: expected cached PR result to survive ordinary preexec, saw {gh_count} gh calls\n"
+                + "\n".join(gh_args_lines),
+            )
+        if _report_line(1138) not in send_lines:
+            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+        return (0, f"{shell}/{scenario}: ok")
+
     return (1, f"{shell}/{scenario}: unhandled scenario")
 
 
@@ -429,6 +509,9 @@ def main() -> int:
         "timeout_recovery",
         "explicit_branch_fallback",
         "initial_prompt_preserves_pr_badge",
+        "nested_shell_stops_parent_poll",
+        "ports_kick_throttle",
+        "preexec_preserves_pr_cache",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"
