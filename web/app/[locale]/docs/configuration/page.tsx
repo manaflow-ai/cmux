@@ -105,6 +105,26 @@ working-directory = ~/Projects`}</CodeBlock>
       </ul>
       <Callout type="warn">{t("automationCallout")}</Callout>
 
+      <h3>{t("settingsFile")}</h3>
+      <p>{t("settingsFileDesc")}</p>
+      <ol>
+        <li>
+          <code>~/.config/cmux/settings.json</code>
+        </li>
+        <li>
+          <code>~/Library/Application Support/com.cmuxterm.app/settings.json</code>
+        </li>
+      </ol>
+      <Callout type="info">{t("settingsFilePrecedence")}</Callout>
+      <CodeBlock title="~/.config/cmux/settings.json" lang="json">{`{
+  "shortcuts": {
+    "toggleSidebar": "cmd+b",
+    "newTab": ["ctrl+b", "c"],
+    "selectWorkspaceByNumber": ["ctrl+b", "1"]
+  }
+}`}</CodeBlock>
+      <p>{t("settingsFileChords")}</p>
+
       <h3>{t("browserLinkBehavior")}</h3>
       <p>{t("browserLinkDesc")}</p>
       <ul>

@@ -13,6 +13,7 @@ private final class FakeWKInspectorContainerView: NSView {}
 final class AppDelegateShortcutRoutingTests: XCTestCase {
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
 
     private func makeKeyEvent(
         modifierFlags: NSEvent.ModifierFlags,
@@ -51,10 +52,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.resetAll()
     }
 
     override func tearDown() {
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         AppDelegate.shared?.debugCloseMainWindowConfirmationHandler = nil
         AppDelegate.shared?.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
@@ -188,6 +191,78 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord second key should dispatch the configured shortcut")
+    }
+
+    func testSettingsFileChordDispatchesNewWorkspaceShortcut() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+            XCTFail("Expected test window and tab manager")
+            return
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "newTab": ["ctrl+b", "n"]
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialCount = manager.tabs.count
+
+        guard let prefixEvent = makeKeyDownEvent(
+            key: "b",
+            modifiers: [.control],
+            keyCode: 11,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Ctrl+B prefix event")
+            return
+        }
+
+        guard let actionEvent = makeKeyDownEvent(
+            key: "n",
+            modifiers: [],
+            keyCode: 45,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct N action event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+        XCTAssertEqual(manager.tabs.count, initialCount, "Chord prefix must not fire the action early")
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: actionEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialCount + 1, "settings.json chord should dispatch the configured shortcut")
     }
 
     func testChordedShortcutMismatchDoesNotConsumeSecondKey() {

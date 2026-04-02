@@ -63411,6 +63411,23 @@
         }
       }
     },
+    "settings.shortcuts.managedByFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Managed in settings.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json で管理"
+          }
+        }
+      }
+    },
     "settings.shortcuts.showHints": {
       "extractionState": "manual",
       "localizations": {

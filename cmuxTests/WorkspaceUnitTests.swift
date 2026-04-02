@@ -275,6 +275,146 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 }
 
+final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+
+    override func setUp() {
+        super.setUp()
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.resetAll()
+    }
+
+    override func tearDown() {
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        KeyboardShortcutSettings.resetAll()
+        super.tearDown()
+    }
+
+    func testSettingsFileStoreParsesSingleStrokeChordAndNumberedChord() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "toggleSidebar": "cmd+b",
+                "newTab": ["ctrl+b", "c"],
+                "selectWorkspaceByNumber": ["ctrl+b", "7"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .toggleSidebar),
+            StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(
+            store.override(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+        XCTAssertEqual(
+            store.override(for: .selectWorkspaceByNumber),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
+        )
+        XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreUsesFallbackOnlyWhenPrimaryIsMissing() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let fallbackStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            fallbackStore.override(for: .showNotifications),
+            StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(fallbackStore.activeSourcePath, fallbackURL.path)
+
+        try writeSettingsFile("{ not valid json", to: primaryURL)
+
+        let invalidPrimaryStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        XCTAssertNil(invalidPrimaryStore.override(for: .showNotifications))
+        XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
+    }
+
+    func testShortcutSettingsFileOverridesPersistedShortcutValues() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false),
+            for: .newTab
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
+        XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        return directoryURL
+    }
+
+    private func writeSettingsFile(_ contents: String, to url: URL) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
 
 final class WorkspaceShortcutMapperTests: XCTestCase {
     func testCommandNineMapsToLastWorkspaceIndex() {

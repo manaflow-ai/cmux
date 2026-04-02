@@ -9633,24 +9633,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Scope the omnibar check to the shortcut's routed window context so a
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
-        let isCommandShiftP = matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
-        )
-        if isCommandShiftP {
+        if matchConfiguredShortcut(event: event, action: .commandPalette) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.cmdShiftP")
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
             return true
         }
 
-        let isCommandP = !hasFocusedAddressBarInShortcutContext
-            && matchShortcut(
-                event: event,
-                shortcut: StoredShortcut(key: "p", command: true, shift: false, option: false, control: false)
-            )
-        if isCommandP {
+        if !hasFocusedAddressBarInShortcutContext,
+           matchConfiguredShortcut(event: event, action: .goToWorkspace) {
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.cmdP")
+            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
             return true
         }
 
@@ -9663,25 +9655,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
-        ) {
+        if matchConfiguredShortcut(event: event, action: .quit) {
             return handleQuitShortcutWarning()
         }
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
-        ) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.cmd_shift_comma")
+        if matchConfiguredShortcut(event: event, action: .openSettings) {
+            openPreferencesWindow(debugSource: "shortcut.openSettings")
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
+            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
             return true
         }
 
-        if shouldToggleMainWindowFullScreenForCommandControlFShortcut(
-            flags: event.modifierFlags,
-            chars: chars,
-            keyCode: event.keyCode
-        ) {
+        if matchConfiguredShortcut(event: event, action: .toggleFullScreen) {
             guard let targetWindow = mainWindowForShortcutEvent(event) else {
                 return false
             }
@@ -9911,10 +9897,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: true, control: false)
-        ) {
+        if matchConfiguredShortcut(event: event, action: .closeOtherTabsInPane) {
             if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
                targetWindow.identifier?.rawValue == "cmux.settings" {
                 targetWindow.performClose(nil)
@@ -9931,10 +9914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Cmd+W must close the focused panel even if first-responder momentarily lags on a
         // browser NSTextView during split focus transitions.
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
-        ) {
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
             // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
             // This AppDelegate path is a fallback for cases where AppKit routes the
             // event through the global shortcut handler first.
@@ -10147,6 +10127,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .focusBrowserAddressBar) {
+            if let focusedPanel = tabManager?.focusedBrowserPanel {
+                focusBrowserAddressBar(in: focusedPanel)
+                return true
+            }
+
+            if let browserAddressBarFocusedPanelId,
+               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
+                return true
+            }
+
+            if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
+                return true
+            }
+        }
+
+        if matchConfiguredShortcut(event: event, action: .browserBack) {
+            tabManager?.focusedBrowserPanel?.goBack()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .browserForward) {
+            tabManager?.focusedBrowserPanel?.goForward()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .browserReload) {
+            tabManager?.focusedBrowserPanel?.reload()
+            return true
+        }
+
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
@@ -10180,72 +10191,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Focus browser address bar: Cmd+L
-        if matchShortcut(
-            event: event,
-            shortcut: StoredShortcut(key: "l", command: true, shift: false, option: false, control: false)
-        ) {
-            if let focusedPanel = tabManager?.focusedBrowserPanel {
-                focusBrowserAddressBar(in: focusedPanel)
+        if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
+            guard let tabManager, tabManager.focusedBrowserPanel != nil else {
+                NSSound.beep()
                 return true
             }
-
-            if let browserAddressBarFocusedPanelId,
-               focusBrowserAddressBar(panelId: browserAddressBarFocusedPanelId) {
-                return true
-            }
-
-            if openBrowserAndFocusAddressBar(insertAtEnd: true) != nil {
-                return true
-            }
+            tabManager.toggleReactGrabFocusedBrowser()
+            return true
         }
 
-        #if DEBUG
-        logBrowserZoomShortcutTrace(stage: "probe", event: event, flags: flags, chars: chars)
-        #endif
-        let zoomAction = browserZoomShortcutAction(
-            flags: flags,
-            chars: chars,
-            keyCode: event.keyCode,
-            literalChars: event.characters
-        )
-        #if DEBUG
-        logBrowserZoomShortcutTrace(stage: "match", event: event, flags: flags, chars: chars, action: zoomAction)
-        #endif
-        if let action = zoomAction, let manager = tabManager {
-            let handled: Bool
-            switch action {
-            case .zoomIn:
-                handled = manager.zoomInFocusedBrowser()
-            case .zoomOut:
-                handled = manager.zoomOutFocusedBrowser()
-            case .reset:
-                handled = manager.resetZoomFocusedBrowser()
-            }
-            #if DEBUG
-            logBrowserZoomShortcutTrace(
-                stage: "dispatch",
-                event: event,
-                flags: flags,
-                chars: chars,
-                action: action,
-                handled: handled
-            )
-            #endif
-            return handled
+        if matchConfiguredShortcut(event: event, action: .browserZoomIn) {
+            return tabManager?.zoomInFocusedBrowser() ?? false
         }
-        #if DEBUG
-        if zoomAction != nil, tabManager == nil {
-            logBrowserZoomShortcutTrace(
-                stage: "dispatch.noManager",
-                event: event,
-                flags: flags,
-                chars: chars,
-                action: zoomAction,
-                handled: false
-            )
+
+        if matchConfiguredShortcut(event: event, action: .browserZoomOut) {
+            return tabManager?.zoomOutFocusedBrowser() ?? false
         }
-        #endif
+
+        if matchConfiguredShortcut(event: event, action: .browserZoomReset) {
+            return tabManager?.resetZoomFocusedBrowser() ?? false
+        }
+
+        if matchConfiguredShortcut(event: event, action: .find) {
+            tabManager?.startSearch()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .findNext) {
+            tabManager?.findNext()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .findPrevious) {
+            tabManager?.findPrevious()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .hideFind) {
+            tabManager?.hideFind()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .useSelectionForFind) {
+            tabManager?.searchSelection()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
+            _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
+            return true
+        }
 
         if armConfiguredShortcutChordIfNeeded(event: event) {
             return true
