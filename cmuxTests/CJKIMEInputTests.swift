@@ -1185,10 +1185,10 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
             return true
         }
 
-        var leakedEvent: ghostty_input_key_s?
+        var capturedEvent: ghostty_input_key_s?
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == 45 else { return }
-            leakedEvent = keyEvent
+            capturedEvent = keyEvent
         }
 
         guard let event = NSEvent.keyEvent(
@@ -1210,13 +1210,15 @@ final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
         window.makeFirstResponder(view)
         view.keyDown(with: event)
 
-        guard let leakedEvent else {
-            XCTFail("Expected terminal key event for composing Hangul input")
+        guard let capturedEvent else {
+            XCTFail(
+                "Expected a composing key event to be forwarded to Ghostty with text=nil; no event was received"
+            )
             return
         }
 
-        XCTAssertTrue(leakedEvent.composing, "Hangul composition keyDown should stay in composing mode")
-        XCTAssertNil(leakedEvent.text, "Uncommitted Hangul jamo must not be encoded into the terminal surface")
+        XCTAssertTrue(capturedEvent.composing, "Hangul composition keyDown should stay in composing mode")
+        XCTAssertNil(capturedEvent.text, "Uncommitted Hangul jamo must not be encoded into the terminal surface")
         XCTAssertTrue(view.hasMarkedText(), "Composition should remain active until the IME commits or cancels")
     }
 }
