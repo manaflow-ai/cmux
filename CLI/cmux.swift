@@ -1863,6 +1863,12 @@ struct CMUXCLI {
         case "refresh-surfaces":
             let response = try sendV1Command("refresh_surfaces", client: client)
             print(response)
+        case "reload-config":
+            let response = try sendV1Command(
+                try reloadConfigSocketCommand(commandArgs: commandArgs),
+                client: client
+            )
+            print(response)
 
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -2758,6 +2764,23 @@ struct CMUXCLI {
             throw CLIError(message: response)
         }
         return response
+    }
+
+    private func reloadConfigSocketCommand(commandArgs: [String]) throws -> String {
+        guard commandArgs.count <= 1 else {
+            throw CLIError(message: "reload-config accepts at most one argument: full or soft")
+        }
+        guard let mode = commandArgs.first else {
+            return "reload_config"
+        }
+        switch mode.lowercased() {
+        case "full":
+            return "reload_config full"
+        case "soft":
+            return "reload_config soft"
+        default:
+            throw CLIError(message: "reload-config only supports the optional arguments 'full' or 'soft'")
+        }
     }
 
     private func formatIDs(_ object: Any, mode: CLIIDFormat) -> Any {
@@ -6605,6 +6628,22 @@ struct CMUXCLI {
             Usage: cmux refresh-surfaces
 
             Refresh surface snapshots for the focused workspace.
+            """
+        case "reload-config":
+            return """
+            Usage: cmux reload-config [full|soft]
+
+            Run the same configuration reload as the Reload Configuration shortcut.
+            This reloads Ghostty config, re-reads ~/.config/cmux/settings.json, and refreshes terminals.
+
+            Arguments:
+              full   Re-read Ghostty config files and cmux settings.json
+              soft   Reuse the current Ghostty config object for a lighter reload
+
+            Example:
+              cmux reload-config
+              cmux reload-config full
+              cmux reload-config soft
             """
         case "surface-health":
             return """
@@ -13307,6 +13346,7 @@ struct CMUXCLI {
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces
+          reload-config [full|soft]
           surface-health [--workspace <id|ref>]
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
           list-panels [--workspace <id|ref>]

@@ -449,6 +449,53 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
     }
 
+    @MainActor
+    func testReloadConfigurationReloadsShortcutSettingsFile() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": "cmd+n"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        )
+
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config")
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -476,8 +523,6 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
         XCTAssertNil(WorkspaceShortcutMapper.digitForWorkspace(at: 8, workspaceCount: 12))
     }
 }
-
-
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"

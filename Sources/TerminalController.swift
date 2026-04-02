@@ -11077,7 +11077,7 @@ class TerminalController {
           focus_pane <pane-id|index>      - Focus a pane
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
-          reload_config [soft]            - Reload Ghostty config and refresh terminals
+          reload_config [soft]            - Reload Ghostty config, cmux settings, and refresh terminals
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
