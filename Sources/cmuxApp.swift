@@ -3714,6 +3714,32 @@ enum AppLanguage: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Returns the VS Code compatible locale identifier for use with `serve-web --locale`.
+    /// Returns `nil` for `.system` to let VS Code auto-detect.
+    var vscodeLocale: String? {
+        switch self {
+        case .system: return nil
+        case .en: return "en"
+        case .ar: return "ar"
+        case .bs: return "bs"
+        case .zhHans: return "zh-cn"
+        case .zhHant: return "zh-tw"
+        case .da: return "da"
+        case .de: return "de"
+        case .es: return "es"
+        case .fr: return "fr"
+        case .it: return "it"
+        case .ja: return "ja"
+        case .ko: return "ko"
+        case .nb: return "nb"
+        case .pl: return "pl"
+        case .ptBR: return "pt-br"
+        case .ru: return "ru"
+        case .th: return "th"
+        case .tr: return "tr"
+        }
+    }
+
     var displayName: String {
         switch self {
         case .system: return String(localized: "language.system", defaultValue: "System")

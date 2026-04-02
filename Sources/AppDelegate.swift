@@ -966,13 +966,17 @@ final class VSCodeServeWebController {
 
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
-        process.arguments = launchConfiguration.argumentsPrefix + [
+        var arguments = launchConfiguration.argumentsPrefix + [
             "serve-web",
             "--accept-server-license-terms",
             "--host", "127.0.0.1",
             "--port", "0",
             "--connection-token-file", connectionTokenFileURL.path,
         ]
+        if let locale = LanguageSettings.languageAtLaunch.vscodeLocale {
+            arguments.append(contentsOf: ["--locale", locale])
+        }
+        process.arguments = arguments
         process.environment = launchConfiguration.environment
 
         let stdoutPipe = Pipe()
