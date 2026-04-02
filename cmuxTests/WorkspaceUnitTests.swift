@@ -274,6 +274,30 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertNil(ShortcutStroke.from(event: event, requireModifier: false))
     }
 
+    func testEscapeCancelDetectionAllowsModifiedEscapeGeneratingShortcut() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 33
+        ) else {
+            XCTFail("Failed to construct modified escape-generating event")
+            return
+        }
+
+        XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertEqual(
+            ShortcutStroke.from(event: event, requireModifier: false),
+            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false)
+        )
+    }
+
     func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
 #if DEBUG
         let button = ShortcutRecorderNSButton(frame: .zero)
