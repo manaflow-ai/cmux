@@ -2750,6 +2750,22 @@ class GhosttyApp {
                 surfaceView.updateKeyTable(action.action.key_table)
                 return true
             }
+        case GHOSTTY_ACTION_FLOAT_WINDOW:
+            let mode = action.action.float_window
+            return performOnMain {
+                guard let window = self.activeMainWindow() else { return false }
+                switch mode {
+                case GHOSTTY_FLOAT_WINDOW_ON:
+                    window.level = .floating
+                case GHOSTTY_FLOAT_WINDOW_OFF:
+                    window.level = .normal
+                case GHOSTTY_FLOAT_WINDOW_TOGGLE:
+                    window.level = window.level == .floating ? .normal : .floating
+                default:
+                    return false
+                }
+                return true
+            }
         case GHOSTTY_ACTION_OPEN_URL:
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }

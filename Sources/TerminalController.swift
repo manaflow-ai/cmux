@@ -1666,6 +1666,9 @@ class TerminalController {
         case "close_window":
             return closeWindow(args)
 
+        case "float_on_top":
+            return floatOnTop(args)
+
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
 
@@ -2045,6 +2048,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WindowCreate(params: params))
         case "window.close":
             return v2Result(id: id, self.v2WindowClose(params: params))
+        case "window.float_on_top":
+            return v2Result(id: id, self.v2WindowFloatOnTop(params: params))
 
         // Workspaces
         case "workspace.list":
@@ -3276,6 +3281,27 @@ class TerminalController {
                 "window_id": windowId.uuidString,
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
+    }
+
+    private func v2WindowFloatOnTop(params: [String: Any]) -> V2CallResult {
+        let mode = (params["mode"] as? String ?? "toggle").lowercased()
+        let result: V2CallResult = v2MainSync {
+            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                return .err(code: "not_found", message: "No window found", data: nil)
+            }
+            switch mode {
+            case "on":
+                window.level = .floating
+            case "off":
+                window.level = .normal
+            case "toggle":
+                window.level = window.level == .floating ? .normal : .floating
+            default:
+                return .err(code: "invalid_params", message: "Invalid mode. Use on, off, or toggle", data: nil)
+            }
+            return .ok(["floating": window.level == .floating])
+        }
+        return result
     }
 
     // MARK: - V2 Workspace Methods
@@ -12136,6 +12162,27 @@ class TerminalController {
         guard let windowId = UUID(uuidString: trimmed) else { return "ERROR: Invalid window id" }
         let ok = v2MainSync { AppDelegate.shared?.closeMainWindow(windowId: windowId) ?? false }
         return ok ? "OK" : "ERROR: Window not found"
+    }
+
+    private func floatOnTop(_ arg: String) -> String {
+        let mode = arg.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let result: String = v2MainSync {
+            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                return "ERROR: No window found"
+            }
+            switch mode {
+            case "on":
+                window.level = .floating
+            case "off":
+                window.level = .normal
+            case "toggle", "":
+                window.level = window.level == .floating ? .normal : .floating
+            default:
+                return "ERROR: Invalid mode. Use on, off, or toggle"
+            }
+            return "OK \(window.level == .floating ? "floating" : "normal")"
+        }
+        return result
     }
 
     private func moveWorkspaceToWindow(_ args: String) -> String {

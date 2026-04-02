@@ -820,6 +820,14 @@ struct cmuxApp: App {
                     showNotificationsPopover()
                 }
             }
+
+            CommandGroup(before: .windowArrangement) {
+                Button(String(localized: "menu.window.floatOnTop", defaultValue: "Float on Top")) {
+                    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                    window.level = window.level == .floating ? .normal : .floating
+                }
+                .keyboardShortcut("t", modifiers: [.control, .shift])
+            }
         }
     }
 

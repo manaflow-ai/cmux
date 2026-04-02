@@ -5476,6 +5476,14 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleFloatOnTop",
+                title: constant(String(localized: "command.toggleFloatOnTop.title", defaultValue: "Toggle Float on Top")),
+                subtitle: constant(String(localized: "command.toggleFloatOnTop.subtitle", defaultValue: "Window")),
+                keywords: ["float", "top", "pin", "always", "window", "toggle"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.reopenClosedBrowserTab",
                 title: constant(String(localized: "command.reopenClosedBrowserTab.title", defaultValue: "Reopen Closed Browser Tab")),
                 subtitle: constant(String(localized: "command.reopenClosedBrowserTab.subtitle", defaultValue: "Browser")),
@@ -6163,6 +6171,13 @@ struct ContentView: View {
                 return
             }
             window.toggleFullScreen(nil)
+        }
+        registry.register(commandId: "palette.toggleFloatOnTop") {
+            guard let window = observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+                NSSound.beep()
+                return
+            }
+            window.level = window.level == .floating ? .normal : .floating
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             _ = tabManager.reopenMostRecentlyClosedBrowserPanel()
