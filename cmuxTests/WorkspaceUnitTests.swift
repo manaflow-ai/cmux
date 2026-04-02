@@ -2239,6 +2239,86 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testSidebarSummaryObservationPublisherIgnoresDetailOnlyGitUpdates() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarSummaryObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Expected detail-only git updates to avoid invalidating the lightweight sidebar row summary"
+        )
+    }
+
+    func testSidebarDetailObservationPublisherIgnoresSummaryOnlyStatusUpdates() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarDetailObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.statusEntries["agent"] = SidebarStatusEntry(
+            key: "agent",
+            value: "Claude Code",
+            priority: 1
+        )
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Expected status-only sidebar metadata updates to avoid invalidating the expensive branch and PR subtree"
+        )
+    }
+
+    func testSidebarDetailObservationPublisherEmitsWhenFocusedPullRequestChanges() {
+        let workspace = Workspace()
+        guard let firstPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: firstPanelId),
+              let secondPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
+            XCTFail("Expected focused panel and a second panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: firstPanelId, directory: "/repo")
+        workspace.updatePanelDirectory(panelId: secondPanel.id, directory: "/repo")
+        workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "main", isDirty: false)
+        workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "main", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: secondPanel.id,
+            number: 1629,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/1629")!,
+            status: .open
+        )
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarDetailObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.focusPanel(secondPanel.id)
+
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "Expected focused pull request changes to invalidate the sidebar detail subtree even when branch and directory stay the same"
+        )
+    }
+
     @MainActor
     func testSidebarPullRequestsTrackFocusedPanelOnly() {
         let workspace = Workspace()

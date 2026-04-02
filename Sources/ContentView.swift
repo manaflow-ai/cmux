@@ -11477,43 +11477,6 @@ private struct TabItemView: View, Equatable {
         let latestNotificationSubtitle = latestNotificationText
         let effectiveSubtitle = latestNotificationSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let orderedPanelIds: [UUID]? = (detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests)
-            ? tab.sidebarOrderedPanelIds()
-            : nil
-        let compactGitBranchSummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  sidebarShowGitBranch,
-                  let orderedPanelIds else {
-                return nil
-            }
-            return gitBranchSummaryText(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactDirectorySummaryText: String? = {
-            guard detailVisibility.showsBranchDirectory,
-                  !sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return nil
-            }
-            return directorySummaryText(orderedPanelIds: orderedPanelIds)
-        }()
-        let compactBranchDirectoryRow = branchDirectoryRow(
-            gitSummary: compactGitBranchSummaryText,
-            directorySummary: compactDirectorySummaryText
-        )
-        let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
-            guard detailVisibility.showsBranchDirectory,
-                  sidebarBranchVerticalLayout,
-                  let orderedPanelIds else {
-                return []
-            }
-            return verticalBranchDirectoryLines(orderedPanelIds: orderedPanelIds)
-        }()
-        let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
-        let pullRequestRows: [PullRequestDisplay] = {
-            guard detailVisibility.showsPullRequests, let orderedPanelIds else { return [] }
-            return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
-        }()
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -11653,88 +11616,22 @@ private struct TabItemView: View, Equatable {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Branch + directory row
-            if detailVisibility.showsBranchDirectory {
-                if sidebarBranchVerticalLayout {
-                    if !branchDirectoryLines.isEmpty {
-                        HStack(alignment: .top, spacing: 3) {
-                            if sidebarShowGitBranchIcon, branchLinesContainBranch {
-                                Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(activeSecondaryColor(0.6))
-                            }
-                            VStack(alignment: .leading, spacing: 1) {
-                                ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
-                                    HStack(spacing: 3) {
-                                        if let branch = line.branch {
-                                            Text(branch)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                        if line.branch != nil, line.directory != nil {
-                                            Image(systemName: "circle.fill")
-                                                .font(.system(size: 3))
-                                                .foregroundColor(activeSecondaryColor(0.6))
-                                                .padding(.horizontal, 1)
-                                        }
-                                        if let directory = line.directory {
-                                            Text(directory)
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(activeSecondaryColor(0.75))
-                                                .lineLimit(1)
-                                                .truncationMode(.tail)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if let dirRow = compactBranchDirectoryRow {
-                    HStack(spacing: 3) {
-                        if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
-                            Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: 9))
-                                .foregroundColor(activeSecondaryColor(0.6))
-                        }
-                        Text(dirRow)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(activeSecondaryColor(0.75))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-            }
-
-            // Pull request rows
-            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(pullRequestRows) { pullRequest in
-                        Button(action: {
-                            openPullRequestLink(pullRequest.url)
-                        }) {
-                            HStack(spacing: 4) {
-                                PullRequestStatusIcon(
-                                    status: pullRequest.status,
-                                    color: pullRequestForegroundColor
-                                )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
-                                    .underline()
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status, checks: pullRequest.checks))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pullRequestForegroundColor)
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
-                    }
-                }
-            }
+            SidebarWorkspaceStructuredDetailsSection(
+                tab: tab,
+                detailVisibility: detailVisibility,
+                sidebarBranchVerticalLayout: sidebarBranchVerticalLayout,
+                sidebarShowGitBranch: sidebarShowGitBranch,
+                sidebarShowGitBranchIcon: sidebarShowGitBranchIcon,
+                isActive: usesInvertedActiveForeground,
+                branchDirectoryRow: branchDirectoryRow,
+                gitBranchSummaryText: gitBranchSummaryText,
+                directorySummaryText: directorySummaryText,
+                verticalBranchDirectoryLines: verticalBranchDirectoryLines,
+                pullRequestDisplays: pullRequestDisplays,
+                pullRequestStatusLabel: pullRequestStatusLabel,
+                onOpenPullRequest: openPullRequestLink
+            )
+            .equatable()
 
             // Ports row
             if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
@@ -11811,11 +11708,11 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onReceive(
-            tab.sidebarObservationPublisher
+            tab.sidebarSummaryObservationPublisher
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst
-                // (pwd, branch, PR, shell state). Coalesce that burst so the
-                // row redraws once with the settled state instead of blinking.
+                // (status, metadata, log, progress, ports). Coalesce that
+                // burst so the row summary redraws once with the settled state.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
             workspaceObservationGeneration &+= 1
@@ -12352,6 +12249,191 @@ private struct TabItemView: View, Equatable {
 
         selectedTabIds.subtract(orderedWorkspaceIds)
         syncSelectionAfterMutation()
+    }
+
+    private struct SidebarWorkspaceStructuredDetailsSection: View, Equatable {
+        nonisolated static func == (
+            lhs: SidebarWorkspaceStructuredDetailsSection,
+            rhs: SidebarWorkspaceStructuredDetailsSection
+        ) -> Bool {
+            lhs.tab === rhs.tab &&
+            lhs.detailVisibility == rhs.detailVisibility &&
+            lhs.sidebarBranchVerticalLayout == rhs.sidebarBranchVerticalLayout &&
+            lhs.sidebarShowGitBranch == rhs.sidebarShowGitBranch &&
+            lhs.sidebarShowGitBranchIcon == rhs.sidebarShowGitBranchIcon &&
+            lhs.isActive == rhs.isActive
+        }
+
+        let tab: Tab
+        let detailVisibility: SidebarWorkspaceAuxiliaryDetailVisibility
+        let sidebarBranchVerticalLayout: Bool
+        let sidebarShowGitBranch: Bool
+        let sidebarShowGitBranchIcon: Bool
+        let isActive: Bool
+        let branchDirectoryRow: (_ gitSummary: String?, _ directorySummary: String?) -> String?
+        let gitBranchSummaryText: ([UUID]) -> String?
+        let directorySummaryText: ([UUID]) -> String?
+        let verticalBranchDirectoryLines: ([UUID]) -> [VerticalBranchDirectoryLine]
+        let pullRequestDisplays: ([UUID]) -> [PullRequestDisplay]
+        let pullRequestStatusLabel: (SidebarPullRequestStatus, SidebarPullRequestChecksStatus?) -> String
+        let onOpenPullRequest: (URL) -> Void
+
+        @State private var detailObservationGeneration: UInt64 = 0
+
+        private var showsAnyDetails: Bool {
+            detailVisibility.showsBranchDirectory || detailVisibility.showsPullRequests
+        }
+
+        private var pullRequestForegroundColor: Color {
+            isActive ? .white.opacity(0.75) : .secondary
+        }
+
+        private func secondaryColor(_ opacity: Double = 0.75) -> Color {
+            isActive
+                ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat(opacity)))
+                : .secondary
+        }
+
+        private var detailObservationPublisher: AnyPublisher<Void, Never> {
+            guard showsAnyDetails else {
+                return Empty(completeImmediately: false).eraseToAnyPublisher()
+            }
+
+            return tab.sidebarDetailObservationPublisher
+                .receive(on: RunLoop.main)
+                // Prompt-time sidebar telemetry can arrive as a short burst
+                // (pwd, branch, PR, shell state). Coalesce that burst so the
+                // details subtree redraws once with the settled state.
+                .debounce(for: TabItemView.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
+                .eraseToAnyPublisher()
+        }
+
+        var body: some View {
+            let _ = detailObservationGeneration
+
+            Group {
+                if showsAnyDetails {
+                    let orderedPanelIds = tab.sidebarOrderedPanelIds()
+                    let compactGitBranchSummaryText: String? = {
+                        guard detailVisibility.showsBranchDirectory,
+                              !sidebarBranchVerticalLayout,
+                              sidebarShowGitBranch else {
+                            return nil
+                        }
+                        return gitBranchSummaryText(orderedPanelIds)
+                    }()
+                    let compactDirectorySummaryText: String? = {
+                        guard detailVisibility.showsBranchDirectory,
+                              !sidebarBranchVerticalLayout else {
+                            return nil
+                        }
+                        return directorySummaryText(orderedPanelIds)
+                    }()
+                    let compactBranchDirectoryRow = branchDirectoryRow(
+                        compactGitBranchSummaryText,
+                        compactDirectorySummaryText
+                    )
+                    let branchDirectoryLines: [VerticalBranchDirectoryLine] = {
+                        guard detailVisibility.showsBranchDirectory,
+                              sidebarBranchVerticalLayout else {
+                            return []
+                        }
+                        return verticalBranchDirectoryLines(orderedPanelIds)
+                    }()
+                    let branchLinesContainBranch = sidebarShowGitBranch && branchDirectoryLines.contains { $0.branch != nil }
+                    let pullRequestRows: [PullRequestDisplay] = {
+                        guard detailVisibility.showsPullRequests else { return [] }
+                        return pullRequestDisplays(orderedPanelIds)
+                    }()
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        if detailVisibility.showsBranchDirectory {
+                            if sidebarBranchVerticalLayout {
+                                if !branchDirectoryLines.isEmpty {
+                                    HStack(alignment: .top, spacing: 3) {
+                                        if sidebarShowGitBranchIcon, branchLinesContainBranch {
+                                            Image(systemName: "arrow.triangle.branch")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(secondaryColor(0.6))
+                                        }
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            ForEach(Array(branchDirectoryLines.enumerated()), id: \.offset) { _, line in
+                                                HStack(spacing: 3) {
+                                                    if let branch = line.branch {
+                                                        Text(branch)
+                                                            .font(.system(size: 10, design: .monospaced))
+                                                            .foregroundColor(secondaryColor(0.75))
+                                                            .lineLimit(1)
+                                                            .truncationMode(.tail)
+                                                    }
+                                                    if line.branch != nil, line.directory != nil {
+                                                        Image(systemName: "circle.fill")
+                                                            .font(.system(size: 3))
+                                                            .foregroundColor(secondaryColor(0.6))
+                                                            .padding(.horizontal, 1)
+                                                    }
+                                                    if let directory = line.directory {
+                                                        Text(directory)
+                                                            .font(.system(size: 10, design: .monospaced))
+                                                            .foregroundColor(secondaryColor(0.75))
+                                                            .lineLimit(1)
+                                                            .truncationMode(.tail)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if let dirRow = compactBranchDirectoryRow {
+                                HStack(spacing: 3) {
+                                    if sidebarShowGitBranchIcon, compactGitBranchSummaryText != nil {
+                                        Image(systemName: "arrow.triangle.branch")
+                                            .font(.system(size: 9))
+                                            .foregroundColor(secondaryColor(0.6))
+                                    }
+                                    Text(dirRow)
+                                        .font(.system(size: 10, design: .monospaced))
+                                        .foregroundColor(secondaryColor(0.75))
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                }
+                            }
+                        }
+
+                        if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
+                            VStack(alignment: .leading, spacing: 1) {
+                                ForEach(pullRequestRows) { pullRequest in
+                                    Button(action: {
+                                        onOpenPullRequest(pullRequest.url)
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            PullRequestStatusIcon(
+                                                status: pullRequest.status,
+                                                color: pullRequestForegroundColor
+                                            )
+                                            Text("\(pullRequest.label) #\(pullRequest.number)")
+                                                .underline()
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                            Text(pullRequestStatusLabel(pullRequest.status, pullRequest.checks))
+                                                .lineLimit(1)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(pullRequestForegroundColor)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .onReceive(detailObservationPublisher) { _ in
+                detailObservationGeneration &+= 1
+            }
+        }
     }
 
     // latestNotificationText is now passed as a parameter from the parent view

@@ -5601,27 +5601,24 @@ final class Workspace: Identifiable, ObservableObject {
             .eraseToAnyPublisher()
     }
 
-    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
+    private func sidebarPanelsObservationSignal() -> AnyPublisher<Void, Never> {
+        $panels
+            .map(SidebarPanelObservationState.init)
+            .dropFirst()
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    lazy var sidebarSummaryObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
             sidebarObservationSignal($title),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
-            sidebarObservationSignal($currentDirectory),
-            $panels
-                .map(SidebarPanelObservationState.init)
-                .dropFirst()
-                .removeDuplicates()
-                .map { _ in () }
-                .eraseToAnyPublisher(),
-            sidebarObservationSignal($panelDirectories),
             sidebarObservationSignal($statusEntries),
             sidebarObservationSignal($metadataBlocks),
             sidebarObservationSignal($logEntries),
             sidebarObservationSignal($progress),
-            sidebarObservationSignal($gitBranch),
-            sidebarObservationSignal($panelGitBranches),
-            sidebarObservationSignal($pullRequest),
-            sidebarObservationSignal($panelPullRequests),
             sidebarObservationSignal($remoteConfiguration),
             sidebarObservationSignal($remoteConnectionState),
             sidebarObservationSignal($remoteConnectionDetail),
@@ -5630,6 +5627,26 @@ final class Workspace: Identifiable, ObservableObject {
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }()
+
+    lazy var sidebarDetailObservationPublisher: AnyPublisher<Void, Never> = {
+        let publishers: [AnyPublisher<Void, Never>] = [
+            sidebarObservationSignal($currentDirectory),
+            sidebarPanelsObservationSignal(),
+            sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($gitBranch),
+            sidebarObservationSignal($panelGitBranches),
+            sidebarObservationSignal($pullRequest),
+            sidebarObservationSignal($panelPullRequests),
+            sidebarObservationSignal($remoteConfiguration),
+        ]
+
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }()
+
+    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
+        Publishers.Merge(sidebarSummaryObservationPublisher, sidebarDetailObservationPublisher)
+            .eraseToAnyPublisher()
     }()
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
