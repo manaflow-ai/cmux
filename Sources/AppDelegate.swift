@@ -3736,6 +3736,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        // Refresh foreground process cache before snapshotting (runs ps in background)
+        refreshForegroundProcessCache()
+
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
             persistSessionSnapshot(
                 nil,
@@ -4007,6 +4010,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             createdAt: Date().timeIntervalSince1970,
             windows: windows
         )
+    }
+
+    /// Refresh the foreground process cache for all terminal panels.
+    /// This runs synchronously but the actual ps calls are batched.
+    private func refreshForegroundProcessCache() {
+        let allTTYNames = mainWindowContexts.values.flatMap { context in
+            context.tabManager.allTerminalTTYNames()
+        }
+        SessionForegroundProcessCache.shared.refresh(ttyNames: Array(allTTYNames))
     }
 
 #if DEBUG

@@ -247,6 +247,15 @@ extension Workspace {
         )
     }
 
+    /// Returns all TTY names for terminal panels in this workspace.
+    /// Used to refresh the foreground process cache before snapshotting.
+    func allTerminalTTYNames() -> [String] {
+        panels.compactMap { panelId, panel in
+            guard panel is TerminalPanel else { return nil }
+            return surfaceTTYNames[panelId]
+        }
+    }
+
     func sessionSnapshot(includeScrollback: Bool) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
@@ -465,10 +474,10 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
-            // Detect the currently running command from the process tree
+            // Read cached foreground command (cache is refreshed before snapshot)
             let detectedCommand: String? = {
                 guard let ttyName = surfaceTTYNames[panelId] else { return nil }
-                return SessionForegroundProcessDetector.detect(forTTY: ttyName)?.commandLine
+                return SessionForegroundProcessCache.shared.cachedCommandLine(forTTY: ttyName)
             }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
@@ -650,10 +659,12 @@ extension Workspace {
                 for: snapshot.terminal?.scrollback
             )
             // Determine which command to restore:
-            // 1. Explicit restoreCommand (user-configured via socket API) takes priority
+            // 1. Feature must be enabled globally
+            // 2. Explicit restoreCommand (user-configured via socket API) takes priority
             //    but still requires allowlist validation for security
-            // 2. Otherwise, check if detectedCommand is in the allowlist
+            // 3. Otherwise, check if detectedCommand is in the allowlist
             let commandToRestore: String? = {
+                guard SessionRestoreCommandSettings.isEnabled() else { return nil }
                 if let explicit = snapshot.terminal?.restoreCommand,
                    !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     // Validate explicit commands against allowlist to prevent injection
@@ -661,7 +672,6 @@ extension Workspace {
                     let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
                     return SessionRestoreCommandSettings.isCommandAllowed(trimmed) ? trimmed : nil
                 }
-                guard SessionRestoreCommandSettings.isEnabled() else { return nil }
                 guard let detected = snapshot.terminal?.detectedCommand,
                       !detected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     return nil
@@ -6837,6 +6847,7 @@ final class Workspace: Identifiable, ObservableObject {
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
+        let restoreCommand: String?
         let manuallyUnread: Bool
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -6856,6 +6867,7 @@ final class Workspace: Identifiable, ObservableObject {
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
+                restoreCommand: restoreCommand,
                 manuallyUnread: manuallyUnread,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
@@ -7593,6 +7605,7 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
+        panelRestoreCommands = panelRestoreCommands.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
@@ -9549,6 +9562,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
         }
+        if let restoreCommand = detached.restoreCommand {
+            panelRestoreCommands[detached.panelId] = restoreCommand
+        }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
         } else {
@@ -11481,6 +11497,7 @@ extension Workspace: BonsplitDelegate {
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
+                restoreCommand: panelRestoreCommands[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)

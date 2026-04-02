@@ -3166,7 +3166,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Text to send to the shell after it starts (used for session restore commands).
     /// Unlike `initialCommand`, this doesn't replace the shell - it types into it.
-    private let initialInput: String?
+    /// Cleared after first successful surface creation to prevent replay on recreation.
+    private var initialInput: String?
 
     init(
         tabId: UUID,
@@ -3920,7 +3921,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }()
 #if DEBUG
         if resolvedInitialInput != nil || initialInput != nil || baseConfig.initialInput != nil {
-            dlog("surface.createSurface.initialInput surface=\(id.uuidString.prefix(5)) explicit=\(initialInput?.debugDescription ?? "nil") base=\(baseConfig.initialInput?.debugDescription ?? "nil") resolved=\(resolvedInitialInput?.debugDescription ?? "nil")")
+            // Log presence and byte counts only to avoid leaking sensitive command content
+            let explicitBytes = initialInput?.utf8.count ?? 0
+            let baseBytes = baseConfig.initialInput?.utf8.count ?? 0
+            let resolvedBytes = resolvedInitialInput?.utf8.count ?? 0
+            dlog(
+                "surface.createSurface.initialInput surface=\(id.uuidString.prefix(5)) " +
+                "explicitPresent=\(initialInput != nil ? 1 : 0) explicitBytes=\(explicitBytes) " +
+                "basePresent=\(baseConfig.initialInput != nil ? 1 : 0) baseBytes=\(baseBytes) " +
+                "resolvedPresent=\(resolvedInitialInput != nil ? 1 : 0) resolvedBytes=\(resolvedBytes)"
+            )
         }
 #endif
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
@@ -3966,6 +3976,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
         guard let createdSurface = surface else { return }
+
+        // Clear initialInput after first successful use to prevent replay on surface recreation
+        initialInput = nil
+
         TerminalSurfaceRegistry.shared.registerRuntimeSurface(createdSurface, ownerId: id)
         recordRuntimeSurfaceCreation()
 

@@ -1187,10 +1187,10 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         XCTAssertTrue(patterns.contains("opencode *"))
     }
 
-    func testNormalizedPatternsWithWhitespaceOnlyReturnsDefaults() {
+    func testNormalizedPatternsWithWhitespaceOnlyReturnsEmpty() {
+        // If user explicitly clears the allowlist, return empty to disable all restores
         let patterns = SessionRestoreCommandSettings.normalizedAllowlistPatterns(rawValue: "   \n\n   ")
-        XCTAssertFalse(patterns.isEmpty)
-        XCTAssertTrue(patterns.contains("opencode *"))
+        XCTAssertTrue(patterns.isEmpty)
     }
 
     func testNormalizedPatternsFiltersCommentsAndBlanks() {
@@ -1226,5 +1226,66 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         XCTAssertFalse(patterns.contains("rm *"))
         XCTAssertFalse(patterns.contains("sudo *"))
         XCTAssertFalse(patterns.contains("git push"))
+    }
+
+    func testDefaultAllowlistDoesNotMatchDestructiveCommands() {
+        // Verify destructive commands don't match any default patterns
+        let defaultRaw = SessionRestoreCommandSettings.defaultAllowlistPatterns.joined(separator: "\n")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("rm -rf /", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo rm -rf /", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("git push --force", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("dd if=/dev/zero of=/dev/sda", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("chmod -R 777 /", rawAllowlist: defaultRaw))
+        // Also verify that watch (now removed) doesn't enable bypasses
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("watch rm -rf /tmp", rawAllowlist: defaultRaw))
+    }
+
+    // MARK: - Hardcoded Denylist Tests
+
+    func testDenylistBlocksDestructiveCommandsEvenIfInAllowlist() {
+        // Even if user adds dangerous commands to allowlist, denylist should block them
+        let dangerousAllowlist = """
+        rm *
+        sudo *
+        dd *
+        chmod *
+        git push --force *
+        """
+        // These should all be blocked by hardcoded denylist
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("rm -rf /", rawAllowlist: dangerousAllowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo apt-get install", rawAllowlist: dangerousAllowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("dd if=/dev/zero of=/dev/sda", rawAllowlist: dangerousAllowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("chmod 777 /etc/passwd", rawAllowlist: dangerousAllowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("git push --force origin main", rawAllowlist: dangerousAllowlist))
+    }
+
+    func testDenylistIsCaseInsensitive() {
+        let allowAll = "* *"  // Would match everything if not for denylist
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("SUDO rm -rf /", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("Rm -rf /", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("DD if=/dev/zero", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksExactCommands() {
+        let allowAll = "sudo\nrm\ndd"  // Exact matches in allowlist
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("rm", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("dd", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksSystemCommands() {
+        let defaultRaw = SessionRestoreCommandSettings.defaultAllowlistPatterns.joined(separator: "\n")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("shutdown -h now", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("reboot", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("kill -9 1", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("killall Finder", rawAllowlist: defaultRaw))
+    }
+
+    func testDenylistAllowsSafeCommands() {
+        // Verify that safe commands are NOT blocked by denylist
+        let allowlist = "opencode *\nnpm run dev *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", rawAllowlist: allowlist))
     }
 }

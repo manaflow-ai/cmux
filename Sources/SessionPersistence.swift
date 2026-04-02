@@ -520,7 +520,6 @@ enum SessionRestoreCommandSettings {
         "flask run *",
         // Watchers/logs
         "tail -f *",
-        "watch *",
     ]
 
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
@@ -537,14 +536,14 @@ enum SessionRestoreCommandSettings {
     }
 
     static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
-        let source: String
-        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            source = rawValue
-        } else {
-            source = defaultAllowlistText
+        // If user provided an explicit value (even if empty/whitespace-only), respect it.
+        // Only fall back to defaults when rawValue is nil (not set at all).
+        guard let rawValue else {
+            return defaultAllowlistPatterns
         }
-        let parsed = parsePatterns(from: source)
-        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
+        let parsed = parsePatterns(from: rawValue)
+        // If user explicitly cleared the allowlist, return empty (disables all restores)
+        return parsed
     }
 
     private static func parsePatterns(from text: String) -> [String] {
@@ -554,9 +553,70 @@ enum SessionRestoreCommandSettings {
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
     }
 
+    // MARK: - Hardcoded Denylist (Safety Net)
+
+    /// Commands that are NEVER allowed to auto-restore, regardless of user allowlist.
+    /// This is a safety net to prevent catastrophic mistakes.
+    private static let denylistPrefixes = [
+        // Privilege escalation
+        "sudo ",
+        "doas ",
+        "su ",
+        "pkexec ",
+        // Destructive file operations
+        "rm ",
+        "rmdir ",
+        "shred ",
+        "srm ",
+        // Disk/partition operations
+        "dd ",
+        "mkfs",
+        "fdisk ",
+        "parted ",
+        "diskutil ",
+        // Permission changes
+        "chmod ",
+        "chown ",
+        "chgrp ",
+        // Git destructive operations
+        "git push --force",
+        "git push -f",
+        "git reset --hard",
+        "git clean -fd",
+        // Database destructive
+        "drop database",
+        "drop table",
+        "truncate ",
+        // System control
+        "shutdown ",
+        "reboot ",
+        "halt ",
+        "poweroff ",
+        "init ",
+        "systemctl stop",
+        "systemctl disable",
+        "launchctl unload",
+        // Kill operations
+        "kill ",
+        "killall ",
+        "pkill ",
+    ]
+
+    /// Exact command names that are never allowed
+    private static let denylistExact = [
+        "sudo",
+        "su",
+        "rm",
+        "dd",
+        "reboot",
+        "shutdown",
+        "halt",
+    ]
+
     /// Check if a command matches the allowlist.
     /// - Exact match: "opencode" matches only "opencode"
     /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
+    /// - Commands matching the hardcoded denylist are NEVER allowed.
     static func isCommandAllowed(_ command: String, defaults: UserDefaults = .standard) -> Bool {
         isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
     }
@@ -565,10 +625,34 @@ enum SessionRestoreCommandSettings {
         let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedCommand.isEmpty else { return false }
 
+        // Safety net: hardcoded denylist always blocks, regardless of user allowlist
+        if isCommandDenied(normalizedCommand) {
+            return false
+        }
+
         let patterns = normalizedAllowlistPatterns(rawValue: rawAllowlist)
         return patterns.contains { pattern in
             commandMatchesPattern(normalizedCommand, pattern: pattern)
         }
+    }
+
+    /// Check if command matches the hardcoded denylist (case-insensitive for safety)
+    private static func isCommandDenied(_ command: String) -> Bool {
+        let lowercased = command.lowercased()
+
+        // Check exact matches
+        if denylistExact.contains(lowercased) {
+            return true
+        }
+
+        // Check prefix matches
+        for prefix in denylistPrefixes {
+            if lowercased.hasPrefix(prefix.lowercased()) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private static func commandMatchesPattern(_ command: String, pattern: String) -> Bool {
@@ -582,6 +666,54 @@ enum SessionRestoreCommandSettings {
 
         // Exact match
         return command == trimmedPattern
+    }
+}
+
+// MARK: - Foreground Process Detection Cache
+
+/// Cache for foreground process detection results to avoid blocking main thread.
+/// Call `refresh(ttyNames:)` periodically from a background queue, then read
+/// cached values synchronously via `cachedCommandLine(forTTY:)`.
+final class SessionForegroundProcessCache {
+    static let shared = SessionForegroundProcessCache()
+
+    private let queue = DispatchQueue(label: "com.cmux.foreground-process-cache", qos: .utility)
+    private var cache: [String: String] = [:]  // ttyName -> commandLine
+    private let lock = NSLock()
+
+    private init() {}
+
+    /// Refresh cache for the given TTY names. Call from background queue.
+    /// Only caches commands that pass the allowlist to avoid persisting secrets.
+    func refresh(ttyNames: [String]) {
+        var newCache: [String: String] = [:]
+        for ttyName in ttyNames {
+            if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
+               let commandLine = detected.commandLine {
+                // Only cache allowed commands to prevent persisting secrets in session JSON
+                let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                    newCache[ttyName] = trimmed
+                }
+            }
+        }
+        lock.lock()
+        cache = newCache
+        lock.unlock()
+    }
+
+    /// Get cached command line for a TTY. Safe to call from main thread.
+    func cachedCommandLine(forTTY ttyName: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[ttyName]
+    }
+
+    /// Clear the cache (e.g., on app termination).
+    func clear() {
+        lock.lock()
+        cache.removeAll()
+        lock.unlock()
     }
 }
 
@@ -724,26 +856,47 @@ enum SessionForegroundProcessDetector {
             offset += 1
         }
 
-        // Extract argv strings
+        // Extract argv strings by finding null-separated byte runs and decoding as UTF-8
         var args: [String] = []
-        var currentArg = ""
-        for i in offset..<buffer.count {
-            if buffer[i] == 0 {
-                if !currentArg.isEmpty {
-                    args.append(currentArg)
-                    if args.count >= Int(argc) { break }
+        var start = offset
+        for i in offset...buffer.count {
+            let byte: UInt8 = i < buffer.count ? buffer[i] : 0
+            if byte == 0 {
+                if i > start {
+                    let slice = Array(buffer[start..<i])
+                    if let s = String(bytes: slice, encoding: .utf8) {
+                        args.append(s)
+                        if args.count >= Int(argc) { break }
+                    }
                 }
-                currentArg = ""
-            } else {
-                currentArg.append(Character(UnicodeScalar(buffer[i])))
+                start = i + 1
             }
         }
 
         guard !args.isEmpty else { return nil }
 
         // Return just the command and arguments (strip full path from argv[0])
+        // Shell-quote arguments that contain spaces, quotes, or special chars
         let execName = URL(fileURLWithPath: args[0]).lastPathComponent
-        let restArgs = args.dropFirst().joined(separator: " ")
+        let quotedArgs = args.dropFirst().map { shellQuoteIfNeeded($0) }
+        let restArgs = quotedArgs.joined(separator: " ")
         return restArgs.isEmpty ? execName : "\(execName) \(restArgs)"
+    }
+
+    /// Shell-quote a string if it contains spaces, quotes, or shell metacharacters.
+    /// Uses single quotes with escaped single quotes for safety.
+    private static func shellQuoteIfNeeded(_ s: String) -> String {
+        // Characters that require quoting in shell
+        let needsQuoting = s.contains { c in
+            c.isWhitespace || c == "'" || c == "\"" || c == "\\" ||
+            c == "$" || c == "`" || c == "!" || c == "*" || c == "?" ||
+            c == "[" || c == "]" || c == "(" || c == ")" || c == "{" ||
+            c == "}" || c == "<" || c == ">" || c == "|" || c == "&" ||
+            c == ";" || c == "#" || c == "~"
+        }
+        guard needsQuoting else { return s }
+        // Use single quotes, escaping any embedded single quotes as '\''
+        let escaped = s.replacingOccurrences(of: "'", with: "'\\''")
+        return "'\(escaped)'"
     }
 }

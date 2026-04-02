@@ -5624,6 +5624,11 @@ extension TabManager {
         return hasher.finalize()
     }
 
+    /// Returns all TTY names across all workspaces for cache refresh.
+    func allTerminalTTYNames() -> [String] {
+        tabs.flatMap { $0.allTerminalTTYNames() }
+    }
+
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
             .filter { !$0.isRemoteWorkspace }
