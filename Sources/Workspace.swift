@@ -247,11 +247,16 @@ extension Workspace {
         )
     }
 
-    /// Returns all TTY names for terminal panels in this workspace.
+    /// Returns all TTY names for local terminal panels in this workspace.
     /// Used to refresh the foreground process cache before snapshotting.
+    /// Skips remote-backed terminals (their TTYs won't be used in snapshot).
     func allTerminalTTYNames() -> [String] {
         panels.compactMap { panelId, panel in
-            guard panel is TerminalPanel else { return nil }
+            guard panel is TerminalPanel,
+                  !activeRemoteTerminalSurfaceIds.contains(panelId),
+                  transferredRemoteCleanupConfigurationsByPanelId[panelId] == nil else {
+                return nil
+            }
             return surfaceTTYNames[panelId]
         }
     }
@@ -446,17 +451,12 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
-        let listeningPorts: [Int]
-        if remoteDetectedSurfaceIds.contains(panelId) || isRemoteTerminalSurface(panelId) {
-            listeningPorts = []
-        } else {
-            listeningPorts = (surfaceListeningPorts[panelId] ?? []).sorted()
-        }
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let listeningPorts: [Int]
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -474,7 +474,7 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
-            // Skip restore metadata for remote-backed terminals (would replay remote commands locally)
+            // Skip restore/detection metadata for remote-backed terminals
             let isRemoteBackedTerminal =
                 activeRemoteTerminalSurfaceIds.contains(panelId) ||
                 transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil
@@ -490,6 +490,8 @@ extension Workspace {
                 restoreCommand: isRemoteBackedTerminal ? nil : panelRestoreCommands[panelId],
                 detectedCommand: detectedCommand
             )
+            // Don't persist remote-detected listening ports
+            listeningPorts = isRemoteBackedTerminal ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
             browserSnapshot = nil
             markdownSnapshot = nil
         case .browser:
@@ -505,11 +507,13 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
+            listeningPorts = []
             markdownSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            listeningPorts = []
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
         }
 
@@ -693,8 +697,10 @@ extension Workspace {
             ) else {
                 return nil
             }
-            // Persist explicit restoreCommand if allowed (blocked commands don't become sticky)
-            if let restoreCommand = snapshot.terminal?.restoreCommand, !restoreCommand.isEmpty {
+            // Persist explicit restoreCommand if allowed and not remote-backed
+            if remoteTerminalStartupCommand() == nil,
+               let restoreCommand = snapshot.terminal?.restoreCommand,
+               !restoreCommand.isEmpty {
                 let trimmed = restoreCommand.trimmingCharacters(in: .whitespacesAndNewlines)
                 if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
                     setPanelRestoreCommand(panelId: terminalPanel.id, command: trimmed)
