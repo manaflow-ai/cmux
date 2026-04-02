@@ -3736,8 +3736,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        // Refresh foreground process cache (runs ps on background queue, waits for completion)
-        refreshForegroundProcessCacheSync()
+        // Refresh foreground process cache. Only block for quit saves; autosaves use last cached values.
+        if isTerminatingApp {
+            refreshForegroundProcessCacheSync()
+        } else {
+            refreshForegroundProcessCacheAsync()
+        }
 
         guard let snapshot = buildSessionSnapshot(includeScrollback: includeScrollback) else {
             persistSessionSnapshot(
@@ -4012,18 +4016,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    /// Refresh the foreground process cache for all terminal panels (background queue, blocking).
+    /// Refresh the foreground process cache for all terminal panels (async, non-blocking).
+    private func refreshForegroundProcessCacheAsync() {
+        let allTTYNames = mainWindowContexts.values.flatMap { context in
+            context.tabManager.allTerminalTTYNames()
+        }
+        SessionForegroundProcessCache.shared.refresh(ttyNames: Array(allTTYNames))
+    }
+
+    /// Refresh the foreground process cache for all terminal panels (blocking, for quit).
     private func refreshForegroundProcessCacheSync() {
         let allTTYNames = mainWindowContexts.values.flatMap { context in
             context.tabManager.allTerminalTTYNames()
         }
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            SessionForegroundProcessCache.shared.refresh(ttyNames: Array(allTTYNames))
-            group.leave()
-        }
-        group.wait()
+        SessionForegroundProcessCache.shared.refreshSync(ttyNames: Array(allTTYNames))
     }
 
 #if DEBUG

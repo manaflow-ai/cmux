@@ -733,23 +733,43 @@ final class SessionForegroundProcessCache {
 
     private init() {}
 
-    /// Refresh cache for the given TTY names. Call from background queue.
+    /// Refresh cache for the given TTY names. Runs on internal background queue.
     /// Only caches commands that pass the allowlist to avoid persisting secrets.
     func refresh(ttyNames: [String]) {
-        var newCache: [String: String] = [:]
-        for ttyName in ttyNames {
-            if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
-               let commandLine = detected.commandLine {
-                // Only cache allowed commands to prevent persisting secrets in session JSON
-                let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
-                if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
-                    newCache[ttyName] = trimmed
+        queue.async { [self] in
+            var newCache: [String: String] = [:]
+            for ttyName in ttyNames {
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
+                   let commandLine = detected.commandLine {
+                    let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                        newCache[ttyName] = trimmed
+                    }
                 }
             }
+            lock.lock()
+            cache = newCache
+            lock.unlock()
         }
-        lock.lock()
-        cache = newCache
-        lock.unlock()
+    }
+
+    /// Refresh cache synchronously (blocks until complete). Use sparingly.
+    func refreshSync(ttyNames: [String]) {
+        queue.sync { [self] in
+            var newCache: [String: String] = [:]
+            for ttyName in ttyNames {
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
+                   let commandLine = detected.commandLine {
+                    let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                        newCache[ttyName] = trimmed
+                    }
+                }
+            }
+            lock.lock()
+            cache = newCache
+            lock.unlock()
+        }
     }
 
     /// Get cached command line for a TTY. Safe to call from main thread.

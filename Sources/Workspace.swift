@@ -754,12 +754,9 @@ extension Workspace {
 
         surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
 
-        if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
-            surfaceTTYNames[panelId] = ttyName
-        } else {
-            surfaceTTYNames.removeValue(forKey: panelId)
-        }
-        syncRemotePortScanTTYs()
+        // Note: We intentionally do NOT restore ttyName from snapshot.
+        // The snapshot TTY is from a dead session; the new terminal will report its live TTY.
+        // syncRemotePortScanTTYs() will be called when the new terminal reports its TTY.
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
@@ -7184,15 +7181,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Set or clear the command to auto-restore when this terminal panel is restored after app restart.
-    /// Only terminal panels support restore commands.
+    /// Only terminal panels support restore commands. Blocked commands are rejected.
     func setPanelRestoreCommand(panelId: UUID, command: String?) {
         guard panels[panelId] is TerminalPanel else { return }
         let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if trimmed.isEmpty {
+        guard !trimmed.isEmpty, SessionRestoreCommandSettings.isCommandAllowed(trimmed) else {
             panelRestoreCommands.removeValue(forKey: panelId)
-        } else {
-            panelRestoreCommands[panelId] = trimmed
+            return
         }
+        panelRestoreCommands[panelId] = trimmed
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -9565,7 +9562,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelCustomTitles[detached.panelId] = customTitle
         }
         if let restoreCommand = detached.restoreCommand {
-            panelRestoreCommands[detached.panelId] = restoreCommand
+            setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
         }
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
