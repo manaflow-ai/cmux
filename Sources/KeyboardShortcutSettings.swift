@@ -424,7 +424,7 @@ struct ShortcutStroke: Equatable {
     var keyDisplayString: String {
         switch key {
         case "\t":
-            return "TAB"
+            return String(localized: "shortcut.key.tab", defaultValue: "Tab")
         case "\r":
             return "↩"
         default:
@@ -510,10 +510,16 @@ struct ShortcutStroke: Equatable {
         }
 
         let escapeScalar = UnicodeScalar(0x1B)!
-        if event.characters?.unicodeScalars.contains(escapeScalar) == true {
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+        let shouldTreatEscapeCharacterAsCancel = normalizedFlags.isEmpty || event.keyCode == 36 || event.keyCode == 76
+
+        if shouldTreatEscapeCharacterAsCancel,
+           event.characters?.unicodeScalars.contains(escapeScalar) == true {
             return true
         }
-        if event.charactersIgnoringModifiers?.unicodeScalars.contains(escapeScalar) == true {
+        if shouldTreatEscapeCharacterAsCancel,
+           event.charactersIgnoringModifiers?.unicodeScalars.contains(escapeScalar) == true {
             return true
         }
         return false
@@ -832,7 +838,8 @@ final class ShortcutRecorderNSButton: NSButton {
     func updateTitle() {
         if isRecording {
             if let pendingChordStart {
-                title = "\(pendingChordStart.displayString) …"
+                let format = String(localized: "shortcut.recorder.pendingChord", defaultValue: "%@ …")
+                title = String.localizedStringWithFormat(format, pendingChordStart.displayString)
             } else {
                 title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
             }

@@ -67117,6 +67117,23 @@
         }
       }
     },
+    "shortcut.key.tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        }
+      }
+    },
     "shortcut.pressShortcut.prompt": {
       "extractionState": "manual",
       "localizations": {
@@ -67232,6 +67249,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Натисніть комбінацію…"
+          }
+        }
+      }
+    },
+    "shortcut.recorder.pendingChord": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ …"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ …"
           }
         }
       }

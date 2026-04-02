@@ -2193,7 +2193,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
-    private var pendingConfiguredShortcutChordStart: ShortcutStroke?
+    private struct PendingConfiguredShortcutChord {
+        let firstStroke: ShortcutStroke
+        let windowNumber: Int?
+    }
+    private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -2902,7 +2906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
-        pendingConfiguredShortcutChordStart = nil
+        pendingConfiguredShortcutChord = nil
         activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         _ = saveSessionSnapshot(includeScrollback: false)
     }
@@ -9410,8 +9414,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
-        activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChordStart
-        pendingConfiguredShortcutChordStart = nil
+        let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
+        if let pendingConfiguredShortcutChord,
+           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
+        } else {
+            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        }
+        pendingConfiguredShortcutChord = nil
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil }
 #if DEBUG
         if isControlD {
@@ -9635,18 +9645,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Scope the omnibar check to the shortcut's routed window context so a
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
-        if matchConfiguredShortcut(event: event, action: .commandPalette) {
-            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
-            return true
-        }
-
-        if !hasFocusedAddressBarInShortcutContext,
-           matchConfiguredShortcut(event: event, action: .goToWorkspace) {
-            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
-            return true
-        }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
@@ -9654,26 +9652,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             chars: chars,
             keyCode: event.keyCode
         ) {
-            return true
-        }
-
-        if matchConfiguredShortcut(event: event, action: .quit) {
-            return handleQuitShortcutWarning()
-        }
-        if matchConfiguredShortcut(event: event, action: .openSettings) {
-            openPreferencesWindow(debugSource: "shortcut.openSettings")
-            return true
-        }
-        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
-            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
-            return true
-        }
-
-        if matchConfiguredShortcut(event: event, action: .toggleFullScreen) {
-            guard let targetWindow = mainWindowForShortcutEvent(event) else {
-                return false
-            }
-            targetWindow.toggleFullScreen(nil)
             return true
         }
 
@@ -9755,6 +9733,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // address bar is focused. Without this, app-level Cmd+N can steal focus.
         if shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
             return false
+        }
+
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event) {
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .commandPalette) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+            return true
+        }
+
+        if !hasFocusedAddressBarInShortcutContext,
+           matchConfiguredShortcut(event: event, action: .goToWorkspace) {
+            let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .quit) {
+            return handleQuitShortcutWarning()
+        }
+        if matchConfiguredShortcut(event: event, action: .openSettings) {
+            openPreferencesWindow(debugSource: "shortcut.openSettings")
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .reloadConfiguration) {
+            GhosttyApp.shared.reloadConfiguration(source: "shortcut.reloadConfiguration")
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleFullScreen) {
+            guard let targetWindow = mainWindowForShortcutEvent(event) else {
+                return false
+            }
+            targetWindow.toggleFullScreen(nil)
+            return true
         }
 
         // Primary UI shortcuts
@@ -10241,10 +10257,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
-            return true
-        }
-
-        if armConfiguredShortcutChordIfNeeded(event: event) {
             return true
         }
 
@@ -11012,12 +11024,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func configuredShortcutChordWindowNumber(for event: NSEvent) -> Int? {
+        if let window = mainWindowForShortcutEvent(event) {
+            return window.windowNumber
+        }
+        if let window = event.window {
+            return window.windowNumber
+        }
+        return event.windowNumber > 0 ? event.windowNumber : nil
+    }
+
     private func armConfiguredShortcutChordIfNeeded(event: NSEvent) -> Bool {
         for action in KeyboardShortcutSettings.Action.allCases {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard shortcut.hasChord else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
-                pendingConfiguredShortcutChordStart = shortcut.firstStroke
+                pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
+                    firstStroke: shortcut.firstStroke,
+                    windowNumber: configuredShortcutChordWindowNumber(for: event)
+                )
                 return true
             }
         }
