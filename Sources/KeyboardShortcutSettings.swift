@@ -434,8 +434,24 @@ struct ShortcutStroke: Equatable {
         }
     }
 
+    static func isEscapeCancelEvent(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            return true
+        }
+
+        let escapeScalar = UnicodeScalar(0x1B)!
+        if event.characters?.unicodeScalars.contains(escapeScalar) == true {
+            return true
+        }
+        if event.charactersIgnoringModifiers?.unicodeScalars.contains(escapeScalar) == true {
+            return true
+        }
+        return false
+    }
+
     static func from(event: NSEvent, requireModifier: Bool = true) -> ShortcutStroke? {
-        guard let key = storedKey(from: event) else { return nil }
+        guard !isEscapeCancelEvent(event),
+              let key = storedKey(from: event) else { return nil }
 
         // Some keys include extra flags depending on the responder chain.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -771,7 +787,7 @@ private class ShortcutRecorderNSButton: NSButton {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self = self else { return event }
 
-            if event.keyCode == 53 { // Escape
+            if ShortcutStroke.isEscapeCancelEvent(event) {
                 self.stopRecording()
                 return nil
             }

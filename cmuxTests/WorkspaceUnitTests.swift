@@ -252,6 +252,27 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.hasChord)
         XCTAssertNil(shortcut.chordKey)
     }
+
+    func testEscapeCancelDetectionTreatsEscapeCharacterAsCancelEvenWithUnexpectedKeyCode() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            XCTFail("Failed to construct escape-like event")
+            return
+        }
+
+        XCTAssertTrue(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertNil(ShortcutStroke.from(event: event, requireModifier: false))
+    }
 }
 
 
