@@ -2902,6 +2902,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
+        pendingConfiguredShortcutChordStart = nil
+        activeConfiguredShortcutChordPrefixForCurrentEvent = nil
         _ = saveSessionSnapshot(includeScrollback: false)
     }
 

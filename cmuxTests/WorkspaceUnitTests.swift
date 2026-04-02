@@ -273,6 +273,28 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(ShortcutStroke.isEscapeCancelEvent(event))
         XCTAssertNil(ShortcutStroke.from(event: event, requireModifier: false))
     }
+
+    func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
+#if DEBUG
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        button.transformRecordedShortcut = { _ in nil }
+        button.debugSetPendingChordStart(
+            ShortcutStroke(
+                key: "x",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+
+        button.performClick(nil)
+
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
 }
 
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {

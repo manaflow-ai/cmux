@@ -801,7 +801,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     }
 }
 
-private class ShortcutRecorderNSButton: NSButton {
+final class ShortcutRecorderNSButton: NSButton {
     var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault
     var displayString: (StoredShortcut) -> String = { $0.displayString }
     var transformRecordedShortcut: (StoredShortcut) -> StoredShortcut? = { $0 }
@@ -847,6 +847,7 @@ private class ShortcutRecorderNSButton: NSButton {
                 let storedShortcut = StoredShortcut(first: pendingChordStart)
                 guard let transformedShortcut = transformRecordedShortcut(storedShortcut) else {
                     NSSound.beep()
+                    stopRecording()
                     return
                 }
                 shortcut = transformedShortcut
@@ -927,6 +928,18 @@ private class ShortcutRecorderNSButton: NSButton {
     @objc private func windowResigned() {
         stopRecording()
     }
+
+#if DEBUG
+    var debugIsRecording: Bool {
+        isRecording
+    }
+
+    func debugSetPendingChordStart(_ stroke: ShortcutStroke?) {
+        isRecording = true
+        pendingChordStart = stroke
+        updateTitle()
+    }
+#endif
 
     deinit {
         stopRecording()

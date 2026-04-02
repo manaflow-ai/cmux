@@ -381,8 +381,8 @@ private final class ShortcutSettingsFileWatcher {
             Darwin.close(fd)
         }
 
-        source.resume()
         self.source = source
+        source.resume()
     }
 
     private func startDirectoryWatcher() {
@@ -415,7 +415,7 @@ private final class ShortcutSettingsFileWatcher {
             Darwin.close(fd)
         }
 
-        source.resume()
         self.source = source
+        source.resume()
     }
 }
