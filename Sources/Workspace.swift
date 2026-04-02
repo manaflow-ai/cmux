@@ -688,9 +688,12 @@ extension Workspace {
             ) else {
                 return nil
             }
-            // Persist the explicit restoreCommand (not the auto-detected one) so it survives future saves
+            // Persist explicit restoreCommand if allowed (blocked commands don't become sticky)
             if let restoreCommand = snapshot.terminal?.restoreCommand, !restoreCommand.isEmpty {
-                setPanelRestoreCommand(panelId: terminalPanel.id, command: restoreCommand)
+                let trimmed = restoreCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+                if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
+                    setPanelRestoreCommand(panelId: terminalPanel.id, command: trimmed)
+                }
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
@@ -8719,10 +8722,9 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        // Remote workspaces use initialCommand to replace shell with SSH
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-
-        // Create new terminal panel
+        // Skip initialInput for SSH (restore text would land in prompts)
+        let safeInitialInput = remoteTerminalStartupCommand != nil ? nil : initialInput
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -8730,7 +8732,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand,
-            initialInput: initialInput,
+            initialInput: safeInitialInput,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)

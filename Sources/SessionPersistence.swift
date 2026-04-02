@@ -563,30 +563,39 @@ enum SessionRestoreCommandSettings {
         "doas ",
         "su ",
         "pkexec ",
+        "runas ",
         // Destructive file operations
         "rm ",
         "rmdir ",
         "shred ",
         "srm ",
+        "unlink ",
         // Disk/partition operations
         "dd ",
         "mkfs",
+        "newfs",
         "fdisk ",
         "parted ",
         "diskutil ",
+        "hdparm ",
         // Permission changes
         "chmod ",
         "chown ",
         "chgrp ",
+        "chattr ",
+        "setfacl ",
         // Git destructive operations
         "git push --force",
         "git push -f",
         "git reset --hard",
         "git clean -fd",
+        "git clean -f",
         // Database destructive
         "drop database",
         "drop table",
         "truncate ",
+        "dropdb ",
+        "dropuser ",
         // System control
         "shutdown ",
         "reboot ",
@@ -596,10 +605,46 @@ enum SessionRestoreCommandSettings {
         "systemctl stop",
         "systemctl disable",
         "launchctl unload",
+        "launchctl bootout",
+        "launchctl remove",
         // Kill operations
         "kill ",
         "killall ",
         "pkill ",
+        "xkill",
+        // Remote code execution
+        "curl ",
+        "wget -O- ",
+        "wget -O - ",
+        // Cron/scheduler
+        "crontab -r",
+        "crontab -ir",
+        // History replay
+        "history | sh",
+        "history | bash",
+        "history | zsh",
+        "fc -s",
+        // macOS system integrity
+        "csrutil ",
+        "nvram ",
+        "bless ",
+        // Container cleanup
+        "docker system prune",
+        "docker rm -f",
+        "docker container prune",
+        "docker volume prune",
+        "docker image prune -a",
+        "podman system prune",
+        "podman rm -f",
+        // Environment
+        "unset PATH",
+        "export PATH=",
+        "export PATH=\"\"",
+        // Network
+        "iptables -F",
+        "iptables --flush",
+        "pfctl -F",
+        "networksetup -setnetworkserviceenabled",
     ]
 
     /// Exact command names that are never allowed
@@ -611,6 +656,11 @@ enum SessionRestoreCommandSettings {
         "reboot",
         "shutdown",
         "halt",
+        "poweroff",
+        "init",
+        "mkfs",
+        "fdisk",
+        "shred",
     ]
 
     /// Check if a command matches the allowlist.

