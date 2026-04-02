@@ -5589,7 +5589,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEvent.composing = false
             keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
 
-            let text = (event.charactersIgnoringModifiers ?? event.characters ?? "")
+            // When a non-Latin input source is active (e.g. Korean 두벌식),
+            // charactersIgnoringModifiers returns non-ASCII (e.g. "ㅏ" for physical K).
+            // Normalize via KeyboardLayout so Ghostty receives the correct ASCII character
+            // for control-character encoding (Ctrl+K → 0x0B, not Ctrl+ㅏ).
+            let text = KeyboardLayout.normalizedCharacters(for: event)
             let handled: Bool
             if text.isEmpty {
                 keyEvent.text = nil
