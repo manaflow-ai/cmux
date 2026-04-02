@@ -214,23 +214,24 @@ enum KeyboardShortcutSettings {
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
             if usesNumberedDigitMatching {
-                return shortcut.modifierDisplayString + "1…9"
+                return shortcut.numberedDisplayString
             }
             return shortcut.displayString
         }
 
         func normalizedRecordedShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
             guard usesNumberedDigitMatching else { return shortcut }
-            guard let digit = Int(shortcut.key), (1...9).contains(digit) else {
+            let digitSource = shortcut.secondStroke ?? shortcut.firstStroke
+            guard let digit = Int(digitSource.key), (1...9).contains(digit) else {
                 return nil
             }
-            return StoredShortcut(
-                key: "1",
-                command: shortcut.command,
-                shift: shortcut.shift,
-                option: shortcut.option,
-                control: shortcut.control
-            )
+            var normalized = shortcut
+            if shortcut.hasChord {
+                normalized.chordKey = "1"
+            } else {
+                normalized.key = "1"
+            }
+            return normalized
         }
     }
 
@@ -330,8 +331,7 @@ enum KeyboardShortcutSettings {
     static func showBrowserJavaScriptConsoleShortcut() -> StoredShortcut { shortcut(for: .showBrowserJavaScriptConsole) }
 }
 
-/// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable {
+struct ShortcutStroke: Equatable {
     var key: String
     var command: Bool
     var shift: Bool
@@ -434,14 +434,14 @@ struct StoredShortcut: Codable, Equatable {
         }
     }
 
-    static func from(event: NSEvent) -> StoredShortcut? {
+    static func from(event: NSEvent, requireModifier: Bool = true) -> ShortcutStroke? {
         guard let key = storedKey(from: event) else { return nil }
 
         // Some keys include extra flags depending on the responder chain.
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function])
 
-        let shortcut = StoredShortcut(
+        let stroke = ShortcutStroke(
             key: key,
             command: flags.contains(.command),
             shift: flags.contains(.shift),
@@ -449,11 +449,11 @@ struct StoredShortcut: Codable, Equatable {
             control: flags.contains(.control)
         )
 
-        // Avoid recording plain typing; require at least one modifier.
-        if !shortcut.command && !shortcut.shift && !shortcut.option && !shortcut.control {
+        if requireModifier,
+           !stroke.command && !stroke.shift && !stroke.option && !stroke.control {
             return nil
         }
-        return shortcut
+        return stroke
     }
 
     private static func storedKey(from event: NSEvent) -> String? {
@@ -485,11 +485,169 @@ struct StoredShortcut: Codable, Equatable {
             return nil
         }
 
-        // Allow letters/numbers; everything else should be handled by keyCode mapping above.
         if char.isLetter || char.isNumber {
             return String(char)
         }
         return nil
+    }
+}
+
+/// A keyboard shortcut that can be stored in UserDefaults
+struct StoredShortcut: Codable, Equatable {
+    var key: String
+    var command: Bool
+    var shift: Bool
+    var option: Bool
+    var control: Bool
+    var chordKey: String?
+    var chordCommand: Bool
+    var chordShift: Bool
+    var chordOption: Bool
+    var chordControl: Bool
+
+    init(
+        key: String,
+        command: Bool,
+        shift: Bool,
+        option: Bool,
+        control: Bool,
+        chordKey: String? = nil,
+        chordCommand: Bool = false,
+        chordShift: Bool = false,
+        chordOption: Bool = false,
+        chordControl: Bool = false
+    ) {
+        self.key = key
+        self.command = command
+        self.shift = shift
+        self.option = option
+        self.control = control
+        self.chordKey = chordKey?.isEmpty == true ? nil : chordKey
+        self.chordCommand = chordCommand
+        self.chordShift = chordShift
+        self.chordOption = chordOption
+        self.chordControl = chordControl
+    }
+
+    init(first: ShortcutStroke, second: ShortcutStroke? = nil) {
+        self.init(
+            key: first.key,
+            command: first.command,
+            shift: first.shift,
+            option: first.option,
+            control: first.control,
+            chordKey: second?.key,
+            chordCommand: second?.command ?? false,
+            chordShift: second?.shift ?? false,
+            chordOption: second?.option ?? false,
+            chordControl: second?.control ?? false
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key
+        case command
+        case shift
+        case option
+        case control
+        case chordKey
+        case chordCommand
+        case chordShift
+        case chordOption
+        case chordControl
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            key: try container.decode(String.self, forKey: .key),
+            command: try container.decode(Bool.self, forKey: .command),
+            shift: try container.decode(Bool.self, forKey: .shift),
+            option: try container.decode(Bool.self, forKey: .option),
+            control: try container.decode(Bool.self, forKey: .control),
+            chordKey: try container.decodeIfPresent(String.self, forKey: .chordKey),
+            chordCommand: try container.decodeIfPresent(Bool.self, forKey: .chordCommand) ?? false,
+            chordShift: try container.decodeIfPresent(Bool.self, forKey: .chordShift) ?? false,
+            chordOption: try container.decodeIfPresent(Bool.self, forKey: .chordOption) ?? false,
+            chordControl: try container.decodeIfPresent(Bool.self, forKey: .chordControl) ?? false
+        )
+    }
+
+    var firstStroke: ShortcutStroke {
+        ShortcutStroke(
+            key: key,
+            command: command,
+            shift: shift,
+            option: option,
+            control: control
+        )
+    }
+
+    var secondStroke: ShortcutStroke? {
+        guard let chordKey else { return nil }
+        return ShortcutStroke(
+            key: chordKey,
+            command: chordCommand,
+            shift: chordShift,
+            option: chordOption,
+            control: chordControl
+        )
+    }
+
+    var hasChord: Bool {
+        secondStroke != nil
+    }
+
+    var displayString: String {
+        if let secondStroke {
+            return "\(firstStroke.displayString) \(secondStroke.displayString)"
+        }
+        return firstStroke.displayString
+    }
+
+    var numberedDisplayString: String {
+        if hasChord {
+            return numberedDigitHintPrefix + "1…9"
+        }
+        return firstStroke.modifierDisplayString + "1…9"
+    }
+
+    var numberedDigitHintPrefix: String {
+        if let secondStroke {
+            return "\(firstStroke.displayString) \(secondStroke.modifierDisplayString)"
+        }
+        return firstStroke.modifierDisplayString
+    }
+
+    var modifierDisplayString: String {
+        firstStroke.modifierDisplayString
+    }
+
+    var keyDisplayString: String {
+        firstStroke.keyDisplayString
+    }
+
+    var modifierFlags: NSEvent.ModifierFlags {
+        firstStroke.modifierFlags
+    }
+
+    var keyEquivalent: KeyEquivalent? {
+        guard !hasChord else { return nil }
+        return firstStroke.keyEquivalent
+    }
+
+    var eventModifiers: EventModifiers {
+        firstStroke.eventModifiers
+    }
+
+    var menuItemKeyEquivalent: String? {
+        guard !hasChord else { return nil }
+        return firstStroke.menuItemKeyEquivalent
+    }
+
+    static func from(event: NSEvent) -> StoredShortcut? {
+        guard let stroke = ShortcutStroke.from(event: event) else { return nil }
+        return StoredShortcut(first: stroke)
     }
 }
 
@@ -513,7 +671,7 @@ struct KeyboardShortcutRecorder: View {
                 displayString: displayString,
                 transformRecordedShortcut: transformRecordedShortcut
             )
-                .frame(width: 120)
+                .frame(width: 160)
         }
     }
 }
@@ -555,6 +713,7 @@ private class ShortcutRecorderNSButton: NSButton {
     var onRecordingChanged: ((Bool) -> Void)?
     private var isRecording = false
     private var eventMonitor: Any?
+    private var pendingChordStart: ShortcutStroke?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -576,7 +735,11 @@ private class ShortcutRecorderNSButton: NSButton {
 
     func updateTitle() {
         if isRecording {
-            title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
+            if let pendingChordStart {
+                title = "\(pendingChordStart.displayString) …"
+            } else {
+                title = String(localized: "shortcut.pressShortcut.prompt", defaultValue: "Press shortcut…")
+            }
         } else {
             title = displayString(shortcut)
         }
@@ -584,6 +747,15 @@ private class ShortcutRecorderNSButton: NSButton {
 
     @objc private func buttonClicked() {
         if isRecording {
+            if let pendingChordStart {
+                let storedShortcut = StoredShortcut(first: pendingChordStart)
+                guard let transformedShortcut = transformRecordedShortcut(storedShortcut) else {
+                    NSSound.beep()
+                    return
+                }
+                shortcut = transformedShortcut
+                onShortcutRecorded?(transformedShortcut)
+            }
             stopRecording()
         } else {
             startRecording()
@@ -592,6 +764,7 @@ private class ShortcutRecorderNSButton: NSButton {
 
     private func startRecording() {
         isRecording = true
+        pendingChordStart = nil
         onRecordingChanged?(true)
         updateTitle()
 
@@ -603,7 +776,21 @@ private class ShortcutRecorderNSButton: NSButton {
                 return nil
             }
 
-            if let newShortcut = StoredShortcut.from(event: event) {
+            if self.pendingChordStart == nil {
+                guard let firstStroke = ShortcutStroke.from(event: event, requireModifier: true) else {
+                    return nil
+                }
+                self.pendingChordStart = firstStroke
+                self.updateTitle()
+                return nil
+            }
+
+            guard let pendingChordStart = self.pendingChordStart else {
+                return nil
+            }
+
+            if let secondStroke = ShortcutStroke.from(event: event, requireModifier: false) {
+                let newShortcut = StoredShortcut(first: pendingChordStart, second: secondStroke)
                 guard let transformedShortcut = self.transformRecordedShortcut(newShortcut) else {
                     NSSound.beep()
                     return nil
@@ -629,6 +816,7 @@ private class ShortcutRecorderNSButton: NSButton {
 
     private func stopRecording() {
         isRecording = false
+        pendingChordStart = nil
         onRecordingChanged?(false)
         updateTitle()
 

@@ -2193,6 +2193,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private var pendingConfiguredShortcutChordStart: ShortcutStroke?
+    private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -9406,6 +9408,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isControlOnly = hasControl && !hasCommand && !hasOption
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
+        activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChordStart
+        pendingConfiguredShortcutChordStart = nil
+        defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil }
 #if DEBUG
         if isControlD {
             writeChildExitKeyboardProbe(
@@ -9754,7 +9759,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Fast path for normal typing and terminal navigation keys (for example Up-arrow
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, plain key events have no app-level shortcut behavior.
-        if normalizedFlags.isEmpty {
+        if normalizedFlags.isEmpty && activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             return false
         }
 
@@ -9765,12 +9770,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Primary UI shortcuts
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
+        if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
             _ = toggleSidebarInActiveMainWindow()
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newTab)) {
+        if matchConfiguredShortcut(event: event, action: .newTab) {
 #if DEBUG
             dlog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -9807,7 +9812,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Handled here instead of relying on SwiftUI's CommandGroup menu item because
         // after a browser panel has been shown, SwiftUI's menu dispatch can silently
         // consume the key equivalent without firing the action closure.
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newWindow)) {
+        if matchConfiguredShortcut(event: event, action: .newWindow) {
             openNewMainWindow(nil)
             return true
         }
@@ -9815,18 +9820,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Open Folder: Cmd+O
         // Handled here to prevent AppKit's default NSDocumentController from opening
         // the Documents folder when SwiftUI menu dispatch fails due to focus bugs.
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openFolder)) {
+        if matchConfiguredShortcut(event: event, action: .openFolder) {
             showOpenFolderPanel()
             return true
         }
 
         // Check Show Notifications shortcut
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showNotifications)) {
+        if matchConfiguredShortcut(event: event, action: .showNotifications) {
             toggleNotificationsPopover(animated: false, anchorView: fullscreenControlsViewModel?.notificationsAnchorView)
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .sendFeedback)) {
+        if matchConfiguredShortcut(event: event, action: .sendFeedback) {
             guard let targetContext = preferredMainWindowContextForShortcuts(event: event),
                   let targetWindow = targetContext.window ?? windowForMainWindowId(targetContext.windowId) else {
                 return false
@@ -9838,7 +9843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Check Jump to Unread shortcut
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .jumpToUnread)) {
+        if matchConfiguredShortcut(event: event, action: .jumpToUnread) {
 #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
                 writeJumpUnreadTestData(["jumpUnreadShortcutHandled": "1"])
@@ -9849,22 +9854,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Flash the currently focused panel so the user can visually confirm focus.
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .triggerFlash)) {
+        if matchConfiguredShortcut(event: event, action: .triggerFlash) {
             tabManager?.triggerFocusFlash()
             return true
         }
 
         // Surface navigation: Cmd+Shift+] / Cmd+Shift+[
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSurface)) {
+        if matchConfiguredShortcut(event: event, action: .nextSurface) {
             tabManager?.selectNextSurface()
             return true
         }
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSurface)) {
+        if matchConfiguredShortcut(event: event, action: .prevSurface) {
             tabManager?.selectPreviousSurface()
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleTerminalCopyMode)) {
+        if matchConfiguredShortcut(event: event, action: .toggleTerminalCopyMode) {
             let handled = tabManager?.toggleFocusedTerminalCopyMode() ?? false
 #if DEBUG
             dlog(
@@ -9878,7 +9883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Workspace navigation: Cmd+Ctrl+] / Cmd+Ctrl+[
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .nextSidebarTab)) {
+        if matchConfiguredShortcut(event: event, action: .nextSidebarTab) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             dlog(
@@ -9889,7 +9894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .prevSidebarTab)) {
+        if matchConfiguredShortcut(event: event, action: .prevSidebarTab) {
 #if DEBUG
             let selected = tabManager?.selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             dlog(
@@ -9900,7 +9905,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
+        if matchConfiguredShortcut(event: event, action: .renameWorkspace) {
             return requestRenameWorkspaceViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             )
@@ -9967,12 +9972,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWorkspace)) {
+        if matchConfiguredShortcut(event: event, action: .closeWorkspace) {
             tabManager?.closeCurrentWorkspaceWithConfirmation()
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .closeWindow)) {
+        if matchConfiguredShortcut(event: event, action: .closeWindow) {
             guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 NSSound.beep()
                 return true
@@ -9981,7 +9986,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameTab)) {
+        if matchConfiguredShortcut(event: event, action: .renameTab) {
             // Keep Cmd+R browser reload behavior when a browser panel is focused.
             if tabManager?.focusedBrowserPanel != nil {
                 return false
@@ -9994,10 +9999,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
-        if let digit = numberedShortcutDigit(
-            event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-        ) {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
             if let manager = tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
@@ -10011,10 +10013,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedShortcutDigit(
-            event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
-        ) {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
             if digit == 9 {
                 tabManager?.selectLastSurface()
             } else {
@@ -10024,9 +10023,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
-        if matchDirectionalShortcut(
+        if matchConfiguredDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .focusLeft),
+            action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
         ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
@@ -10036,9 +10035,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchDirectionalShortcut(
+        if matchConfiguredDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .focusRight),
+            action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
         ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
@@ -10048,9 +10047,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchDirectionalShortcut(
+        if matchConfiguredDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .focusUp),
+            action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
         ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
@@ -10060,9 +10059,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return true
         }
-        if matchDirectionalShortcut(
+        if matchConfiguredDirectionalShortcut(
             event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .focusDown),
+            action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
         ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
@@ -10073,7 +10072,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom)) {
+        if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
             _ = tabManager?.toggleFocusedSplitZoom()
 #if DEBUG
             recordGotoSplitZoomIfNeeded()
@@ -10082,7 +10081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Split actions: Cmd+D / Cmd+Shift+D
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitRight)) {
+        if matchConfiguredShortcut(event: event, action: .splitRight) {
 #if DEBUG
             dlog("shortcut.action name=splitRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -10096,7 +10095,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitDown)) {
+        if matchConfiguredShortcut(event: event, action: .splitDown) {
 #if DEBUG
             dlog("shortcut.action name=splitDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -10110,7 +10109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserRight)) {
+        if matchConfiguredShortcut(event: event, action: .splitBrowserRight) {
 #if DEBUG
             dlog("shortcut.action name=splitBrowserRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -10118,7 +10117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .splitBrowserDown)) {
+        if matchConfiguredShortcut(event: event, action: .splitBrowserDown) {
 #if DEBUG
             dlog("shortcut.action name=splitBrowserDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
@@ -10137,13 +10136,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // New surface: Cmd+T
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .newSurface)) {
+        if matchConfiguredShortcut(event: event, action: .newSurface) {
             tabManager?.newSurface()
             return true
         }
 
         // Open browser: Cmd+Shift+L
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .openBrowser)) {
+        if matchConfiguredShortcut(event: event, action: .openBrowser) {
             _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
             return true
         }
@@ -10151,7 +10150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Safari defaults:
         // - Option+Command+I => Show/Toggle Web Inspector
         // - Option+Command+C => Show JavaScript Console
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleBrowserDeveloperTools)) {
+        if matchConfiguredShortcut(event: event, action: .toggleBrowserDeveloperTools) {
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "toggle.pre", event: event)
 #endif
@@ -10166,7 +10165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .showBrowserJavaScriptConsole)) {
+        if matchConfiguredShortcut(event: event, action: .showBrowserJavaScriptConsole) {
 #if DEBUG
             logDeveloperToolsShortcutSnapshot(phase: "console.pre", event: event)
 #endif
@@ -10247,6 +10246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         #endif
+
+        if armConfiguredShortcutChordIfNeeded(event: event) {
+            return true
+        }
 
         return false
     }
@@ -10961,15 +10964,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    /// Match a shortcut against an event, handling normal keys.
-    private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           let secondStroke = shortcut.secondStroke,
+           shortcut.firstStroke == prefix {
+            return matchShortcutStroke(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func numberedConfiguredShortcutDigit(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Int? {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           let secondStroke = shortcut.secondStroke,
+           shortcut.firstStroke == prefix {
+            return numberedShortcutDigit(event: event, stroke: secondStroke)
+        }
+        guard !shortcut.hasChord else { return nil }
+        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func matchConfiguredDirectionalShortcut(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           let secondStroke = shortcut.secondStroke,
+           shortcut.firstStroke == prefix {
+            return matchDirectionalShortcut(
+                event: event,
+                stroke: secondStroke,
+                arrowGlyph: arrowGlyph,
+                arrowKeyCode: arrowKeyCode
+            )
+        }
+        guard !shortcut.hasChord else { return false }
+        return matchDirectionalShortcut(
+            event: event,
+            stroke: shortcut.firstStroke,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode
+        )
+    }
+
+    private func armConfiguredShortcutChordIfNeeded(event: NSEvent) -> Bool {
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            guard shortcut.hasChord else { continue }
+            if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
+                pendingConfiguredShortcutChordStart = shortcut.firstStroke
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Match a shortcut stroke against an event, handling normal keys.
+    private func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
         // Some keys can include extra flags (e.g. .function) depending on the responder chain.
         // Strip those for consistent matching across first responders (terminal, WebKit, etc).
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard flags == shortcut.modifierFlags else { return false }
+        guard flags == stroke.modifierFlags else { return false }
 
-        let shortcutKey = shortcut.key.lowercased()
+        let shortcutKey = stroke.key.lowercased()
         if shortcutKey == "\r" {
             return event.keyCode == 36 || event.keyCode == 76
         }
@@ -11037,10 +11103,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
-    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+    private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+    }
+
+    private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard flags == shortcut.modifierFlags else { return nil }
+        guard flags == stroke.modifierFlags else { return nil }
 
         if let digit = numberedShortcutDigit(
             eventCharacter: event.charactersIgnoringModifiers,
@@ -11060,6 +11131,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return digitForNumberKeyCode(event.keyCode)
+    }
+
+    private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
+        guard !shortcut.hasChord else { return nil }
+        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
     }
 
     private func numberedShortcutDigit(
@@ -11214,30 +11290,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Match arrow key shortcuts using keyCode
     /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
-    private func matchArrowShortcut(event: NSEvent, shortcut: StoredShortcut, keyCode: UInt16) -> Bool {
+    private func matchArrowShortcut(event: NSEvent, stroke: ShortcutStroke, keyCode: UInt16) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function])
-        return event.keyCode == keyCode && flags == shortcut.modifierFlags
+        return event.keyCode == keyCode && flags == stroke.modifierFlags
     }
 
     /// Match tab key shortcuts using keyCode 48
-    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+    private func matchTabShortcut(event: NSEvent, stroke: ShortcutStroke) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 48 && flags == shortcut.modifierFlags
+        return event.keyCode == 48 && flags == stroke.modifierFlags
+    }
+
+    private func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
+        guard !shortcut.hasChord else { return false }
+        return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
     }
 
     /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
     /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
     private func matchDirectionalShortcut(
         event: NSEvent,
+        stroke: ShortcutStroke,
+        arrowGlyph: String,
+        arrowKeyCode: UInt16
+    ) -> Bool {
+        if stroke.key == arrowGlyph {
+            return matchArrowShortcut(event: event, stroke: stroke, keyCode: arrowKeyCode)
+        }
+        return matchShortcutStroke(event: event, stroke: stroke)
+    }
+
+    private func matchDirectionalShortcut(
+        event: NSEvent,
         shortcut: StoredShortcut,
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
-        if shortcut.key == arrowGlyph {
-            return matchArrowShortcut(event: event, shortcut: shortcut, keyCode: arrowKeyCode)
-        }
-        return matchShortcut(event: event, shortcut: shortcut)
+        guard !shortcut.hasChord else { return false }
+        return matchDirectionalShortcut(
+            event: event,
+            stroke: shortcut.firstStroke,
+            arrowGlyph: arrowGlyph,
+            arrowKeyCode: arrowKeyCode
+        )
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {

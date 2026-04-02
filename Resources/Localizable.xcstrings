@@ -63298,13 +63298,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click a shortcut value to record a new shortcut."
+            "value": "Click a shortcut value to record. Press a second key for a chord, or click again to keep the first key."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ショートカット値をクリックして新しいショートカットを記録します。"
+            "value": "ショートカット値をクリックして記録します。コードにするには続けて2つ目のキーを押し、1キーのままにするにはもう一度クリックします。"
           }
         },
         "zh-Hans": {

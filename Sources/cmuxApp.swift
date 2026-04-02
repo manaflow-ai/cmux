@@ -798,16 +798,25 @@ struct cmuxApp: App {
 
                 // Numbered workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                        let manager = activeTabManager
-                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                            manager.selectTab(at: targetIndex)
+                    if selectWorkspaceByNumberMenuShortcut.hasChord {
+                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                            let manager = activeTabManager
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                                manager.selectTab(at: targetIndex)
+                            }
                         }
+                    } else {
+                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
+                            let manager = activeTabManager
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                                manager.selectTab(at: targetIndex)
+                            }
+                        }
+                        .keyboardShortcut(
+                            KeyEquivalent(Character("\(number)")),
+                            modifiers: selectWorkspaceByNumberMenuShortcut.eventModifiers
+                        )
                     }
-                    .keyboardShortcut(
-                        KeyEquivalent(Character("\(number)")),
-                        modifiers: selectWorkspaceByNumberMenuShortcut.eventModifiers
-                    )
                 }
 
                 Divider()

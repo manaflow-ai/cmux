@@ -194,6 +194,64 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
     }
+
+    func testChordedShortcutDisplayDisablesMenuKeyEquivalent() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "d"
+        )
+
+        XCTAssertEqual(shortcut.displayString, "⌃B D")
+        XCTAssertNil(shortcut.keyEquivalent)
+        XCTAssertNil(shortcut.menuItemKeyEquivalent)
+    }
+
+    func testNumberedChordDisplayUsesChordSuffix() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "7"
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.displayedShortcutString(for: shortcut),
+            "⌃B 1…9"
+        )
+    }
+
+    func testNumberedChordNormalizationTargetsSecondStroke() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "7"
+        )
+
+        let normalized = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcut(shortcut)
+        XCTAssertEqual(normalized?.key, "b")
+        XCTAssertEqual(normalized?.chordKey, "1")
+    }
+
+    func testStoredShortcutDecodesLegacySingleStrokePayload() throws {
+        let data = """
+        {"key":"d","command":true,"shift":false,"option":false,"control":false}
+        """.data(using: .utf8)!
+
+        let shortcut = try JSONDecoder().decode(StoredShortcut.self, from: data)
+
+        XCTAssertEqual(shortcut.key, "d")
+        XCTAssertFalse(shortcut.hasChord)
+        XCTAssertNil(shortcut.chordKey)
+    }
 }
 
 

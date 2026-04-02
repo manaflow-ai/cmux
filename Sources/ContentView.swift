@@ -8776,7 +8776,7 @@ struct VerticalTabsSidebar: View {
                                         at: index,
                                         workspaceCount: workspaceCount
                                     ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
                                     canCloseWorkspace: canCloseWorkspace,
                                     accessibilityWorkspaceCount: workspaceCount,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
@@ -8925,9 +8925,11 @@ enum ShortcutHintModifierPolicy {
         for modifierFlags: NSEvent.ModifierFlags,
         defaults: UserDefaults = .standard
     ) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        guard !shortcut.hasChord else { return false }
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber).modifierFlags else {
+        guard normalized == shortcut.modifierFlags else {
             return false
         }
         return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
