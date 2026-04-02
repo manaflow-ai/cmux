@@ -2111,7 +2111,26 @@ final class WindowBrowserPortal: NSObject {
         // WebKit's attached DevTools uses internal NSSplitView instances for the
         // side/bottom inspector layout. Those resizes are local to hosted content
         // and should not trigger a full portal re-sync/refresh pass.
-        return !splitView.isDescendant(of: hostView)
+        guard !splitView.isDescendant(of: hostView) else { return false }
+        // Browser host anchors already emit coalesced geometry callbacks while the
+        // user drags a split divider. Running the portal-wide external-geometry
+        // sync on the same drag frame doubles up WebKit refresh work and shows up
+        // as visible flicker in browser panes.
+        return !isInteractiveSplitDividerDrag(in: window)
+    }
+
+    private static func isInteractiveSplitDividerDrag(in window: NSWindow) -> Bool {
+        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return false }
+        guard let event = NSApp.currentEvent else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard (now - event.timestamp) < 0.1 else { return false }
+        guard event.window === window else { return false }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged:
+            return true
+        default:
+            return false
+        }
     }
 
     private func installGeometryObservers(for window: NSWindow) {
