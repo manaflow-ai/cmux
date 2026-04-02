@@ -3164,12 +3164,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
 
+    /// Text to send to the shell after it starts (used for session restore commands).
+    /// Unlike `initialCommand`, this doesn't replace the shell - it types into it.
+    private let initialInput: String?
+
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,
         configTemplate: CmuxSurfaceConfigTemplate?,
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
@@ -3180,6 +3185,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        let trimmedInput = initialInput?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.initialInput = (trimmedInput?.isEmpty == false) ? trimmedInput : nil
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
@@ -3903,7 +3910,19 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.command
         }()
-        let resolvedInitialInput = baseConfig.initialInput
+        // Prefer explicit initialInput (for session restore), then config template's initial input
+        let resolvedInitialInput: String? = {
+            if let initialInput, !initialInput.isEmpty {
+                // Append newline to execute the command
+                return initialInput + "\n"
+            }
+            return baseConfig.initialInput
+        }()
+#if DEBUG
+        if resolvedInitialInput != nil || initialInput != nil || baseConfig.initialInput != nil {
+            dlog("surface.createSurface.initialInput surface=\(id.uuidString.prefix(5)) explicit=\(initialInput?.debugDescription ?? "nil") base=\(baseConfig.initialInput?.debugDescription ?? "nil") resolved=\(resolvedInitialInput?.debugDescription ?? "nil")")
+        }
+#endif
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
             guard let value else {
                 return body(nil)

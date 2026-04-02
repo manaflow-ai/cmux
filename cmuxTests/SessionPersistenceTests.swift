@@ -1116,3 +1116,115 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Session Restore Command Settings Tests
+
+final class SessionRestoreCommandSettingsTests: XCTestCase {
+    // MARK: - Pattern Matching Tests
+
+    func testExactMatchPatternMatchesOnlyExactCommand() {
+        let allowlist = "opencode"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode --flag", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode-other", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("my-opencode", rawAllowlist: allowlist))
+    }
+
+    func testPrefixPatternMatchesCommandWithAndWithoutArgs() {
+        let allowlist = "opencode *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode -c --model sonnet", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode-other", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("my-opencode", rawAllowlist: allowlist))
+    }
+
+    func testMultiplePatternsInAllowlist() {
+        let allowlist = """
+        opencode
+        opencode *
+        claude *
+        npm run dev
+        """
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("claude --model sonnet", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm run build", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("yarn dev", rawAllowlist: allowlist))
+    }
+
+    func testCommentsAndBlankLinesAreIgnored() {
+        let allowlist = """
+        # This is a comment
+        opencode
+
+        # Another comment
+        claude *
+        """
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("claude --flag", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("# This is a comment", rawAllowlist: allowlist))
+    }
+
+    func testWhitespaceTrimmingInCommands() {
+        let allowlist = "opencode *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("  opencode --flag  ", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("\topencode\t", rawAllowlist: allowlist))
+    }
+
+    func testEmptyCommandIsNotAllowed() {
+        let allowlist = "opencode *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("   ", rawAllowlist: allowlist))
+    }
+
+    // MARK: - Allowlist Normalization Tests
+
+    func testNormalizedPatternsWithEmptyInputReturnsDefaults() {
+        let patterns = SessionRestoreCommandSettings.normalizedAllowlistPatterns(rawValue: nil)
+        XCTAssertFalse(patterns.isEmpty)
+        XCTAssertTrue(patterns.contains("opencode *"))
+    }
+
+    func testNormalizedPatternsWithWhitespaceOnlyReturnsDefaults() {
+        let patterns = SessionRestoreCommandSettings.normalizedAllowlistPatterns(rawValue: "   \n\n   ")
+        XCTAssertFalse(patterns.isEmpty)
+        XCTAssertTrue(patterns.contains("opencode *"))
+    }
+
+    func testNormalizedPatternsFiltersCommentsAndBlanks() {
+        let patterns = SessionRestoreCommandSettings.normalizedAllowlistPatterns(rawValue: """
+        # comment
+        opencode
+
+        claude *
+        """)
+        XCTAssertEqual(patterns, ["opencode", "claude *"])
+    }
+
+    // MARK: - Default Allowlist Tests
+
+    func testDefaultAllowlistIncludesCodingAgents() {
+        let patterns = SessionRestoreCommandSettings.defaultAllowlistPatterns
+        XCTAssertTrue(patterns.contains("opencode *"))
+        XCTAssertTrue(patterns.contains("claude *"))
+        XCTAssertTrue(patterns.contains("aider *"))
+    }
+
+    func testDefaultAllowlistIncludesDevServers() {
+        let patterns = SessionRestoreCommandSettings.defaultAllowlistPatterns
+        XCTAssertTrue(patterns.contains("npm run dev *"))
+        XCTAssertTrue(patterns.contains("bun dev *"))
+        XCTAssertTrue(patterns.contains("cargo watch *"))
+    }
+
+    func testDefaultAllowlistExcludesDestructiveCommands() {
+        // Verify dangerous commands are NOT in the default allowlist
+        let patterns = SessionRestoreCommandSettings.defaultAllowlistPatterns
+        XCTAssertFalse(patterns.contains("rm"))
+        XCTAssertFalse(patterns.contains("rm *"))
+        XCTAssertFalse(patterns.contains("sudo *"))
+        XCTAssertFalse(patterns.contains("git push"))
+    }
+}

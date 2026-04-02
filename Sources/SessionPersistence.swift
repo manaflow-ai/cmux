@@ -224,6 +224,9 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    var restoreCommand: String?
+    /// The command that was running when the session was saved (detected from process tree)
+    var detectedCommand: String?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -484,5 +487,263 @@ enum SessionScrollbackReplayStore {
         } catch {
             return nil
         }
+    }
+}
+
+// MARK: - Session Restore Command Settings
+
+enum SessionRestoreCommandSettings {
+    static let enabledKey = "sessionRestoreCommandsEnabled"
+    static let allowlistKey = "sessionRestoreCommandAllowlist"
+    static let defaultEnabled = true
+
+    /// Default allowlist of commands safe to auto-restore.
+    /// Use `*` suffix for prefix matching (command + any arguments).
+    static let defaultAllowlistPatterns = [
+        // Coding agents
+        "opencode *",
+        "claude *",
+        "codex *",
+        "aider *",
+        // Dev servers
+        "npm run dev *",
+        "npm start *",
+        "yarn dev *",
+        "pnpm dev *",
+        "bun dev *",
+        "bun run dev *",
+        // Rust
+        "cargo watch *",
+        "cargo run *",
+        // Python
+        "uvicorn *",
+        "flask run *",
+        // Watchers/logs
+        "tail -f *",
+        "watch *",
+    ]
+
+    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
+        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
+    }
+
+    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
+        let source: String
+        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            source = rawValue
+        } else {
+            source = defaultAllowlistText
+        }
+        let parsed = parsePatterns(from: source)
+        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
+    }
+
+    private static func parsePatterns(from text: String) -> [String] {
+        text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+    }
+
+    /// Check if a command matches the allowlist.
+    /// - Exact match: "opencode" matches only "opencode"
+    /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
+    static func isCommandAllowed(_ command: String, defaults: UserDefaults = .standard) -> Bool {
+        isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
+    }
+
+    static func isCommandAllowed(_ command: String, rawAllowlist: String?) -> Bool {
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCommand.isEmpty else { return false }
+
+        let patterns = normalizedAllowlistPatterns(rawValue: rawAllowlist)
+        return patterns.contains { pattern in
+            commandMatchesPattern(normalizedCommand, pattern: pattern)
+        }
+    }
+
+    private static func commandMatchesPattern(_ command: String, pattern: String) -> Bool {
+        let trimmedPattern = pattern.trimmingCharacters(in: .whitespaces)
+
+        // Prefix match: "opencode *" matches "opencode" and "opencode --flag"
+        if trimmedPattern.hasSuffix(" *") {
+            let prefix = String(trimmedPattern.dropLast(2))
+            return command == prefix || command.hasPrefix(prefix + " ")
+        }
+
+        // Exact match
+        return command == trimmedPattern
+    }
+}
+
+// MARK: - Foreground Process Detection
+
+enum SessionForegroundProcessDetector {
+    private static let psPath = "/bin/ps"
+
+    struct ForegroundProcess {
+        let pid: Int32
+        let executableName: String
+        let commandLine: String?
+    }
+
+    /// Detect the foreground process running in a TTY.
+    /// Returns nil if no foreground process or only shell is running.
+    static func detect(forTTY ttyName: String) -> ForegroundProcess? {
+        let normalizedTTY = normalizeTTYName(ttyName)
+        guard !normalizedTTY.isEmpty else { return nil }
+
+        let processes = processSnapshots(forTTY: normalizedTTY)
+        guard let foreground = processes.first(where: { isForegroundProcess($0, ttyName: normalizedTTY) }) else {
+            return nil
+        }
+
+        // Skip if foreground is just a shell
+        let shellNames = [
+            "zsh", "bash", "sh", "fish", "tcsh", "ksh", "dash",  // POSIX-ish shells
+            "csh",                                               // C shell
+            "pwsh", "powershell",                                // PowerShell
+            "nu", "nushell",                                     // Nushell
+            "elvish", "xonsh", "oil", "osh",                     // Alternative shells
+            "rc", "es",                                          // Plan 9 shells
+        ]
+        if shellNames.contains(foreground.executableName) {
+            return nil
+        }
+
+        let commandLine = commandLineString(forPID: foreground.pid)
+
+        return ForegroundProcess(
+            pid: foreground.pid,
+            executableName: foreground.executableName,
+            commandLine: commandLine
+        )
+    }
+
+    private struct ProcessSnapshot {
+        let pid: Int32
+        let pgid: Int32
+        let tpgid: Int32
+        let tty: String
+        let executableName: String
+    }
+
+    private static func normalizeTTYName(_ ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/dev/") {
+            return String(trimmed.dropFirst(5))
+        }
+        return trimmed
+    }
+
+    private static func isForegroundProcess(_ process: ProcessSnapshot, ttyName: String) -> Bool {
+        normalizeTTYName(process.tty) == normalizeTTYName(ttyName) &&
+            process.tpgid > 0 &&
+            process.pgid == process.tpgid
+    }
+
+    private static func processSnapshots(forTTY ttyName: String) -> [ProcessSnapshot] {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: psPath)
+        process.arguments = ["-ww", "-t", ttyName, "-o", "pid=,pgid=,tpgid=,tty=,ucomm="]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return []
+        }
+
+        return output
+            .split(separator: "\n")
+            .compactMap(parseProcessSnapshot)
+    }
+
+    private static func parseProcessSnapshot(_ line: Substring) -> ProcessSnapshot? {
+        let parts = line.split(maxSplits: 4, whereSeparator: \.isWhitespace)
+        guard parts.count == 5,
+              let pid = Int32(parts[0]),
+              let pgid = Int32(parts[1]),
+              let tpgid = Int32(parts[2]) else {
+            return nil
+        }
+
+        return ProcessSnapshot(
+            pid: pid,
+            pgid: pgid,
+            tpgid: tpgid,
+            tty: String(parts[3]),
+            executableName: String(parts[4]).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )
+    }
+
+    private static func commandLineString(forPID pid: Int32) -> String? {
+        var mib = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size: size_t = 0
+        guard sysctl(&mib, u_int(mib.count), nil, &size, nil, 0) == 0, size > 4 else {
+            return nil
+        }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        let success = buffer.withUnsafeMutableBytes { rawBuffer in
+            sysctl(&mib, u_int(mib.count), rawBuffer.baseAddress, &size, nil, 0) == 0
+        }
+        guard success else { return nil }
+
+        // KERN_PROCARGS2 layout: argc (4 bytes), exec path, null-terminated argv strings
+        let argc = buffer.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        guard argc > 0 else { return nil }
+
+        // Skip argc and find first null (end of exec path)
+        var offset = 4
+        while offset < buffer.count && buffer[offset] != 0 {
+            offset += 1
+        }
+        // Skip nulls between exec path and argv[0]
+        while offset < buffer.count && buffer[offset] == 0 {
+            offset += 1
+        }
+
+        // Extract argv strings
+        var args: [String] = []
+        var currentArg = ""
+        for i in offset..<buffer.count {
+            if buffer[i] == 0 {
+                if !currentArg.isEmpty {
+                    args.append(currentArg)
+                    if args.count >= Int(argc) { break }
+                }
+                currentArg = ""
+            } else {
+                currentArg.append(Character(UnicodeScalar(buffer[i])))
+            }
+        }
+
+        guard !args.isEmpty else { return nil }
+
+        // Return just the command and arguments (strip full path from argv[0])
+        let execName = URL(fileURLWithPath: args[0]).lastPathComponent
+        let restArgs = args.dropFirst().joined(separator: " ")
+        return restArgs.isEmpty ? execName : "\(execName) \(restArgs)"
     }
 }

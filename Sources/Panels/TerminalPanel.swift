@@ -87,6 +87,10 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     /// Create a new terminal panel with a fresh surface
+    ///
+    /// - Parameters:
+    ///   - initialCommand: Replaces the shell with this command (exits when done)
+    ///   - initialInput: Types this into the shell after it starts (for session restore)
     convenience init(
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -94,6 +98,7 @@ final class TerminalPanel: Panel, ObservableObject {
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
+        initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:]
     ) {
@@ -103,6 +108,7 @@ final class TerminalPanel: Panel, ObservableObject {
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
+            initialInput: initialInput,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment
         )

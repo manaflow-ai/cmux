@@ -465,9 +465,16 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            // Detect the currently running command from the process tree
+            let detectedCommand: String? = {
+                guard let ttyName = surfaceTTYNames[panelId] else { return nil }
+                return SessionForegroundProcessDetector.detect(forTTY: ttyName)?.commandLine
+            }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                restoreCommand: panelRestoreCommands[panelId],
+                detectedCommand: detectedCommand
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -642,13 +649,38 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+            // Determine which command to restore:
+            // 1. Explicit restoreCommand (user-configured via socket API) takes priority
+            //    but still requires allowlist validation for security
+            // 2. Otherwise, check if detectedCommand is in the allowlist
+            let commandToRestore: String? = {
+                if let explicit = snapshot.terminal?.restoreCommand,
+                   !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Validate explicit commands against allowlist to prevent injection
+                    // from tampered session JSON files
+                    let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return SessionRestoreCommandSettings.isCommandAllowed(trimmed) ? trimmed : nil
+                }
+                guard SessionRestoreCommandSettings.isEnabled() else { return nil }
+                guard let detected = snapshot.terminal?.detectedCommand,
+                      !detected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return nil
+                }
+                // Only auto-restore if the detected command is in the allowlist
+                return SessionRestoreCommandSettings.isCommandAllowed(detected) ? detected : nil
+            }()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
                 workingDirectory: workingDirectory,
-                startupEnvironment: replayEnvironment
+                startupEnvironment: replayEnvironment,
+                initialInput: commandToRestore
             ) else {
                 return nil
+            }
+            // Persist the explicit restoreCommand (not the auto-detected one) so it survives future saves
+            if let restoreCommand = snapshot.terminal?.restoreCommand, !restoreCommand.isEmpty {
+                setPanelRestoreCommand(panelId: terminalPanel.id, command: restoreCommand)
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
@@ -6346,6 +6378,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
+    /// Command to run when restoring this terminal panel after app restart
+    @Published private(set) var panelRestoreCommands: [UUID: String] = [:]
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -7132,6 +7166,18 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
+    }
+
+    /// Set or clear the command to auto-restore when this terminal panel is restored after app restart.
+    /// Only terminal panels support restore commands.
+    func setPanelRestoreCommand(panelId: UUID, command: String?) {
+        guard panels[panelId] is TerminalPanel else { return }
+        let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            panelRestoreCommands.removeValue(forKey: panelId)
+        } else {
+            panelRestoreCommands[panelId] = trimmed
+        }
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -8643,17 +8689,24 @@ final class Workspace: Identifiable, ObservableObject {
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
     @discardableResult
+    /// Create a new terminal surface in the specified pane.
+    ///
+    /// - Parameters:
+    ///   - initialInput: Text to type into the shell after it starts (for session restore).
+    ///                   Unlike initialCommand on remote workspaces, this doesn't replace the shell.
     func newTerminalSurface(
         inPane paneId: PaneID,
         focus: Bool? = nil,
         workingDirectory: String? = nil,
-        startupEnvironment: [String: String] = [:]
+        startupEnvironment: [String: String] = [:],
+        initialInput: String? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        // Remote workspaces use initialCommand to replace shell with SSH
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
 
         // Create new terminal panel
@@ -8664,6 +8717,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand,
+            initialInput: initialInput,
             additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
@@ -9525,6 +9579,7 @@ final class Workspace: Identifiable, ObservableObject {
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
+            panelRestoreCommands.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
@@ -11449,6 +11504,7 @@ extension Workspace: BonsplitDelegate {
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
+        panelRestoreCommands.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
@@ -11603,6 +11659,7 @@ extension Workspace: BonsplitDelegate {
                 panelPullRequests.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
+                panelRestoreCommands.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
