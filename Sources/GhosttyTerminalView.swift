@@ -6130,8 +6130,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     event: translationEvent,
                     markedTextBefore: markedTextBefore
                 )
+            let suppressComposingFallbackText = keyEvent.composing
             if let text = textForKeyEvent(translationEvent) {
-                if shouldSendText(text), !suppressShiftSpaceFallbackText {
+                if shouldSendText(text),
+                   !suppressShiftSpaceFallbackText,
+                   !suppressComposingFallbackText {
                     shouldRefreshAfterTextInput = true
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
