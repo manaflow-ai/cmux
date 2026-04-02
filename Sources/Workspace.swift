@@ -474,15 +474,20 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            // Skip restore metadata for remote-backed terminals (would replay remote commands locally)
+            let isRemoteBackedTerminal =
+                activeRemoteTerminalSurfaceIds.contains(panelId) ||
+                transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil
             // Read cached foreground command (cache is refreshed before snapshot)
             let detectedCommand: String? = {
-                guard let ttyName = surfaceTTYNames[panelId] else { return nil }
+                guard !isRemoteBackedTerminal,
+                      let ttyName = surfaceTTYNames[panelId] else { return nil }
                 return SessionForegroundProcessCache.shared.cachedCommandLine(forTTY: ttyName)
             }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
                 scrollback: resolvedScrollback,
-                restoreCommand: panelRestoreCommands[panelId],
+                restoreCommand: isRemoteBackedTerminal ? nil : panelRestoreCommands[panelId],
                 detectedCommand: detectedCommand
             )
             browserSnapshot = nil
