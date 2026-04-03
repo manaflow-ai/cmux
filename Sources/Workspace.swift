@@ -3458,7 +3458,10 @@ final class WorkspaceRemoteSessionController {
     private func beginConnectionAttemptLocked() {
         guard !isStopping else { return }
 
-        Self.killOrphanedRemoteSSHProcesses(destination: configuration.destination)
+        Self.killOrphanedRemoteSSHProcesses(
+            destination: configuration.destination,
+            relayPort: configuration.relayPort
+        )
         connectionAttemptStartedAt = Date()
         debugLog("remote.session.connect.begin retry=\(reconnectRetryCount) \(debugConfigSummary())")
         reconnectWorkItem = nil
@@ -6833,6 +6836,8 @@ final class Workspace: Identifiable, ObservableObject {
     private var isDetachingCloseTransaction: Bool { activeDetachCloseTransactions > 0 }
     private var pendingRemoteSurfaceTTYName: String?
     private var pendingRemoteSurfaceTTYSurfaceId: UUID?
+    private var pendingRemoteSurfacePortKickReason: WorkspaceRemoteSessionController.PortScanKickReason?
+    private var pendingRemoteSurfacePortKickSurfaceId: UUID?
     // When the last live remote terminal is detached out, the source workspace may be
     // closed immediately after the move succeeds. That teardown must not shut down the
     // shared SSH control master that is still serving the moved terminal.
@@ -7920,6 +7925,8 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
+        pendingRemoteSurfacePortKickReason = nil
+        pendingRemoteSurfacePortKickSurfaceId = nil
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
@@ -7971,6 +7978,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
+        _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
 
     private func untrackRemoteTerminalSurface(_ panelId: UUID) {
@@ -8000,6 +8008,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func rememberPendingRemoteSurfacePortKick(
+        reason: WorkspaceRemoteSessionController.PortScanKickReason,
+        requestedSurfaceId: UUID?
+    ) {
+        pendingRemoteSurfacePortKickReason = reason
+        pendingRemoteSurfacePortKickSurfaceId = requestedSurfaceId
+    }
+
+    @MainActor
     private func applyPendingRemoteSurfaceTTYIfNeeded(to panelId: UUID) {
         guard let ttyName = pendingRemoteSurfaceTTYName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !ttyName.isEmpty else {
@@ -8012,7 +8029,30 @@ final class Workspace: Identifiable, ObservableObject {
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
         syncRemotePortScanTTYs()
-        kickRemotePortScan(panelId: panelId, reason: .command)
+        if !applyPendingRemoteSurfacePortKickIfNeeded(to: panelId) {
+            kickRemotePortScan(panelId: panelId, reason: .command)
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    func applyPendingRemoteSurfacePortKickIfNeeded(to panelId: UUID) -> Bool {
+        guard let reason = pendingRemoteSurfacePortKickReason else {
+            return false
+        }
+        if let requestedSurfaceId = pendingRemoteSurfacePortKickSurfaceId,
+           requestedSurfaceId != panelId {
+            return false
+        }
+        guard let ttyName = surfaceTTYNames[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ttyName.isEmpty else {
+            return false
+        }
+        _ = ttyName
+        pendingRemoteSurfacePortKickReason = nil
+        pendingRemoteSurfacePortKickSurfaceId = nil
+        kickRemotePortScan(panelId: panelId, reason: reason)
+        return true
     }
 
     @MainActor
@@ -8037,7 +8077,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         surfaceTTYNames[candidateSurfaceId] = trimmedTTY
         syncRemotePortScanTTYs()
-        kickRemotePortScan(panelId: candidateSurfaceId, reason: .command)
+        if !applyPendingRemoteSurfacePortKickIfNeeded(to: candidateSurfaceId) {
+            kickRemotePortScan(panelId: candidateSurfaceId, reason: .command)
+        }
     }
 
     private func cleanupTransferredRemoteConnectionIfNeeded(surfaceId: UUID, relayPort: Int?) -> Bool {

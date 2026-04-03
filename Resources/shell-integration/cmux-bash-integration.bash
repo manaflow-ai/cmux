@@ -833,7 +833,6 @@ _cmux_preexec_command() {
     _cmux_socket_is_unix && cmux_has_unix_socket=1
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t

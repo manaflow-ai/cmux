@@ -203,6 +203,10 @@ def main() -> int:
                 f"cmux ssh startup script should upload the remote bootstrap over stdin before opening the interactive ssh session: {ssh_startup_command!r}",
             )
             _must(
+                "/bin/sh -c " in ssh_startup_script and "/bin/sh -lc " not in ssh_startup_script,
+                f"cmux ssh startup script should install the bootstrap through a non-login POSIX shell: {ssh_startup_command!r}",
+            )
+            _must(
                 f"/bin/sh \"$HOME/.cmux/relay/{int(remote_relay_port)}.bootstrap.sh\"" in ssh_startup_script,
                 f"cmux ssh startup script should execute the staged remote bootstrap file through /bin/sh: {ssh_startup_command!r}",
             )

@@ -4110,6 +4110,7 @@ class TerminalController {
             tab.surfaceTTYNames[surfaceId] = ttyName
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
+                _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: workspaceId, panelId: surfaceId, ttyName: ttyName)
             }
@@ -4173,6 +4174,10 @@ class TerminalController {
             )
             guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
                 if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
+                    tab.rememberPendingRemoteSurfacePortKick(
+                        reason: reason,
+                        requestedSurfaceId: requestedSurfaceId
+                    )
                     result = .ok([
                         "workspace_id": workspaceId.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -15470,6 +15475,7 @@ class TerminalController {
                 tab.surfaceTTYNames[scope.panelId] = ttyName
                 if tab.isRemoteWorkspace {
                     tab.syncRemotePortScanTTYs()
+                    _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelId)
                 } else {
                     PortScanner.shared.registerTTY(workspaceId: scope.workspaceId, panelId: scope.panelId, ttyName: ttyName)
                 }
@@ -15513,6 +15519,7 @@ class TerminalController {
             tab.surfaceTTYNames[surfaceId] = ttyName
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
+                _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
             }
