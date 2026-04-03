@@ -86,6 +86,70 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertEqual(window.frame.origin.y, windowFrameBeforeDrag.origin.y, accuracy: 2.0, "Expected tab drag not to move the window vertically")
     }
 
+    func testDraggingPaneTabIntoSidebarCreatesNewWorkspace() {
+        let (app, dataPath) = launchConfiguredApp()
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for pane-tab to sidebar workspace conversion UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        guard let sourceWorkspaceId = ready["workspaceId"], !sourceWorkspaceId.isEmpty else {
+            XCTFail("Expected setup to provide a source workspace id. data=\(ready)")
+            return
+        }
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let betaTab = app.buttons[betaTitle]
+        let sidebar = app.descendants(matching: .any).matching(identifier: "Sidebar").firstMatch
+        let workspaceRowIdentifier = "sidebarWorkspace.\(sourceWorkspaceId)"
+        let workspaceRow = app.descendants(matching: .any).matching(identifier: workspaceRowIdentifier).firstMatch
+
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected sidebar to exist")
+        XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected source workspace row to exist")
+
+        let start = CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY)
+        let destination = CGPoint(
+            x: min(sidebar.frame.maxX - 24.0, workspaceRow.frame.midX),
+            y: workspaceRow.frame.maxY - max(6.0, min(14.0, workspaceRow.frame.height * 0.25))
+        )
+        guard let dragSession = beginMouseDrag(
+            fromAccessibilityPoint: start,
+            holdDuration: 0.20
+        ) else {
+            XCTFail("Expected raw mouse drag session to start")
+            return
+        }
+        continueMouseDrag(
+            dragSession,
+            toAccessibilityPoint: destination,
+            steps: 28,
+            dragDuration: 0.45
+        )
+        endMouseDrag(dragSession, atAccessibilityPoint: destination)
+
+        guard let updated = waitForJSONKey("workspaceCount", equals: "2", atPath: dataPath, timeout: 5.0) else {
+            XCTFail("Expected workspace count to become 2 after dragging a pane tab into the sidebar. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        XCTAssertEqual(updated["hasSelectedWorkspace"], "1", "Expected a selected workspace after extraction. data=\(updated)")
+        XCTAssertEqual(updated["trackedPaneTabCount"], "1", "Expected the source pane to keep only one tab after extraction. data=\(updated)")
+        XCTAssertEqual(updated["trackedPaneTabTitles"], alphaTitle, "Expected the source pane to retain only the alpha tab after extraction. data=\(updated)")
+        XCTAssertNotEqual(updated["selectedWorkspaceId"], sourceWorkspaceId, "Expected the extracted pane tab to land in a newly selected workspace. data=\(updated)")
+    }
+
     func testMinimalModePlacesPaneTabBarAtTopEdge() {
         let (app, dataPath) = launchConfiguredApp()
 

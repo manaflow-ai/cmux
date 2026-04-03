@@ -803,6 +803,92 @@ final class SidebarDropPlannerTests: XCTestCase {
 
 }
 
+final class SidebarBonsplitWorkspaceInsertPlannerTests: XCTestCase {
+    func testRejectsInsertionIntoPinnedRegion() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinned = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinned]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        XCTAssertNil(
+            SidebarBonsplitWorkspaceInsertPlanner.indicator(
+                targetTabId: pinnedA,
+                tabIds: tabIds,
+                pinnedTabIds: pinnedIds,
+                pointerY: 2,
+                targetHeight: 40
+            )
+        )
+        XCTAssertNil(
+            SidebarBonsplitWorkspaceInsertPlanner.targetIndex(
+                targetTabId: pinnedA,
+                indicator: nil,
+                tabIds: tabIds,
+                pinnedTabIds: pinnedIds,
+                pointerY: 2,
+                targetHeight: 40
+            )
+        )
+    }
+
+    func testAllowsInsertionAtFirstUnpinnedBoundary() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let unpinnedA = UUID()
+        let unpinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB, unpinnedA, unpinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let indicator = SidebarBonsplitWorkspaceInsertPlanner.indicator(
+            targetTabId: pinnedB,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds,
+            pointerY: 38,
+            targetHeight: 40
+        )
+
+        XCTAssertEqual(indicator?.tabId, unpinnedA)
+        XCTAssertEqual(indicator?.edge, .top)
+        XCTAssertEqual(
+            SidebarBonsplitWorkspaceInsertPlanner.targetIndex(
+                targetTabId: pinnedB,
+                indicator: indicator,
+                tabIds: tabIds,
+                pinnedTabIds: pinnedIds,
+                pointerY: 38,
+                targetHeight: 40
+            ),
+            2
+        )
+    }
+
+    func testEmptyAreaAppendsAfterPinnedWorkspaces() {
+        let pinnedA = UUID()
+        let pinnedB = UUID()
+        let tabIds = [pinnedA, pinnedB]
+        let pinnedIds: Set<UUID> = [pinnedA, pinnedB]
+
+        let indicator = SidebarBonsplitWorkspaceInsertPlanner.indicator(
+            targetTabId: nil,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedIds
+        )
+
+        XCTAssertEqual(indicator?.tabId, nil)
+        XCTAssertEqual(indicator?.edge, .bottom)
+        XCTAssertEqual(
+            SidebarBonsplitWorkspaceInsertPlanner.targetIndex(
+                targetTabId: nil,
+                indicator: indicator,
+                tabIds: tabIds,
+                pinnedTabIds: pinnedIds
+            ),
+            2
+        )
+    }
+}
+
 
 final class SidebarDragAutoScrollPlannerTests: XCTestCase {
     func testAutoScrollPlanTriggersNearTopAndBottomOnly() {

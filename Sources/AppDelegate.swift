@@ -4536,6 +4536,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return moved
     }
 
+    func moveBonsplitTabToNewWorkspace(
+        tabId: UUID,
+        in targetTabManager: TabManager,
+        at targetIndex: Int,
+        focus: Bool = true,
+        focusWindow: Bool = true
+    ) -> UUID? {
+        guard let located = locateBonsplitSurface(tabId: tabId) else {
+            return nil
+        }
+
+        let bootstrapWorkspace = targetTabManager.addWorkspace(
+            select: focus,
+            placementOverride: .end,
+            autoWelcomeIfNeeded: false
+        )
+        let bootstrapWorkspaceId = bootstrapWorkspace.id
+        let bootstrapPanelId = bootstrapWorkspace.focusedPanelId
+
+        _ = targetTabManager.reorderWorkspace(
+            tabId: bootstrapWorkspaceId,
+            toIndex: targetIndex
+        )
+
+        guard let destinationPane = bootstrapWorkspace.bonsplitController.focusedPaneId
+            ?? bootstrapWorkspace.bonsplitController.allPaneIds.first else {
+            targetTabManager.closeWorkspace(bootstrapWorkspace)
+            return nil
+        }
+
+        guard moveSurface(
+            panelId: located.panelId,
+            toWorkspace: bootstrapWorkspaceId,
+            targetPane: destinationPane,
+            focus: focus,
+            focusWindow: focusWindow
+        ) else {
+            targetTabManager.closeWorkspace(bootstrapWorkspace)
+            return nil
+        }
+
+        if let bootstrapPanelId,
+           bootstrapPanelId != located.panelId,
+           bootstrapWorkspace.panels[bootstrapPanelId] != nil,
+           bootstrapWorkspace.panels.count > 1 {
+            _ = bootstrapWorkspace.closePanel(bootstrapPanelId, force: true)
+        }
+
+        return bootstrapWorkspaceId
+    }
+
     func tabManagerFor(windowId: UUID) -> TabManager? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
     }
@@ -7607,6 +7658,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .flatMap { workspace.panelTitle(panelId: $0) } ?? ""
 
         writeBonsplitTabDragUITestData([
+            "workspaceCount": String(tabManager.tabs.count),
+            "selectedWorkspaceId": tabManager.selectedTabId?.uuidString ?? "NONE",
+            "hasSelectedWorkspace": tabManager.selectedTabId != nil ? "1" : "0",
             "trackedPaneId": trackedPaneId.description,
             "trackedPaneTabTitles": titles.joined(separator: "|"),
             "trackedPaneTabCount": String(titles.count),
