@@ -1511,6 +1511,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             case "workspace.rename":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "workspace.remote.configure":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let autoConnect = (params["auto_connect"] as? Bool) ?? true
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -1519,7 +1521,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "workspace_ref": workspaceRef,
                         "remote": [
                             "enabled": true,
-                            "state": "connecting",
+                            "state": autoConnect ? "connecting" : "disconnected",
                         ],
                     ]
                 )
@@ -1558,7 +1560,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
+        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=disconnected\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
@@ -1584,7 +1586,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
         XCTAssertEqual(configureParams["identity_file"] as? String, "/Users/test/.ssh/id_ed25519")
         XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
-        XCTAssertEqual(configureParams["auto_connect"] as? Bool, true)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         let relayPort = try XCTUnwrap(configureParams["relay_port"] as? Int)
         XCTAssertGreaterThan(relayPort, 0)
         let relayID = try XCTUnwrap(configureParams["relay_id"] as? String)
@@ -1645,6 +1647,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             case "workspace.rename":
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "workspace.remote.configure":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let autoConnect = (params["auto_connect"] as? Bool) ?? true
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -1653,7 +1657,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                         "workspace_ref": workspaceRef,
                         "remote": [
                             "enabled": true,
-                            "state": "connecting",
+                            "state": autoConnect ? "connecting" : "disconnected",
                         ],
                     ]
                 )
@@ -1703,19 +1707,33 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("cmux-ssh-bootstrap-\(UUID().uuidString)")
         let fakeBin = tempRoot.appendingPathComponent("bin")
         let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
+        let fakeCMUXLog = tempRoot.appendingPathComponent("fake-cmux.jsonl")
         let fakeSSH = fakeBin.appendingPathComponent("ssh")
+        let fakeCMUX = fakeBin.appendingPathComponent("cmux")
 
         try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: tempRoot) }
 
         let fakeSSHScript = """
         #!/bin/sh
-        python3 - "$CMUX_FAKE_SSH_LOG" "$@" <<'PY'
+        python3 - "$@" <<'PY'
         import json
+        import os
+        import subprocess
         import sys
 
-        with open(sys.argv[1], "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(sys.argv[2:]) + "\\n")
+        args = sys.argv[1:]
+        with open(os.environ["CMUX_FAKE_SSH_LOG"], "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(args) + "\\n")
+
+        local_command = None
+        for index, arg in enumerate(args):
+            if arg == "-o" and index + 1 < len(args) and args[index + 1].startswith("LocalCommand="):
+                local_command = args[index + 1].split("=", 1)[1]
+                break
+
+        if local_command:
+            subprocess.run(["/bin/sh", "-c", local_command], check=False, env=os.environ.copy())
         PY
         cat >/dev/null
         exit 0
@@ -1723,10 +1741,29 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
+        let fakeCMUXScript = """
+        #!/bin/sh
+        python3 - "$@" <<'PY'
+        import json
+        import os
+        import sys
+
+        with open(os.environ["CMUX_FAKE_CMUX_LOG"], "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(sys.argv[1:]) + "\\n")
+        PY
+        exit 0
+        """
+        try fakeCMUXScript.write(to: fakeCMUX, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCMUX.path)
+
         var startupEnvironment = ProcessInfo.processInfo.environment
         startupEnvironment["HOME"] = tempRoot.path
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
         startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
+        startupEnvironment["CMUX_FAKE_CMUX_LOG"] = fakeCMUXLog.path
+        startupEnvironment["CMUX_BUNDLED_CLI_PATH"] = fakeCMUX.path
+        startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -1749,6 +1786,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let firstInvocation = try XCTUnwrap(
             JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
         )
+        XCTAssertTrue(
+            firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
+            "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
+        )
         let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
         let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
 
@@ -1761,6 +1802,34 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
         XCTAssertFalse(remoteCommandArgs.contains("sh"))
         XCTAssertFalse(remoteCommandArgs.contains("-c"))
+
+        let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
+        let secondInvocation = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
+        )
+        XCTAssertFalse(
+            secondInvocation.contains(where: { $0.contains("LocalCommand=") }),
+            "Expected only the bootstrap install hop to trigger LocalCommand, saw \(secondInvocation)"
+        )
+
+        let reconnectLogLines = try String(contentsOf: fakeCMUXLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(reconnectLogLines.count, 1)
+        let reconnectInvocationData = try XCTUnwrap(reconnectLogLines.first?.data(using: .utf8))
+        let reconnectInvocation = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: reconnectInvocationData, options: []) as? [String]
+        )
+        XCTAssertEqual(
+            reconnectInvocation,
+            [
+                "--socket",
+                socketPath,
+                "rpc",
+                "workspace.remote.foreground_auth_ready",
+                "{\"workspace_id\":\"\(workspaceID)\"}",
+            ]
+        )
     }
 
     @MainActor
