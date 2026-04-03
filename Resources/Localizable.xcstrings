@@ -47867,23 +47867,6 @@
         }
       }
     },
-    "settings.app.settingsFile": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "settings.json"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "settings.json"
-          }
-        }
-      }
-    },
     "settings.app.settingsFile.openButton": {
       "extractionState": "manual",
       "localizations": {

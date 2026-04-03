@@ -4462,13 +4462,6 @@ struct SettingsView: View {
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsFileHeroCard(
-                        title: String(localized: "settings.app.settingsFile", defaultValue: "settings.json"),
-                        path: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
-                        onOpen: openCmuxSettingsFileInEditor,
-                        onOpenInTextEdit: openCmuxSettingsFileInTextEdit
-                    )
-
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
                         SettingsCardRow(
@@ -5721,8 +5714,23 @@ struct SettingsView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(.primary.opacity(0.92))
                     Spacer(minLength: 0)
+                    HStack(spacing: 6) {
+                        SettingsHeaderActionButton(
+                            title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
+                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
+                            accessibilityIdentifier: "SettingsFileOpenButton",
+                            action: openCmuxSettingsFileInEditor
+                        )
+                        SettingsHeaderActionButton(
+                            title: String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit"),
+                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
+                            accessibilityIdentifier: "SettingsFileOpenInTextEditButton",
+                            action: openCmuxSettingsFileInTextEdit
+                        )
+                    }
                 }
                 .padding(.leading, settingsTitleLeadingInset)
+                .padding(.trailing, 20)
                 .padding(.top, 12)
             }
                 .frame(height: 62)
@@ -5734,7 +5742,6 @@ struct SettingsView: View {
                         .frame(height: 1),
                     alignment: .bottom
                 )
-                .allowsHitTesting(false)
         }
         .background(Color(nsColor: .windowBackgroundColor).ignoresSafeArea())
         .toggleStyle(.switch)
@@ -6035,48 +6042,32 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsFileHeroCard: View {
+private struct SettingsHeaderActionButton: View {
     let title: String
-    let path: String
-    let onOpen: () -> Void
-    let onOpenInTextEdit: () -> Void
+    let helpText: String
+    let accessibilityIdentifier: String
+    let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        Button(action: action) {
             Text(title)
-                .font(.system(size: 16, weight: .semibold))
-
-            Text(path)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundColor(.secondary)
-                .textSelection(.enabled)
-
-            HStack(spacing: 8) {
-                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                    onOpen()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsFileOpenButton")
-
-                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
-                    onOpenInTextEdit()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.92))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 15, style: .continuous)
-                        .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.34))
                 )
-        )
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.22), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .help(helpText)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 }
 
