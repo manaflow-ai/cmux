@@ -3870,6 +3870,15 @@ private func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
+private func openCmuxSettingsFileInTextEdit() {
+    #if os(macOS)
+    let fileURL = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+    let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+    let configuration = NSWorkspace.OpenConfiguration()
+    NSWorkspace.shared.open([fileURL], withApplicationAt: editorURL, configuration: configuration)
+    #endif
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -4576,12 +4585,21 @@ struct SettingsView: View {
                             String(localized: "settings.app.settingsFile", defaultValue: "Settings File"),
                             subtitle: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath()
                         ) {
-                            Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                                openCmuxSettingsFileInEditor()
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                    openCmuxSettingsFileInEditor()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsFileOpenButton")
+
+                                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
+                                    openCmuxSettingsFileInTextEdit()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("SettingsFileOpenButton")
                         }
 
                         SettingsCardDivider()
