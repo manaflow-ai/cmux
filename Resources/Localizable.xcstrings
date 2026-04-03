@@ -36945,13 +36945,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload Configuration"
+            "value": "Reload Ghostty Settings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "構成を再読み込み"
+            "value": "Ghostty設定を再読み込み"
           }
         },
         "zh-Hans": {
