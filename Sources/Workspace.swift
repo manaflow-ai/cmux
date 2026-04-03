@@ -763,7 +763,14 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        // Skip restoring listeningPorts for remote-backed terminals (remote ports are transient)
+        let isRemoteBackedTerminal =
+            activeRemoteTerminalSurfaceIds.contains(panelId) ||
+            transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
+            remoteTerminalStartupCommand() != nil
+        surfaceListeningPorts[panelId] = isRemoteBackedTerminal
+            ? []
+            : Array(Set(snapshot.listeningPorts)).sorted()
 
         // Note: We intentionally do NOT restore ttyName from snapshot.
         // The snapshot TTY is from a dead session; the new terminal will report its live TTY.

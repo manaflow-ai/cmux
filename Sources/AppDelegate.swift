@@ -4018,17 +4018,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Refresh the foreground process cache for all terminal panels (async, non-blocking).
     private func refreshForegroundProcessCacheAsync() {
-        let allTTYNames = mainWindowContexts.values.flatMap { context in
+        // Dedupe TTY names to avoid redundant ps scans
+        let allTTYNames = Set(mainWindowContexts.values.flatMap { context in
             context.tabManager.allTerminalTTYNames()
-        }
+        })
         SessionForegroundProcessCache.shared.refresh(ttyNames: Array(allTTYNames))
     }
 
     /// Refresh the foreground process cache for all terminal panels (blocking, for quit).
     private func refreshForegroundProcessCacheSync() {
-        let allTTYNames = mainWindowContexts.values.flatMap { context in
+        // Dedupe TTY names to avoid redundant ps scans
+        let allTTYNames = Set(mainWindowContexts.values.flatMap { context in
             context.tabManager.allTerminalTTYNames()
-        }
+        })
         SessionForegroundProcessCache.shared.refreshSync(ttyNames: Array(allTTYNames))
     }
 

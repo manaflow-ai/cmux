@@ -666,8 +666,13 @@ enum SessionRestoreCommandSettings {
     /// - Exact match: "opencode" matches only "opencode"
     /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
     /// - Commands matching the hardcoded denylist are NEVER allowed.
+    /// - Returns false immediately if sessionRestoreCommandsEnabled is disabled.
     static func isCommandAllowed(_ command: String, defaults: UserDefaults = .standard) -> Bool {
-        isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
+        // Check if restore is enabled first (defaults to true if not set)
+        guard defaults.object(forKey: enabledKey) == nil || defaults.bool(forKey: enabledKey) else {
+            return false
+        }
+        return isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
     }
 
     static func isCommandAllowed(_ command: String, rawAllowlist: String?) -> Bool {
@@ -752,9 +757,11 @@ final class SessionForegroundProcessCache {
         }
     }
 
-    /// Refresh cache synchronously (blocks until complete). Use sparingly.
-    func refreshSync(ttyNames: [String]) {
-        queue.sync { [self] in
+    /// Refresh cache synchronously with timeout. Falls back to existing cache if timeout exceeded.
+    /// Uses a bounded wait to prevent quit from stalling indefinitely on slow ps/sysctl calls.
+    func refreshSync(ttyNames: [String], timeout: TimeInterval = 2.0) {
+        let semaphore = DispatchSemaphore(value: 0)
+        queue.async { [self] in
             var newCache: [String: String] = [:]
             for ttyName in ttyNames {
                 if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
@@ -768,7 +775,10 @@ final class SessionForegroundProcessCache {
             lock.lock()
             cache = newCache
             lock.unlock()
+            semaphore.signal()
         }
+        // Wait with timeout; if exceeded, we use whatever was in cache before
+        _ = semaphore.wait(timeout: .now() + timeout)
     }
 
     /// Get cached command line for a TTY. Safe to call from main thread.
@@ -926,17 +936,21 @@ enum SessionForegroundProcessDetector {
         }
 
         // Extract argv strings by finding null-separated byte runs and decoding as UTF-8
+        // Count all arguments (even non-UTF8 ones) to avoid scanning past argv into env vars
         var args: [String] = []
+        var argCount = 0
         var start = offset
         for i in offset...buffer.count {
             let byte: UInt8 = i < buffer.count ? buffer[i] : 0
             if byte == 0 {
                 if i > start {
                     let slice = Array(buffer[start..<i])
+                    // Always count this as an argument, even if UTF-8 decoding fails
+                    argCount += 1
                     if let s = String(bytes: slice, encoding: .utf8) {
                         args.append(s)
-                        if args.count >= Int(argc) { break }
                     }
+                    if argCount >= Int(argc) { break }
                 }
                 start = i + 1
             }

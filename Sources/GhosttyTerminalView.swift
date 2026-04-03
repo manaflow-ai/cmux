@@ -3186,8 +3186,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
+        // Reject initialInput containing newlines to prevent command injection (e.g., "ssh host\nrm -rf ~")
         let trimmedInput = initialInput?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.initialInput = (trimmedInput?.isEmpty == false) ? trimmedInput : nil
+        if let input = trimmedInput, !input.isEmpty, !input.contains("\n"), !input.contains("\r") {
+            self.initialInput = input
+        } else {
+            self.initialInput = nil
+        }
         self.initialEnvironmentOverrides = Self.mergedNormalizedEnvironment(base: [:], overrides: initialEnvironmentOverrides)
         self.additionalEnvironment = Self.mergedNormalizedEnvironment(base: [:], overrides: additionalEnvironment)
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer

