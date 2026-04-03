@@ -6821,6 +6821,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        // Kick an immediate render so the selection highlight follows the cursor
+        // without waiting for the next async wakeup tick.
+        ghostty_surface_refresh(surface)
     }
 
     override func scrollWheel(with event: NSEvent) {
