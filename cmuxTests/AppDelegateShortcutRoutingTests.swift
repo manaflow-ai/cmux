@@ -391,6 +391,70 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, initialCount + 1, "Chord prefix should arm instead of firing Settings")
     }
 
+    func testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window and workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialWorkspaceCount = manager.tabs.count
+        let initialPanelCount = workspace.panels.count
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "d"
+        )
+
+        withTemporaryShortcut(action: .splitRight, shortcut: shortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+B prefix event")
+                return
+            }
+
+            guard let conflictingSingleStrokeEvent = makeKeyDownEvent(
+                key: "n",
+                modifiers: [.command],
+                keyCode: 45,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Cmd+N event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: conflictingSingleStrokeEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(manager.tabs.count, initialWorkspaceCount, "Pending chord should block unrelated single-stroke actions")
+        XCTAssertEqual(workspace.panels.count, initialPanelCount, "Mismatched second key should not split the workspace")
+    }
+
     func testConfiguredChordDoesNotCrossWindowBoundary() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -458,6 +522,78 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertEqual(firstManager.tabs.count, initialFirstCount, "Prefix window should not change without a matching suffix")
         XCTAssertEqual(secondManager.tabs.count, initialSecondCount, "Chord suffix in another window must not trigger the action")
+    }
+
+    func testShortcutChangeClearsPendingConfiguredChord() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window and workspace")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let initialPanelCount = workspace.panels.count
+        let chordShortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "d"
+        )
+
+        withTemporaryShortcut(action: .splitRight, shortcut: chordShortcut) {
+            guard let prefixEvent = makeKeyDownEvent(
+                key: "b",
+                modifiers: [.control],
+                keyCode: 11,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct Ctrl+B prefix event")
+                return
+            }
+
+            guard let suffixEvent = makeKeyDownEvent(
+                key: "d",
+                modifiers: [],
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct D suffix event")
+                return
+            }
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            KeyboardShortcutSettings.setShortcut(
+                StoredShortcut(key: "d", command: true, shift: false, option: false, control: false),
+                for: .splitRight
+            )
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+#if DEBUG
+            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
+#endif
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        XCTAssertEqual(workspace.panels.count, initialPanelCount, "Changing shortcuts should discard any pending chord prefix")
     }
 
     func testChordedShortcutMismatchDoesNotConsumeSecondKey() {
