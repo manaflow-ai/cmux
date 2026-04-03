@@ -241,11 +241,12 @@ def test_live_socket_injects_supported_hooks(failures: list[str]) -> None:
 
     settings = parse_settings_arg(real_argv)
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
+    expected_hooks = {"SessionStart", "Stop", "StopFailure", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
         "Stop": "stop",
+        "StopFailure": "stop-failure",
         "SessionEnd": "session-end",
         "Notification": "notification",
         "UserPromptSubmit": "prompt-submit",

@@ -224,6 +224,11 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      - name: Run agent wrapper regressions
+        run: |
+          set -euo pipefail
+          python3 tests/test_claude_wrapper_hooks.py
+
       - name: Run CLI version memory guard regression
         run: |
           set -euo pipefail
