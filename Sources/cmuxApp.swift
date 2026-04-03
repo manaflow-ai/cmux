@@ -4064,6 +4064,7 @@ struct SettingsView: View {
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
+    @AppStorage("paneNotificationRingColorHex") private var paneNotificationRingColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -4203,6 +4204,21 @@ struct SettingsView: View {
             set: { newColor in
                 let nsColor = NSColor(newColor)
                 sidebarNotificationBadgeColorHex = nsColor.hexString()
+            }
+        )
+    }
+
+    private var paneNotificationRingColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = paneNotificationRingColorHex, let nsColor = NSColor(hex: hex) {
+                    return Color(nsColor: nsColor)
+                }
+                return Color(nsColor: .systemBlue)
+            },
+            set: { newColor in
+                let nsColor = NSColor(newColor)
+                paneNotificationRingColorHex = nsColor.hexString()
             }
         )
     }
@@ -5148,6 +5164,36 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.workspaceColors.paneNotificationRingColor", defaultValue: "Notification Ring"),
+                            subtitle: String(localized: "settings.workspaceColors.paneNotificationRingColor.subtitle", defaultValue: "Color of the border flash on terminal panes when a notification fires.")
+                        ) {
+                            HStack(spacing: 8) {
+                                if paneNotificationRingColorHex != nil {
+                                    Button(String(localized: "settings.workspaceColors.paneNotificationRingColor.reset", defaultValue: "Reset")) {
+                                        paneNotificationRingColorHex = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                                }
+
+                                ColorPicker(
+                                    "",
+                                    selection: paneNotificationRingColorBinding,
+                                    supportsOpacity: false
+                                )
+                                .labelsHidden()
+                                .frame(width: 38)
+
+                                Text(paneNotificationRingColorHex ?? String(localized: "settings.sidebarAppearance.defaultLabel", defaultValue: "Default"))
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 76, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardNote(String(localized: "settings.workspaceColors.paletteNote", defaultValue: "Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below."))
 
                         ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
@@ -6015,6 +6061,7 @@ struct SettingsView: View {
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil
+        paneNotificationRingColorHex = nil
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser

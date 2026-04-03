@@ -7586,12 +7586,19 @@ final class GhosttySurfaceScrollView: NSView {
         notificationRingOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         notificationRingOverlayView.layer?.masksToBounds = false
         notificationRingOverlayView.autoresizingMask = [.width, .height]
+        let ringColor: NSColor = {
+            if let hex = UserDefaults.standard.string(forKey: "paneNotificationRingColorHex"),
+               let custom = NSColor(hex: hex) {
+                return custom
+            }
+            return .systemBlue
+        }()
         notificationRingLayer.fillColor = NSColor.clear.cgColor
-        notificationRingLayer.strokeColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.strokeColor = ringColor.cgColor
         notificationRingLayer.lineWidth = NotificationRingMetrics.lineWidth
         notificationRingLayer.lineJoin = .round
         notificationRingLayer.lineCap = .round
-        notificationRingLayer.shadowColor = NSColor.systemBlue.cgColor
+        notificationRingLayer.shadowColor = ringColor.cgColor
         notificationRingLayer.shadowOpacity = 0.35
         notificationRingLayer.shadowRadius = 3
         notificationRingLayer.shadowOffset = .zero
