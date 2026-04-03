@@ -254,6 +254,54 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64017,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.notifyRemoteForegroundAuthenticationReady()
+        workspace.configureRemoteConnection(config, autoConnect: false)
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    @MainActor
+    func testForegroundSSHAuthReadyReconnectsConfiguredDisconnectedRemoteWorkspace() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64018,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+
+        workspace.notifyRemoteForegroundAuthenticationReady()
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
+        workspace.disconnectRemoteConnection(clearConfiguration: true)
+    }
+
+    @MainActor
     func testRemoteTerminalSessionEndRequestsControlMasterCleanupWhenWorkspaceDemotes() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(

@@ -6376,6 +6376,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
+    private var pendingRemoteForegroundAuthConnect = false
     fileprivate var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -7885,7 +7886,9 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
 
-        guard autoConnect else {
+        let shouldAutoConnect = autoConnect || pendingRemoteForegroundAuthConnect
+        pendingRemoteForegroundAuthConnect = false
+        guard shouldAutoConnect else {
             remoteConnectionState = .disconnected
             applyBrowserRemoteWorkspaceStatusToPanels()
             return
@@ -7910,6 +7913,15 @@ final class Workspace: Identifiable, ObservableObject {
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
+    func notifyRemoteForegroundAuthenticationReady() {
+        guard remoteConfiguration != nil else {
+            pendingRemoteForegroundAuthConnect = true
+            return
+        }
+        pendingRemoteForegroundAuthConnect = false
+        reconnectRemoteConnection()
+    }
+
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
         let shouldCleanupControlMaster =
             clearConfiguration
@@ -7921,6 +7933,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
         previousController?.stop()
+        pendingRemoteForegroundAuthConnect = false
         activeRemoteTerminalSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
