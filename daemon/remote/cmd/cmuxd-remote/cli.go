@@ -46,9 +46,16 @@ type commandSpec struct {
 	// defaultParams are applied before flags/env fallbacks.
 	defaultParams map[string]any
 	// positionalKeys maps positional arguments to param keys by index.
-	// The last key in the slice consumes ALL remaining positional args
-	// (joined with spaces). Earlier keys consume exactly one arg each.
+	// Each key consumes exactly one positional arg. If greedyLast is true,
+	// the final key joins all remaining positional args (for free-form text
+	// like status values or markdown). A separate posIdx cursor tracks which
+	// positional to consume next, so flags that satisfy earlier keys don't
+	// misalign the cursor.
 	positionalKeys []string
+	// greedyLast makes the last positionalKey consume all remaining positional
+	// args (joined with spaces). Only set this for commands whose last param
+	// is free-form text (value, markdown, message).
+	greedyLast bool
 }
 
 var commands = []commandSpec{
@@ -81,15 +88,15 @@ var commands = []commandSpec{
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
 
 	// Sidebar commands
-	{name: "set-status", proto: protoV2, v2Method: "sidebar.set_status", flagKeys: []string{"key", "value", "icon", "color", "url", "priority", "format", "pid", "workspace"}, positionalKeys: []string{"key", "value"}},
+	{name: "set-status", proto: protoV2, v2Method: "sidebar.set_status", flagKeys: []string{"key", "value", "icon", "color", "url", "priority", "format", "pid", "workspace"}, positionalKeys: []string{"key", "value"}, greedyLast: true},
 	{name: "clear-status", proto: protoV2, v2Method: "sidebar.clear_status", flagKeys: []string{"key", "workspace"}, positionalKeys: []string{"key"}},
 	{name: "list-status", proto: protoV2, v2Method: "sidebar.list_status", flagKeys: []string{"workspace"}},
 	{name: "set-progress", proto: protoV2, v2Method: "sidebar.set_progress", flagKeys: []string{"value", "label", "workspace"}, positionalKeys: []string{"value"}},
 	{name: "clear-progress", proto: protoV2, v2Method: "sidebar.clear_progress", flagKeys: []string{"workspace"}},
-	{name: "log", proto: protoV2, v2Method: "sidebar.log", flagKeys: []string{"message", "level", "source", "workspace"}, positionalKeys: []string{"message"}},
+	{name: "log", proto: protoV2, v2Method: "sidebar.log", flagKeys: []string{"message", "level", "source", "workspace"}, positionalKeys: []string{"message"}, greedyLast: true},
 	{name: "clear-log", proto: protoV2, v2Method: "sidebar.clear_log", flagKeys: []string{"workspace"}},
 	{name: "list-log", proto: protoV2, v2Method: "sidebar.list_log", flagKeys: []string{"limit", "workspace"}},
-	{name: "set-meta", proto: protoV2, v2Method: "sidebar.set_meta", flagKeys: []string{"key", "markdown", "priority", "workspace"}, positionalKeys: []string{"key", "markdown"}},
+	{name: "set-meta", proto: protoV2, v2Method: "sidebar.set_meta", flagKeys: []string{"key", "markdown", "priority", "workspace"}, positionalKeys: []string{"key", "markdown"}, greedyLast: true},
 	{name: "clear-meta", proto: protoV2, v2Method: "sidebar.clear_meta", flagKeys: []string{"key", "workspace"}, positionalKeys: []string{"key"}},
 	{name: "list-meta", proto: protoV2, v2Method: "sidebar.list_meta", flagKeys: []string{"workspace"}},
 	{name: "set-agent-pid", proto: protoV2, v2Method: "sidebar.set_agent_pid", flagKeys: []string{"key", "pid", "workspace"}, positionalKeys: []string{"key", "pid"}},
@@ -254,21 +261,26 @@ func execV2(socketPath string, spec *commandSpec, args []string, jsonOutput bool
 		}
 
 		// Map positional args to named params via spec.positionalKeys.
-		// Each key gets one positional arg; the last key gets all remaining args joined.
+		// Uses a separate posIdx cursor so flags that satisfy earlier keys
+		// don't misalign the positional consumption.
 		if len(spec.positionalKeys) > 0 && len(parsed.positional) > 0 {
+			posIdx := 0
 			for i, pkey := range spec.positionalKeys {
 				paramKey := flagToParamKey(pkey)
 				if _, exists := params[paramKey]; exists {
-					continue // explicit flag takes precedence
+					continue // explicit flag takes precedence — don't advance posIdx
 				}
-				if i >= len(parsed.positional) {
+				if posIdx >= len(parsed.positional) {
 					break
 				}
-				if i == len(spec.positionalKeys)-1 {
-					// Last key: join all remaining positional args
-					params[paramKey] = strings.Join(parsed.positional[i:], " ")
+				isLast := i == len(spec.positionalKeys)-1
+				if isLast && spec.greedyLast {
+					// Greedy: join all remaining positional args
+					params[paramKey] = strings.Join(parsed.positional[posIdx:], " ")
+					posIdx = len(parsed.positional)
 				} else {
-					params[paramKey] = parsed.positional[i]
+					params[paramKey] = parsed.positional[posIdx]
+					posIdx++
 				}
 			}
 		} else if _, ok := params["initial_command"]; !ok && len(parsed.positional) > 0 {
