@@ -323,6 +323,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
 
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
 
     override func setUp() {
         super.setUp()
@@ -573,6 +574,305 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
         XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), persistedShortcut)
+    }
+
+    func testBootstrapCreatesCommentedTemplateWhenPrimaryAndFallbackAreMissing() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL
+            .appendingPathComponent(".config/cmux", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: settingsFileURL.path))
+        XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+        XCTAssertNil(store.override(for: .newTab))
+
+        let contents = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json""#))
+        XCTAssertTrue(contents.contains(#""schemaVersion": 1,"#))
+        XCTAssertTrue(contents.contains(#"//   "app" : {"#))
+        XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
+    }
+
+    func testBootstrapDoesNotCreatePrimaryWhenFallbackAlreadyExists() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+        XCTAssertEqual(store.activeSourcePath, fallbackURL.path)
+    }
+
+    func testSettingsFileStoreParsesJSONCCommentsAndTrailingCommas() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+              "schemaVersion": 1,
+              // tmux-like prefix
+              "shortcuts": {
+                "bindings": {
+                  "newTab": [
+                    "ctrl+b",
+                    "c",
+                  ],
+                },
+              },
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+    }
+
+    func testFutureSchemaVersionStillParsesKnownFields() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "schemaVersion": 999,
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .showNotifications),
+            StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        )
+    }
+
+    func testManagedUserDefaultSettingRestoresBackedUpValueWhenFileSettingIsRemoved() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspaceAutoReorderSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.set(false, forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let managedSettingsURL = directoryURL.appendingPathComponent("managed.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "reorderOnNotification": true
+              }
+            }
+            """,
+            to: managedSettingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: managedSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, true)
+
+        let missingSettingsURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, false)
+        XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
+    }
+
+    @MainActor
+    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspacePlacementSettings.placementKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "top"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(WorkspacePlacementSettings.current(), .top)
+
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "end"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
+
+        XCTAssertEqual(WorkspacePlacementSettings.current(), .end)
+    }
+
+    @MainActor
+    func testManagedWorkspacePlacementChangesDefaultInsertionBehavior() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspacePlacementSettings.placementKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "top"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let manager = TabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace(placementOverride: .end)
+        let third = manager.addWorkspace(placementOverride: .end)
+        manager.selectWorkspace(first)
+
+        let inserted = manager.addWorkspace()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [inserted.id, first.id, second.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

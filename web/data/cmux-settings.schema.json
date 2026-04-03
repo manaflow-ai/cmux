@@ -1,0 +1,534 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+  "title": "cmux settings.json",
+  "description": "User-level cmux settings. cmux accepts JSON with comments (JSONC) and trailing commas, but the underlying data model matches this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "format": "uri",
+      "default": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+      "description": "Optional schema URL for editor completion and validation."
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Schema version for forward-compatible migrations. Newer versions are parsed on a best-effort basis."
+    },
+    "app": {
+      "title": "app",
+      "description": "General app preferences from Settings > App.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "type": "string",
+          "enum": ["system", "en", "ar", "bs", "zh-Hans", "zh-Hant", "da", "de", "es", "fr", "it", "ja", "ko", "nb", "pl", "pt-BR", "ru", "th", "tr"],
+          "default": "system",
+          "description": "Preferred app language."
+        },
+        "appearance": {
+          "type": "string",
+          "enum": ["system", "light", "dark"],
+          "default": "system",
+          "description": "App appearance mode."
+        },
+        "appIcon": {
+          "type": "string",
+          "enum": ["automatic", "light", "dark"],
+          "default": "automatic",
+          "description": "Dock and app switcher icon style."
+        },
+        "newWorkspacePlacement": {
+          "type": "string",
+          "enum": ["top", "afterCurrent", "end"],
+          "default": "afterCurrent",
+          "description": "Where new workspaces are inserted in the sidebar."
+        },
+        "minimalMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide the workspace title bar and move controls into the sidebar."
+        },
+        "keepWorkspaceOpenWhenClosingLastSurface": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, closing the last surface keeps the workspace open."
+        },
+        "focusPaneOnFirstClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
+        },
+        "preferredEditor": {
+          "type": "string",
+          "default": "",
+          "description": "Custom editor command used by cmux where applicable. Leave empty to use the default."
+        },
+        "reorderOnNotification": {
+          "type": "boolean",
+          "default": true,
+          "description": "Move workspaces with new notifications toward the top."
+        },
+        "sendAnonymousTelemetry": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow anonymous telemetry."
+        },
+        "warnBeforeQuit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a confirmation before quitting cmux."
+        },
+        "renameSelectsExistingName": {
+          "type": "boolean",
+          "default": true,
+          "description": "Select the current name when opening rename flows."
+        },
+        "commandPaletteSearchesAllSurfaces": {
+          "type": "boolean",
+          "default": false,
+          "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        }
+      }
+    },
+    "notifications": {
+      "title": "notifications",
+      "description": "Notification behavior from Settings > Notifications.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dockBadge": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the unread count in the Dock tile."
+        },
+        "showInMenuBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the menu bar extra."
+        },
+        "unreadPaneRing": {
+          "type": "boolean",
+          "default": true,
+          "description": "Highlight panes with unread notifications."
+        },
+        "paneFlash": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the focused pane when requested."
+        },
+        "sound": {
+          "type": "string",
+          "enum": ["default", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink", "custom_file", "none"],
+          "default": "default",
+          "description": "Notification sound preset."
+        },
+        "customSoundFilePath": {
+          "type": "string",
+          "default": "",
+          "description": "Local path to the custom notification sound file."
+        },
+        "command": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shell command to run alongside notification delivery."
+        }
+      }
+    },
+    "sidebar": {
+      "title": "sidebar",
+      "description": "Sidebar content and metadata visibility from Settings > Sidebar.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hideAllDetails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide all per-workspace detail rows."
+        },
+        "branchLayout": {
+          "type": "string",
+          "enum": ["vertical", "inline"],
+          "default": "vertical",
+          "description": "Show git branch details stacked vertically or inline."
+        },
+        "showNotificationMessage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the latest notification text in the sidebar."
+        },
+        "showBranchDirectory": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the workspace working directory."
+        },
+        "showPullRequests": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show pull request metadata in the sidebar."
+        },
+        "openPullRequestLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open sidebar pull request links in the embedded cmux browser."
+        },
+        "openPortLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open sidebar port links in the embedded cmux browser."
+        },
+        "showSSH": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show SSH connection details."
+        },
+        "showPorts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show listening ports."
+        },
+        "showLog": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show recent log snippets."
+        },
+        "showProgress": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show progress indicators."
+        },
+        "showCustomMetadata": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show custom metadata pills."
+        }
+      }
+    },
+    "workspaceColors": {
+      "title": "workspaceColors",
+      "description": "Workspace tab and badge colors from Settings > Workspace Colors.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "indicatorStyle": {
+          "type": "string",
+          "enum": ["leftRail", "solidFill", "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"],
+          "default": "leftRail",
+          "description": "Active workspace indicator style. Legacy aliases are accepted and normalized."
+        },
+        "selectionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the selected workspace background color."
+        },
+        "notificationBadgeColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the unread notification badge color."
+        },
+        "paletteOverrides": {
+          "type": "object",
+          "default": {},
+          "description": "Override built-in workspace color names with custom hex values. Unknown names are ignored.",
+          "additionalProperties": {
+            "$ref": "#/$defs/colorHex"
+          }
+        },
+        "customColors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/colorHex"
+          },
+          "maxItems": 24,
+          "default": [],
+          "description": "Custom workspace colors available in the picker."
+        }
+      }
+    },
+    "sidebarAppearance": {
+      "title": "sidebarAppearance",
+      "description": "Sidebar tint settings from Settings > Sidebar Appearance.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "matchTerminalBackground": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the terminal background instead of the sidebar tint."
+        },
+        "tintColor": {
+          "$ref": "#/$defs/colorHex",
+          "default": "#000000",
+          "description": "Base sidebar tint color used when light/dark overrides are not set."
+        },
+        "lightModeTintColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Sidebar tint override for light appearance."
+        },
+        "darkModeTintColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Sidebar tint override for dark appearance."
+        },
+        "tintOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.03,
+          "description": "Sidebar tint opacity from 0 to 1."
+        }
+      }
+    },
+    "automation": {
+      "title": "automation",
+      "description": "Socket control and automation settings from Settings > Automation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "socketControlMode": {
+          "type": "string",
+          "enum": ["off", "cmuxOnly", "automation", "password", "allowAll", "openAccess", "fullOpenAccess", "notifications", "full"],
+          "default": "cmuxOnly",
+          "description": "Socket control mode. Legacy aliases are accepted and normalized."
+        },
+        "socketPassword": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "",
+          "description": "Password for password-mode socket access. Use null or an empty string to clear it."
+        },
+        "claudeCodeIntegration": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable cmux integration hooks for Claude Code."
+        },
+        "claudeBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the claude binary."
+        },
+        "portBase": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 9100,
+          "description": "Starting value for workspace CMUX_PORT assignments."
+        },
+        "portRange": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Number of ports reserved per workspace."
+        }
+      }
+    },
+    "customCommands": {
+      "title": "customCommands",
+      "description": "Custom command trust settings from Settings > Custom Commands.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trustedDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Directories whose cmux.json commands can run without confirmation."
+        }
+      }
+    },
+    "browser": {
+      "title": "browser",
+      "description": "Embedded browser settings from Settings > Browser.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "defaultSearchEngine": {
+          "type": "string",
+          "enum": ["google", "duckduckgo", "bing", "kagi", "startpage"],
+          "default": "google",
+          "description": "Default search engine for non-URL queries."
+        },
+        "showSearchSuggestions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show omnibar search suggestions."
+        },
+        "theme": {
+          "type": "string",
+          "enum": ["system", "light", "dark"],
+          "default": "system",
+          "description": "Embedded browser theme."
+        },
+        "openTerminalLinksInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open clicked terminal links in the embedded browser."
+        },
+        "interceptTerminalOpenCommandInCmuxBrowser": {
+          "type": "boolean",
+          "default": true,
+          "description": "Intercept terminal open http(s) commands and route them through the embedded browser."
+        },
+        "hostsToOpenInEmbeddedBrowser": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Allowlist of hosts that should stay inside the embedded browser."
+        },
+        "urlsToAlwaysOpenExternally": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Rules that always open matching URLs in the system browser."
+        },
+        "insecureHttpHostsAllowedInEmbeddedBrowser": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"],
+          "description": "HTTP hosts allowed in the embedded browser without a warning prompt."
+        },
+        "showImportHintOnBlankTabs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the browser import hint on blank tabs."
+        },
+        "reactGrabVersion": {
+          "type": "string",
+          "default": "0.1.29",
+          "description": "Pinned react-grab version for the browser toolbar helper."
+        }
+      }
+    },
+    "shortcuts": {
+      "title": "shortcuts",
+      "description": "Keyboard shortcut settings from Settings > Keyboard Shortcuts.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showModifierHoldHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show shortcut hint pills while holding Cmd or Ctrl."
+        },
+        "bindings": {
+          "type": "object",
+          "default": {},
+          "description": "Shortcut overrides keyed by cmux action id. Use a string for a single shortcut or an array for a chord.",
+          "propertyNames": {
+            "enum": [
+              "openSettings",
+              "reloadConfiguration",
+              "newWindow",
+              "closeWindow",
+              "toggleFullScreen",
+              "quit",
+              "toggleSidebar",
+              "newTab",
+              "openFolder",
+              "goToWorkspace",
+              "commandPalette",
+              "sendFeedback",
+              "showNotifications",
+              "jumpToUnread",
+              "triggerFlash",
+              "nextSurface",
+              "prevSurface",
+              "selectSurfaceByNumber",
+              "nextSidebarTab",
+              "prevSidebarTab",
+              "selectWorkspaceByNumber",
+              "renameTab",
+              "renameWorkspace",
+              "closeTab",
+              "closeOtherTabsInPane",
+              "closeWorkspace",
+              "reopenClosedBrowserPanel",
+              "newSurface",
+              "toggleTerminalCopyMode",
+              "focusLeft",
+              "focusRight",
+              "focusUp",
+              "focusDown",
+              "splitRight",
+              "splitDown",
+              "toggleSplitZoom",
+              "splitBrowserRight",
+              "splitBrowserDown",
+              "openBrowser",
+              "focusBrowserAddressBar",
+              "browserBack",
+              "browserForward",
+              "browserReload",
+              "browserZoomIn",
+              "browserZoomOut",
+              "browserZoomReset",
+              "find",
+              "findNext",
+              "findPrevious",
+              "hideFind",
+              "useSelectionForFind",
+              "toggleBrowserDeveloperTools",
+              "showBrowserJavaScriptConsole",
+              "toggleReactGrab"
+            ]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/shortcutBinding"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "colorHex": {
+      "type": "string",
+      "pattern": "^#[0-9A-Fa-f]{6}$",
+      "description": "Uppercase or lowercase 6-digit hex color."
+    },
+    "colorHexOrNull": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/colorHex"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "shortcutBinding": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Single-stroke shortcut, for example cmd+n."
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          },
+          "description": "Chorded shortcut. Example: [\"ctrl+b\", \"c\"]."
+        }
+      ]
+    }
+  }
+}

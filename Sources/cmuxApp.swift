@@ -163,6 +163,7 @@ struct cmuxApp: App {
         }
 
         Self.configureGhosttyEnvironment()
+        _ = KeyboardShortcutSettings.settingsFileStore
 
         // Apply saved language preference before any UI loads
         LanguageSettings.apply(LanguageSettings.languageAtLaunch)

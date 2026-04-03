@@ -316,8 +316,8 @@
     "configuration": {
       "title": "Configuration",
       "metaTitle": "Configuration",
-      "metaDescription": "Configure cmux via Ghostty config files and ~/.config/cmux/settings.json. Fonts, themes, app-owned shortcuts, automation mode, and browser behavior.",
-      "intro": "cmux reads terminal configuration from Ghostty config files. App-owned shortcuts can also be managed from a cmux settings file.",
+      "metaDescription": "Configure cmux via Ghostty config files and ~/.config/cmux/settings.json. Terminal rendering stays in Ghostty config, while cmux app settings, shortcuts, automation, sidebar, notifications, and browser behavior live in settings.json.",
+      "intro": "cmux reads terminal configuration from Ghostty config files. cmux-owned app settings also live in ~/.config/cmux/settings.json, including shortcuts, automation, sidebar behavior, notifications, and browser preferences.",
       "configLocations": "Config file locations",
       "configLocationsDesc": "cmux looks for configuration in these locations (in order):",
       "createConfig": "Create the config file if it doesn't exist:",
