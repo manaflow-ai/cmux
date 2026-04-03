@@ -311,6 +311,60 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    func testPreferredConfigurationEditorApplicationURLPrefersExtensionAssociation() {
+        let extensionEditorURL = URL(fileURLWithPath: "/Applications/Zed.app", isDirectory: true)
+        let defaultTextEditorURL = URL(fileURLWithPath: "/Applications/TextEdit.app", isDirectory: true)
+
+        let resolved = GhosttyApp.preferredConfigurationEditorApplicationURL(
+            for: URL(fileURLWithPath: "/tmp/config.ghostty"),
+            defaultApplicationURLForExtension: { ext in
+                XCTAssertEqual(ext, "ghostty")
+                return extensionEditorURL
+            },
+            defaultTextEditorURL: {
+                defaultTextEditorURL
+            }
+        )
+
+        XCTAssertEqual(resolved, extensionEditorURL)
+    }
+
+    func testPreferredConfigurationEditorApplicationURLFallsBackToDefaultTextEditorWhenExtensionHasNoAssociation() {
+        let defaultTextEditorURL = URL(fileURLWithPath: "/Applications/Zed.app", isDirectory: true)
+
+        let resolved = GhosttyApp.preferredConfigurationEditorApplicationURL(
+            for: URL(fileURLWithPath: "/tmp/config.ghostty"),
+            defaultApplicationURLForExtension: { ext in
+                XCTAssertEqual(ext, "ghostty")
+                return nil
+            },
+            defaultTextEditorURL: {
+                defaultTextEditorURL
+            }
+        )
+
+        XCTAssertEqual(resolved, defaultTextEditorURL)
+    }
+
+    func testPreferredConfigurationEditorApplicationURLFallsBackToDefaultTextEditorForLegacyExtensionlessConfig() {
+        let defaultTextEditorURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        var consultedExtensionLookup = false
+
+        let resolved = GhosttyApp.preferredConfigurationEditorApplicationURL(
+            for: URL(fileURLWithPath: "/tmp/config"),
+            defaultApplicationURLForExtension: { _ in
+                consultedExtensionLookup = true
+                return nil
+            },
+            defaultTextEditorURL: {
+                defaultTextEditorURL
+            }
+        )
+
+        XCTAssertFalse(consultedExtensionLookup)
+        XCTAssertEqual(resolved, defaultTextEditorURL)
+    }
+
     func testCmuxAppSupportConfigURLsUseReleaseConfigForDebugBundleWithoutCurrentConfig() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             let releaseConfigURL = try writeAppSupportConfig(
