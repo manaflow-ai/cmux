@@ -6870,6 +6870,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Unknown log level '\(levelStr)' — use: info, progress, success, warning, error", data: nil)
         }
         let source = v2String(params, "source")
+        let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+        let limit = max(1, min(500, configuredLimit))
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to log", data: nil)
         v2MainSync {
@@ -6878,8 +6880,6 @@ class TerminalController {
                 return
             }
             ws.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
-            let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
-            let limit = max(1, min(500, configuredLimit))
             if ws.logEntries.count > limit {
                 ws.logEntries.removeFirst(ws.logEntries.count - limit)
             }
@@ -7070,8 +7070,16 @@ class TerminalController {
                 return
             }
             if let surfaceId {
+                guard Self.shouldReplaceGitBranch(current: ws.panelGitBranches[surfaceId], branch: branch, isDirty: isDirty) else {
+                    result = .ok(["workspace_id": ws.id.uuidString])
+                    return
+                }
                 ws.panelGitBranches[surfaceId] = SidebarGitBranchState(branch: branch, isDirty: isDirty)
             } else {
+                guard Self.shouldReplaceGitBranch(current: ws.gitBranch, branch: branch, isDirty: isDirty) else {
+                    result = .ok(["workspace_id": ws.id.uuidString])
+                    return
+                }
                 ws.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
             }
             result = .ok(["workspace_id": ws.id.uuidString])
@@ -7163,6 +7171,11 @@ class TerminalController {
                     "timestamp": isoFormatter.string(from: block.timestamp)
                 ]
             }
+            // Panel git branches
+            var panelGitBranchesJSON: [String: Any] = [:]
+            for (surfaceId, git) in ws.panelGitBranches {
+                panelGitBranchesJSON[surfaceId.uuidString] = ["branch": git.branch, "dirty": git.isDirty]
+            }
             // Agent PIDs
             var agentPids: [String: Any] = [:]
             for (key, pid) in ws.agentPIDs {
@@ -7173,6 +7186,7 @@ class TerminalController {
                 "status_entries": statusEntries,
                 "progress": progressDict,
                 "git_branch": gitBranchDict,
+                "panel_git_branches": panelGitBranchesJSON,
                 "log_entries": logEntries,
                 "metadata_blocks": metadataBlocks,
                 "agent_pids": agentPids
