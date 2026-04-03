@@ -42,6 +42,104 @@ _cmux_send_bg() {
     fi
 }
 
+_cmux_socket_is_unix() {
+    [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
+}
+
+_cmux_relay_cli_path() {
+    if [[ -n "${CMUX_BUNDLED_CLI_PATH:-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
+        print -r -- "${CMUX_BUNDLED_CLI_PATH}"
+        return 0
+    fi
+    command -v cmux 2>/dev/null
+}
+
+_cmux_socket_uses_remote_relay() {
+    [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
+    [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
+    [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
+    [[ -n "$(_cmux_relay_cli_path)" ]]
+}
+
+_cmux_has_port_scan_transport() {
+    _cmux_socket_is_unix && return 0
+    _cmux_socket_uses_remote_relay
+}
+
+_cmux_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    print -r -- "$value"
+}
+
+_cmux_relay_rpc_bg() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    _cmux_socket_uses_remote_relay || return 1
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    { "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true } >/dev/null 2>&1 &!
+}
+
+_cmux_relay_rpc() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    local response=""
+    _cmux_socket_uses_remote_relay || return 1
+    # Relay `cmux rpc` exits nonzero on server error. The real remote CLI prints
+    # only the JSON result payload on success, while some test stubs return the
+    # full `{"ok":...}` envelope. Retry only on explicit `ok:false`.
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    response="$("$relay_cli" rpc "$method" "$params" 2>/dev/null)" || return 1
+    response="${response//$'\n'/}"
+    response="${response//$'\r'/}"
+    [[ "$response" == *'"ok":false'* || "$response" == *'"ok": false'* ]] && return 1
+    return 0
+}
+
+_cmux_relay_workspace_id() {
+    if [[ -n "$CMUX_WORKSPACE_ID" ]]; then
+        print -r -- "$CMUX_WORKSPACE_ID"
+        return 0
+    fi
+    [[ -n "$CMUX_TAB_ID" ]] || return 1
+    print -r -- "$CMUX_TAB_ID"
+}
+
+_cmux_report_tty_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+
+    local tty_name_json params
+    tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_tty" "$params"
+}
+
+_cmux_ports_kick_via_relay() {
+    local reason="${1:-command}"
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    local params="{\"workspace_id\":\"$workspace_id\",\"reason\":\"$reason\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.ports_kick" "$params"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -53,6 +151,10 @@ _cmux_restore_scrollback_once() {
     fi
 }
 _cmux_restore_scrollback_once
+
+_cmux_now() {
+    print -r -- "${EPOCHSECONDS:-$SECONDS}"
+}
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
 _cmux_install_claude_wrapper() {
@@ -369,14 +471,21 @@ _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
 
-    local payload=""
-    payload="$(_cmux_report_tty_payload)"
-    [[ -n "$payload" ]] || return 0
-
-    _CMUX_TTY_REPORTED=1
-    _cmux_send_bg "$payload"
+    if _cmux_socket_is_unix; then
+        local payload=""
+        payload="$(_cmux_report_tty_payload)"
+        [[ -n "$payload" ]] || return 0
+        _CMUX_TTY_REPORTED=1
+        _cmux_send_bg "$payload"
+    else
+        [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+        # Keep the first relay TTY report synchronous so the server can resolve
+        # the target surface before command-start kicks begin their scan burst.
+        _cmux_report_tty_via_relay || return 0
+        _CMUX_TTY_REPORTED=1
+    fi
 }
 
 _cmux_report_shell_activity_state() {
@@ -391,13 +500,20 @@ _cmux_report_shell_activity_state() {
 }
 
 _cmux_ports_kick() {
+    local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
     # The app coalesces kicks across all panels and runs a single ps+lsof.
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _CMUX_PORTS_LAST_RUN=$EPOCHSECONDS
-    _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
+    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+    if _cmux_socket_is_unix; then
+        _cmux_send_bg "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
+    else
+        _cmux_ports_kick_via_relay "$reason"
+    fi
 }
 
 _cmux_report_git_branch_for_path() {
@@ -874,7 +990,7 @@ _cmux_preexec() {
         [[ -n "$t" && "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
     fi
 
-    _CMUX_CMD_START=$EPOCHSECONDS
+    _CMUX_CMD_START="$(_cmux_now)"
     _cmux_report_shell_activity_state running
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
@@ -887,7 +1003,7 @@ _cmux_preexec() {
 
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
-    _cmux_ports_kick
+    _cmux_ports_kick command
     _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     if _cmux_command_starts_nested_shell "$cmd"; then
@@ -900,11 +1016,13 @@ _cmux_precmd() {
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
-    # Skip if socket doesn't exist yet
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    local cmux_has_unix_socket=0
+    _cmux_socket_is_unix && cmux_has_unix_socket=1
+    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_report_shell_activity_state prompt
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_report_shell_activity_state prompt
+    fi
 
     # Handle cases where Ghostty integration initializes after this file.
     (( _CMUX_GHOSTTY_SEMANTIC_PATCHED )) || _cmux_patch_ghostty_semantic_redraw
@@ -918,10 +1036,23 @@ _cmux_precmd() {
 
     _cmux_report_tty_once
 
-    local now=$EPOCHSECONDS
-    local pwd="$PWD"
+    local now="$(_cmux_now)"
     local cmd_start="$_CMUX_CMD_START"
     _CMUX_CMD_START=0
+    local cmd_dur=0
+    if [[ -n "$cmd_start" && "$cmd_start" != 0 ]]; then
+        cmd_dur=$(( now - cmd_start ))
+    fi
+
+    if (( ! cmux_has_unix_socket )); then
+        if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
+            _cmux_ports_kick refresh
+        fi
+        return 0
+    fi
+
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    local pwd="$PWD"
 
     _cmux_prompt_wrap_guard "$cmd_start" "$pwd"
 
@@ -1059,13 +1190,8 @@ _cmux_precmd() {
     # Ports: lightweight kick to the app's batched scanner.
     # - Periodic scan to avoid stale values.
     # - Forced scan when a long-running command returns to the prompt (common when stopping a server).
-    local cmd_dur=0
-    if [[ -n "$cmd_start" && "$cmd_start" != 0 ]]; then
-        cmd_dur=$(( now - cmd_start ))
-    fi
-
     if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-        _cmux_ports_kick
+        _cmux_ports_kick refresh
     fi
 }
 

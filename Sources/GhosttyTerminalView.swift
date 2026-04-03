@@ -9125,11 +9125,11 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceOwnsFirstResponder = isSurfaceViewFirstResponder()
 
-        guard surfaceView.desiredFocus else { return }
-        guard isSurfaceViewFirstResponder() else { return }
-        guard isActive else { return }
+        guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
         guard surfaceView.isVisibleInUI else { return }
+        surfaceView.terminalSurface?.recordExternalFocusState(true)
         guard let window, window.isKeyWindow else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
@@ -9141,6 +9141,15 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             scheduleAutomaticFirstResponderApply(reason: "clearSuppressReparentFocus.hiddenOrTiny")
             return
+        }
+        if !surfaceOwnsFirstResponder && !isSurfaceViewFirstResponder() {
+#if DEBUG
+            dlog(
+                "focus.reparent.resume.restoreFirstResponder surface=\(surfaceShort) " +
+                "firstResponder=\(String(describing: window.firstResponder))"
+            )
+#endif
+            guard window.makeFirstResponder(surfaceView), isSurfaceViewFirstResponder() else { return }
         }
 #if DEBUG
         dlog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")

@@ -1422,12 +1422,13 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
 
         leftPanel.hostedView.clearSuppressReparentFocus()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertTrue(
-            leftPanel.surface.debugDesiredFocusState(),
-            "Clearing reparent-focus suppression should reassert Ghostty focus when the surface still owns first responder"
+        let focusRecovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                leftPanel.surface.debugDesiredFocusState()
+            },
+            object: NSObject()
         )
+        wait(for: [focusRecovered], timeout: 1.0)
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
