@@ -1,8 +1,10 @@
 FROM alpine:3.20
 
-RUN apk add --no-cache openssh python3 iproute2 net-tools ncurses
+RUN apk add --no-cache openssh python3 iproute2 net-tools ncurses bash
 
-RUN adduser -D -s /bin/sh dev \
+RUN adduser -D -s /bin/bash dev \
+    && awk -F: 'BEGIN { OFS=":" } $1 == "root" { $7 = "/bin/bash" } { print }' /etc/passwd > /etc/passwd.tmp \
+    && mv /etc/passwd.tmp /etc/passwd \
     && mkdir -p /home/dev/.ssh /run/sshd /srv/www \
     && chown -R dev:dev /home/dev/.ssh \
     && chmod 700 /home/dev/.ssh \

@@ -12,11 +12,16 @@ REMOTE_WS_PORT="${REMOTE_WS_PORT:-43174}"
 mkdir -p /home/dev/.ssh /root/.ssh /run/sshd
 printf '%s\n' "$AUTHORIZED_KEY" > /home/dev/.ssh/authorized_keys
 printf '%s\n' "$AUTHORIZED_KEY" > /root/.ssh/authorized_keys
+printf "stty erase '^H' >/dev/null 2>&1 || true\n" > /home/dev/.bashrc
+printf "stty erase '^H' >/dev/null 2>&1 || true\n" > /root/.bashrc
 chown -R dev:dev /home/dev/.ssh
+chown dev:dev /home/dev/.bashrc
 chmod 700 /home/dev/.ssh
 chmod 600 /home/dev/.ssh/authorized_keys
+chmod 644 /home/dev/.bashrc
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
+chmod 644 /root/.bashrc
 
 python3 -m http.server "$REMOTE_HTTP_PORT" --bind 127.0.0.1 --directory /srv/www >/tmp/http.log 2>&1 &
 HTTP_PID=$!
