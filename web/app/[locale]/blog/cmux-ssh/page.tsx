@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
+import { CodeBlock } from "../../components/code-block";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -73,6 +74,25 @@ export default function CmuxSshPage() {
         <li><code>cmux claude-teams</code> and <code>cmux omo</code> work over SSH, spawning teammate panes locally while computation runs remote</li>
         <li>The sidebar shows connection state and detected listening ports</li>
       </ul>
+
+      <h2 className="mt-10">SSH Sandboxes</h2>
+      <p className="mt-4">
+        The new SSH sandbox mode keeps the same remote workspace UX, but starts the shell
+        inside Docker Sandboxes on the remote host. That gives you the browser proxying,
+        notifications, and reconnect flow from <code>cmux ssh</code>, while moving the
+        actual shell into an isolated Docker sandbox.
+      </p>
+
+      <CodeBlock lang="bash">{`cmux ssh dev@macmini --docker-sandbox --docker-sandbox-workspace ~/src/cmux
+cmux ssh dev@macmini --docker-sandbox --docker-sandbox-name cmux-dev
+cmux ssh dev@macmini --docker-sandbox --docker-sandbox-workspace ~/src/cmux --docker-sandbox-mount ~/docs/cmux:ro`}</CodeBlock>
+
+      <p className="mt-4">
+        This is built for Docker Desktop&apos;s <code>docker sandbox</code> integration on
+        the remote machine. cmux checks for that command before the workspace finishes
+        connecting, creates missing writable workspace directories, and then runs
+        <code>docker sandbox run shell</code> for you.
+      </p>
 
       <iframe
         className="my-6 rounded-lg w-full aspect-video"

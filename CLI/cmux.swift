@@ -3590,8 +3590,61 @@ struct CMUXCLI {
         let noFocus: Bool
         let sshOptions: [String]
         let extraArguments: [String]
+        let dockerSandbox: SSHDockerSandboxOptions?
         let localSocketPath: String
         let remoteRelayPort: Int
+    }
+
+    struct SSHDockerSandboxOptions: Equatable {
+        let workspacePath: String?
+        let name: String?
+        let mounts: [String]
+        let shellArguments: [String]
+
+        var suggestedWorkspaceTitle: String? {
+            if let name = normalized(name) {
+                return name
+            }
+            guard let workspacePath = normalized(workspacePath) else {
+                return nil
+            }
+            let candidate = URL(fileURLWithPath: workspacePath).lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return candidate.isEmpty || candidate == "/" ? nil : candidate
+        }
+
+        var writableWorkspacePaths: [String] {
+            var seen: Set<String> = []
+            var ordered: [String] = []
+
+            func append(_ rawValue: String?) {
+                guard let value = normalized(rawValue) else { return }
+                if seen.insert(value).inserted {
+                    ordered.append(value)
+                }
+            }
+
+            append(workspacePath)
+            for mount in mounts {
+                let trimmed = mount.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                let lower = trimmed.lowercased()
+                if lower.hasSuffix(":ro") || lower.hasSuffix(":readonly") {
+                    continue
+                }
+                append(trimmed)
+            }
+
+            return ordered
+        }
+
+        private func normalized(_ value: String?) -> String? {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                return nil
+            }
+            return trimmed
+        }
     }
 
     private struct RemoteDaemonManifest: Decodable {
@@ -3660,14 +3713,24 @@ struct CMUXCLI {
             "source=\(terminfoSource == nil ? 0 : 1)"
         )
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
-        let initialSSHCommand = buildSSHCommandText(sshOptions)
-        let remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
-            ? buildInteractiveRemoteShellScript(
-                remoteRelayPort: sshOptions.remoteRelayPort,
-                shellFeatures: shellFeaturesValue,
-                terminfoSource: terminfoSource
-            )
-            : nil
+        let remoteTerminalBootstrapScript: String? =
+            if let dockerSandbox = sshOptions.dockerSandbox {
+                buildDockerSandboxRemoteBootstrapScript(dockerSandbox)
+            } else if sshOptions.extraArguments.isEmpty {
+                buildInteractiveRemoteShellScript(
+                    remoteRelayPort: sshOptions.remoteRelayPort,
+                    shellFeatures: shellFeaturesValue,
+                    terminfoSource: terminfoSource
+                )
+            } else {
+                nil
+            }
+        let initialSSHCommand =
+            if sshOptions.dockerSandbox != nil {
+                buildSSHCommandText(sshOptions, remoteBootstrapScript: remoteTerminalBootstrapScript)
+            } else {
+                buildSSHCommandText(sshOptions)
+            }
         let remoteTerminalSSHCommand = buildSSHCommandText(
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript
@@ -3705,7 +3768,7 @@ struct CMUXCLI {
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
-            "extraArgs=\(sshOptions.extraArguments.count)"
+            "extraArgs=\(sshOptions.extraArguments.count) dockerSandbox=\(sshOptions.dockerSandbox == nil ? 0 : 1)"
         )
 
         let workspaceCreateParams: [String: Any] = [
@@ -3808,6 +3871,20 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = remoteRelayPort
+        if let dockerSandbox = sshOptions.dockerSandbox {
+            var dockerSandboxPayload: [String: Any] = [
+                "mounts": dockerSandbox.mounts,
+                "shell_arguments": dockerSandbox.shellArguments,
+                "run_command": buildDockerSandboxRunCommand(dockerSandbox),
+            ]
+            if let workspacePath = dockerSandbox.workspacePath {
+                dockerSandboxPayload["workspace_path"] = workspacePath
+            }
+            if let name = dockerSandbox.name {
+                dockerSandboxPayload["name"] = name
+            }
+            payload["docker_sandbox"] = dockerSandboxPayload
+        }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -3827,6 +3904,10 @@ struct CMUXCLI {
         var noFocus = false
         var sshOptions: [String] = []
         var extraArguments: [String] = []
+        var dockerSandboxEnabled = false
+        var dockerSandboxWorkspacePath: String?
+        var dockerSandboxName: String?
+        var dockerSandboxMounts: [String] = []
 
         var passthrough = false
         var index = 0
@@ -3863,6 +3944,33 @@ struct CMUXCLI {
                 }
                 workspaceName = commandArgs[index + 1]
                 index += 2
+            case "--docker-sandbox":
+                dockerSandboxEnabled = true
+                index += 1
+            case "--docker-sandbox-workspace":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --docker-sandbox-workspace requires a path")
+                }
+                dockerSandboxEnabled = true
+                dockerSandboxWorkspacePath = commandArgs[index + 1]
+                index += 2
+            case "--docker-sandbox-name":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --docker-sandbox-name requires a value")
+                }
+                dockerSandboxEnabled = true
+                dockerSandboxName = commandArgs[index + 1]
+                index += 2
+            case "--docker-sandbox-mount":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh: --docker-sandbox-mount requires a path")
+                }
+                dockerSandboxEnabled = true
+                let value = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    dockerSandboxMounts.append(value)
+                }
+                index += 2
             case "--no-focus":
                 noFocus = true
                 index += 1
@@ -3896,14 +4004,26 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
+        let dockerSandbox: SSHDockerSandboxOptions? =
+            if dockerSandboxEnabled {
+                SSHDockerSandboxOptions(
+                    workspacePath: dockerSandboxWorkspacePath,
+                    name: dockerSandboxName,
+                    mounts: dockerSandboxMounts,
+                    shellArguments: extraArguments
+                )
+            } else {
+                nil
+            }
         return SSHCommandOptions(
             destination: destination,
             port: port,
             identityFile: identityFile,
-            workspaceName: workspaceName,
+            workspaceName: workspaceName ?? dockerSandbox?.suggestedWorkspaceTitle,
             noFocus: noFocus,
             sshOptions: sshOptions,
-            extraArguments: extraArguments,
+            extraArguments: dockerSandbox == nil ? extraArguments : [],
+            dockerSandbox: dockerSandbox,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
@@ -4114,6 +4234,51 @@ struct CMUXCLI {
             terminfoSource: terminfoSource
         )
         return "/bin/sh -c \(shellQuote(script))"
+    }
+
+    func buildDockerSandboxRunCommand(_ options: SSHDockerSandboxOptions) -> String {
+        var parts = ["docker", "sandbox", "run"]
+        if let name = options.name?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !name.isEmpty {
+            parts.append("--name")
+            parts.append(shellQuote(name))
+        }
+        parts.append("shell")
+        if let workspacePath = options.workspacePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspacePath.isEmpty {
+            parts.append(dockerSandboxPathShellToken(workspacePath))
+        }
+        for mount in options.mounts {
+            let trimmed = mount.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            parts.append(dockerSandboxPathShellToken(trimmed))
+        }
+        if !options.shellArguments.isEmpty {
+            parts.append("--")
+            parts.append(contentsOf: options.shellArguments.map(shellQuote))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    func buildDockerSandboxRemoteBootstrapScript(_ options: SSHDockerSandboxOptions) -> String {
+        var lines = [
+            "if ! command -v docker >/dev/null 2>&1; then",
+            "  echo 'cmux ssh: docker CLI not found on the remote host.' >&2",
+            "  exit 127",
+            "fi",
+            "cmux_docker_sandbox_probe_err=\"$(docker sandbox ls 2>&1 >/dev/null)\"",
+            "cmux_docker_sandbox_probe_status=$?",
+            "if [ \"$cmux_docker_sandbox_probe_status\" -ne 0 ]; then",
+            "  if [ -n \"$cmux_docker_sandbox_probe_err\" ]; then printf '%s\\n' \"$cmux_docker_sandbox_probe_err\" >&2; fi",
+            "  echo 'cmux ssh: docker sandbox is unavailable on the remote host. Docker Desktop 4.58+ required.' >&2",
+            "  exit 127",
+            "fi",
+        ]
+        for workspacePath in options.writableWorkspacePaths {
+            lines.append("mkdir -p -- \(dockerSandboxPathShellToken(workspacePath)) || exit $?")
+        }
+        lines.append("exec \(buildDockerSandboxRunCommand(options))")
+        return lines.joined(separator: "\n")
     }
 
     private func interactiveRemoteTerminalSetupLines(terminfoSource: String?) -> [String] {
@@ -4556,6 +4721,30 @@ struct CMUXCLI {
             }
         }
         return trimmed
+    }
+
+    private func dockerSandboxPathShellToken(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return shellQuote(trimmed) }
+
+        let lower = trimmed.lowercased()
+        if lower.hasSuffix(":readonly") {
+            let path = String(trimmed.dropLast(9))
+            return dockerSandboxPathShellToken(path) + ":readonly"
+        }
+        if lower.hasSuffix(":ro") {
+            let path = String(trimmed.dropLast(3))
+            return dockerSandboxPathShellToken(path) + ":ro"
+        }
+
+        if trimmed == "~" || trimmed == "~/" {
+            return "\"$HOME\""
+        }
+        if trimmed.hasPrefix("~/") {
+            let suffix = String(trimmed.dropFirst(2))
+            return suffix.isEmpty ? "\"$HOME\"" : "\"$HOME\"/\(shellQuote(suffix))"
+        }
+        return shellQuote(trimmed)
     }
 
     private func shellQuote(_ value: String) -> String {
@@ -6428,22 +6617,32 @@ struct CMUXCLI {
             """
         case "ssh":
             return """
-            Usage: cmux ssh <destination> [flags] [-- <remote-command-args>]
+            Usage: cmux ssh <destination> [flags] [-- <remote-command-args-or-sandbox-shell-args>]
 
             Create a new workspace, mark it as remote-SSH, and start an SSH session in that workspace.
             cmux will also establish a local SSH proxy endpoint so browser traffic can egress from the remote host.
 
             Flags:
-              --name <title>          Optional workspace title
-              --port <n>              SSH port
-              --identity <path>       SSH identity file path
-              --ssh-option <opt>      Extra SSH -o option (repeatable)
-              --no-focus              Create workspace without switching to it
+              --name <title>                   Optional workspace title
+              --port <n>                       SSH port
+              --identity <path>                SSH identity file path
+              --ssh-option <opt>               Extra SSH -o option (repeatable)
+              --docker-sandbox                 Run `docker sandbox run shell` on the remote host after connect
+              --docker-sandbox-workspace <p>   Primary remote workspace path to mount/create
+              --docker-sandbox-name <name>     Reuse a named Docker sandbox on the remote host
+              --docker-sandbox-mount <path>    Extra remote workspace mount, supports :ro / :readonly
+              --no-focus                       Create workspace without switching to it
+
+            Notes:
+              When Docker sandbox mode is enabled, args after `--` are passed through to
+              `docker sandbox run ... -- ...` inside the remote host.
 
             Example:
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+              cmux ssh dev@my-host --docker-sandbox --docker-sandbox-workspace ~/src/cmux
+              cmux ssh dev@my-host --docker-sandbox --docker-sandbox-name cmux-dev --docker-sandbox-mount ~/docs/cmux:ro
             """
         case "remote-daemon-status":
             return """
@@ -13291,7 +13490,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
           list-workspaces
           new-workspace [--name <title>] [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--docker-sandbox] [--docker-sandbox-workspace <path>] [--docker-sandbox-name <name>] [--docker-sandbox-mount <path[:ro]>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           list-panes [--workspace <id|ref>]

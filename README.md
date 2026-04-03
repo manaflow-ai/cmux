@@ -68,6 +68,8 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <td width="40%" valign="middle">
 <h3>SSH</h3>
 <code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+<br /><br />
+<code>cmux ssh user@remote --docker-sandbox --docker-sandbox-workspace ~/src/app</code> lands that remote workspace inside Docker Desktop sandboxes on the remote host, so you keep cmux’s SSH UX while isolating the shell.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />

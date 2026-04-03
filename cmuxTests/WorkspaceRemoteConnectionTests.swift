@@ -2146,4 +2146,5 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "Stale env surface should not win inside tmux, saw \(state.commands)"
         )
     }
+
 }

@@ -53,6 +53,32 @@ cmux ssh user@remote -i ~/.ssh/id_ed25519`}</CodeBlock>
         </tbody>
       </table>
 
+      <h2>SSH Sandboxes</h2>
+      <p>
+        Use cmux SSH to land inside Docker Sandboxes on the remote host. This keeps the
+        normal cmux SSH workspace model, but starts the terminal inside Docker&apos;s
+        shell sandbox instead of the host login shell.
+      </p>
+      <CodeBlock lang="bash">{`cmux ssh dev@macmini --docker-sandbox --docker-sandbox-workspace ~/src/cmux
+cmux ssh dev@macmini --docker-sandbox --docker-sandbox-name cmux-dev
+cmux ssh dev@macmini --docker-sandbox --docker-sandbox-workspace ~/src/cmux --docker-sandbox-mount ~/docs/cmux:ro
+cmux ssh dev@macmini --docker-sandbox --docker-sandbox-workspace ~/src/cmux -- -lc "git status && exec bash -il"`}</CodeBlock>
+      <p>
+        cmux checks for <code>docker sandbox</code> on the remote host, creates writable
+        workspace directories when needed, and then runs <code>docker sandbox run shell</code>
+        for you. The primary workspace path becomes the main sandbox mount. Additional
+        <code>--docker-sandbox-mount</code>
+        paths are passed through directly, and args after <code>--</code> become shell
+        args inside the sandbox.
+      </p>
+      <p>
+        This targets Docker Desktop&apos;s built-in <code>docker sandbox</code> command on
+        the remote host. Docker documents that integration as requiring Docker Desktop
+        4.58 or later, and it also notes that the standalone <code>sbx</code> CLI is the
+        fuller option. cmux surfaces a preflight error if the remote machine does not
+        expose <code>docker sandbox</code>.
+      </p>
+
       <h2>{t("browserTitle")}</h2>
       <p>{t("browserDesc")}</p>
 
