@@ -75,6 +75,25 @@ var commands = []commandSpec{
 	{name: "send-key", proto: protoV2, v2Method: "surface.send_key", flagKeys: []string{"surface", "key"}},
 	{name: "notify", proto: protoV2, v2Method: "notification.create", flagKeys: []string{"title", "body", "workspace"}},
 	{name: "refresh-surfaces", proto: protoV2, v2Method: "surface.refresh", noParams: true},
+
+	// Sidebar commands
+	{name: "set-status", proto: protoV2, v2Method: "sidebar.set_status", flagKeys: []string{"key", "value", "icon", "color", "url", "priority", "format", "pid", "workspace"}},
+	{name: "clear-status", proto: protoV2, v2Method: "sidebar.clear_status", flagKeys: []string{"key", "workspace"}},
+	{name: "list-status", proto: protoV2, v2Method: "sidebar.list_status", flagKeys: []string{"workspace"}},
+	{name: "set-progress", proto: protoV2, v2Method: "sidebar.set_progress", flagKeys: []string{"value", "label", "workspace"}},
+	{name: "clear-progress", proto: protoV2, v2Method: "sidebar.clear_progress", flagKeys: []string{"workspace"}},
+	{name: "log", proto: protoV2, v2Method: "sidebar.log", flagKeys: []string{"message", "level", "source", "workspace"}},
+	{name: "clear-log", proto: protoV2, v2Method: "sidebar.clear_log", flagKeys: []string{"workspace"}},
+	{name: "list-log", proto: protoV2, v2Method: "sidebar.list_log", flagKeys: []string{"limit", "workspace"}},
+	{name: "set-meta", proto: protoV2, v2Method: "sidebar.set_meta", flagKeys: []string{"key", "markdown", "priority", "workspace"}},
+	{name: "clear-meta", proto: protoV2, v2Method: "sidebar.clear_meta", flagKeys: []string{"key", "workspace"}},
+	{name: "list-meta", proto: protoV2, v2Method: "sidebar.list_meta", flagKeys: []string{"workspace"}},
+	{name: "set-agent-pid", proto: protoV2, v2Method: "sidebar.set_agent_pid", flagKeys: []string{"key", "pid", "workspace"}},
+	{name: "clear-agent-pid", proto: protoV2, v2Method: "sidebar.clear_agent_pid", flagKeys: []string{"key", "workspace"}},
+	{name: "report-git-branch", proto: protoV2, v2Method: "sidebar.report_git_branch", flagKeys: []string{"branch", "dirty", "surface", "workspace"}},
+	{name: "clear-git-branch", proto: protoV2, v2Method: "sidebar.clear_git_branch", flagKeys: []string{"surface", "workspace"}},
+	{name: "sidebar-state", proto: protoV2, v2Method: "sidebar.state", flagKeys: []string{"workspace"}},
+	{name: "reset-sidebar", proto: protoV2, v2Method: "sidebar.reset", flagKeys: []string{"workspace"}},
 }
 
 var commandIndex map[string]*commandSpec
@@ -771,4 +790,23 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Sidebar commands:")
+	fmt.Fprintln(os.Stderr, "  set-status                Set a sidebar status pill")
+	fmt.Fprintln(os.Stderr, "  clear-status              Clear a sidebar status pill")
+	fmt.Fprintln(os.Stderr, "  list-status               List all sidebar status pills")
+	fmt.Fprintln(os.Stderr, "  set-progress              Set the sidebar progress bar")
+	fmt.Fprintln(os.Stderr, "  clear-progress            Clear the sidebar progress bar")
+	fmt.Fprintln(os.Stderr, "  log                       Add a sidebar activity log entry")
+	fmt.Fprintln(os.Stderr, "  clear-log                 Clear the sidebar activity log")
+	fmt.Fprintln(os.Stderr, "  list-log                  List sidebar activity log entries")
+	fmt.Fprintln(os.Stderr, "  set-meta                  Set a sidebar metadata block")
+	fmt.Fprintln(os.Stderr, "  clear-meta                Clear a sidebar metadata block")
+	fmt.Fprintln(os.Stderr, "  list-meta                 List sidebar metadata blocks")
+	fmt.Fprintln(os.Stderr, "  set-agent-pid             Associate a PID with a status key")
+	fmt.Fprintln(os.Stderr, "  clear-agent-pid           Remove PID association from a status key")
+	fmt.Fprintln(os.Stderr, "  report-git-branch         Report git branch info for a surface")
+	fmt.Fprintln(os.Stderr, "  clear-git-branch          Clear git branch info for a surface")
+	fmt.Fprintln(os.Stderr, "  sidebar-state             Get full sidebar state")
+	fmt.Fprintln(os.Stderr, "  reset-sidebar             Reset all sidebar state")
 }
