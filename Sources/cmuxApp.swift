@@ -3883,6 +3883,7 @@ struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
+    private let shortcutChordsDocsURL = URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
 
     @AppStorage(LanguageSettings.languageKey) private var appLanguage = LanguageSettings.defaultLanguage.rawValue
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -5609,6 +5610,26 @@ struct SettingsView: View {
                         .id(SettingsNavigationTarget.keyboardShortcuts)
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
                     SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.shortcuts.chords", defaultValue: "Shortcut Chords"),
+                            subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"].")
+                        ) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                    openCmuxSettingsFileInTextEdit()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
+
+                                Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
+                                    .font(.caption)
+                                    .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             String(localized: "settings.shortcuts.showHints", defaultValue: "Show Cmd/Ctrl-Hold Shortcut Hints"),
                             subtitle: showShortcutHintsOnCommandHold

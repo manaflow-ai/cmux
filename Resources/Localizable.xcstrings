@@ -63462,6 +63462,57 @@
         }
       }
     },
+    "settings.shortcuts.chords": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut Chords"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットコード"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.chords.docsButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chord docs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードの説明"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.chords.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"]."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.json で tmux 風の2段階ショートカットを追加できます。例: [\"ctrl+b\", \"c\"]。"
+          }
+        }
+      }
+    },
     "settings.shortcuts.showHints": {
       "extractionState": "manual",
       "localizations": {
