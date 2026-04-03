@@ -86,9 +86,9 @@ final class MultiWindowNotificationsUITests: XCTestCase {
         XCTAssertEqual(afterJump["focusedWindowId"], expectedLatestWindowId)
         XCTAssertEqual(afterJump["focusedTabId"], expectedLatestTabId)
 
-        // Open the notifications popover (Cmd+I) and click the notification belonging to window 2.
+        // Open the notifications popover (Cmd+Shift+I) and click the notification belonging to window 2.
         let beforeClickToken = afterJump["focusToken"]
-        app.typeKey("i", modifierFlags: [.command])
+        app.typeKey("i", modifierFlags: [.command, .shift])
 
         let targetButton = app.buttons["NotificationPopoverRow.\(notifId2)"]
         XCTAssertTrue(targetButton.waitForExistence(timeout: 6.0), "Expected notification row button to exist")

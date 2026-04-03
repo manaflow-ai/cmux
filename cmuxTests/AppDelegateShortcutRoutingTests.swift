@@ -1661,7 +1661,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
-    func testCmdIStillTriggersShowNotificationsShortcut() {
+    func testCmdShiftITriggersShowNotificationsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -1679,16 +1679,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             guard let event = NSEvent.keyEvent(
                 with: .keyDown,
                 location: .zero,
-                modifierFlags: [.command],
+                modifierFlags: [.command, .shift],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber,
                 context: nil,
-                characters: "i",
+                characters: "I",
                 charactersIgnoringModifiers: "i",
                 isARepeat: false,
                 keyCode: 34 // kVK_ANSI_I
             ) else {
-                XCTFail("Failed to construct Cmd+I event")
+                XCTFail("Failed to construct Cmd+Shift+I event")
                 return
             }
 
