@@ -13,7 +13,7 @@ final class NonNativeFullscreen {
     // MARK: - Types
 
     enum Style {
-        /// Standard non-native fullscreen: hides dock and menu bar.
+        /// Standard non-native fullscreen: fills visible screen area.
         case nonNative
         /// Non-native fullscreen but keeps the menu bar visible.
         case visibleMenu
@@ -23,8 +23,8 @@ final class NonNativeFullscreen {
 
     // MARK: - State
 
-    private weak var window: NSWindow?
-    private var savedState: SavedState?
+    private var window: NSWindow?
+    private var savedFrame: NSRect?
     private let style: Style
 
     private(set) var isFullScreen: Bool = false
@@ -41,57 +41,24 @@ final class NonNativeFullscreen {
     func enter() {
         guard let window, !isFullScreen else { return }
 
-        // Save current state for restoration
-        savedState = SavedState(
-            styleMask: window.styleMask,
-            frame: window.frame,
-            level: window.level
-        )
-
-        // Hide dock (auto-hide so it can still be accessed by mousing to edge)
-        if style != .visibleMenu {
-            NSApp.presentationOptions.insert(.autoHideMenuBar)
-        }
-        NSApp.presentationOptions.insert(.autoHideDock)
-
-        // Remove titlebar chrome but keep full-size content view
-        window.styleMask.remove(.titled)
-        window.styleMask.remove(.resizable)
-        // Do NOT insert .fullScreen — that would trigger native fullscreen behavior
-        // and cause transparency to be disabled.
-
-        // Set window above normal level so it stays on top of the menu bar area
-        window.level = .statusBar
+        // Save current frame for restoration
+        savedFrame = window.frame
 
         isFullScreen = true
 
-        // Expand to fill screen after style changes take effect
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window, let screen = window.screen ?? NSScreen.main else { return }
-            window.setFrame(self.fullscreenFrame(for: screen), display: true, animate: true)
-        }
+        // Expand to fill screen
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        window.setFrame(fullscreenFrame(for: screen), display: true, animate: true)
     }
 
     func exit() {
-        guard let window, isFullScreen, let saved = savedState else { return }
-
-        // Restore presentation options
-        NSApp.presentationOptions.remove(.autoHideMenuBar)
-        NSApp.presentationOptions.remove(.autoHideDock)
-
-        // Restore window level
-        window.level = saved.level
-
-        // Restore styleMask
-        window.styleMask = saved.styleMask
+        guard let window, isFullScreen, let saved = savedFrame else { return }
 
         // Restore frame
-        DispatchQueue.main.async {
-            window.setFrame(saved.frame, display: true, animate: true)
-        }
+        window.setFrame(saved, display: true, animate: true)
 
         isFullScreen = false
-        savedState = nil
+        savedFrame = nil
     }
 
     func toggle() {
@@ -105,36 +72,21 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
-        var frame = screen.frame
-
         switch style {
         case .nonNative:
-            // Fill the entire screen
-            break
+            // Fill the entire visible area (excludes menu bar and dock)
+            return screen.visibleFrame
         case .visibleMenu:
-            // Leave room for the menu bar
-            let menuBarHeight = NSApp.mainMenu?.menuBarHeight ?? 0
-            if menuBarHeight > 0 {
-                frame.size.height -= menuBarHeight
-            }
+            // Same as nonNative — visibleFrame already preserves menu bar
+            return screen.visibleFrame
         case .paddedNotch:
-            // Avoid the notch on displays that have one
+            // Use visible frame but also avoid the notch area
+            var frame = screen.visibleFrame
             let safeTop = screen.safeAreaInsets.top
             if safeTop > 0 {
                 frame.size.height -= safeTop
             }
+            return frame
         }
-
-        return frame
-    }
-}
-
-// MARK: - Saved State
-
-private extension NonNativeFullscreen {
-    struct SavedState {
-        let styleMask: NSWindow.StyleMask
-        let frame: NSRect
-        let level: NSWindow.Level
     }
 }
