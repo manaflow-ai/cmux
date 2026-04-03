@@ -4649,13 +4649,11 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
-            guard let targetSurfaceId else {
+            let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
+            // Fall back to focused surface if the requested surface no longer exists (e.g. closed teammate pane)
+            let targetSurfaceId: UUID? = requestedSurfaceId.flatMap({ ws.panels[$0] != nil ? $0 : nil }) ?? ws.focusedPanelId
+            guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
-                return
-            }
-            guard ws.panels[targetSurfaceId] != nil else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": targetSurfaceId.uuidString])
                 return
             }
 
