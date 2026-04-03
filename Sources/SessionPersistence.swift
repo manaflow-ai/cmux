@@ -554,30 +554,10 @@ enum SessionRestoreCommandSettings {
 
     // MARK: - Hardcoded Denylist (Safety Net)
 
-    /// Commands that are NEVER allowed to auto-restore, regardless of user allowlist.
-    /// This is a safety net to prevent catastrophic mistakes.
+    /// Command prefixes that are blocked but not covered by dangerousExecutables.
+    /// These are more specific patterns (git destructive, database ops, etc.)
     private static let denylistPrefixes = [
-        // Privilege escalation
-        "sudo ",
-        "doas ",
-        "su ",
-        "pkexec ",
-        "runas ",
-        // Destructive file operations
-        "rm ",
-        "rmdir ",
-        "shred ",
-        "srm ",
-        "unlink ",
-        // Disk/partition operations
-        "dd ",
-        "mkfs",
-        "newfs",
-        "fdisk ",
-        "parted ",
-        "diskutil ",
-        "hdparm ",
-        // Permission changes
+        // Permission changes (not always dangerous, but risky for auto-restore)
         "chmod ",
         "chown ",
         "chgrp ",
@@ -595,12 +575,7 @@ enum SessionRestoreCommandSettings {
         "truncate ",
         "dropdb ",
         "dropuser ",
-        // System control
-        "shutdown ",
-        "reboot ",
-        "halt ",
-        "poweroff ",
-        "init ",
+        // System services
         "systemctl stop",
         "systemctl disable",
         "launchctl unload",
@@ -611,7 +586,7 @@ enum SessionRestoreCommandSettings {
         "killall ",
         "pkill ",
         "xkill",
-        // Remote code execution
+        // Remote code execution (curl/wget to shell)
         "curl ",
         "wget -O- ",
         "wget -O - ",
@@ -627,7 +602,7 @@ enum SessionRestoreCommandSettings {
         "csrutil ",
         "nvram ",
         "bless ",
-
+        "diskutil ",
         // Container cleanup
         "docker system prune",
         "docker rm -f",
@@ -636,7 +611,7 @@ enum SessionRestoreCommandSettings {
         "docker image prune -a",
         "podman system prune",
         "podman rm -f",
-        // Environment
+        // Environment manipulation
         "unset PATH",
         "export PATH=",
         "export PATH=\"\"",
@@ -645,22 +620,6 @@ enum SessionRestoreCommandSettings {
         "iptables --flush",
         "pfctl -F",
         "networksetup -setnetworkserviceenabled",
-    ]
-
-    /// Exact command names that are never allowed
-    private static let denylistExact = [
-        "sudo",
-        "su",
-        "rm",
-        "dd",
-        "reboot",
-        "shutdown",
-        "halt",
-        "poweroff",
-        "init",
-        "mkfs",
-        "fdisk",
-        "shred",
     ]
 
     /// Substrings that block a command if found anywhere (for sensitive args)
@@ -711,6 +670,16 @@ enum SessionRestoreCommandSettings {
         "--auth ",
     ]
 
+    /// Dangerous executables that should be blocked anywhere in a command.
+    /// These are checked with word-boundary awareness (space, /, |, ;, &, `, $( before them).
+    /// This catches: "sudo rm", "cd /tmp && sudo", "echo | rm -rf", "/usr/bin/sudo", etc.
+    private static let dangerousExecutables = [
+        "sudo", "doas", "su", "pkexec", "runas",  // Privilege escalation
+        "rm", "rmdir", "shred", "srm", "unlink",  // Destructive file ops
+        "dd", "mkfs", "newfs", "fdisk", "parted", // Disk operations
+        "reboot", "shutdown", "halt", "poweroff", "init",  // System control
+    ]
+
     /// Check if a command matches the allowlist.
     /// - Exact match: "opencode" matches only "opencode"
     /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
@@ -753,7 +722,15 @@ enum SessionRestoreCommandSettings {
     private static func isCommandDenied(_ command: String) -> Bool {
         let lowercased = command.lowercased()
 
-        // Extract basename version for matching (handles /usr/bin/sudo -> sudo)
+        // Check if any dangerous executable appears anywhere in the command.
+        // This catches: "sudo rm", "cd /tmp && sudo rm", "echo | rm -rf", "/usr/bin/sudo", etc.
+        // We look for the executable name preceded by a word boundary character.
+        if containsDangerousExecutable(lowercased) {
+            return true
+        }
+
+        // Check prefix patterns (git destructive, chmod, database ops, etc.)
+        // Extract basename for prefix matching (handles /usr/bin/git -> git)
         let commandParts = lowercased.split(separator: " ", maxSplits: 1)
         let commandExec = String(commandParts.first ?? "")
         let commandBasename = URL(fileURLWithPath: commandExec).lastPathComponent
@@ -761,12 +738,6 @@ enum SessionRestoreCommandSettings {
             ? "\(commandBasename) \(commandParts[1])"
             : commandBasename
 
-        // Check exact matches (both full path and basename)
-        if denylistExact.contains(lowercased) || denylistExact.contains(commandWithBasename) {
-            return true
-        }
-
-        // Check prefix matches (both full path and basename)
         for prefix in denylistPrefixes {
             let lowerPrefix = prefix.lowercased()
             if lowercased.hasPrefix(lowerPrefix) || commandWithBasename.hasPrefix(lowerPrefix) {
@@ -787,6 +758,42 @@ enum SessionRestoreCommandSettings {
             return true
         }
 
+        return false
+    }
+
+    /// Check if a dangerous executable appears anywhere in the command.
+    /// Looks for word boundaries: start of string, space, /, |, ;, &, `, $(
+    /// This catches both direct invocations and shell-chained commands.
+    private static func containsDangerousExecutable(_ lowercasedCommand: String) -> Bool {
+        // Characters that can precede an executable name
+        let boundaryChars: [Character] = [" ", "/", "|", ";", "&", "`", "("]
+
+        for executable in dangerousExecutables {
+            // Check if command starts with the executable
+            if lowercasedCommand == executable ||
+               lowercasedCommand.hasPrefix(executable + " ") ||
+               lowercasedCommand.hasPrefix(executable + "\t") {
+                return true
+            }
+
+            // Check if executable appears after a boundary character
+            for boundary in boundaryChars {
+                let pattern = String(boundary) + executable
+                if let range = lowercasedCommand.range(of: pattern) {
+                    // Verify it's followed by end of string, space, or another boundary
+                    let afterIndex = range.upperBound
+                    if afterIndex == lowercasedCommand.endIndex {
+                        return true  // "... /sudo" at end
+                    }
+                    let nextChar = lowercasedCommand[afterIndex]
+                    if nextChar == " " || nextChar == "\t" || nextChar == ";" ||
+                       nextChar == "|" || nextChar == "&" || nextChar == ")" ||
+                       nextChar == "\n" || nextChar == "\"" || nextChar == "'" {
+                        return true  // "... /sudo ..." or "... /sudo;" etc.
+                    }
+                }
+            }
+        }
         return false
     }
 
