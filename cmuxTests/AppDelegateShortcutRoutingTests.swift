@@ -2158,6 +2158,146 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
     }
 
+    func testCmdPStillRequestsCommandPaletteSwitcherWhilePaletteIsVisible() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let switcherExpectation = expectation(description: "Expected switcher request while command palette is visible")
+        var observedSwitcherWindow: NSWindow?
+        let switcherToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteSwitcherRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedSwitcherWindow = notification.object as? NSWindow
+            switcherExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(switcherToken) }
+
+        guard let event = makeKeyDownEvent(
+            key: "p",
+            modifiers: [.command],
+            keyCode: 35,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+P event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [switcherExpectation], timeout: 1.0)
+        XCTAssertEqual(observedSwitcherWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testCmdShiftPStillRequestsCommandPaletteCommandsWhilePaletteIsVisible() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        appDelegate.setCommandPaletteVisible(true, for: window)
+        defer { appDelegate.setCommandPaletteVisible(false, for: window) }
+
+        let paletteExpectation = expectation(description: "Expected commands request while command palette is visible")
+        var observedPaletteWindow: NSWindow?
+        let paletteToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteRequested,
+            object: nil,
+            queue: nil
+        ) { notification in
+            observedPaletteWindow = notification.object as? NSWindow
+            paletteExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(paletteToken) }
+
+        guard let event = makeKeyDownEvent(
+            key: "P",
+            modifiers: [.command, .shift],
+            keyCode: 35,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+P event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [paletteExpectation], timeout: 1.0)
+        XCTAssertEqual(observedPaletteWindow?.windowNumber, window.windowNumber)
+    }
+
+    func testCmdFFocusedBrowserKeepsWebContentFirstRouting() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              manager.openBrowser(inWorkspace: workspace.id) != nil else {
+            XCTFail("Expected focused browser panel")
+            return
+        }
+
+        XCTAssertNotNil(manager.focusedBrowserPanel)
+        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(
+            appDelegate.debugHandleCustomShortcut(event: event),
+            "Cmd+F should fall through so browser web content gets first chance"
+        )
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        XCTAssertNil(manager.focusedBrowserPanel?.searchState)
+    }
+
     func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

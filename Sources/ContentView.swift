@@ -8918,7 +8918,7 @@ enum ShortcutHintModifierPolicy {
         guard !shortcut.hasChord else { return false }
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == shortcut.modifierFlags else {
+        guard normalized == [.command] else {
             return false
         }
         return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)

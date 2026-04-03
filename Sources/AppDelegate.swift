@@ -2199,6 +2199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     private var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
+    private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -9188,13 +9189,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
+        refreshConfiguredShortcutChordActions()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.refreshConfiguredShortcutChordActions()
             self?.clearConfiguredShortcutChordState()
             self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+        }
+    }
+
+    private func refreshConfiguredShortcutChordActions() {
+        configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter {
+            KeyboardShortcutSettings.shortcut(for: $0).hasChord
         }
     }
 
@@ -9660,6 +9669,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Scope the omnibar check to the shortcut's routed window context so a
         // focused omnibar in another window does not suppress Cmd+P here.
         let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+
+        if commandPaletteEffectiveInTargetWindow {
+            if matchConfiguredShortcut(event: event, action: .commandPalette) {
+                let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                requestCommandPaletteCommands(preferredWindow: targetWindow, source: "shortcut.commandPalette")
+                return true
+            }
+
+            if !hasFocusedAddressBarInShortcutContext,
+               matchConfiguredShortcut(event: event, action: .goToWorkspace) {
+                let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+                requestCommandPaletteSwitcher(preferredWindow: targetWindow, source: "shortcut.goToWorkspace")
+                return true
+            }
+
+            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPalette]) {
+                return true
+            }
+
+            if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+               !hasFocusedAddressBarInShortcutContext,
+               armConfiguredShortcutChordIfNeeded(event: event, actions: [.goToWorkspace]) {
+                return true
+            }
+        }
 
         if shouldConsumeShortcutWhileCommandPaletteVisible(
             isCommandPaletteVisible: commandPaletteEffectiveInTargetWindow,
@@ -10255,21 +10290,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .find) {
+            guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
+                return false
+            }
             tabManager?.startSearch()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .findNext) {
+            guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
+                return false
+            }
             tabManager?.findNext()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .findPrevious) {
+            guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
+                return false
+            }
             tabManager?.findPrevious()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .hideFind) {
+            guard !shouldLetFocusedBrowserOwnFindShortcut(event) else {
+                return false
+            }
             tabManager?.hideFind()
             return true
         }
@@ -11064,8 +11111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return event.windowNumber > 0 ? event.windowNumber : nil
     }
 
-    private func armConfiguredShortcutChordIfNeeded(event: NSEvent) -> Bool {
-        for action in KeyboardShortcutSettings.Action.allCases {
+    private func armConfiguredShortcutChordIfNeeded(
+        event: NSEvent,
+        actions: [KeyboardShortcutSettings.Action]? = nil
+    ) -> Bool {
+        for action in actions ?? configuredShortcutChordActions {
             let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard shortcut.hasChord else { continue }
             if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
@@ -11657,6 +11707,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     fileprivate func browserFindBarIsVisible(for webView: CmuxWebView) -> Bool {
         browserPanelOwning(webView)?.searchState != nil
+    }
+
+    private func shouldLetFocusedBrowserOwnFindShortcut(_ event: NSEvent) -> Bool {
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let shortcutResponder = shortcutWindow?.firstResponder
+        let owningWebView = tabManager?.focusedBrowserPanel?.webView as? CmuxWebView
+        guard let owningWebView else { return false }
+        return shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: shortcutResponder,
+            owningWebView: owningWebView
+        )
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {
