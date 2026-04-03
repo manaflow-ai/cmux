@@ -2165,6 +2165,42 @@ class TerminalController {
         case "notification.clear":
             return v2Result(id: id, self.v2NotificationClear())
 
+        // Sidebar
+        case "sidebar.set_status":
+            return v2Result(id: id, self.v2SidebarSetStatus(params: params))
+        case "sidebar.clear_status":
+            return v2Result(id: id, self.v2SidebarClearStatus(params: params))
+        case "sidebar.list_status":
+            return v2Ok(id: id, result: self.v2SidebarListStatus(params: params))
+        case "sidebar.set_progress":
+            return v2Result(id: id, self.v2SidebarSetProgress(params: params))
+        case "sidebar.clear_progress":
+            return v2Result(id: id, self.v2SidebarClearProgress(params: params))
+        case "sidebar.log":
+            return v2Result(id: id, self.v2SidebarLog(params: params))
+        case "sidebar.clear_log":
+            return v2Result(id: id, self.v2SidebarClearLog(params: params))
+        case "sidebar.list_log":
+            return v2Ok(id: id, result: self.v2SidebarListLog(params: params))
+        case "sidebar.set_meta":
+            return v2Result(id: id, self.v2SidebarSetMeta(params: params))
+        case "sidebar.clear_meta":
+            return v2Result(id: id, self.v2SidebarClearMeta(params: params))
+        case "sidebar.list_meta":
+            return v2Ok(id: id, result: self.v2SidebarListMeta(params: params))
+        case "sidebar.set_agent_pid":
+            return v2Result(id: id, self.v2SidebarSetAgentPid(params: params))
+        case "sidebar.clear_agent_pid":
+            return v2Result(id: id, self.v2SidebarClearAgentPid(params: params))
+        case "sidebar.report_git_branch":
+            return v2Result(id: id, self.v2SidebarReportGitBranch(params: params))
+        case "sidebar.clear_git_branch":
+            return v2Result(id: id, self.v2SidebarClearGitBranch(params: params))
+        case "sidebar.state":
+            return v2Ok(id: id, result: self.v2SidebarState(params: params))
+        case "sidebar.reset":
+            return v2Result(id: id, self.v2SidebarReset(params: params))
+
         // App focus
         case "app.focus_override.set":
             return v2Result(id: id, self.v2AppFocusOverride(params: params))
@@ -2487,6 +2523,23 @@ class TerminalController {
             "notification.create_for_target",
             "notification.list",
             "notification.clear",
+            "sidebar.set_status",
+            "sidebar.clear_status",
+            "sidebar.list_status",
+            "sidebar.set_progress",
+            "sidebar.clear_progress",
+            "sidebar.log",
+            "sidebar.clear_log",
+            "sidebar.list_log",
+            "sidebar.set_meta",
+            "sidebar.clear_meta",
+            "sidebar.list_meta",
+            "sidebar.set_agent_pid",
+            "sidebar.clear_agent_pid",
+            "sidebar.report_git_branch",
+            "sidebar.clear_git_branch",
+            "sidebar.state",
+            "sidebar.reset",
             "app.focus_override.set",
             "app.simulate_active",
             "markdown.open",
@@ -6631,6 +6684,518 @@ class TerminalController {
             TerminalNotificationStore.shared.clearAll()
         }
         return .ok([:])
+    }
+
+    // MARK: - V2 Sidebar Methods
+
+    private func v2SidebarSetStatus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+        guard let value = v2String(params, "value") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'value'", data: nil)
+        }
+        let icon = v2String(params, "icon")
+        let color = v2String(params, "color")
+        let parsedURL: URL?
+        if let rawURL = v2String(params, "url") {
+            guard let candidate = URL(string: rawURL),
+                  let scheme = candidate.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https" else {
+                return .err(code: "invalid_params", message: "Invalid URL '\(rawURL)' — expected http(s) URL", data: nil)
+            }
+            parsedURL = candidate
+        } else {
+            parsedURL = nil
+        }
+        let priority = max(-9999, min(9999, v2Int(params, "priority") ?? 0))
+        let formatRaw = v2String(params, "format") ?? SidebarMetadataFormat.plain.rawValue
+        guard let format = SidebarMetadataFormat(rawValue: formatRaw) else {
+            return .err(code: "invalid_params", message: "Invalid format '\(formatRaw)' — use: plain, markdown", data: nil)
+        }
+        let pidValue: pid_t? = {
+            if let p = v2Int(params, "pid"), p > 0 { return pid_t(p) }
+            return nil
+        }()
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set status", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard Self.shouldReplaceStatusEntry(
+                current: ws.statusEntries[key],
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: parsedURL,
+                priority: priority,
+                format: format
+            ) else {
+                if let pidValue {
+                    ws.agentPIDs[key] = pidValue
+                }
+                result = .ok(["workspace_id": ws.id.uuidString])
+                return
+            }
+            ws.statusEntries[key] = SidebarStatusEntry(
+                key: key,
+                value: value,
+                icon: icon,
+                color: color,
+                url: parsedURL,
+                priority: priority,
+                format: format,
+                timestamp: Date()
+            )
+            if let pidValue {
+                ws.agentPIDs[key] = pidValue
+            }
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearStatus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear status", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.statusEntries.removeValue(forKey: key)
+            ws.agentPIDs.removeValue(forKey: key)
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarListStatus(params: [String: Any]) -> [String: Any] {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return ["entries": []]
+        }
+        let isoFormatter = ISO8601DateFormatter()
+        var entries: [[String: Any]] = []
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            entries = ws.sidebarStatusEntriesInDisplayOrder().map { entry in
+                [
+                    "key": entry.key,
+                    "value": entry.value,
+                    "icon": v2OrNull(entry.icon),
+                    "color": v2OrNull(entry.color),
+                    "url": v2OrNull(entry.url?.absoluteString),
+                    "priority": entry.priority,
+                    "format": entry.format.rawValue,
+                    "timestamp": isoFormatter.string(from: entry.timestamp)
+                ]
+            }
+        }
+        return ["entries": entries]
+    }
+
+    private func v2SidebarSetProgress(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let rawValue: Double? = {
+            if let d = params["value"] as? Double { return d }
+            if let n = params["value"] as? NSNumber { return n.doubleValue }
+            if let s = params["value"] as? String { return Double(s) }
+            return nil
+        }()
+        guard let rawValue else {
+            return .err(code: "invalid_params", message: "Missing or invalid 'value' — must be a number 0.0 to 1.0", data: nil)
+        }
+        guard rawValue.isFinite else {
+            return .err(code: "invalid_params", message: "Invalid 'value' — must be a finite number 0.0 to 1.0", data: nil)
+        }
+        let clamped = min(1.0, max(0.0, rawValue))
+        let label = v2String(params, "label")
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set progress", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard Self.shouldReplaceProgress(current: ws.progress, value: clamped, label: label) else {
+                result = .ok(["workspace_id": ws.id.uuidString])
+                return
+            }
+            ws.progress = SidebarProgressState(value: clamped, label: label)
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearProgress(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear progress", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.progress = nil
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarLog(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let message = v2String(params, "message") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'message'", data: nil)
+        }
+        let levelStr = v2String(params, "level") ?? "info"
+        guard let level = SidebarLogLevel(rawValue: levelStr) else {
+            return .err(code: "invalid_params", message: "Unknown log level '\(levelStr)' — use: info, progress, success, warning, error", data: nil)
+        }
+        let source = v2String(params, "source")
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to log", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.logEntries.append(SidebarLogEntry(message: message, level: level, source: source, timestamp: Date()))
+            let configuredLimit = UserDefaults.standard.object(forKey: "sidebarMaxLogEntries") as? Int ?? 50
+            let limit = max(1, min(500, configuredLimit))
+            if ws.logEntries.count > limit {
+                ws.logEntries.removeFirst(ws.logEntries.count - limit)
+            }
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearLog(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear log", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.logEntries.removeAll()
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarListLog(params: [String: Any]) -> [String: Any] {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return ["entries": []]
+        }
+        let limit = v2Int(params, "limit")
+        let isoFormatter = ISO8601DateFormatter()
+        var entries: [[String: Any]] = []
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            let logSlice: [SidebarLogEntry]
+            if let limit {
+                logSlice = Array(ws.logEntries.suffix(limit))
+            } else {
+                logSlice = ws.logEntries
+            }
+            entries = logSlice.map { entry in
+                [
+                    "message": entry.message,
+                    "level": entry.level.rawValue,
+                    "source": v2OrNull(entry.source),
+                    "timestamp": isoFormatter.string(from: entry.timestamp)
+                ]
+            }
+        }
+        return ["entries": entries]
+    }
+
+    private func v2SidebarSetMeta(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+        guard let markdown = v2String(params, "markdown") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'markdown'", data: nil)
+        }
+        let priority = max(-9999, min(9999, v2Int(params, "priority") ?? 0))
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set metadata block", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard Self.shouldReplaceMetadataBlock(
+                current: ws.metadataBlocks[key],
+                key: key,
+                markdown: markdown,
+                priority: priority
+            ) else {
+                result = .ok(["workspace_id": ws.id.uuidString])
+                return
+            }
+            ws.metadataBlocks[key] = SidebarMetadataBlock(
+                key: key,
+                markdown: markdown,
+                priority: priority,
+                timestamp: Date()
+            )
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearMeta(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear metadata block", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.metadataBlocks.removeValue(forKey: key)
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarListMeta(params: [String: Any]) -> [String: Any] {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return ["blocks": []]
+        }
+        let isoFormatter = ISO8601DateFormatter()
+        var blocks: [[String: Any]] = []
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            blocks = ws.sidebarMetadataBlocksInDisplayOrder().map { block in
+                [
+                    "key": block.key,
+                    "markdown": block.markdown,
+                    "priority": block.priority,
+                    "timestamp": isoFormatter.string(from: block.timestamp)
+                ]
+            }
+        }
+        return ["blocks": blocks]
+    }
+
+    private func v2SidebarSetAgentPid(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+        guard let pid = v2Int(params, "pid"), pid > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid 'pid' — must be > 0", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set agent PID", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.agentPIDs[key] = pid_t(pid)
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearAgentPid(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let key = v2String(params, "key") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear agent PID", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.agentPIDs.removeValue(forKey: key)
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarReportGitBranch(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let branch = v2String(params, "branch") else {
+            return .err(code: "invalid_params", message: "Missing or empty 'branch'", data: nil)
+        }
+        let isDirty = v2Bool(params, "dirty") ?? false
+        let surfaceId = v2UUID(params, "surface_id")
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to report git branch", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let surfaceId {
+                ws.panelGitBranches[surfaceId] = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            } else {
+                ws.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            }
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarClearGitBranch(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        let surfaceId = v2UUID(params, "surface_id")
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to clear git branch", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let surfaceId {
+                ws.panelGitBranches.removeValue(forKey: surfaceId)
+            } else {
+                ws.gitBranch = nil
+            }
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
+    }
+
+    private func v2SidebarState(params: [String: Any]) -> [String: Any] {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return ["error": "TabManager not available"]
+        }
+        let isoFormatter = ISO8601DateFormatter()
+        var state: [String: Any] = [:]
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                state = ["error": "Workspace not found"]
+                return
+            }
+            // Status entries
+            let statusEntries: [[String: Any]] = ws.sidebarStatusEntriesInDisplayOrder().map { entry in
+                [
+                    "key": entry.key,
+                    "value": entry.value,
+                    "icon": v2OrNull(entry.icon),
+                    "color": v2OrNull(entry.color),
+                    "url": v2OrNull(entry.url?.absoluteString),
+                    "priority": entry.priority,
+                    "format": entry.format.rawValue,
+                    "timestamp": isoFormatter.string(from: entry.timestamp)
+                ]
+            }
+            // Progress
+            let progressDict: Any
+            if let progress = ws.progress {
+                progressDict = [
+                    "value": progress.value,
+                    "label": v2OrNull(progress.label)
+                ] as [String: Any]
+            } else {
+                progressDict = NSNull()
+            }
+            // Git branch
+            let gitBranchDict: Any
+            if let git = ws.gitBranch {
+                gitBranchDict = [
+                    "branch": git.branch,
+                    "dirty": git.isDirty
+                ] as [String: Any]
+            } else {
+                gitBranchDict = NSNull()
+            }
+            // Log entries
+            let logEntries: [[String: Any]] = ws.logEntries.map { entry in
+                [
+                    "message": entry.message,
+                    "level": entry.level.rawValue,
+                    "source": v2OrNull(entry.source),
+                    "timestamp": isoFormatter.string(from: entry.timestamp)
+                ]
+            }
+            // Metadata blocks
+            let metadataBlocks: [[String: Any]] = ws.sidebarMetadataBlocksInDisplayOrder().map { block in
+                [
+                    "key": block.key,
+                    "markdown": block.markdown,
+                    "priority": block.priority,
+                    "timestamp": isoFormatter.string(from: block.timestamp)
+                ]
+            }
+            // Agent PIDs
+            var agentPids: [String: Any] = [:]
+            for (key, pid) in ws.agentPIDs {
+                agentPids[key] = Int(pid)
+            }
+            state = [
+                "workspace_id": ws.id.uuidString,
+                "status_entries": statusEntries,
+                "progress": progressDict,
+                "git_branch": gitBranchDict,
+                "log_entries": logEntries,
+                "metadata_blocks": metadataBlocks,
+                "agent_pids": agentPids
+            ]
+        }
+        return state
+    }
+
+    private func v2SidebarReset(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to reset sidebar", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            ws.resetSidebarContext(reason: "v2_sidebar_reset")
+            result = .ok(["workspace_id": ws.id.uuidString])
+        }
+        return result
     }
 
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
