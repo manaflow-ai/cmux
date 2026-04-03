@@ -3858,6 +3858,10 @@ struct ContentView: View {
         GeometryReader { proxy in
             let maxAllowedWidth = max(340, proxy.size.width - 260)
             let targetWidth = min(560, maxAllowedWidth)
+            let workspaceDescriptionMaxEditorHeight = max(
+                CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
+                proxy.size.height - 120
+            )
 
             ZStack(alignment: .top) {
                 Color.clear
@@ -3885,7 +3889,10 @@ struct ContentView: View {
                     case let .renameConfirm(target, proposedName):
                         commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
                     case .workspaceDescriptionInput(let target):
-                        commandPaletteWorkspaceDescriptionInputView(target: target)
+                        commandPaletteWorkspaceDescriptionInputView(
+                            target: target,
+                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                        )
                     }
                 }
                 .frame(width: targetWidth)
@@ -4087,7 +4094,8 @@ struct ContentView: View {
             accessibilityIdentifier: String,
             accessibilityLabel: String,
             focus: Binding<Bool>,
-            measuredHeight: Binding<CGFloat>
+            measuredHeight: Binding<CGFloat>,
+            maxHeight: CGFloat
         )
     }
 
@@ -4117,7 +4125,7 @@ struct ContentView: View {
                 .onTapGesture {
                     onInteraction?()
                 }
-        case .multiline(let accessibilityIdentifier, let accessibilityLabel, let focus, let measuredHeight):
+        case .multiline(let accessibilityIdentifier, let accessibilityLabel, let focus, let measuredHeight, let maxHeight):
             CommandPaletteMultilineTextEditorRepresentable(
                 placeholder: placeholder,
                 accessibilityLabel: accessibilityLabel,
@@ -4125,6 +4133,7 @@ struct ContentView: View {
                 text: text,
                 isFocused: focus,
                 measuredHeight: measuredHeight,
+                maxHeight: maxHeight,
                 onSubmit: onSubmit,
                 onEscape: onEscape
             )
@@ -4214,7 +4223,8 @@ struct ContentView: View {
     }
 
     private func commandPaletteWorkspaceDescriptionInputView(
-        target: CommandPaletteWorkspaceDescriptionTarget
+        target: CommandPaletteWorkspaceDescriptionTarget,
+        maxEditorHeight: CGFloat
     ) -> some View {
         VStack(spacing: 0) {
             commandPaletteEditorField(
@@ -4225,7 +4235,8 @@ struct ContentView: View {
                         defaultValue: "Edit Workspace Description…"
                     ),
                     focus: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
-                    measuredHeight: $commandPaletteWorkspaceDescriptionHeight
+                    measuredHeight: $commandPaletteWorkspaceDescriptionHeight,
+                    maxHeight: maxEditorHeight
                 ),
                 placeholder: target.placeholder,
                 text: $commandPaletteWorkspaceDescriptionDraft,
@@ -4648,10 +4659,16 @@ struct ContentView: View {
             return lineHeight * 5 + textInset.height * 2
         }()
 
+        private let scrollView = NSScrollView(frame: .zero)
         let textView = CommandPaletteMultilineTextView(frame: .zero)
         private let placeholderField = CommandPalettePassthroughLabel(labelWithString: "")
         var onMeasuredHeightChange: ((CGFloat) -> Void)?
         private var lastReportedHeight: CGFloat?
+        var maximumHeight: CGFloat = .greatestFiniteMagnitude {
+            didSet {
+                refreshMetrics()
+            }
+        }
 
         var placeholder: String = "" {
             didSet {
@@ -4663,13 +4680,21 @@ struct ContentView: View {
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
 
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            scrollView.borderType = .noBorder
+            scrollView.drawsBackground = false
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = .overlay
+            addSubview(scrollView)
+
             textView.translatesAutoresizingMaskIntoConstraints = false
             textView.isEditable = true
             textView.isSelectable = true
             textView.isRichText = false
             textView.importsGraphics = false
             textView.isHorizontallyResizable = false
-            textView.isVerticallyResizable = false
+            textView.isVerticallyResizable = true
             textView.backgroundColor = .clear
             textView.drawsBackground = false
             textView.font = Self.font
@@ -4679,11 +4704,12 @@ struct ContentView: View {
             textView.textContainer?.lineFragmentPadding = 0
             textView.textContainer?.widthTracksTextView = true
             textView.textContainer?.heightTracksTextView = false
+            textView.minSize = NSSize(width: 0, height: Self.defaultMinimumHeight)
             textView.maxSize = NSSize(
                 width: CGFloat.greatestFiniteMagnitude,
                 height: CGFloat.greatestFiniteMagnitude
             )
-            addSubview(textView)
+            scrollView.documentView = textView
 
             placeholderField.translatesAutoresizingMaskIntoConstraints = false
             placeholderField.font = Self.font
@@ -4700,10 +4726,10 @@ struct ContentView: View {
             )
 
             NSLayoutConstraint.activate([
-                textView.topAnchor.constraint(equalTo: topAnchor),
-                textView.bottomAnchor.constraint(equalTo: bottomAnchor),
-                textView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                scrollView.topAnchor.constraint(equalTo: topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
 
                 placeholderField.topAnchor.constraint(equalTo: topAnchor, constant: Self.textInset.height),
                 placeholderField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.textInset.width),
@@ -4723,10 +4749,7 @@ struct ContentView: View {
 
         override func layout() {
             super.layout()
-            textView.textContainer?.containerSize = NSSize(
-                width: bounds.width,
-                height: CGFloat.greatestFiniteMagnitude
-            )
+            updateTextViewLayout()
             reportMeasuredHeightIfNeeded()
         }
 
@@ -4770,11 +4793,19 @@ struct ContentView: View {
 #endif
         }
 
-        private func fittingHeight() -> CGFloat {
+        private func cappedMaximumHeight() -> CGFloat {
+            max(Self.defaultMinimumHeight, maximumHeight)
+        }
+
+        private func naturalHeight(for width: CGFloat) -> CGFloat {
             guard let layoutManager = textView.layoutManager,
                   let textContainer = textView.textContainer else {
                 return Self.defaultMinimumHeight
             }
+            textContainer.containerSize = NSSize(
+                width: width,
+                height: CGFloat.greatestFiniteMagnitude
+            )
             layoutManager.ensureLayout(for: textContainer)
             let usedRect = layoutManager.usedRect(for: textContainer)
             let lineHeight = ceil(Self.font.ascender - Self.font.descender + Self.font.leading)
@@ -4783,6 +4814,19 @@ struct ContentView: View {
                 Self.defaultMinimumHeight,
                 ceil(contentHeight + Self.textInset.height * 2)
             )
+        }
+
+        private func updateTextViewLayout() {
+            let availableWidth = max(scrollView.contentSize.width, bounds.width, 1)
+            let naturalHeight = naturalHeight(for: availableWidth)
+            let measuredHeight = min(cappedMaximumHeight(), naturalHeight)
+            let documentHeight = max(naturalHeight, measuredHeight)
+            textView.frame = NSRect(x: 0, y: 0, width: availableWidth, height: documentHeight)
+        }
+
+        private func fittingHeight() -> CGFloat {
+            let availableWidth = max(scrollView.contentSize.width, bounds.width, 1)
+            return min(cappedMaximumHeight(), naturalHeight(for: availableWidth))
         }
 
         private func reportMeasuredHeightIfNeeded() {
@@ -4821,6 +4865,7 @@ struct ContentView: View {
         @Binding var text: String
         @Binding var isFocused: Bool
         @Binding var measuredHeight: CGFloat
+        let maxHeight: CGFloat
         let onSubmit: (String) -> Void
         let onEscape: () -> Void
 
@@ -4944,6 +4989,7 @@ struct ContentView: View {
         func makeNSView(context: Context) -> CommandPaletteMultilineTextEditorView {
             let view = CommandPaletteMultilineTextEditorView(frame: .zero)
             view.placeholder = placeholder
+            view.maximumHeight = maxHeight
             view.textView.string = text
             view.textView.delegate = context.coordinator
             view.textView.setAccessibilityLabel(accessibilityLabel)
@@ -4972,6 +5018,7 @@ struct ContentView: View {
         func updateNSView(_ nsView: CommandPaletteMultilineTextEditorView, context: Context) {
             context.coordinator.parent = self
             nsView.placeholder = placeholder
+            nsView.maximumHeight = maxHeight
             nsView.textView.setAccessibilityLabel(accessibilityLabel)
             nsView.textView.setAccessibilityIdentifier(accessibilityIdentifier)
             nsView.setAccessibilityIdentifier(accessibilityIdentifier)
