@@ -5719,12 +5719,6 @@ struct SettingsView: View {
                             title: String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json"),
                             helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
                             accessibilityIdentifier: "SettingsFileOpenButton",
-                            action: openCmuxSettingsFileInEditor
-                        )
-                        SettingsHeaderActionButton(
-                            title: String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit"),
-                            helpText: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
-                            accessibilityIdentifier: "SettingsFileOpenInTextEditButton",
                             action: openCmuxSettingsFileInTextEdit
                         )
                     }

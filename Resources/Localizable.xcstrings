@@ -47884,23 +47884,6 @@
         }
       }
     },
-    "settings.app.settingsFile.openInTextEditButton": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in TextEdit"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextEditで開く"
-          }
-        }
-      }
-    },
     "settings.app.commandPaletteSearchAllSurfaces": {
       "extractionState": "manual",
       "localizations": {
