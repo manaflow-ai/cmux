@@ -351,14 +351,14 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
+                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux settings.json")) {
+                    openCmuxSettingsFileInEditor()
+                }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
                     GhosttyApp.shared.openConfigurationInTextEdit()
                 }
-                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Ghostty Settings"), shortcut: menuShortcut(for: .reloadConfiguration)) {
+                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
-                }
-                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux settings.json")) {
-                    openCmuxSettingsFileInEditor()
                 }
             }
 
@@ -4462,6 +4462,29 @@ struct SettingsView: View {
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.app.settingsFile", defaultValue: "Settings File"),
+                            subtitle: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath()
+                        ) {
+                            HStack(spacing: 8) {
+                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                    openCmuxSettingsFileInEditor()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsFileOpenButton")
+
+                                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
+                                    openCmuxSettingsFileInTextEdit()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
+                            }
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
                         SettingsCardRow(
@@ -4577,29 +4600,6 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.settingsFile", defaultValue: "Settings File"),
-                            subtitle: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath()
-                        ) {
-                            HStack(spacing: 8) {
-                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                                    openCmuxSettingsFileInEditor()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsFileOpenButton")
-
-                                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
-                                    openCmuxSettingsFileInTextEdit()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
-                            }
                         }
 
                         SettingsCardDivider()
