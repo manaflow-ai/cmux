@@ -3150,6 +3150,21 @@ class TabManager: ObservableObject {
     }
 
     @discardableResult
+    func increaseFontSizeFocusedTerminal() -> Bool {
+        selectedTerminalPanel?.performBindingAction("increase_font_size:1") ?? false
+    }
+
+    @discardableResult
+    func decreaseFontSizeFocusedTerminal() -> Bool {
+        selectedTerminalPanel?.performBindingAction("decrease_font_size:1") ?? false
+    }
+
+    @discardableResult
+    func resetFontSizeFocusedTerminal() -> Bool {
+        selectedTerminalPanel?.performBindingAction("reset_font_size") ?? false
+    }
+
+    @discardableResult
     func toggleDeveloperToolsFocusedBrowser() -> Bool {
         focusedBrowserPanel?.toggleDeveloperTools() ?? false
     }
