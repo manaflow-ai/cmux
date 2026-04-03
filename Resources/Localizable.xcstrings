@@ -71998,6 +71998,40 @@
         }
       }
     },
+    "socketControl.error.keychainDelete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to remove socket password from Keychain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keychain からソケットパスワードを削除できませんでした。"
+          }
+        }
+      }
+    },
+    "socketControl.error.keychainSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save socket password to Keychain."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keychain にソケットパスワードを保存できませんでした。"
+          }
+        }
+      }
+    },
     "socketControl.error.passwordFilePath": {
       "extractionState": "manual",
       "localizations": {
@@ -72361,13 +72395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Require socket authentication with a password stored in a local file."
+            "value": "Require socket authentication with a password stored in Keychain."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ローカルファイルに保存されたパスワードでソケット認証を要求します。"
+            "value": "Keychain に保存されたパスワードでソケット認証を要求します。"
           }
         },
         "zh-Hans": {

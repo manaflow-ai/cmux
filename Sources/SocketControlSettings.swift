@@ -40,7 +40,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
         case .automation:
             return String(localized: "socketControl.automation.description", defaultValue: "Allow external local automation clients from this macOS user (no ancestry check).")
         case .password:
-            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in a local file.")
+            return String(localized: "socketControl.password.description", defaultValue: "Require socket authentication with a password stored in Keychain.")
         case .allowAll:
             return String(localized: "socketControl.allowAll.description", defaultValue: "Allow any local process and user to connect with no auth. Unsafe.")
         }
@@ -67,6 +67,12 @@ enum SocketControlPasswordStore {
     private static let keychainMigrationVersion = 1
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
     private static let legacyKeychainAccount = "local-socket-password"
+    // Primary Keychain storage (replaces plaintext file).
+    // NOTE: intentionally the same service string as the legacy store above;
+    // the two entries are differentiated solely by account name
+    // ("socket-password" vs the legacy "local-socket-password").
+    private static let keychainService = "com.cmuxterm.app.socket-control"
+    private static let keychainAccount = "socket-password"
     private struct LazyKeychainFallbackCache {
         var hasLoaded = false
         var password: String?
@@ -159,20 +165,47 @@ enum SocketControlPasswordStore {
         }
     }
 
+    /// Load the socket password.
+    ///
+    /// When `fileURL` is non-nil (test seam), reads from that file directly.
+    /// In production (`fileURL == nil`) the password is read from Keychain.
+    /// If no Keychain entry exists but an old plaintext file is present, the
+    /// file is migrated into Keychain and then deleted.
     static func loadPassword(fileURL: URL? = nil) throws -> String? {
-        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
-            return nil
+        if let fileURL {
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+            let data = try Data(contentsOf: fileURL)
+            guard let password = String(data: data, encoding: .utf8) else { return nil }
+            return normalized(password)
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return nil
+
+        // Production: Keychain is the primary store.
+        if let keychainPassword = loadPasswordFromKeychain() {
+            return normalized(keychainPassword)
         }
-        let data = try Data(contentsOf: fileURL)
-        guard let password = String(data: data, encoding: .utf8) else {
-            return nil
+
+        // One-time migration: move old plaintext file into Keychain.
+        // Only delete the file if the Keychain save succeeds so a failed save
+        // retries on the next launch rather than losing the credential.
+        if let oldFileURL = defaultPasswordFileURL(),
+           FileManager.default.fileExists(atPath: oldFileURL.path),
+           let data = try? Data(contentsOf: oldFileURL),
+           let filePassword = String(data: data, encoding: .utf8),
+           let migrated = normalized(filePassword) {
+            if (try? savePasswordToKeychain(migrated)) != nil {
+                try? FileManager.default.removeItem(at: oldFileURL)
+            }
+            return migrated
         }
-        return normalized(password)
+
+        return nil
     }
 
+    /// Save the socket password.
+    ///
+    /// When `fileURL` is non-nil (test seam), writes to that file.
+    /// In production (`fileURL == nil`) the password is stored in Keychain and
+    /// any leftover plaintext file is removed.
     static func savePassword(_ password: String, fileURL: URL? = nil) throws {
         let normalized = password.trimmingCharacters(in: .newlines)
         if normalized.isEmpty {
@@ -180,32 +213,48 @@ enum SocketControlPasswordStore {
             return
         }
 
-        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
-            throw NSError(
-                domain: NSCocoaErrorDomain,
-                code: NSFileNoSuchFileError,
-                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.passwordFilePath", defaultValue: "Unable to resolve socket password file path.")]
+        if let fileURL {
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
             )
+            let data = Data(normalized.utf8)
+            try data.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            return
         }
-        let directory = fileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        let data = Data(normalized.utf8)
-        try data.write(to: fileURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+
+        // Production: store in Keychain.
+        try savePasswordToKeychain(normalized)
+
+        // Remove any leftover plaintext file from a previous version.
+        if let oldFileURL = defaultPasswordFileURL(),
+           FileManager.default.fileExists(atPath: oldFileURL.path) {
+            try? FileManager.default.removeItem(at: oldFileURL)
+        }
     }
 
+    /// Clear the socket password.
+    ///
+    /// When `fileURL` is non-nil (test seam), removes that file.
+    /// In production (`fileURL == nil`) removes the Keychain entry and any
+    /// leftover plaintext file.
     static func clearPassword(fileURL: URL? = nil) throws {
-        guard let fileURL = fileURL ?? defaultPasswordFileURL() else {
+        if let fileURL {
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+            try FileManager.default.removeItem(at: fileURL)
             return
         }
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return
+
+        // Production: Keychain.
+        try deletePasswordFromKeychain()
+
+        if let oldFileURL = defaultPasswordFileURL(),
+           FileManager.default.fileExists(atPath: oldFileURL.path) {
+            try? FileManager.default.removeItem(at: oldFileURL)
         }
-        try FileManager.default.removeItem(at: fileURL)
     }
 
     static func resetLazyKeychainFallbackCacheForTests() {
@@ -230,6 +279,76 @@ enum SocketControlPasswordStore {
             .appendingPathComponent(directoryName, isDirectory: true)
             .appendingPathComponent(fileName, isDirectory: false)
     }
+
+    // MARK: - Keychain storage (primary)
+
+    private static func loadPasswordFromKeychain() -> String? {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: keychainService,
+            kSecAttrAccount: keychainAccount,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+#else
+        return nil
+#endif
+    }
+
+    private static func savePasswordToKeychain(_ password: String) throws {
+#if canImport(Security)
+        let data = Data(password.utf8)
+        let updateQuery: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: keychainService,
+            kSecAttrAccount: keychainAccount,
+        ]
+        var status = SecItemUpdate(updateQuery as CFDictionary, [kSecValueData: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            let addQuery: [CFString: Any] = [
+                kSecClass: kSecClassGenericPassword,
+                kSecAttrService: keychainService,
+                kSecAttrAccount: keychainAccount,
+                kSecValueData: data,
+                // Accessible after first unlock; never synced off device.
+                kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            ]
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+        if status != errSecSuccess {
+            throw NSError(
+                domain: NSOSStatusErrorDomain,
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.keychainSave", defaultValue: "Unable to save socket password to Keychain.")]
+            )
+        }
+#endif
+    }
+
+    private static func deletePasswordFromKeychain() throws {
+#if canImport(Security)
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: keychainService,
+            kSecAttrAccount: keychainAccount,
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(
+                domain: NSOSStatusErrorDomain,
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "socketControl.error.keychainDelete", defaultValue: "Unable to remove socket password from Keychain.")]
+            )
+        }
+#endif
+    }
+
+    // MARK: - Legacy Keychain storage
 
     private static func loadLegacyPasswordFromKeychain() -> String? {
 #if canImport(Security)
