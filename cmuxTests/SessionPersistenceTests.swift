@@ -1213,6 +1213,91 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("   ", rawAllowlist: allowlist))
     }
 
+    // MARK: - Allowlist Wildcard Pattern Edge Cases
+
+    func testPrefixPatternMatchesAbsolutePathCommands() {
+        // Pattern "opencode *" should match "/usr/bin/opencode --flag" via basename extraction
+        let allowlist = "opencode *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("/usr/bin/opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("/usr/bin/opencode --flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("/opt/homebrew/bin/opencode --continue", rawAllowlist: allowlist))
+        // But not if the basename doesn't match
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("/usr/bin/other-tool", rawAllowlist: allowlist))
+    }
+
+    func testExactPatternMatchesAbsolutePathCommands() {
+        // Exact pattern "opencode" should also match "/usr/bin/opencode" via basename
+        let allowlist = "opencode"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("/usr/bin/opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("/opt/homebrew/bin/opencode", rawAllowlist: allowlist))
+        // But not with arguments (exact match)
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("/usr/bin/opencode --flag", rawAllowlist: allowlist))
+    }
+
+    func testMultiWordPrefixPattern() {
+        // Multi-word prefix patterns like "npm run dev *"
+        let allowlist = "npm run dev *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev --port 3000", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev --host 0.0.0.0 --port 3000", rawAllowlist: allowlist))
+        // But not different npm commands
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm run build", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm run development", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm start", rawAllowlist: allowlist))
+    }
+
+    func testPatternWithTrailingWhitespace() {
+        // Patterns with trailing whitespace should still work
+        let allowlist = "opencode *  \n  claude *  "
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("claude --model sonnet", rawAllowlist: allowlist))
+    }
+
+    func testAllowlistPatternIsCaseSensitive() {
+        // Allowlist patterns should be case-sensitive (commands are case-sensitive on Unix)
+        let allowlist = "OpenCode *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("OpenCode --flag", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode --flag", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("OPENCODE --flag", rawAllowlist: allowlist))
+    }
+
+    func testSingleAsteriskPatternDoesNotMatchEverything() {
+        // A pattern of just "*" should NOT be a universal wildcard
+        // It would only match a literal command named "*"
+        let allowlist = "*"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", rawAllowlist: allowlist))
+        // The pattern "* *" would match commands starting with "*" (not useful)
+        let allowlist2 = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist2))
+    }
+
+    func testPrefixPatternRequiresSpaceBeforeAsterisk() {
+        // "opencode*" is NOT a prefix pattern - it's an exact match for "opencode*"
+        let allowlist = "opencode*"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode --flag", rawAllowlist: allowlist))
+        // Only matches the literal "opencode*"
+        // (This is intentional - we only support " *" suffix for prefix matching)
+    }
+
+    func testPatternMatchingWithSpecialCharactersInCommand() {
+        // Commands with special characters should match correctly
+        let allowlist = "my-app *\nmy_app *\nmy.app *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("my-app --flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("my_app --flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("my.app --flag", rawAllowlist: allowlist))
+    }
+
+    func testPatternMatchingPreservesArgumentSpaces() {
+        // Arguments with multiple spaces should be preserved
+        let allowlist = "echo *"
+        // Note: echo is blocked by denylist in some contexts, use a safe command
+        let safeAllowlist = "myecho *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myecho hello world", rawAllowlist: safeAllowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myecho 'hello   world'", rawAllowlist: safeAllowlist))
+    }
+
     // MARK: - Allowlist Normalization Tests
 
     func testNormalizedPatternsWithEmptyInputReturnsDefaults() {
