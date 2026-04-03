@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="علامات تبويب عمودية وأجزاء مقسمة" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> ينشئ مساحة عمل لجهاز بعيد. تُوجَّه أجزاء المتصفح عبر الشبكة البعيدة بحيث يعمل localhost مباشرة. اسحب صورة إلى جلسة بعيدة لرفعها عبر scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> يشغّل وضع الفريق في Claude Code بأمر واحد. يظهر أعضاء الفريق كأقسام أصلية مع بيانات وصفية في الشريط الجانبي وإشعارات. لا حاجة لـ tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **استيراد المتصفح** — استيراد ملفات تعريف الارتباط والسجل والجلسات من Chrome وFirefox وArc وأكثر من 20 متصفحًا آخر حتى تبدأ أجزاء المتصفح مع تسجيل الدخول
+- **أوامر مخصصة** — حدد إجراءات خاصة بالمشروع في [`cmux.json`](https://cmux.com/docs/custom-commands) يتم تشغيلها من لوحة الأوامر
 - **قابل للبرمجة** — CLI وsocket API لإنشاء مساحات العمل وتقسيم الأجزاء وإرسال ضغطات المفاتيح وأتمتة المتصفح
 - **تطبيق macOS أصلي** — مبني بـ Swift وAppKit، وليس Electron. بدء تشغيل سريع واستهلاك ذاكرة منخفض.
 - **متوافق مع Ghostty** — يقرأ إعداداتك الحالية من `~/.config/ghostty/config` للسمات والخطوط والألوان
@@ -268,6 +289,6 @@ cmux مجاني ومفتوح المصدر وسيظل كذلك دائمًا. إذ
 
 ## الرخصة
 
-cmux مفتوح المصدر بموجب [AGPL-3.0-or-later](LICENSE).
+cmux مفتوح المصدر بموجب [GPL-3.0-or-later](LICENSE).
 
-إذا لم تستطع مؤسستك الامتثال لـ AGPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@manaflow.com](mailto:founders@manaflow.com) للتفاصيل.
+إذا لم تستطع مؤسستك الامتثال لـ GPL، فهناك ترخيص تجاري متاح. تواصل مع [founders@manaflow.com](mailto:founders@manaflow.com) للتفاصيل.

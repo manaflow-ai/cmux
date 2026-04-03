@@ -738,18 +738,45 @@ final class WindowTransparencyDecisionTests: XCTestCase {
         }
     }
 
-    func testBehindWindowGlassPathStillControlsTransparentWindowFallback() {
+    func testGlassEnabledDecisionIgnoresGlassImplementationAvailability() {
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: false
+            )
+        )
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "withinWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: false,
+                glassEffectAvailable: true
+            )
+        )
+    }
+
+    func testBehindWindowGlassPathKeepsTransparentWindowEnabled() {
         withTemporaryWindowBackgroundDefaults {
             let defaults = UserDefaults.standard
             defaults.set("behindWindow", forKey: sidebarBlendModeKey)
             defaults.set(true, forKey: bgGlassEnabledKey)
 
-            let expectedTransparentFallback = !WindowGlassEffect.isAvailable
-            XCTAssertEqual(cmuxShouldUseTransparentBackgroundWindow(), expectedTransparentFallback)
-            XCTAssertEqual(
-                cmuxShouldUseClearWindowBackground(for: 1.0),
-                expectedTransparentFallback
-            )
+            XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
         }
     }
 

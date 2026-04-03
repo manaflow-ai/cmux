@@ -60,6 +60,10 @@ private extension WKWebView {
         }
     }
 
+    var browserPortalRequiresRenderingStateReattach: Bool {
+        browserPortalNeedsRenderingStateReattach
+    }
+
     func browserPortalNotifyHidden(reason: String) {
         browserPortalNeedsRenderingStateReattach = true
         let firedSelectors = ["viewDidHide", "_exitInWindow"].filter {
@@ -2060,6 +2064,9 @@ final class WindowBrowserPortal: NSObject {
     private var hasDeferredFullSyncScheduled = false
     private var hasExternalGeometrySyncScheduled = false
     private var geometryObservers: [NSObjectProtocol] = []
+    // Keep generations monotonic even if a pending entry is cleared during hide/detach churn.
+    private var nextHostedWebViewRefreshGeneration: UInt64 = 0
+    private var pendingHostedWebViewRefreshes: [ObjectIdentifier: PendingHostedWebViewRefresh] = [:]
 
     private struct Entry {
         weak var webView: WKWebView?
@@ -2073,6 +2080,12 @@ final class WindowBrowserPortal: NSObject {
         var paneTopChromeHeight: CGFloat
         var transientRecoveryReason: String?
         var transientRecoveryRetriesRemaining: Int
+    }
+
+    private struct PendingHostedWebViewRefresh {
+        var generation: UInt64 = 0
+        var asyncWorkItem: DispatchWorkItem?
+        var delayedWorkItem: DispatchWorkItem?
     }
 
     private var entriesByWebViewId: [ObjectIdentifier: Entry] = [:]
@@ -2098,7 +2111,26 @@ final class WindowBrowserPortal: NSObject {
         // WebKit's attached DevTools uses internal NSSplitView instances for the
         // side/bottom inspector layout. Those resizes are local to hosted content
         // and should not trigger a full portal re-sync/refresh pass.
-        return !splitView.isDescendant(of: hostView)
+        guard !splitView.isDescendant(of: hostView) else { return false }
+        // Browser host anchors already emit coalesced geometry callbacks while the
+        // user drags a split divider. Running the portal-wide external-geometry
+        // sync on the same drag frame doubles up WebKit refresh work and shows up
+        // as visible flicker in browser panes.
+        return !isInteractiveSplitDividerDrag(in: window)
+    }
+
+    private static func isInteractiveSplitDividerDrag(in window: NSWindow) -> Bool {
+        guard (NSEvent.pressedMouseButtons & 1) != 0 else { return false }
+        guard let event = NSApp.currentEvent else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard (now - event.timestamp) < 0.1 else { return false }
+        guard event.window === window else { return false }
+        switch event.type {
+        case .leftMouseDown, .leftMouseDragged:
+            return true
+        default:
+            return false
+        }
     }
 
     private func installGeometryObservers(for window: NSWindow) {
@@ -2503,6 +2535,22 @@ final class WindowBrowserPortal: NSObject {
 #endif
     }
 
+    private func cancelPendingHostedWebViewRefreshes(
+        for webViewId: ObjectIdentifier,
+        keepGeneration: Bool = false
+    ) {
+        guard var pending = pendingHostedWebViewRefreshes[webViewId] else { return }
+        pending.asyncWorkItem?.cancel()
+        pending.delayedWorkItem?.cancel()
+        if keepGeneration {
+            pending.asyncWorkItem = nil
+            pending.delayedWorkItem = nil
+            pendingHostedWebViewRefreshes[webViewId] = pending
+        } else {
+            pendingHostedWebViewRefreshes.removeValue(forKey: webViewId)
+        }
+    }
+
     private func invalidateHostedWebViewGeometry(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
@@ -2523,6 +2571,16 @@ final class WindowBrowserPortal: NSObject {
         reason: String
     ) {
         guard !containerView.isHidden else { return }
+        let webViewId = ObjectIdentifier(webView)
+
+        // Bind/reveal/fullscreen refreshes can stack up during a single layout churn.
+        // Keep only the latest follow-up passes so reattach work does not pile up on
+        // the main thread while browser panes are moving between hosts.
+        cancelPendingHostedWebViewRefreshes(for: webViewId, keepGeneration: true)
+        var pending = pendingHostedWebViewRefreshes[webViewId] ?? PendingHostedWebViewRefresh()
+        nextHostedWebViewRefreshGeneration &+= 1
+        let generation = nextHostedWebViewRefreshGeneration
+        pending.generation = generation
 
         runHostedWebViewRefreshPass(
             webView,
@@ -2531,8 +2589,10 @@ final class WindowBrowserPortal: NSObject {
             phase: "immediate",
             reattachRenderingState: true
         )
-        DispatchQueue.main.async { [weak self, weak webView, weak containerView] in
+
+        let asyncWorkItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
             guard let self, let webView, let containerView else { return }
+            guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
             self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
@@ -2541,8 +2601,20 @@ final class WindowBrowserPortal: NSObject {
                 reattachRenderingState: true
             )
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self, weak webView, weak containerView] in
-            guard let self, let webView, let containerView else { return }
+        pending.asyncWorkItem = asyncWorkItem
+
+        let delayedWorkItem = DispatchWorkItem { [weak self, weak webView, weak containerView] in
+            guard let self else { return }
+            defer {
+                if var current = self.pendingHostedWebViewRefreshes[webViewId],
+                   current.generation == generation {
+                    current.asyncWorkItem = nil
+                    current.delayedWorkItem = nil
+                    self.pendingHostedWebViewRefreshes[webViewId] = current
+                }
+            }
+            guard let webView, let containerView else { return }
+            guard self.pendingHostedWebViewRefreshes[webViewId]?.generation == generation else { return }
             self.runHostedWebViewRefreshPass(
                 webView,
                 in: containerView,
@@ -2551,6 +2623,11 @@ final class WindowBrowserPortal: NSObject {
                 reattachRenderingState: true
             )
         }
+        pending.delayedWorkItem = delayedWorkItem
+        pendingHostedWebViewRefreshes[webViewId] = pending
+
+        DispatchQueue.main.async(execute: asyncWorkItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: delayedWorkItem)
     }
 
     private enum HostedWebViewPresentationUpdateKind {
@@ -2633,6 +2710,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     func detachWebView(withId webViewId: ObjectIdentifier) {
+        cancelPendingHostedWebViewRefreshes(for: webViewId)
         guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
         if let anchor = entry.anchorView {
             webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
@@ -2735,9 +2813,10 @@ final class WindowBrowserPortal: NSObject {
 
     func forceRefreshWebView(withId webViewId: ObjectIdentifier, reason: String) {
         guard ensureInstalled() else { return }
+        let refreshSource = "forceRefresh:\(reason)"
         synchronizeWebView(
             withId: webViewId,
-            source: "forceRefresh",
+            source: refreshSource,
             forcePresentationRefresh: true
         )
         guard let entry = entriesByWebViewId[webViewId],
@@ -2746,10 +2825,12 @@ final class WindowBrowserPortal: NSObject {
               !containerView.isHidden else {
             return
         }
+        // Portal-host replacement/fullscreen churn relies on forceRefresh to kick
+        // WebKit even when synchronizeWebView short-circuits or skips its refresh path.
         refreshHostedWebViewPresentation(
             webView,
             in: containerView,
-            reason: reason
+            reason: refreshSource
         )
     }
 
@@ -2999,6 +3080,7 @@ final class WindowBrowserPortal: NSObject {
         }
         let previousTransientRecoveryReason = entry.transientRecoveryReason
         func hideContainerView(reason: String) {
+            cancelPendingHostedWebViewRefreshes(for: webViewId)
             containerView.setPaneTopChromeHeight(0)
             containerView.setSearchOverlay(nil)
             containerView.setPaneDropContext(nil)
@@ -3434,13 +3516,17 @@ final class WindowBrowserPortal: NSObject {
         let hostedInspectorAdjustedDuringSync =
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
+        let requiresRenderingStateReattach = webView.browserPortalRequiresRenderingStateReattach
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
+        let shouldReapplyHostedInspectorPostRefresh =
+            presentationUpdateKind == .refresh && requiresRenderingStateReattach
         if !shouldHide, containerOwnsWebView, presentationUpdateKind != .none {
             if presentationUpdateKind == .refresh &&
                 hostedInspectorAdjustedDuringSync &&
-                !recoveredFromTransientGeometry {
+                !recoveredFromTransientGeometry &&
+                !requiresRenderingStateReattach {
 #if DEBUG
                 dlog(
                     "browser.portal.refresh.skip web=\(browserPortalDebugToken(webView)) " +
@@ -3468,9 +3554,12 @@ final class WindowBrowserPortal: NSObject {
                 }
             }
         }
-        if containerOwnsWebView, !hostedInspectorAdjustedDuringSync {
+        if containerOwnsWebView,
+           (!hostedInspectorAdjustedDuringSync || shouldReapplyHostedInspectorPostRefresh) {
             // Keep the existing post-sync pass for cases where the inspector candidate
-            // appears only after WebKit settles, but avoid a second apply when sync already clamped it.
+            // appears only after WebKit settles. Re-run it after rendering-state reattach
+            // refreshes as well, because WebKit's enter/unhide relayout can overwrite the
+            // preferred divider position we already clamped during portal.sync.
             _ = hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync.postRefresh")
         }
 #if DEBUG

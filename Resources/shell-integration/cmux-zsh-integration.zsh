@@ -54,6 +54,24 @@ _cmux_restore_scrollback_once() {
 }
 _cmux_restore_scrollback_once
 
+typeset -g _CMUX_CLAUDE_WRAPPER=""
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    builtin unalias claude >/dev/null 2>&1 || true
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+}
+_cmux_install_claude_wrapper
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
@@ -67,8 +85,11 @@ typeset -g _CMUX_GIT_HEAD_SIGNATURE=""
 typeset -g _CMUX_GIT_HEAD_WATCH_PID=""
 typeset -g _CMUX_PR_POLL_PID=""
 typeset -g _CMUX_PR_POLL_PWD=""
+typeset -g _CMUX_PR_LAST_BRANCH=""
+typeset -g _CMUX_PR_NO_PR_BRANCH=""
 typeset -g _CMUX_PR_POLL_INTERVAL=45
 typeset -g _CMUX_PR_FORCE=0
+typeset -g _CMUX_PR_DEBUG=${_CMUX_PR_DEBUG:-0}
 typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
@@ -449,13 +470,59 @@ _cmux_github_repo_slug_for_path() {
     print -r -- "$path_part"
 }
 
+_cmux_pr_cache_prefix() {
+    [[ -n "$CMUX_PANEL_ID" ]] || return 1
+    print -r -- "/tmp/cmux-pr-cache-${CMUX_PANEL_ID}"
+}
+
+_cmux_pr_force_signal_path() {
+    [[ -n "$CMUX_PANEL_ID" ]] || return 1
+    print -r -- "/tmp/cmux-pr-force-${CMUX_PANEL_ID}"
+}
+
+_cmux_pr_debug_log() {
+    (( _CMUX_PR_DEBUG )) || return 0
+
+    local branch="$1"
+    local event="$2"
+    local now="${EPOCHSECONDS:-$SECONDS}"
+    printf '%s\tbranch=%s\tevent=%s\n' "$now" "$branch" "$event" >> /tmp/cmux-pr-debug.log
+}
+
+_cmux_pr_cache_clear() {
+    local prefix=""
+    prefix="$(_cmux_pr_cache_prefix 2>/dev/null || true)"
+    if [[ -n "$prefix" ]]; then
+        /bin/rm -f -- \
+            "${prefix}.branch" \
+            "${prefix}.repo" \
+            "${prefix}.result" \
+            "${prefix}.timestamp" \
+            "${prefix}.no-pr-branch" \
+            >/dev/null 2>&1 || true
+    fi
+
+    _CMUX_PR_LAST_BRANCH=""
+    _CMUX_PR_NO_PR_BRANCH=""
+}
+
+_cmux_pr_request_probe() {
+    local signal_path=""
+    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+    [[ -n "$signal_path" ]] || return 0
+    : >| "$signal_path"
+}
+
 _cmux_report_pr_for_path() {
     local repo_path="$1"
+    local force_probe="${2:-0}"
     [[ -n "$repo_path" ]] || {
+        _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
         return 0
     }
     [[ -d "$repo_path" ]] || {
+        _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
         return 0
     }
@@ -464,13 +531,39 @@ _cmux_report_pr_for_path() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
     local branch repo_slug="" gh_output="" gh_error="" err_file="" number state url status_opt="" gh_status
+    local now="${EPOCHSECONDS:-$SECONDS}"
+    local prefix="" branch_file="" repo_file="" result_file="" timestamp_file="" no_pr_branch_file=""
+    local cache_branch="" cache_result="" cache_no_pr_branch=""
     local -a gh_repo_args
     gh_repo_args=()
     branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
+        _cmux_pr_debug_log "$branch" "cache-miss:clear"
+        _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
         return 0
     fi
+
+    prefix="$(_cmux_pr_cache_prefix 2>/dev/null || true)"
+    if [[ -n "$prefix" ]]; then
+        branch_file="${prefix}.branch"
+        repo_file="${prefix}.repo"
+        result_file="${prefix}.result"
+        timestamp_file="${prefix}.timestamp"
+        no_pr_branch_file="${prefix}.no-pr-branch"
+        [[ -r "$branch_file" ]] && cache_branch="$(<"$branch_file")"
+        [[ -r "$result_file" ]] && cache_result="$(<"$result_file")"
+        [[ -r "$no_pr_branch_file" ]] && cache_no_pr_branch="$(<"$no_pr_branch_file")"
+    fi
+
+    _CMUX_PR_LAST_BRANCH="$cache_branch"
+    _CMUX_PR_NO_PR_BRANCH="$cache_no_pr_branch"
+    if [[ "$cache_branch" == "$branch" && -n "$cache_result" ]]; then
+        _cmux_pr_debug_log "$branch" "cache-refresh"
+    else
+        _cmux_pr_debug_log "$branch" "cache-miss"
+    fi
+
     repo_slug="$(_cmux_github_repo_slug_for_path "$repo_path")"
     if [[ -n "$repo_slug" ]]; then
         gh_repo_args=(--repo "$repo_slug")
@@ -494,10 +587,28 @@ _cmux_report_pr_for_path() {
 
     if (( gh_status != 0 )) || [[ -z "$gh_output" ]]; then
         if (( gh_status == 0 )) && [[ -z "$gh_output" ]]; then
+            if [[ -n "$prefix" ]]; then
+                print -r -- "$branch" >| "$branch_file"
+                print -r -- "$repo_path" >| "$repo_file"
+                print -r -- "$now" >| "$timestamp_file"
+                print -r -- "none" >| "$result_file"
+                print -r -- "$branch" >| "$no_pr_branch_file"
+            fi
+            _CMUX_PR_LAST_BRANCH="$branch"
+            _CMUX_PR_NO_PR_BRANCH="$branch"
             _cmux_clear_pr_for_panel
             return 0
         fi
         if _cmux_pr_output_indicates_no_pull_request "$gh_error"; then
+            if [[ -n "$prefix" ]]; then
+                print -r -- "$branch" >| "$branch_file"
+                print -r -- "$repo_path" >| "$repo_file"
+                print -r -- "$now" >| "$timestamp_file"
+                print -r -- "none" >| "$result_file"
+                print -r -- "$branch" >| "$no_pr_branch_file"
+            fi
+            _CMUX_PR_LAST_BRANCH="$branch"
+            _CMUX_PR_NO_PR_BRANCH="$branch"
             _cmux_clear_pr_for_panel
             return 0
         fi
@@ -520,6 +631,16 @@ _cmux_report_pr_for_path() {
         CLOSED) status_opt="--state=closed" ;;
         *) return 1 ;;
     esac
+
+    if [[ -n "$prefix" ]]; then
+        print -r -- "$branch" >| "$branch_file"
+        print -r -- "$repo_path" >| "$repo_file"
+        print -r -- "$now" >| "$timestamp_file"
+        printf '%s\t%s\t%s\t%s\n' "pr" "$number" "$state" "$url" >| "$result_file"
+        /bin/rm -f -- "$no_pr_branch_file" >/dev/null 2>&1 || true
+    fi
+    _CMUX_PR_LAST_BRANCH="$branch"
+    _CMUX_PR_NO_PR_BRANCH=""
 
     local quoted_branch="${branch//\"/\\\"}"
     _cmux_send "report_pr $number $url $status_opt --branch=\"$quoted_branch\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
@@ -548,18 +669,19 @@ _cmux_kill_process_tree() {
 
 _cmux_run_pr_probe_with_timeout() {
     local repo_path="$1"
+    local force_probe="${2:-0}"
     local probe_pid=""
-    local started_at=$EPOCHSECONDS
+    local started_at="${EPOCHSECONDS:-$SECONDS}"
     local now=$started_at
 
     (
-        _cmux_report_pr_for_path "$repo_path"
+        _cmux_report_pr_for_path "$repo_path" "$force_probe"
     ) &
     probe_pid=$!
 
     while kill -0 "$probe_pid" >/dev/null 2>&1; do
         sleep 1
-        now=$EPOCHSECONDS
+        now="${EPOCHSECONDS:-$SECONDS}"
         if (( _CMUX_ASYNC_JOB_TIMEOUT > 0 )) && (( now - started_at >= _CMUX_ASYNC_JOB_TIMEOUT )); then
             _cmux_kill_process_tree "$probe_pid" TERM
             sleep 0.2
@@ -577,14 +699,23 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
-_cmux_stop_pr_poll_loop() {
+_cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
         # negative PID kills the loop + all descendants (gh, sleep) without
         # the synchronous /bin/ps + awk of tree-kill (~5-13ms).
         kill -KILL -- -"$_CMUX_PR_POLL_PID" 2>/dev/null || true
-        _CMUX_PR_POLL_PID=""
     fi
+    local signal_path=""
+    signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+    [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+    _CMUX_PR_POLL_PID=""
+    _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_stop_pr_poll_loop() {
+    _cmux_halt_pr_poll_loop
+    _cmux_pr_cache_clear
 }
 
 _cmux_start_pr_poll_loop() {
@@ -602,14 +733,34 @@ _cmux_start_pr_poll_loop() {
         return 0
     fi
 
-    _cmux_stop_pr_poll_loop
+    if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
+        _cmux_halt_pr_poll_loop
+    else
+        _CMUX_PR_POLL_PID=""
+    fi
     _CMUX_PR_POLL_PWD="$watch_pwd"
 
     {
+        local signal_path=""
+        signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
         while true; do
             kill -0 "$watch_shell_pid" >/dev/null 2>&1 || break
-            _cmux_run_pr_probe_with_timeout "$watch_pwd" || true
-            sleep "$interval"
+            local force_probe=0
+            if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                force_probe=1
+                /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
+            fi
+            _cmux_run_pr_probe_with_timeout "$watch_pwd" "$force_probe" || true
+
+            local slept=0
+            while (( slept < interval )); do
+                kill -0 "$watch_shell_pid" >/dev/null 2>&1 || exit 0
+                if [[ -n "$signal_path" && -f "$signal_path" ]]; then
+                    break
+                fi
+                sleep 1
+                slept=$(( slept + 1 ))
+            done
         done
     } >/dev/null 2>&1 &!
     _CMUX_PR_POLL_PID=$!
@@ -649,11 +800,68 @@ _cmux_start_git_head_watch() {
             signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
             if [[ -n "$signature" && "$signature" != "$last_signature" ]]; then
                 last_signature="$signature"
+                _cmux_pr_cache_clear
                 _cmux_report_git_branch_for_path "$watch_pwd"
+                _cmux_clear_pr_for_panel
+                if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
+                    _cmux_pr_request_probe
+                else
+                    _cmux_run_pr_probe_with_timeout "$watch_pwd" 1 || true
+                fi
             fi
         done
     } >/dev/null 2>&1 &!
     _CMUX_GIT_HEAD_WATCH_PID=$!
+}
+
+_cmux_command_starts_nested_shell() {
+    local cmd="$1"
+    local -a words
+    words=("${(z)cmd}")
+
+    local index=1
+    local word base
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index <= ${#words} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word:t}"
+        case "$base" in
+            bash|zsh|sh|fish|nu|nix-shell)
+                return 0 ;;
+            nix)
+                local next_index=$(( index + 1 ))
+                local next_word="${words[next_index]}"
+                case "$next_word" in
+                    develop|shell)
+                        return 0 ;;
+                esac ;;
+        esac
+
+        return 1
+    done
+
+    return 1
 }
 
 _cmux_preexec() {
@@ -680,7 +888,11 @@ _cmux_preexec() {
     # Register TTY + kick batched port scan for foreground commands (servers).
     _cmux_report_tty_once
     _cmux_ports_kick
-    _cmux_stop_pr_poll_loop
+    _cmux_halt_pr_poll_loop
+    _cmux_stop_git_head_watch
+    if _cmux_command_starts_nested_shell "$cmd"; then
+        return 0
+    fi
     _cmux_start_git_head_watch
 }
 
@@ -810,6 +1022,7 @@ _cmux_precmd() {
     # alive while the shell is idle so gh-created PRs and merge status changes
     # appear even without another prompt.
     local should_restart_pr_poll=0
+    local should_signal_pr_probe=0
     local pr_context_changed=0
     if [[ -n "$_CMUX_PR_POLL_PWD" && "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
         pr_context_changed=1
@@ -819,16 +1032,27 @@ _cmux_precmd() {
     if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
         should_restart_pr_poll=1
     elif (( _CMUX_PR_FORCE )); then
-        should_restart_pr_poll=1
+        if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
+            should_signal_pr_probe=1
+        else
+            should_restart_pr_poll=1
+        fi
     elif [[ -z "$_CMUX_PR_POLL_PID" ]] || ! kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
         should_restart_pr_poll=1
     fi
 
+    if (( pr_context_changed )); then
+        _cmux_pr_cache_clear
+        _cmux_clear_pr_for_panel
+    fi
+
+    if (( should_signal_pr_probe )); then
+        _CMUX_PR_FORCE=0
+        _cmux_pr_request_probe
+    fi
+
     if (( should_restart_pr_poll )); then
         _CMUX_PR_FORCE=0
-        if (( pr_context_changed )); then
-            _cmux_clear_pr_for_panel
-        fi
         _cmux_start_pr_poll_loop "$pwd" 1
     fi
 

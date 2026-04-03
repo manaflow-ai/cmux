@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Вертикальні вкладки та розділені панелі" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> створює робочий простір для віддаленої машини. Панелі браузера маршрутизуються через віддалену мережу, тому localhost працює одразу. Перетягніть зображення у віддалену сесію, щоб завантажити через scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> запускає режим teammate Claude Code однією командою. Учасники команди з'являються як нативні розділення з метаданими у бічній панелі та сповіщеннями. tmux не потрібен.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Імпорт браузера** — Імпортуйте кукі, історію та сесії з Chrome, Firefox, Arc та понад 20 інших браузерів, щоб панелі браузера запускалися автентифікованими
+- **Користувацькі команди** — Визначте дії для конкретного проєкту у [`cmux.json`](https://cmux.com/docs/custom-commands), які запускаються з палітри команд
 - **Скриптований** — CLI та socket API для створення робочих просторів, розділення панелей, надсилання натискань клавіш та автоматизації браузера
 - **Нативний додаток macOS** — Побудований на Swift та AppKit, не Electron. Швидкий запуск, мало пам'яті.
 - **Сумісний з Ghostty** — Читає вашу існуючу конфігурацію `~/.config/ghostty/config` для тем, шрифтів та кольорів
@@ -270,6 +291,6 @@ cmux є безкоштовним, з відкритим кодом і завжд
 
 ## Ліцензія
 
-cmux є відкритим програмним забезпеченням під ліцензією [AGPL-3.0-or-later](LICENSE).
+cmux є відкритим програмним забезпеченням під ліцензією [GPL-3.0-or-later](LICENSE).
 
-Якщо ваша організація не може дотримуватися AGPL, доступна комерційна ліцензія. Зв'яжіться з [founders@manaflow.com](mailto:founders@manaflow.com) для деталей.
+Якщо ваша організація не може дотримуватися GPL, доступна комерційна ліцензія. Зв'яжіться з [founders@manaflow.com](mailto:founders@manaflow.com) для деталей.

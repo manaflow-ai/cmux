@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ Kenar çubuğu git dalını, bağlantılı PR durumunu/numarasını, çalışma 
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Dikey sekmeler ve bölünmüş paneller" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> uzak bir makine için çalışma alanı oluşturur. Tarayıcı panelleri uzak ağ üzerinden yönlendirilir, böylece localhost sorunsuz çalışır. Uzak oturuma bir görsel sürükleyerek scp ile yükleyin.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> Claude Code'un takım arkadaşı modunu tek bir komutla çalıştırır. Takım arkadaşları, kenar çubuğu meta verileri ve bildirimlerle yerel bölmeler olarak oluşturulur. tmux gerekmez.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Tarayıcı içe aktarma** — Chrome, Firefox, Arc ve 20'den fazla tarayıcıdan çerezleri, geçmişi ve oturumları içe aktararak tarayıcı panellerinin oturum açmış şekilde başlamasını sağlayın
+- **Özel komutlar** — Komut paletinden başlatılan projeye özel eylemleri [`cmux.json`](https://cmux.com/docs/custom-commands) dosyasında tanımlayın
 - **Betiklenebilir** — Çalışma alanları oluşturmak, panelleri bölmek, tuş vuruşları göndermek ve tarayıcıyı otomatikleştirmek için CLI ve socket API
 - **Yerel macOS uygulaması** — Swift ve AppKit ile yapılmıştır, Electron değil. Hızlı başlangıç, düşük bellek kullanımı.
 - **Ghostty uyumlu** — Temalar, yazı tipleri ve renkler için mevcut `~/.config/ghostty/config` dosyanızı okur
@@ -268,6 +289,6 @@ cmux ücretsiz, açık kaynak ve her zaman öyle olacak. Geliştirmeyi desteklem
 
 ## Lisans
 
-cmux, [AGPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
+cmux, [GPL-3.0-or-later](LICENSE) kapsamında açık kaynaklıdır.
 
-Kuruluşunuz AGPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.
+Kuruluşunuz GPL'ye uyum sağlayamıyorsa, ticari lisans mevcuttur. Ayrıntılar için [founders@manaflow.com](mailto:founders@manaflow.com) ile iletişime geçin.

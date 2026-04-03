@@ -35,10 +35,109 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
     }
 
+    func testAlternatePlainTextUTIExtractsPlainText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-plain-text-uti-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from public.plain-text",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from public.plain-text"
+        )
+    }
+
+    func testEmptyPlainTextFallsBackToRichTextPayload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("", forType: .string)
+
+        let attributed = NSAttributedString(string: "hello from rtf fallback")
+        let rtfData = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from rtf fallback"
+        )
+    }
+
+    func testXHTMLTypeFallsBackToRenderedHTMLText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-xhtml-html-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "<div>Hello <strong>world</strong></div>",
+            forType: NSPasteboard.PasteboardType("public.xhtml")
+        )
+        pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+    }
+
+    func testImageClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-plain-text-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "https://example.com/keyboard.png",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
     func testImageHTMLClipboardFallsBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
         pasteboard.setString("<meta charset='utf-8'><img src=\"https://example.com/keyboard.png\">", forType: .html)
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testImageHTMLClipboardWithGenericPlainTextStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-generic-text-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("<meta charset='utf-8'><img src=\"https://example.com/keyboard.png\">", forType: .html)
+        pasteboard.setString(
+            "https://example.com/keyboard.png",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
 
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
@@ -1301,6 +1400,10 @@ final class TerminalDirectoryOpenTargetAvailabilityTests: XCTestCase {
 
 @MainActor
 final class TerminalNotificationDirectInteractionTests: XCTestCase {
+    private final class FocusProbeView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
@@ -1496,6 +1599,207 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 1)
+    }
+
+    func testKeyDownRecoversReleasedSurfaceWhileHostedViewIsDetached() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating the detach race")
+
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
+
+        hostedView.removeFromSuperview()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        surfaceView.keyDown(with: event)
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                surface.surface != nil
+            },
+            object: NSObject()
+        )
+        wait(for: [recovered], timeout: 1.0)
+
+        XCTAssertNotNil(
+            surface.surface,
+            "Missing-surface keyDown should request background surface recreation instead of leaving terminal input dead"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        let otherResponder = FocusProbeView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))
+        contentView.addSubview(otherResponder)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(surface.debugDesiredFocusState(), "Focused terminal should start with desired Ghostty focus")
+
+        surface.releaseSurfaceForTesting()
+        XCTAssertNil(surface.surface, "Expected runtime surface to be released for the regression setup")
+
+        hostedView.removeFromSuperview()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+        XCTAssertTrue(
+            (window.firstResponder as? NSView) === surfaceView,
+            "Expected the detached Ghostty view to remain the stale first responder during the regression setup"
+        )
+
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        surfaceView.keyDown(with: event)
+
+        XCTAssertTrue(window.makeFirstResponder(otherResponder))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(
+            (window.firstResponder as? NSView) === otherResponder,
+            "Expected focus to move to the replacement responder"
+        )
+        XCTAssertFalse(
+            surface.debugDesiredFocusState(),
+            "Responder loss after a missing-surface keyDown should clear desired Ghostty focus before recovery completes"
+        )
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                surface.surface != nil
+            },
+            object: NSObject()
+        )
+        wait(for: [recovered], timeout: 1.0)
+
+        XCTAssertNotNil(surface.surface, "Expected missing-surface recovery to still recreate the runtime surface")
+        XCTAssertFalse(
+            surface.debugDesiredFocusState(),
+            "Recovered runtime surface should not restore focus after the pane already lost first responder"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testKeyDownRecoveryDoesNotRecreateClosedSurface() throws {
+#if DEBUG
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = surfaceView(in: hostedView) as? GhosttyNSView else {
+            XCTFail("Expected terminal surface view")
+            return
+        }
+        XCTAssertNotNil(surface.surface, "Expected runtime surface before simulating close lifecycle teardown")
+
+        surface.beginPortalCloseLifecycle(reason: "test.close")
+        surface.teardownSurface()
+        XCTAssertNil(surface.surface, "Teardown should release the runtime surface")
+        XCTAssertEqual(surface.portalBindingStateLabel(), "closed")
+
+        hostedView.removeFromSuperview()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertNil(surfaceView.window, "Expected hosted terminal view to be detached from any window")
+
+        let event = makeKeyEvent(characters: "a", keyCode: 0, window: window)
+        surfaceView.keyDown(with: event)
+
+        let drained = expectation(description: "background recovery drained")
+        DispatchQueue.main.async { drained.fulfill() }
+        wait(for: [drained], timeout: 1.0)
+
+        XCTAssertNil(
+            surface.surface,
+            "Missing-surface keyDown should not recreate a Ghostty runtime surface after close lifecycle teardown"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 
@@ -1729,6 +2033,31 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             return true
         }
         return false
+    }
+
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 1.0,
+        description: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        _ condition: @escaping () -> Bool
+    ) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                if Thread.isMainThread {
+                    return condition()
+                }
+                return DispatchQueue.main.sync(execute: condition)
+            },
+            object: NSObject()
+        )
+        let result = XCTWaiter().wait(for: [expectation], timeout: timeout)
+        guard result == .completed else {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+            return false
+        }
+        return true
     }
 
     func testTrackpadScrollRoutesToTerminalSurfaceAndPreservesKeyboardFocusPath() {
@@ -2045,11 +2374,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         let searchState = TerminalSurface.SearchState(needle: "example")
         hostedView.setSearchOverlay(searchState: searchState)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         hostedView.setSearchOverlay(searchState: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitUntil(description: "search overlay to unmount") {
+            !hostedView.debugHasSearchOverlay()
+        }
         XCTAssertFalse(hostedView.debugHasSearchOverlay())
     }
 
@@ -2342,12 +2675,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             )
             weakSurface = surface
             let hostedView = surface.hostedView
-            hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
-            return hostedView
+        hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "retain-check"))
+        return hostedView
         }()
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
+        waitUntil(description: "terminal surface to deallocate after search overlay mount") {
+            weakSurface == nil
+        }
         XCTAssertNil(weakSurface, "Mounted search overlay must not retain TerminalSurface")
     }
 

@@ -331,6 +331,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var id: UUID
     var processTitle: String
     var customTitle: String?
+    var customDescription: String?
     var customColor: String?
     var isPinned: Bool
     var currentDirectory: String

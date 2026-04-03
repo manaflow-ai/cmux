@@ -2898,6 +2898,7 @@ class TerminalController {
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
             "index": index,
             "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
             "selected": selected,
             "pinned": workspace.isPinned,
             "panes": panes
@@ -3280,6 +3281,29 @@ class TerminalController {
 
     // MARK: - V2 Workspace Methods
 
+    private func v2WorkspaceSummaryPayload(
+        workspace: Workspace,
+        index: Int?,
+        selected: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": workspace.id.uuidString,
+            "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            "title": workspace.title,
+            "description": v2OrNull(workspace.customDescription),
+            "selected": selected,
+            "pinned": workspace.isPinned,
+            "listening_ports": workspace.listeningPorts,
+            "remote": workspace.remoteStatusPayload(),
+            "current_directory": v2OrNull(workspace.currentDirectory),
+            "custom_color": v2OrNull(workspace.customColor)
+        ]
+        if let index {
+            payload["index"] = index
+        }
+        return payload
+    }
+
     private func v2WorkspaceList(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -3288,18 +3312,11 @@ class TerminalController {
         var workspaces: [[String: Any]] = []
         v2MainSync {
             workspaces = tabManager.tabs.enumerated().map { index, ws in
-                return [
-                    "id": ws.id.uuidString,
-                    "ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "index": index,
-                    "title": ws.title,
-                    "selected": ws.id == tabManager.selectedTabId,
-                    "pinned": ws.isPinned,
-                    "listening_ports": ws.listeningPorts,
-                    "remote": ws.remoteStatusPayload(),
-                    "current_directory": v2OrNull(ws.currentDirectory),
-                    "custom_color": v2OrNull(ws.customColor)
-                ]
+                v2WorkspaceSummaryPayload(
+                    workspace: ws,
+                    index: index,
+                    selected: ws.id == tabManager.selectedTabId
+                )
             }
         }
 
@@ -3341,6 +3358,7 @@ class TerminalController {
 
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
+        let description = v2RawString(params, "description")
 
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
@@ -3353,6 +3371,7 @@ class TerminalController {
                 select: shouldFocus,
                 eagerLoadTerminal: !shouldFocus
             )
+            ws.setCustomDescription(description)
             newId = ws.id
         }
 
@@ -3410,15 +3429,12 @@ class TerminalController {
         v2MainSync {
             wsId = tabManager.selectedTabId
             if let wsId, let workspace = tabManager.tabs.first(where: { $0.id == wsId }) {
-                wsPayload = [
-                    "id": workspace.id.uuidString,
-                    "ref": v2Ref(kind: .workspace, uuid: workspace.id),
-                    "title": workspace.title,
-                    "selected": true,
-                    "pinned": workspace.isPinned,
-                    "listening_ports": workspace.listeningPorts,
-                    "remote": workspace.remoteStatusPayload(),
-                ]
+                let index = tabManager.tabs.firstIndex(where: { $0.id == wsId })
+                wsPayload = v2WorkspaceSummaryPayload(
+                    workspace: workspace,
+                    index: index,
+                    selected: true
+                )
             }
         }
         guard let wsId else {
@@ -4020,6 +4036,7 @@ class TerminalController {
 
         let supportedActions = [
             "pin", "unpin", "rename", "clear_name",
+            "set_description", "clear_description",
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
@@ -4092,6 +4109,19 @@ class TerminalController {
             case "clear_name":
                 tabManager.clearCustomTitle(tabId: workspace.id)
                 finish(["title": workspace.title])
+
+            case "set_description":
+                guard let descriptionRaw = v2String(params, "description"),
+                      !descriptionRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid description", data: nil)
+                    return
+                }
+                tabManager.setCustomDescription(tabId: workspace.id, description: descriptionRaw)
+                finish(["description": v2OrNull(workspace.customDescription)])
+
+            case "clear_description":
+                tabManager.clearCustomDescription(tabId: workspace.id)
+                finish(["description": NSNull()])
 
             case "move_up":
                 guard let currentIndex = tabManager.tabs.firstIndex(where: { $0.id == workspace.id }) else {
@@ -4619,13 +4649,11 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let targetSurfaceId: UUID? = v2UUID(params, "surface_id") ?? ws.focusedPanelId
-            guard let targetSurfaceId else {
+            let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
+            // Fall back to focused surface if the requested surface no longer exists (e.g. closed teammate pane)
+            let targetSurfaceId: UUID? = requestedSurfaceId.flatMap({ ws.panels[$0] != nil ? $0 : nil }) ?? ws.focusedPanelId
+            guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
                 result = .err(code: "not_found", message: "No focused surface", data: nil)
-                return
-            }
-            guard ws.panels[targetSurfaceId] != nil else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": targetSurfaceId.uuidString])
                 return
             }
 
@@ -6606,7 +6634,7 @@ class TerminalController {
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
         let workspaceId = v2UUID(params, "workspace_id")
         let windowId = v2UUID(params, "window_id")
-        let shouldActivate = v2Bool(params, "activate") ?? false
+        let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? false)
         DispatchQueue.main.async {
             let targetWindow: NSWindow?
             if let windowId, let app = AppDelegate.shared {
@@ -6633,7 +6661,7 @@ class TerminalController {
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
         let targetRaw = v2String(params, "target")
-        let shouldActivate = v2Bool(params, "activate") ?? true
+        let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? true)
 
         let navigationTarget: SettingsNavigationTarget?
         switch targetRaw {
@@ -10457,8 +10485,10 @@ class TerminalController {
                 result = .err(code: "not_found", message: "No window", data: nil)
                 return
             }
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            if socketCommandAllowsInAppFocusMutations() {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
             guard let fr = window.firstResponder else {
                 result = .err(code: "not_found", message: "No first responder", data: nil)
                 return
@@ -11232,7 +11262,8 @@ class TerminalController {
     }
 
     private func prepareWindowForSyntheticInput(_ window: NSWindow?) {
-        guard let window else { return }
+        guard socketCommandAllowsInAppFocusMutations(),
+              let window else { return }
         // Keep socket-driven input simulation focused on the intended window without
         // paying repeated activation/order-front costs for every synthetic key event.
         if !NSApp.isActive {

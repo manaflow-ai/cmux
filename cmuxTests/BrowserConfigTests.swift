@@ -16,6 +16,8 @@ import UserNotifications
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
 var cmuxUnitTestInspectorOverrideInstalled = false
+var cmuxUnitTestWKWebViewPerformKeyEquivalentOverrideInstalled = false
+var cmuxUnitTestWKWebViewPerformKeyEquivalentHook: ((WKWebView, NSEvent) -> Bool?)?
 
 extension CmuxWebView {
     @objc func cmuxUnitTestInspector() -> NSObject? {
@@ -24,6 +26,14 @@ extension CmuxWebView {
 }
 
 extension WKWebView {
+    @objc func cmuxUnitTest_performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let hook = cmuxUnitTestWKWebViewPerformKeyEquivalentHook,
+           let result = hook(self, event) {
+            return result
+        }
+        return cmuxUnitTest_performKeyEquivalent(with: event)
+    }
+
     func cmuxSetUnitTestInspector(_ inspector: NSObject?) {
         objc_setAssociatedObject(
             self,
@@ -55,6 +65,38 @@ func installCmuxUnitTestInspectorOverride() {
     }
 
     cmuxUnitTestInspectorOverrideInstalled = true
+}
+
+func installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride() {
+    guard !cmuxUnitTestWKWebViewPerformKeyEquivalentOverrideInstalled else { return }
+
+    let originalSelector = #selector(NSResponder.performKeyEquivalent(with:))
+    let swizzledSelector = #selector(WKWebView.cmuxUnitTest_performKeyEquivalent(with:))
+
+    guard let originalMethod = class_getInstanceMethod(WKWebView.self, originalSelector),
+          let swizzledMethod = class_getInstanceMethod(WKWebView.self, swizzledSelector) else {
+        fatalError("Unable to locate WKWebView performKeyEquivalent methods for swizzling")
+    }
+
+    let didAddMethod = class_addMethod(
+        WKWebView.self,
+        originalSelector,
+        method_getImplementation(swizzledMethod),
+        method_getTypeEncoding(swizzledMethod)
+    )
+
+    if didAddMethod {
+        class_replaceMethod(
+            WKWebView.self,
+            swizzledSelector,
+            method_getImplementation(originalMethod),
+            method_getTypeEncoding(originalMethod)
+        )
+    } else {
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }
+
+    cmuxUnitTestWKWebViewPerformKeyEquivalentOverrideInstalled = true
 }
 
 private final class BrowserMarkedTextProbeTextView: NSTextView {
@@ -99,6 +141,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     private final class FirstResponderView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    private final class FakeWKInspectorResponderView: NSView {
         override var acceptsFirstResponder: Bool { true }
     }
 
@@ -777,6 +823,65 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertFalse(
             spy.invoked,
             "CmuxWebView should not route Cmd+` directly to the menu when WebKit is first responder"
+        )
+    }
+
+    @MainActor
+    func testCmdFDoesNotPreflightIntoPageWhenWebInspectorResponderIsFocused() {
+        _ = NSApplication.shared
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "f", modifiers: [.command])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let inspectorView = FakeWKInspectorResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(inspectorView)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return true
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(inspectorView))
+        guard let event = makeKeyDownEvent(
+            key: "f",
+            modifiers: [.command],
+            keyCode: 3,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+F event")
+            return
+        }
+
+        let consumed = webView.performKeyEquivalent(with: event)
+
+        XCTAssertTrue(consumed, "Expected the menu/inspector path to keep consuming Cmd+F")
+        XCTAssertTrue(spy.invoked, "Expected Cmd+F to stay on the menu/inspector path while Web Inspector is focused")
+        XCTAssertEqual(
+            forwardedEvents.count,
+            0,
+            "Did not expect CmuxWebView to preflight Cmd+F into page content while Web Inspector is focused"
         )
     }
 

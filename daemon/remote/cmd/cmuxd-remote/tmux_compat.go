@@ -383,6 +383,18 @@ func tmuxCallerSurfaceHandle() string {
 	return strings.TrimSpace(os.Getenv("CMUX_SURFACE_ID"))
 }
 
+func tmuxResolvedCallerWorkspaceId(rc *rpcContext) string {
+	caller := tmuxCallerWorkspaceHandle()
+	if caller == "" {
+		return ""
+	}
+	wsId, err := tmuxResolveWorkspaceId(rc, caller)
+	if err != nil {
+		return ""
+	}
+	return wsId
+}
+
 func tmuxCallerPaneHandle() string {
 	for _, key := range []string{"TMUX_PANE", "CMUX_PANE_ID"} {
 		v := strings.TrimSpace(os.Getenv(key))
@@ -570,6 +582,29 @@ func tmuxCanonicalPaneId(rc *rpcContext, handle string, workspaceId string) (str
 	return "", fmt.Errorf("pane not found: %s", handle)
 }
 
+func tmuxCanonicalSurfaceId(rc *rpcContext, handle string, workspaceId string) (string, error) {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceId})
+	if err != nil {
+		return "", err
+	}
+	surfaces, _ := payload["surfaces"].([]any)
+	for _, s := range surfaces {
+		surface, _ := s.(map[string]any)
+		if surface == nil {
+			continue
+		}
+		if ref, _ := surface["ref"].(string); ref == handle {
+			if id, _ := surface["id"].(string); id != "" {
+				return id, nil
+			}
+		}
+		if id, _ := surface["id"].(string); id == handle {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("surface not found: %s", handle)
+}
+
 func tmuxFocusedPaneId(rc *rpcContext, workspaceId string) (string, error) {
 	payload, err := rc.call("surface.current", map[string]any{"workspace_id": workspaceId})
 	if err != nil {
@@ -648,7 +683,7 @@ func tmuxResolvePaneTarget(rc *rpcContext, raw string) (workspaceId string, pane
 		if err != nil {
 			return "", "", err
 		}
-	} else if callerWs := tmuxCallerWorkspaceHandle(); callerWs == workspaceId {
+	} else if callerWs := tmuxResolvedCallerWorkspaceId(rc); callerWs == workspaceId {
 		if callerPane := tmuxCallerPaneHandle(); callerPane != "" {
 			if pid, err2 := tmuxCanonicalPaneId(rc, callerPane, workspaceId); err2 == nil {
 				paneId = pid
@@ -707,8 +742,10 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 		if callerPane != "" && callerSurface != "" {
 			canonicalCallerPane, _ := tmuxCanonicalPaneId(rc, callerPane, workspaceId)
 			if paneId == callerPane || paneId == canonicalCallerPane {
-				surfaceId = callerSurface
-				return
+				surfaceId, err = tmuxCanonicalSurfaceId(rc, callerSurface, workspaceId)
+				if err == nil {
+					return
+				}
 			}
 		}
 		surfaceId, err = tmuxSelectedSurfaceId(rc, workspaceId, paneId)
@@ -723,10 +760,12 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 
 	// When no explicit target and caller workspace matches, use caller's surface
 	if winSel == "" {
-		if callerWs := tmuxCallerWorkspaceHandle(); callerWs == workspaceId {
+		if callerWs := tmuxResolvedCallerWorkspaceId(rc); callerWs == workspaceId {
 			if callerSurface := tmuxCallerSurfaceHandle(); callerSurface != "" {
-				surfaceId = callerSurface
-				return
+				surfaceId, err = tmuxCanonicalSurfaceId(rc, callerSurface, workspaceId)
+				if err == nil {
+					return
+				}
 			}
 		}
 	}
@@ -769,6 +808,58 @@ func tmuxResolveSurfaceTarget(rc *rpcContext, raw string) (workspaceId string, p
 	return "", "", "", fmt.Errorf("unable to resolve surface")
 }
 
+type tmuxSplitAnchor struct {
+	targetSurfaceId string
+	callerSurfaceId string
+	direction       string
+}
+
+func tmuxAnchoredSplitTarget(rc *rpcContext, workspaceId string) *tmuxSplitAnchor {
+	store := loadTmuxCompatStore()
+	if mvState, ok := store.MainVerticalLayouts[workspaceId]; ok && mvState.LastColumnSurfaceId != "" {
+		lastColumnId, err := tmuxCanonicalSurfaceId(rc, mvState.LastColumnSurfaceId, workspaceId)
+		if err == nil {
+			return &tmuxSplitAnchor{
+				targetSurfaceId: lastColumnId,
+				callerSurfaceId: "",
+				direction:       "down",
+			}
+		}
+
+		// Right-column anchors can outlive the pane they pointed at.
+		// Drop stale state and rebuild from the caller surface instead.
+		mvState.LastColumnSurfaceId = ""
+		store.MainVerticalLayouts[workspaceId] = mvState
+		delete(store.LastSplitSurface, workspaceId)
+		_ = saveTmuxCompatStore(store)
+	}
+
+	candidateAnchors := []string{tmuxCallerSurfaceHandle()}
+	if mvState, ok := store.MainVerticalLayouts[workspaceId]; ok && mvState.MainSurfaceId != "" {
+		candidateAnchors = append(candidateAnchors, mvState.MainSurfaceId)
+	}
+	for _, candidate := range candidateAnchors {
+		if candidate == "" {
+			continue
+		}
+		anchorSurfaceId, err := tmuxCanonicalSurfaceId(rc, candidate, workspaceId)
+		if err == nil {
+			return &tmuxSplitAnchor{
+				targetSurfaceId: anchorSurfaceId,
+				callerSurfaceId: anchorSurfaceId,
+				direction:       "right",
+			}
+		}
+	}
+
+	if _, ok := store.MainVerticalLayouts[workspaceId]; ok {
+		delete(store.MainVerticalLayouts, workspaceId)
+		delete(store.LastSplitSurface, workspaceId)
+		_ = saveTmuxCompatStore(store)
+	}
+	return nil
+}
+
 // --- TmuxCompatStore (local JSON state) ---
 
 type mainVerticalState struct {
@@ -777,10 +868,10 @@ type mainVerticalState struct {
 }
 
 type tmuxCompatStore struct {
-	Buffers              map[string]string            `json:"buffers,omitempty"`
-	Hooks                map[string]string            `json:"hooks,omitempty"`
-	MainVerticalLayouts  map[string]mainVerticalState `json:"mainVerticalLayouts,omitempty"`
-	LastSplitSurface     map[string]string            `json:"lastSplitSurface,omitempty"`
+	Buffers             map[string]string            `json:"buffers,omitempty"`
+	Hooks               map[string]string            `json:"hooks,omitempty"`
+	MainVerticalLayouts map[string]mainVerticalState `json:"mainVerticalLayouts,omitempty"`
+	LastSplitSurface    map[string]string            `json:"lastSplitSurface,omitempty"`
 }
 
 func tmuxCompatStoreURL() string {
@@ -832,6 +923,47 @@ func saveTmuxCompatStore(store tmuxCompatStore) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+func tmuxPruneCompatWorkspaceState(workspaceId string) error {
+	store := loadTmuxCompatStore()
+	changed := false
+	if _, ok := store.MainVerticalLayouts[workspaceId]; ok {
+		delete(store.MainVerticalLayouts, workspaceId)
+		changed = true
+	}
+	if _, ok := store.LastSplitSurface[workspaceId]; ok {
+		delete(store.LastSplitSurface, workspaceId)
+		changed = true
+	}
+	if changed {
+		return saveTmuxCompatStore(store)
+	}
+	return nil
+}
+
+func tmuxPruneCompatSurfaceState(workspaceId string, surfaceId string) error {
+	store := loadTmuxCompatStore()
+	changed := false
+	if lastSplit := store.LastSplitSurface[workspaceId]; lastSplit == surfaceId {
+		delete(store.LastSplitSurface, workspaceId)
+		changed = true
+	}
+	if layout, ok := store.MainVerticalLayouts[workspaceId]; ok {
+		if layout.MainSurfaceId == surfaceId {
+			delete(store.MainVerticalLayouts, workspaceId)
+			delete(store.LastSplitSurface, workspaceId)
+			changed = true
+		} else if layout.LastColumnSurfaceId == surfaceId {
+			layout.LastColumnSurfaceId = ""
+			store.MainVerticalLayouts[workspaceId] = layout
+			changed = true
+		}
+	}
+	if changed {
+		return saveTmuxCompatStore(store)
+	}
+	return nil
 }
 
 // --- Special key translation ---
@@ -1069,20 +1201,16 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		direction = "up"
 	}
 
-	// Anchor splits to the leader surface for agent teams
-	callerSurface := tmuxCallerSurfaceHandle()
+	// Anchor splits to the leader surface for agent teams.
 	callerWorkspace := tmuxCallerWorkspaceHandle()
-	if callerSurface != "" && callerWorkspace != "" {
+	anchoredCallerSurface := ""
+	if callerWorkspace != "" {
 		if wsId, err := tmuxResolveWorkspaceId(rc, callerWorkspace); err == nil {
-			store := loadTmuxCompatStore()
-			if mvState, ok := store.MainVerticalLayouts[wsId]; ok && mvState.LastColumnSurfaceId != "" {
+			if anchored := tmuxAnchoredSplitTarget(rc, wsId); anchored != nil {
 				targetWs = wsId
-				targetSurface = mvState.LastColumnSurfaceId
-				direction = "down"
-			} else {
-				targetWs = wsId
-				targetSurface = callerSurface
-				direction = "right"
+				targetSurface = anchored.targetSurfaceId
+				direction = anchored.direction
+				anchoredCallerSurface = anchored.callerSurfaceId
 			}
 		}
 	}
@@ -1110,9 +1238,9 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		mvs := store.MainVerticalLayouts[targetWs]
 		mvs.LastColumnSurfaceId = surfaceId
 		store.MainVerticalLayouts[targetWs] = mvs
-	} else if direction == "right" && callerSurface != "" {
+	} else if direction == "right" && anchoredCallerSurface != "" {
 		store.MainVerticalLayouts[targetWs] = mainVerticalState{
-			MainSurfaceId:       callerSurface,
+			MainSurfaceId:       anchoredCallerSurface,
 			LastColumnSurfaceId: surfaceId,
 		}
 	}
@@ -1178,7 +1306,11 @@ func tmuxKillWindow(rc *rpcContext, args []string) error {
 		return err
 	}
 	_, err = rc.call("workspace.close", map[string]any{"workspace_id": wsId})
-	return err
+	if err != nil {
+		return err
+	}
+	_ = tmuxPruneCompatWorkspaceState(wsId)
+	return nil
 }
 
 func tmuxKillPane(rc *rpcContext, args []string) error {
@@ -1191,6 +1323,7 @@ func tmuxKillPane(rc *rpcContext, args []string) error {
 	if err != nil {
 		return err
 	}
+	_ = tmuxPruneCompatSurfaceState(wsId, surfId)
 	// Re-equalize after removal
 	rc.call("workspace.equalize_splits", map[string]any{"workspace_id": wsId, "orientation": "vertical"})
 	return nil
@@ -1576,19 +1709,7 @@ func tmuxSelectLayout(rc *rpcContext, args []string) error {
 			saveTmuxCompatStore(store)
 		}
 	} else if layoutName != "" {
-		store := loadTmuxCompatStore()
-		changed := false
-		if _, ok := store.MainVerticalLayouts[wsId]; ok {
-			delete(store.MainVerticalLayouts, wsId)
-			changed = true
-		}
-		if _, ok := store.LastSplitSurface[wsId]; ok {
-			delete(store.LastSplitSurface, wsId)
-			changed = true
-		}
-		if changed {
-			saveTmuxCompatStore(store)
-		}
+		_ = tmuxPruneCompatWorkspaceState(wsId)
 	}
 
 	return nil

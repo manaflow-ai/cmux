@@ -404,7 +404,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
     }
 
-    func testTrackedWorkspaceGitMetadataPollCandidatesSkipMainAndMasterPanelsOnly() throws {
+    func testTrackedWorkspaceGitMetadataPollCandidatesIncludeMainAndMasterPanels() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let mainPanelId = workspace.focusedPanelId else {
@@ -435,11 +435,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         XCTAssertEqual(
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
-            Set([featurePanel.id, mainlinePanel.id])
+            Set([mainPanelId, masterPanel.id, featurePanel.id, mainlinePanel.id])
         )
     }
 
-    func testTrackedWorkspaceGitMetadataPollCandidatesSkipFocusedFallbackOnMainOnly() {
+    func testTrackedWorkspaceGitMetadataPollCandidatesIncludeFocusedFallbackOnMain() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
@@ -448,8 +448,9 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         }
 
         workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: false)
-        XCTAssertTrue(
-            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([panelId])
         )
 
         workspace.gitBranch = SidebarGitBranchState(branch: "feature/sidebar-pr", isDirty: false)
@@ -457,6 +458,50 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
             Set([panelId])
         )
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshUpdatesMainWorkspaceAfterCheckoutToFeatureBranch() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-main-refresh-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+
+        XCTAssertEqual(
+            manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set([panelId])
+        )
+
+        try runGit(["checkout", "-b", "feature/sidebar-live-refresh"], in: repoURL)
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "feature/sidebar-live-refresh"
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/sidebar-live-refresh")
     }
 
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
