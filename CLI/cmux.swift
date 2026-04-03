@@ -514,6 +514,148 @@ private final class ClaudeHookSessionStore {
     }
 }
 
+struct OMOResumeBehavior: Equatable {
+    var continueLatestSession: Bool
+    var sessionHint: String?
+    var hasFork: Bool
+
+    var shouldBackfillImmediately: Bool {
+        !hasFork && (continueLatestSession || sessionHint != nil)
+    }
+
+    init(commandArgs: [String]) {
+        var continueLatestSession = false
+        var sessionHint: String?
+        var hasFork = false
+
+        for (index, arg) in commandArgs.enumerated() {
+            switch arg {
+            case "--continue", "-c":
+                continueLatestSession = true
+            case "--fork":
+                hasFork = true
+            case "--session", "-s":
+                let nextIndex = commandArgs.index(after: index)
+                guard nextIndex < commandArgs.endIndex else { continue }
+                let value = commandArgs[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    sessionHint = value
+                }
+            default:
+                if arg.hasPrefix("--session=") {
+                    let value = String(arg.dropFirst("--session=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !value.isEmpty {
+                        sessionHint = value
+                    }
+                }
+            }
+        }
+
+        self.continueLatestSession = continueLatestSession
+        self.sessionHint = sessionHint
+        self.hasFork = hasFork
+    }
+}
+
+struct OMOBridgeChildRecord: Codable, Equatable {
+    var sessionId: String
+    var surfaceId: String
+    var paneId: String?
+    var title: String?
+    var createdAt: TimeInterval
+    var updatedAt: TimeInterval
+}
+
+struct OMOBridgeStateFile: Codable, Equatable {
+    var version: Int = 1
+    var workspaceId: String = ""
+    var leaderSurfaceId: String = ""
+    var rootSessionId: String?
+    var children: [String: OMOBridgeChildRecord] = [:]
+}
+
+final class OMOBridgeStateStore {
+    private static let defaultStatePath = "~/.cmuxterm/omo-bridge-state.json"
+
+    private let statePath: String
+    private let fileManager: FileManager
+    private let decoder = JSONDecoder()
+    private let encoder = JSONEncoder()
+
+    init(
+        processEnv: [String: String] = ProcessInfo.processInfo.environment,
+        fileManager: FileManager = .default
+    ) {
+        if let overridePath = processEnv["CMUX_OMO_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            self.statePath = NSString(string: overridePath).expandingTildeInPath
+        } else {
+            self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
+        }
+        self.fileManager = fileManager
+        self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    }
+
+    func load() throws -> OMOBridgeStateFile {
+        try withLockedState { $0 }
+    }
+
+    func reset(workspaceId: String, leaderSurfaceId: String) throws {
+        try mutate { state in
+            state = OMOBridgeStateFile(
+                version: 1,
+                workspaceId: workspaceId,
+                leaderSurfaceId: leaderSurfaceId,
+                rootSessionId: nil,
+                children: [:]
+            )
+        }
+    }
+
+    @discardableResult
+    func mutate<T>(_ body: (inout OMOBridgeStateFile) throws -> T) throws -> T {
+        try withLockedState(body)
+    }
+
+    private func withLockedState<T>(_ body: (inout OMOBridgeStateFile) throws -> T) throws -> T {
+        let lockPath = statePath + ".lock"
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open OMO bridge state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if flock(fd, LOCK_EX) != 0 {
+            throw CLIError(message: "Failed to lock OMO bridge state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+
+        var state = loadUnlocked()
+        let result = try body(&state)
+        try saveUnlocked(state)
+        return result
+    }
+
+    private func loadUnlocked() -> OMOBridgeStateFile {
+        guard fileManager.fileExists(atPath: statePath) else {
+            return OMOBridgeStateFile()
+        }
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: statePath)),
+              let decoded = try? decoder.decode(OMOBridgeStateFile.self, from: data) else {
+            return OMOBridgeStateFile()
+        }
+        return decoded
+    }
+
+    private func saveUnlocked(_ state: OMOBridgeStateFile) throws {
+        let stateURL = URL(fileURLWithPath: statePath)
+        let parentURL = stateURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
+        let data = try encoder.encode(state)
+        try data.write(to: stateURL, options: .atomic)
+    }
+}
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -1494,6 +1636,13 @@ struct CMUXCLI {
             }
         }
 
+        if command == "omo-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_OMO_STATE_PATH"] != nil else {
+                print("{}")
+                return
+            }
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -2306,6 +2455,17 @@ struct CMUXCLI {
             } catch {
                 cliTelemetry.breadcrumb("codex-hook.failure")
                 cliTelemetry.captureError(stage: "codex_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "omo-hook":
+            cliTelemetry.breadcrumb("omo-hook.dispatch")
+            do {
+                try runOMOHook(commandArgs: commandArgs, client: client)
+                cliTelemetry.breadcrumb("omo-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("omo-hook.failure")
+                cliTelemetry.captureError(stage: "omo_hook_dispatch", error: error)
                 throw error
             }
 
@@ -6180,19 +6340,14 @@ struct CMUXCLI {
             return String(localized: "cli.omo.usage", defaultValue: """
             Usage: cmux omo [opencode-args...]
 
-            Launch OpenCode with oh-my-openagent in a cmux-aware environment.
-
-            oh-my-openagent orchestrates multiple AI models as specialized agents in
-            parallel. This command sets up a tmux shim so agent panes become native
-            cmux splits with sidebar metadata and notifications.
+            Launch OpenCode with native cmux panes for OpenCode child sessions.
 
             This command:
-              - sets a tmux-like environment so oh-my-openagent uses cmux splits
-              - prepends a private tmux shim to PATH
+              - launches OpenCode on a stable local port
+              - injects a local OpenCode plugin that watches child sessions
+              - opens first-level child sessions as cmux splits via opencode attach
+              - keeps the root pane attached to the parent session
               - forwards all remaining arguments to opencode
-
-            The tmux shim translates tmux window/pane commands into cmux workspace
-            and split operations in the current cmux session.
 
             Examples:
               cmux omo
@@ -7213,6 +7368,23 @@ struct CMUXCLI {
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
               --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+            """
+        case "omo-hook":
+            return """
+            Usage: cmux omo-hook <set-root|clear-root|spawn|delete> [flags]
+
+            Internal hook bridge for cmux omo. Reads state from $CMUX_OMO_STATE_PATH.
+
+            Subcommands:
+              set-root     Register the parent OpenCode session
+              clear-root   Drop root state and close mapped child panes
+              spawn        Open a split for a child session
+              delete       Close the split mapped to a child session
+
+            Flags:
+              --root <id>      Parent OpenCode session ID
+              --session <id>   Child OpenCode session ID
+              --title <text>   Optional child session title
             """
         case "browser":
             return """
@@ -9765,36 +9937,22 @@ struct CMUXCLI {
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
 
-    // MARK: - cmux omo (OpenCode + oh-my-openagent)
+    // MARK: - cmux omo (OpenCode subagent panes)
 
     private func resolveOpenCodeExecutable(searchPath: String?) -> String? {
         resolveExecutableInSearchPath("opencode", searchPath: searchPath)
     }
 
     private func createOMOShimDirectory() throws -> URL {
-        // tmux shim: redirects tmux commands to cmux __tmux-compat
-        // Handle -V locally (no socket needed) since __tmux-compat requires a connection.
-        let tmuxScript = """
-        #!/usr/bin/env bash
-        set -euo pipefail
-        # Only match -V/-v as the first arg (top-level tmux flag).
-        # -v inside subcommands (e.g. split-window -v) is a vertical split flag.
-        case "${1:-}" in
-          -V|-v) echo "tmux 3.4"; exit 0 ;;
-        esac
-        exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
-        """
-        let root = try createTmuxCompatShimDirectory(
-            directoryName: "omo-bin",
-            tmuxShimScript: tmuxScript
-        )
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        let root = URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
 
-        // terminal-notifier shim: intercepts macOS notifications and routes to cmux notify
         let notifierURL = root.appendingPathComponent("terminal-notifier", isDirectory: false)
         let notifierScript = """
         #!/usr/bin/env bash
-        # Intercept terminal-notifier calls and route through cmux notify.
-        # oh-my-openagent calls: terminal-notifier -title <t> -message <m> [-activate <id>]
         TITLE="" BODY=""
         while [[ $# -gt 0 ]]; do
           case "$1" in
@@ -9806,7 +9964,6 @@ struct CMUXCLI {
         exec "${CMUX_OMO_CMUX_BIN:-cmux}" notify --title "${TITLE:-OpenCode}" --body "${BODY:-}"
         """
         try writeShimIfChanged(notifierScript, to: notifierURL)
-
         return root
     }
 
@@ -9845,28 +10002,6 @@ struct CMUXCLI {
         }
     }
 
-    private static let omoPluginName = "oh-my-opencode"
-
-    private func resolveExecutableInPath(_ name: String) -> String? {
-        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        for entry in entries where !entry.isEmpty {
-            let candidate = URL(fileURLWithPath: entry, isDirectory: true)
-                .appendingPathComponent(name, isDirectory: false)
-                .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    private func omoUserConfigDir() -> URL {
-        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
-        return URL(fileURLWithPath: homePath, isDirectory: true)
-            .appendingPathComponent(".config", isDirectory: true)
-            .appendingPathComponent("opencode", isDirectory: true)
-    }
-
     private func omoShadowConfigDir() -> URL {
         let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
         return URL(fileURLWithPath: homePath, isDirectory: true)
@@ -9874,73 +10009,22 @@ struct CMUXCLI {
             .appendingPathComponent("omo-config", isDirectory: true)
     }
 
-    private func omoFileType(at url: URL) -> FileAttributeType? {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        return attrs?[.type] as? FileAttributeType
+    private func omoBridgeConfigVersionURL() -> URL {
+        omoShadowConfigDir()
+            .appendingPathComponent(".cmux-omo-layout-version", isDirectory: false)
     }
 
-    private func omoEnsureShadowPackageManifest(at shadowPackageURL: URL) throws {
-        let fm = FileManager.default
-        if omoFileType(at: shadowPackageURL) == .typeSymbolicLink {
-            try? fm.removeItem(at: shadowPackageURL)
-        }
-
-        // Keep the shadow package isolated from stale/yanked pins in the user's
-        // opencode package.json. bun will update this manifest with the resolved
-        // oh-my-opencode version when installation succeeds.
-        let packageManifest: [String: Any] = [
-            "dependencies": [
-                Self.omoPluginName: "latest"
-            ],
-            "name": "cmux-omo-shadow",
-            "private": true
-        ]
-        let output = try JSONSerialization.data(withJSONObject: packageManifest, options: [.prettyPrinted, .sortedKeys])
-        let existing = try? Data(contentsOf: shadowPackageURL)
-        if existing != output {
-            try output.write(to: shadowPackageURL, options: .atomic)
-        }
+    private func omoBridgePluginURL() -> URL {
+        omoShadowConfigDir()
+            .appendingPathComponent("plugins", isDirectory: true)
+            .appendingPathComponent("cmux-omo-bridge.js", isDirectory: false)
     }
 
-    private func omoEnsureShadowNodeModulesSymlink(
-        shadowNodeModules: URL,
-        userNodeModules: URL
-    ) throws {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: userNodeModules.path) else { return }
-
-        if let type = omoFileType(at: shadowNodeModules) {
-            if type == .typeSymbolicLink {
-                let target = try? fm.destinationOfSymbolicLink(atPath: shadowNodeModules.path)
-                if target != userNodeModules.path {
-                    try? fm.removeItem(at: shadowNodeModules)
-                } else {
-                    return
-                }
-            } else {
-                return
-            }
-        }
-
-        if !fm.fileExists(atPath: shadowNodeModules.path) {
-            try fm.createSymbolicLink(at: shadowNodeModules, withDestinationURL: userNodeModules)
-        }
-    }
-
-    private func omoRunPackageInstall(
-        executablePath: String,
-        arguments: [String],
-        currentDirectoryURL: URL
-    ) throws -> Int32 {
-        let process = Process()
-        process.currentDirectoryURL = currentDirectoryURL
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.standardError
-        process.standardError = FileHandle.standardError
-        try process.run()
-        process.waitUntilExit()
-        return process.terminationStatus
+    private func omoBridgeStateDirectory() -> URL {
+        let homePath = ProcessInfo.processInfo.environment["HOME"] ?? NSHomeDirectory()
+        return URL(fileURLWithPath: homePath, isDirectory: true)
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("omo-state", isDirectory: true)
     }
 
     private func omoRequestedPort(from commandArgs: [String]) -> String? {
@@ -10031,184 +10115,247 @@ struct CMUXCLI {
         return "4096"
     }
 
-    /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
-    /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
-    /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
-        let userDir = omoUserConfigDir()
+    private func omoBridgeStateURL(
+        workspaceId: String,
+        leaderSurfaceId: String
+    ) -> URL {
+        func sanitize(_ raw: String) -> String {
+            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+            let mapped = raw.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+            let joined = String(mapped)
+            let collapsed = joined.replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
+            return collapsed.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        }
+
+        let workspaceToken = sanitize(workspaceId)
+        let surfaceToken = sanitize(leaderSurfaceId)
+        let filename = "bridge-\(workspaceToken)-\(surfaceToken).json"
+        return omoBridgeStateDirectory().appendingPathComponent(filename, isDirectory: false)
+    }
+
+    private func omoBridgePluginSource() -> String {
+        #"""
+        export const CmuxOMOBridge = async ({ client }) => {
+          if ((process.env.CMUX_OMO_ROLE || "root") !== "root") {
+            return {};
+          }
+
+          const cmuxBin = process.env.CMUX_OMO_CMUX_BIN || "cmux";
+          const sessionHint = process.env.CMUX_OMO_SESSION_HINT?.trim() || "";
+          const continueMode = process.env.CMUX_OMO_CONTINUE === "1";
+          const forkMode = process.env.CMUX_OMO_FORK === "1";
+          let rootSessionID = "";
+
+          async function runCmux(args) {
+            try {
+              const proc = Bun.spawn([cmuxBin, "omo-hook", ...args], {
+                stdin: "ignore",
+                stdout: "ignore",
+                stderr: "ignore",
+                env: process.env,
+              });
+              await proc.exited;
+            } catch {}
+          }
+
+          async function setRoot(sessionID) {
+            const normalized = sessionID?.trim();
+            if (!normalized) return false;
+            if (rootSessionID === normalized) return false;
+            rootSessionID = normalized;
+            await runCmux(["set-root", "--root", normalized]);
+            return true;
+          }
+
+          async function backfillChildren() {
+            if (!rootSessionID) return;
+            const response = await client.session.children({ sessionID: rootSessionID }).catch(() => undefined);
+            for (const child of response?.data ?? []) {
+              if (!child?.id || child.parentID !== rootSessionID) continue;
+              const args = ["spawn", "--session", child.id];
+              if (child.title) args.push("--title", child.title);
+              await runCmux(args);
+            }
+          }
+
+          async function initializeRootIfNeeded() {
+            if (forkMode || rootSessionID) return;
+
+            if (sessionHint) {
+              const changed = await setRoot(sessionHint);
+              if (changed) await backfillChildren();
+              return;
+            }
+
+            if (!continueMode) return;
+
+            const response = await client.session.list({ roots: true, limit: 1 }).catch(() => undefined);
+            const latest = response?.data?.[0]?.id;
+            if (!latest) return;
+            const changed = await setRoot(latest);
+            if (changed) await backfillChildren();
+          }
+
+          await initializeRootIfNeeded();
+
+          return {
+            event: async ({ event }) => {
+              await initializeRootIfNeeded();
+
+              if (event.type === "session.created") {
+                const info = event.properties?.info;
+                if (!info?.id) return;
+
+                if (!info.parentID) {
+                  await setRoot(info.id);
+                  return;
+                }
+
+                if (info.parentID === rootSessionID) {
+                  const args = ["spawn", "--session", info.id];
+                  if (info.title) args.push("--title", info.title);
+                  await runCmux(args);
+                }
+                return;
+              }
+
+              if (event.type === "session.deleted") {
+                const info = event.properties?.info;
+                if (!info?.id) return;
+
+                if (info.id === rootSessionID) {
+                  rootSessionID = "";
+                  await runCmux(["clear-root"]);
+                  return;
+                }
+
+                await runCmux(["delete", "--session", info.id]);
+              }
+            },
+          };
+        };
+        """#
+    }
+
+    private func omoEnsureBridgeConfig() throws -> URL {
         let shadowDir = omoShadowConfigDir()
-        let fm = FileManager.default
+        let fileManager = FileManager.default
+        let versionURL = omoBridgeConfigVersionURL()
+        let expectedVersion = "2"
 
-        try fm.createDirectory(at: shadowDir, withIntermediateDirectories: true, attributes: nil)
-
-        // Read the user's opencode.json (if any), add the plugin, write to shadow dir
-        let userJsonURL = userDir.appendingPathComponent("opencode.json")
-        let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
-
-        var config: [String: Any]
-        if let data = try? Data(contentsOf: userJsonURL) {
-            guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
+        let currentVersion: String? = {
+            guard let data = try? Data(contentsOf: versionURL),
+                  let raw = String(data: data, encoding: .utf8) else {
+                return nil
             }
-            config = existing
-        } else {
-            config = [:]
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+
+        if currentVersion != expectedVersion,
+           fileManager.fileExists(atPath: shadowDir.path) {
+            try? fileManager.removeItem(at: shadowDir)
         }
 
-        var plugins = (config["plugin"] as? [String]) ?? []
-        let alreadyPresent = plugins.contains {
-            $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@")
-        }
-        if !alreadyPresent {
-            plugins.append(Self.omoPluginName)
-        }
-        config["plugin"] = plugins
+        let pluginsDir = shadowDir.appendingPathComponent("plugins", isDirectory: true)
+        try fileManager.createDirectory(at: pluginsDir, withIntermediateDirectories: true, attributes: nil)
+        try writeShimIfChanged(omoBridgePluginSource(), to: omoBridgePluginURL())
+        try (expectedVersion + "\n").write(to: versionURL, atomically: true, encoding: .utf8)
+        return shadowDir
+    }
 
-        let output = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        try output.write(to: shadowJsonURL, options: .atomic)
+    func omoAttachCommand(
+        serverURL: String,
+        sessionId: String,
+        openCodeExecutablePath: String,
+        configDirectory: String,
+        processEnvironment: [String: String],
+        shimDirectoryPath: String?
+    ) -> String {
+        var scriptLines: [String] = []
 
-        // Symlink node_modules from the user's config dir so installed packages resolve
-        let shadowNodeModules = shadowDir.appendingPathComponent("node_modules")
-        let userNodeModules = userDir.appendingPathComponent("node_modules")
-        try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
-
-        // The shadow config owns its own package metadata so yanked/stale pins in the
-        // user's opencode package.json/bun.lock cannot poison plugin installation.
-        let shadowPackageURL = shadowDir.appendingPathComponent("package.json")
-        let shadowBunLockURL = shadowDir.appendingPathComponent("bun.lock")
-        try omoEnsureShadowPackageManifest(at: shadowPackageURL)
-        if omoFileType(at: shadowBunLockURL) == .typeSymbolicLink {
-            try? fm.removeItem(at: shadowBunLockURL)
+        if let shimDirectoryPath,
+           !shimDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            scriptLines.append("export PATH=\(shellQuote(shimDirectoryPath)):\"$PATH\"")
         }
 
-        // Copy oh-my-opencode plugin config (jsonc) if the user has one
-        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
-            let userFile = userDir.appendingPathComponent(filename)
-            let shadowFile = shadowDir.appendingPathComponent(filename)
-            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
-                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
-            }
+        scriptLines.append("export CMUX_OMO_ROLE=child")
+        scriptLines.append("export OPENCODE_CONFIG_DIR=\(shellQuote(configDirectory))")
+
+        if let cmuxBin = processEnvironment["CMUX_OMO_CMUX_BIN"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !cmuxBin.isEmpty {
+            scriptLines.append("export CMUX_OMO_CMUX_BIN=\(shellQuote(cmuxBin))")
         }
 
-        // Install the package if not available via the symlinked node_modules
-        let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
-        if !fm.fileExists(atPath: pluginPackageDir.path) {
-            let installDir = shadowDir
-            if let bunPath = resolveExecutableInPath("bun") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
-                let installArguments = ["add", Self.omoPluginName]
-                let firstAttemptStatus = try omoRunPackageInstall(
-                    executablePath: bunPath,
-                    arguments: installArguments,
-                    currentDirectoryURL: installDir
-                )
-                if firstAttemptStatus != 0 {
-                    FileHandle.standardError.write("Retrying oh-my-opencode install with a clean shadow package state...\n".data(using: .utf8)!)
-                    try? fm.removeItem(at: shadowBunLockURL)
-                    try? fm.removeItem(at: shadowNodeModules)
-                    try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
-                    let retryStatus = try omoRunPackageInstall(
-                        executablePath: bunPath,
-                        arguments: installArguments,
-                        currentDirectoryURL: installDir
-                    )
-                    if retryStatus != 0 {
-                        throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
-                    }
-                }
-            } else if let npmPath = resolveExecutableInPath("npm") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
-                let status = try omoRunPackageInstall(
-                    executablePath: npmPath,
-                    arguments: ["install", Self.omoPluginName],
-                    currentDirectoryURL: installDir
-                )
-                if status != 0 {
-                    throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
-                }
-            } else {
-                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
-            }
-            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+        if let password = processEnvironment["OPENCODE_SERVER_PASSWORD"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !password.isEmpty {
+            scriptLines.append("export OPENCODE_SERVER_PASSWORD=\(shellQuote(password))")
         }
 
-        // Ensure tmux mode is enabled in oh-my-opencode config.
-        // Without this, the TmuxSessionManager won't spawn visual panes even though
-        // $TMUX is set (tmux.enabled defaults to false).
-        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
-        var omoConfig: [String: Any]
-        if let data = try? Data(contentsOf: omoConfigURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            omoConfig = existing
-        } else {
-            // Check if user has a config we symlinked, read from source
-            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
-            if let data = try? Data(contentsOf: userOmoConfig),
-               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                omoConfig = existing
-                // Remove the symlink so we can write our own copy
-                try? fm.removeItem(at: omoConfigURL)
-            } else {
-                omoConfig = [:]
-            }
-        }
-        var tmuxConfig = (omoConfig["tmux"] as? [String: Any]) ?? [:]
-        var needsWrite = false
-        if tmuxConfig["enabled"] as? Bool != true {
-            tmuxConfig["enabled"] = true
-            needsWrite = true
-        }
-        // Lower the default min widths so agent panes spawn in normal-sized windows.
-        // oh-my-openagent defaults: main_pane_min_width=120, agent_pane_min_width=40,
-        // requiring 161+ columns. Most terminal windows are narrower.
-        if tmuxConfig["main_pane_min_width"] == nil {
-            tmuxConfig["main_pane_min_width"] = 60
-            needsWrite = true
-        }
-        if tmuxConfig["agent_pane_min_width"] == nil {
-            tmuxConfig["agent_pane_min_width"] = 30
-            needsWrite = true
-        }
-        if tmuxConfig["main_pane_size"] == nil {
-            tmuxConfig["main_pane_size"] = 50
-            needsWrite = true
-        }
-        if needsWrite {
-            omoConfig["tmux"] = tmuxConfig
-            // Remove symlink if it exists (we need a real file)
-            if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
-               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
-                try? fm.removeItem(at: omoConfigURL)
-            }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
-            try output.write(to: omoConfigURL, options: .atomic)
-        }
+        let deleteCommand = "\(shellQuote(openCodeExecutablePath)) session delete \(shellQuote(sessionId)) >/dev/null 2>&1 || true"
+        scriptLines.append("cmux_omo_cleanup() { \(deleteCommand); }")
+        scriptLines.append("trap cmux_omo_cleanup EXIT HUP INT TERM")
+        scriptLines.append("\(shellQuote(openCodeExecutablePath)) attach \(shellQuote(serverURL)) --session \(shellQuote(sessionId))")
+        scriptLines.append("cmux_omo_status=$?")
+        scriptLines.append("exit \"$cmux_omo_status\"")
 
-        // Point OpenCode at the shadow config
-        setenv("OPENCODE_CONFIG_DIR", shadowDir.path, 1)
+        let script = scriptLines.joined(separator: "\n")
+        return "exec /bin/sh -lc \(shellQuote(script))"
     }
 
     private func configureOMOEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
         executablePath: String,
+        openCodeExecutablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?,
-        openCodePort: String
+        focusedContext: TmuxCompatFocusedContext,
+        configDirectory: URL,
+        stateFileURL: URL,
+        openCodePort: String,
+        resumeBehavior: OMOResumeBehavior
     ) {
-        configureTmuxCompatEnvironment(
-            processEnvironment: processEnvironment,
-            shimDirectory: shimDirectory,
-            executablePath: executablePath,
-            socketPath: socketPath,
-            explicitPassword: explicitPassword,
-            focusedContext: focusedContext,
-            tmuxPathPrefix: "cmux-omo",
-            cmuxBinEnvVar: "CMUX_OMO_CMUX_BIN",
-            termOverrideEnvVar: "CMUX_OMO_TERM",
-            extraEnvVars: [(key: "OPENCODE_PORT", value: openCodePort)]
+        let updatedPath = prependPathEntries(
+            [shimDirectory.path],
+            to: processEnvironment["PATH"]
         )
+
+        setenv("PATH", updatedPath, 1)
+        setenv("CMUX_OMO_CMUX_BIN", executablePath, 1)
+        setenv("CMUX_OMO_OPENCODE_BIN", openCodeExecutablePath, 1)
+        setenv("CMUX_SOCKET_PATH", socketPath, 1)
+        setenv("CMUX_SOCKET", socketPath, 1)
+        if let explicitPassword,
+           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setenv("CMUX_SOCKET_PASSWORD", explicitPassword, 1)
+        }
+        setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
+        if let surfaceId = focusedContext.surfaceId, !surfaceId.isEmpty {
+            setenv("CMUX_SURFACE_ID", surfaceId, 1)
+        }
+        setenv("CMUX_OMO_ROLE", "root", 1)
+        setenv("CMUX_OMO_SERVER_URL", "http://127.0.0.1:\(openCodePort)", 1)
+        setenv("CMUX_OMO_STATE_PATH", stateFileURL.path, 1)
+        setenv("OPENCODE_CONFIG_DIR", configDirectory.path, 1)
+        setenv("OPENCODE_PORT", openCodePort, 1)
+        if let sessionHint = resumeBehavior.sessionHint {
+            setenv("CMUX_OMO_SESSION_HINT", sessionHint, 1)
+        } else {
+            unsetenv("CMUX_OMO_SESSION_HINT")
+        }
+        if resumeBehavior.continueLatestSession {
+            setenv("CMUX_OMO_CONTINUE", "1", 1)
+        } else {
+            unsetenv("CMUX_OMO_CONTINUE")
+        }
+        if resumeBehavior.hasFork {
+            setenv("CMUX_OMO_FORK", "1", 1)
+        } else {
+            unsetenv("CMUX_OMO_FORK")
+        }
     }
 
     private func runOMO(
@@ -10225,7 +10372,6 @@ struct CMUXCLI {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
 
-        // Check for opencode before doing expensive plugin setup
         let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
         if openCodeExecutablePath == nil {
             let checkProcess = Process()
@@ -10240,39 +10386,61 @@ struct CMUXCLI {
             }
         }
 
-        // Ensure oh-my-opencode plugin is registered and installed
-        try omoEnsurePlugin()
-
         let shimDirectory = try createOMOShimDirectory()
+        let configDirectory = try omoEnsureBridgeConfig()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let resolvedOpenCodeExecutablePath = openCodeExecutablePath ?? "opencode"
         let focusedContext = tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
+        guard let focusedContext,
+              let leaderSurfaceId = focusedContext.surfaceId,
+              !leaderSurfaceId.isEmpty else {
+            throw CLIError(message: "cmux omo requires an active cmux surface")
+        }
+
+        let stateFileURL = omoBridgeStateURL(
+            workspaceId: focusedContext.workspaceId,
+            leaderSurfaceId: leaderSurfaceId
+        )
+        let stateStore = OMOBridgeStateStore(
+            processEnv: launcherEnvironment.merging(
+                ["CMUX_OMO_STATE_PATH": stateFileURL.path],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+        try stateStore.reset(
+            workspaceId: focusedContext.workspaceId,
+            leaderSurfaceId: leaderSurfaceId
+        )
+
         let openCodePort = omoResolvedPort(
             commandArgs: commandArgs,
             processEnvironment: launcherEnvironment
         )
         launcherEnvironment["OPENCODE_PORT"] = openCodePort
+        let resumeBehavior = OMOResumeBehavior(commandArgs: commandArgs)
         configureOMOEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
             executablePath: executablePath,
+            openCodeExecutablePath: resolvedOpenCodeExecutablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
             focusedContext: focusedContext,
-            openCodePort: openCodePort
+            configDirectory: configDirectory,
+            stateFileURL: stateFileURL,
+            openCodePort: openCodePort,
+            resumeBehavior: resumeBehavior
         )
 
-        let launchPath = openCodeExecutablePath ?? "opencode"
-        // oh-my-openagent needs the OpenCode API server running to attach
-        // subagent sessions to tmux panes. Prefer the historic default port
-        // when it is available, otherwise fall back to a free loopback port.
         var effectiveArgs = commandArgs
         if omoRequestedPort(from: commandArgs) == nil {
             effectiveArgs.append("--port")
             effectiveArgs.append(openCodePort)
         }
+        let launchPath = resolvedOpenCodeExecutablePath
         var argv = ([launchPath] + effectiveArgs).map { strdup($0) }
         defer {
             for item in argv {
@@ -12335,6 +12503,225 @@ struct CMUXCLI {
                 with: entry.replacement,
                 options: [.regularExpression, .caseInsensitive]
             )
+        }
+    }
+
+    private func omoSurfaceExists(
+        workspaceId: String,
+        surfaceId: String,
+        client: SocketClient
+    ) -> Bool {
+        guard let payload = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+            return false
+        }
+        let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
+        return surfaces.contains { item in
+            (item["id"] as? String) == surfaceId || (item["ref"] as? String) == surfaceId
+        }
+    }
+
+    private func runOMOHook(
+        commandArgs: [String],
+        client: SocketClient
+    ) throws {
+        let env = ProcessInfo.processInfo.environment
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let hookArgs = Array(commandArgs.dropFirst())
+        let store = OMOBridgeStateStore(processEnv: env)
+
+        switch subcommand {
+        case "set-root":
+            guard let rootSessionId = optionValue(hookArgs, name: "--root") ?? hookArgs.first else {
+                throw CLIError(message: "omo-hook set-root requires --root <session-id>")
+            }
+
+            let normalizedRoot = rootSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedRoot.isEmpty else {
+                print("{}")
+                return
+            }
+
+            var state = try store.load()
+            let surfacesToClose: [String]
+            if let existingRoot = state.rootSessionId, existingRoot != normalizedRoot {
+                surfacesToClose = state.children.values.map(\.surfaceId)
+                state.children.removeAll()
+            } else {
+                surfacesToClose = []
+            }
+            state.rootSessionId = normalizedRoot
+            try store.mutate { $0 = state }
+
+            if !state.workspaceId.isEmpty {
+                for surfaceId in surfacesToClose where omoSurfaceExists(workspaceId: state.workspaceId, surfaceId: surfaceId, client: client) {
+                    _ = try? client.sendV2(method: "surface.close", params: [
+                        "workspace_id": state.workspaceId,
+                        "surface_id": surfaceId
+                    ])
+                }
+            }
+            print("{}")
+
+        case "clear-root":
+            var state = try store.load()
+            let surfacesToClose = state.children.values.map(\.surfaceId)
+            state.rootSessionId = nil
+            state.children.removeAll()
+            try store.mutate { $0 = state }
+
+            if !state.workspaceId.isEmpty {
+                for surfaceId in surfacesToClose where omoSurfaceExists(workspaceId: state.workspaceId, surfaceId: surfaceId, client: client) {
+                    _ = try? client.sendV2(method: "surface.close", params: [
+                        "workspace_id": state.workspaceId,
+                        "surface_id": surfaceId
+                    ])
+                }
+            }
+            print("{}")
+
+        case "spawn":
+            guard let childSessionId = optionValue(hookArgs, name: "--session") ?? hookArgs.first else {
+                throw CLIError(message: "omo-hook spawn requires --session <child-session-id>")
+            }
+
+            let normalizedChildSessionId = childSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedChildSessionId.isEmpty else {
+                print("{}")
+                return
+            }
+
+            let childTitle = optionValue(hookArgs, name: "--title")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var state = try store.load()
+            guard !state.workspaceId.isEmpty,
+                  !state.leaderSurfaceId.isEmpty,
+                  state.rootSessionId != nil,
+                  omoSurfaceExists(workspaceId: state.workspaceId, surfaceId: state.leaderSurfaceId, client: client) else {
+                print("{}")
+                return
+            }
+
+            state.children = state.children.filter { _, record in
+                omoSurfaceExists(workspaceId: state.workspaceId, surfaceId: record.surfaceId, client: client)
+            }
+            try store.mutate { $0 = state }
+
+            if var existing = state.children[normalizedChildSessionId] {
+                if let childTitle, !childTitle.isEmpty {
+                    existing.title = childTitle
+                    existing.updatedAt = Date().timeIntervalSince1970
+                    state.children[normalizedChildSessionId] = existing
+                    try store.mutate { $0 = state }
+                }
+                print("{}")
+                return
+            }
+
+            let anchorSurfaceId = state.children.values
+                .max(by: { $0.createdAt < $1.createdAt })?
+                .surfaceId ?? state.leaderSurfaceId
+            let direction = state.children.isEmpty ? "right" : "down"
+            let serverURL = env["CMUX_OMO_SERVER_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let openCodeExecutablePath = env["CMUX_OMO_OPENCODE_BIN"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "opencode"
+            let configDirectory = env["OPENCODE_CONFIG_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let shimDirectoryPath = env["PATH"]?
+                .split(separator: ":")
+                .map(String.init)
+                .first(where: { $0.hasSuffix("/.cmuxterm/omo-bin") || $0.hasSuffix("/.cmuxterm/omo-bin/") })
+
+            guard !serverURL.isEmpty, !configDirectory.isEmpty else {
+                print("{}")
+                return
+            }
+
+            let created = try client.sendV2(method: "surface.split", params: [
+                "workspace_id": state.workspaceId,
+                "surface_id": anchorSurfaceId,
+                "direction": direction,
+                "focus": false
+            ])
+            guard let surfaceId = created["surface_id"] as? String else {
+                throw CLIError(message: "surface.split did not return surface_id")
+            }
+            let paneId = created["pane_id"] as? String
+
+            let attachCommand = omoAttachCommand(
+                serverURL: serverURL,
+                sessionId: normalizedChildSessionId,
+                openCodeExecutablePath: openCodeExecutablePath,
+                configDirectory: configDirectory,
+                processEnvironment: env,
+                shimDirectoryPath: shimDirectoryPath
+            )
+            do {
+                _ = try client.sendV2(method: "surface.send_text", params: [
+                    "workspace_id": state.workspaceId,
+                    "surface_id": surfaceId,
+                    "text": attachCommand + "\n"
+                ])
+            } catch {
+                _ = try? client.sendV2(method: "surface.close", params: [
+                    "workspace_id": state.workspaceId,
+                    "surface_id": surfaceId
+                ])
+                throw error
+            }
+
+            let now = Date().timeIntervalSince1970
+            state.children[normalizedChildSessionId] = OMOBridgeChildRecord(
+                sessionId: normalizedChildSessionId,
+                surfaceId: surfaceId,
+                paneId: paneId,
+                title: childTitle,
+                createdAt: now,
+                updatedAt: now
+            )
+            try store.mutate { $0 = state }
+
+            if state.children.count > 1 {
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": state.workspaceId,
+                    "orientation": "vertical"
+                ])
+            }
+            print("{}")
+
+        case "delete":
+            guard let childSessionId = optionValue(hookArgs, name: "--session") ?? hookArgs.first else {
+                throw CLIError(message: "omo-hook delete requires --session <child-session-id>")
+            }
+
+            let normalizedChildSessionId = childSessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedChildSessionId.isEmpty else {
+                print("{}")
+                return
+            }
+
+            var state = try store.load()
+            let removed = state.children.removeValue(forKey: normalizedChildSessionId)
+            try store.mutate { $0 = state }
+
+            if let removed,
+               !state.workspaceId.isEmpty,
+               omoSurfaceExists(workspaceId: state.workspaceId, surfaceId: removed.surfaceId, client: client) {
+                _ = try? client.sendV2(method: "surface.close", params: [
+                    "workspace_id": state.workspaceId,
+                    "surface_id": removed.surfaceId
+                ])
+            }
+
+            if state.children.count > 1 {
+                _ = try? client.sendV2(method: "workspace.equalize_splits", params: [
+                    "workspace_id": state.workspaceId,
+                    "orientation": "vertical"
+                ])
+            }
+            print("{}")
+
+        case "help", "--help", "-h":
+            print("cmux omo-hook <set-root|clear-root|spawn|delete> [--root <id>] [--session <id>] [--title <text>]")
+
+        default:
+            throw CLIError(message: "Unknown omo-hook subcommand: \(subcommand)")
         }
     }
 

@@ -21,7 +21,7 @@
 
    This will:
    - Initialize git submodules (ghostty, homebrew-cmux)
-   - Build the GhosttyKit.xcframework from source
+   - Download the pinned GhosttyKit.xcframework, or build it from source as fallback
    - Create the necessary symlinks
 
 3. Build the debug app:
