@@ -167,10 +167,17 @@ def main() -> int:
                 if bool(remote.get("enabled")) is True:
                     break
                 time.sleep(0.05)
-            workspace_id = _append_workspace_to_cleanup(workspaces_to_close, selected_workspace_id)
             _must(
-                bool(workspace_id) and listed_row is not None and bool((listed_row.get("remote") or {}).get("enabled")) is True,
+                bool(selected_workspace_id)
+                and listed_row is not None
+                and str(listed_row.get("title") or "") == ssh_workspace_name
+                and bool((listed_row.get("remote") or {}).get("enabled")) is True
+                and (not payload_workspace_id or selected_workspace_id == payload_workspace_id),
                 f"cmux ssh should select the new remote workspace: selected={selected_workspace_id} row={listed_row} payload={payload}",
+            )
+            workspace_id = _append_workspace_to_cleanup(
+                workspaces_to_close,
+                payload_workspace_id or selected_workspace_id,
             )
             remote_relay_port = payload.get("remote_relay_port")
             _must(remote_relay_port is not None, f"cmux ssh output missing remote_relay_port: {payload}")
