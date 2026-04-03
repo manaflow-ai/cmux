@@ -183,20 +183,30 @@ struct MarkdownPanelView: View {
             }
             // Code blocks
             .codeBlock { configuration in
-                ScrollView(.horizontal, showsIndicators: true) {
-                    configuration.label
-                        .markdownTextStyle {
-                            FontFamilyVariant(.monospaced)
-                            FontSize(13)
-                            ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
-                        }
-                        .padding(12)
+                if configuration.language == "mermaid" {
+                    MermaidRenderView(
+                        code: configuration.content,
+                        isDarkMode: isDark
+                    )
+                    .frame(minHeight: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .markdownMargin(top: 8, bottom: 8)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        configuration.label
+                            .markdownTextStyle {
+                                FontFamilyVariant(.monospaced)
+                                FontSize(13)
+                                ForegroundColor(isDark ? Color(red: 0.9, green: 0.9, blue: 0.9) : Color(red: 0.2, green: 0.2, blue: 0.2))
+                            }
+                            .padding(12)
+                    }
+                    .background(isDark
+                        ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
+                        : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .markdownMargin(top: 8, bottom: 8)
                 }
-                .background(isDark
-                    ? Color(nsColor: NSColor(white: 0.08, alpha: 1.0))
-                    : Color(nsColor: NSColor(white: 0.93, alpha: 1.0)))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .markdownMargin(top: 8, bottom: 8)
             }
             // Inline code
             .code {
