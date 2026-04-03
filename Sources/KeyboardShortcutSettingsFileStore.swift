@@ -207,6 +207,7 @@ final class KeyboardShortcutSettingsFileStore {
         guard parsedStrokes.count == strokes.count, let firstStroke = parsedStrokes.first else {
             return nil
         }
+        guard !firstStroke.modifierFlags.isEmpty else { return nil }
         let secondStroke = parsedStrokes.count == 2 ? parsedStrokes[1] : nil
         return StoredShortcut(first: firstStroke, second: secondStroke)
     }

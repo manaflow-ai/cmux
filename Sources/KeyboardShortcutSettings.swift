@@ -310,6 +310,8 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
+        guard !isManagedBySettingsFile(action) else { return }
+
         let storedShortcut: StoredShortcut
         if let normalizedShortcut = action.normalizedRecordedShortcut(shortcut) {
             storedShortcut = normalizedShortcut

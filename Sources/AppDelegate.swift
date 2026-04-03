@@ -2906,8 +2906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
-        pendingConfiguredShortcutChord = nil
-        activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        clearConfiguredShortcutChordState()
         _ = saveSessionSnapshot(includeScrollback: false)
     }
 
@@ -9184,8 +9183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            self?.clearConfiguredShortcutChordState()
             self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
         }
+    }
+
+    private func clearConfiguredShortcutChordState() {
+        pendingConfiguredShortcutChord = nil
+        activeConfiguredShortcutChordPrefixForCurrentEvent = nil
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
@@ -10975,9 +10980,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
-           let secondStroke = shortcut.secondStroke,
-           shortcut.firstStroke == prefix {
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return false
+            }
             return matchShortcutStroke(event: event, stroke: secondStroke)
         }
         guard !shortcut.hasChord else { return false }
@@ -10989,9 +10996,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
-           let secondStroke = shortcut.secondStroke,
-           shortcut.firstStroke == prefix {
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return nil
+            }
             return numberedShortcutDigit(event: event, stroke: secondStroke)
         }
         guard !shortcut.hasChord else { return nil }
@@ -11005,9 +11014,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowKeyCode: UInt16
     ) -> Bool {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
-           let secondStroke = shortcut.secondStroke,
-           shortcut.firstStroke == prefix {
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            guard let secondStroke = shortcut.secondStroke,
+                  shortcut.firstStroke == prefix else {
+                return false
+            }
             return matchDirectionalShortcut(
                 event: event,
                 stroke: secondStroke,
