@@ -27,6 +27,7 @@ enum KeyboardShortcutSettings {
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
+        case editWorkspaceDescription
         case closeWorkspace
         case newSurface
         case toggleTerminalCopyMode
@@ -69,6 +70,7 @@ enum KeyboardShortcutSettings {
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
+            case .editWorkspaceDescription: return String(localized: "shortcut.editWorkspaceDescription.label", defaultValue: "Edit Workspace Description")
             case .closeWorkspace: return String(localized: "shortcut.closeWorkspace.label", defaultValue: "Close Workspace")
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
@@ -104,6 +106,7 @@ enum KeyboardShortcutSettings {
             case .prevSidebarTab: return "shortcut.prevSidebarTab"
             case .renameTab: return "shortcut.renameTab"
             case .renameWorkspace: return "shortcut.renameWorkspace"
+            case .editWorkspaceDescription: return "shortcut.editWorkspaceDescription"
             case .closeWorkspace: return "shortcut.closeWorkspace"
             case .focusLeft: return "shortcut.focusLeft"
             case .focusRight: return "shortcut.focusRight"
@@ -154,6 +157,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
+            case .editWorkspaceDescription:
+                return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .closeWorkspace:
                 return StoredShortcut(key: "w", command: true, shift: true, option: false, control: false)
             case .focusLeft:

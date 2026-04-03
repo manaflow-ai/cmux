@@ -9228,6 +9228,12 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             return
         }
+        if AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) == true {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=commandPaletteVisible")
+#endif
+            return
+        }
         if surfaceView.terminalSurface?.searchState != nil {
             // Find bar is open. Restore focus based on what the user last intended.
             restoreSearchFocus(window: window)

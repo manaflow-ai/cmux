@@ -2506,6 +2506,15 @@ class TabManager: ObservableObject {
         setCustomTitle(tabId: tabId, title: nil)
     }
 
+    func setCustomDescription(tabId: UUID, description: String?) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index].setCustomDescription(description)
+    }
+
+    func clearCustomDescription(tabId: UUID) {
+        setCustomDescription(tabId: tabId, description: nil)
+    }
+
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
@@ -5492,6 +5501,7 @@ extension TabManager {
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
+            hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)
@@ -5703,6 +5713,7 @@ extension Notification.Name {
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")

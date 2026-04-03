@@ -302,6 +302,37 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
             )
         )
     }
+
+    func testInlineTextHandlingDisablesPaletteSelectionNavigationRouting() {
+        XCTAssertTrue(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: true
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: nil,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: 1,
+                isInteractive: false,
+                usesInlineTextHandling: false
+            )
+        )
+    }
 }
 
 

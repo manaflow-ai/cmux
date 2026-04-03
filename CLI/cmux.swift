@@ -1694,9 +1694,10 @@ struct CMUXCLI {
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-            let (nameOpt, remaining) = parseOption(rem1, name: "--name")
+            let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+            let (descriptionOpt, remaining) = parseOption(rem2, name: "--description")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --command <text>, --cwd <path>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>")
             }
             var params: [String: Any] = [:]
             if let cwdOpt {
@@ -1705,6 +1706,9 @@ struct CMUXCLI {
             }
             if let nameOpt {
                 params["title"] = nameOpt
+            }
+            if let descriptionOpt {
+                params["description"] = descriptionOpt
             }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
@@ -2016,11 +2020,14 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try sendV1Command("current_workspace", client: client)
+            let response = try client.sendV2(method: "workspace.current")
             if jsonOutput {
-                print(jsonString(["workspace_id": response]))
+                print(jsonString(formatIDs(response, mode: idFormat)))
             } else {
-                print(response)
+                let handle = formatHandle(response, kind: "workspace", idFormat: idFormat)
+                    ?? (response["workspace_id"] as? String)
+                    ?? ""
+                print(handle)
             }
 
         case "read-screen":
@@ -3383,8 +3390,9 @@ struct CMUXCLI {
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
+        let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
 
-        var positional = rem3
+        var positional = rem4
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -3403,7 +3411,8 @@ struct CMUXCLI {
         let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
 
-        let inferredPositional = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredPositionalRaw = positional.joined(separator: " ")
+        let inferredPositional = inferredPositionalRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (titleOpt ?? (action == "rename" && !inferredPositional.isEmpty ? inferredPositional : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
@@ -3417,6 +3426,13 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
         }
 
+        let description = (
+            descriptionOpt ?? (action == "set_description" && !inferredPositional.isEmpty ? inferredPositionalRaw : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_description", (description?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-description requires --description <text> (or trailing text)")
+        }
+
         var params: [String: Any] = ["action": action]
         if let workspaceId {
             params["workspace_id"] = workspaceId
@@ -3426,6 +3442,9 @@ struct CMUXCLI {
         }
         if let color, !color.isEmpty {
             params["color"] = color
+        }
+        if let description, !description.isEmpty {
+            params["description"] = description
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -6326,6 +6345,7 @@ struct CMUXCLI {
             Actions:
               pin | unpin
               rename | clear-name
+              set-description | clear-description
               move-up | move-down | move-top
               close-others | close-above | close-below
               mark-read | mark-unread
@@ -6336,6 +6356,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --description <text>         Description for set-description
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -6348,6 +6369,8 @@ struct CMUXCLI {
               cmux workspace-action --action set-color --color blue
               cmux workspace-action --action set-color --color "#C0392B"
               cmux workspace-action set-color Amber
+              cmux workspace-action --action set-description --description "Ship checklist"
+              cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
             """
         case "tab-action":
@@ -6402,18 +6425,20 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--cwd <path>] [--command <text>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
 
             Create a new workspace in the current window.
 
             Flags:
-              --name <title>    Set a custom name for the new workspace
-              --cwd <path>      Set the working directory for the new workspace
+              --name <title>     Set a custom name for the new workspace
+              --description <text> Set a custom description for the new workspace
+              --cwd <path>       Set the working directory for the new workspace
               --command <text>   Send text+Enter to the new workspace after creation
 
             Example:
               cmux new-workspace
               cmux new-workspace --name "Build Server"
+              cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
             """
@@ -13288,9 +13313,9 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
-          new-workspace [--name <title>] [--cwd <path>] [--command <text>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

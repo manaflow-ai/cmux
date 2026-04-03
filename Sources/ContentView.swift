@@ -987,6 +987,71 @@ private final class PassthroughWindowOverlayContainerView: NSView {
     }
 }
 
+#if DEBUG
+private func debugCommandPaletteWindowSummary(_ window: NSWindow?) -> String {
+    guard let window else { return "nil" }
+    let ident = window.identifier?.rawValue ?? "nil"
+    return "num=\(window.windowNumber) ident=\(ident) key=\(window.isKeyWindow ? 1 : 0) main=\(window.isMainWindow ? 1 : 0)"
+}
+
+private func debugCommandPaletteNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
+    flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+}
+
+private func debugCommandPaletteModifierFlagsSummary(_ flags: NSEvent.ModifierFlags) -> String {
+    let normalized = debugCommandPaletteNormalizedModifierFlags(flags)
+    var parts: [String] = []
+    if normalized.contains(.command) { parts.append("cmd") }
+    if normalized.contains(.shift) { parts.append("shift") }
+    if normalized.contains(.option) { parts.append("opt") }
+    if normalized.contains(.control) { parts.append("ctrl") }
+    return parts.isEmpty ? "none" : parts.joined(separator: "+")
+}
+
+private func debugCommandPaletteKeyEventSummary(_ event: NSEvent) -> String {
+    let chars = event.characters.map(String.init(reflecting:)) ?? "nil"
+    let charsIgnoring = event.charactersIgnoringModifiers.map(String.init(reflecting:)) ?? "nil"
+    return
+        "type=\(event.type) keyCode=\(event.keyCode) flags=\(debugCommandPaletteModifierFlagsSummary(event.modifierFlags)) " +
+        "chars=\(chars) charsIgnoring=\(charsIgnoring)"
+}
+
+private func debugCommandPaletteTextPreview(_ text: String, limit: Int = 120) -> String {
+    let escaped = text
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\t", with: "\\t")
+    if escaped.count <= limit {
+        return escaped
+    }
+    let prefix = escaped.prefix(limit)
+    return "\(prefix)..."
+}
+
+private func debugCommandPaletteResponderSummary(_ responder: NSResponder?) -> String {
+    guard let responder else { return "nil" }
+
+    let typeName = String(describing: type(of: responder))
+    if let textView = responder as? NSTextView {
+        let selection = textView.selectedRange()
+        return "\(typeName){fieldEditor=\(textView.isFieldEditor ? 1 : 0) editable=\(textView.isEditable ? 1 : 0) selectable=\(textView.isSelectable ? 1 : 0) hidden=\(textView.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textView.string as NSString).length) sel=\(selection.location):\(selection.length)}"
+    }
+
+    if let textField = responder as? NSTextField {
+        return "\(typeName){editable=\(textField.isEditable ? 1 : 0) enabled=\(textField.isEnabled ? 1 : 0) hidden=\(textField.isHiddenOrHasHiddenAncestor ? 1 : 0) len=\((textField.stringValue as NSString).length)}"
+    }
+
+    if let view = responder as? NSView {
+        return "\(typeName){hidden=\(view.isHiddenOrHasHiddenAncestor ? 1 : 0)}"
+    }
+
+    return typeName
+}
+#endif
+
 @MainActor
 private final class WindowCommandPaletteOverlayController: NSObject {
     private weak var window: NSWindow?
@@ -1089,11 +1154,20 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         return false
     }
 
+    private func isPaletteMultilineTextView(_ textView: NSTextView) -> Bool {
+        guard !textView.isFieldEditor,
+              textView.isEditable,
+              textView.isSelectable,
+              !textView.isHiddenOrHasHiddenAncestor,
+              textView.isDescendant(of: containerView) else { return false }
+        return true
+    }
+
     private func isPaletteTextInputFirstResponder(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
 
         if let textView = responder as? NSTextView {
-            return isPaletteFieldEditor(textView)
+            return isPaletteFieldEditor(textView) || isPaletteMultilineTextView(textView)
         }
 
         if let textField = responder as? NSTextField {
@@ -1101,6 +1175,30 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
 
         return false
+    }
+
+    private func firstEditableTextInput(in view: NSView) -> NSResponder? {
+        if let textField = view as? NSTextField,
+           textField.isEditable,
+           textField.isEnabled,
+           !textField.isHiddenOrHasHiddenAncestor {
+            return textField
+        }
+
+        if let textView = view as? NSTextView,
+           !textView.isFieldEditor,
+           textView.isEditable,
+           textView.isSelectable,
+           !textView.isHiddenOrHasHiddenAncestor {
+            return textView
+        }
+
+        for subview in view.subviews {
+            if let match = firstEditableTextInput(in: subview) {
+                return match
+            }
+        }
+        return nil
     }
 
     private func firstEditableTextField(in view: NSView) -> NSTextField? {
@@ -1119,7 +1217,63 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         return nil
     }
 
+    private func focusPaletteTextInput(in window: NSWindow) -> Bool {
+        guard let input = firstEditableTextInput(in: hostingView) else {
+#if DEBUG
+            dlog(
+                "palette.focus.direct missingInput window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return false
+        }
+#if DEBUG
+        dlog(
+            "palette.focus.direct attempt window={\(debugCommandPaletteWindowSummary(window))} " +
+            "input=\(debugCommandPaletteResponderSummary(input)) " +
+            "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        guard window.makeFirstResponder(input) else {
+#if DEBUG
+            dlog(
+                "palette.focus.direct failedMakeFirstResponder window={\(debugCommandPaletteWindowSummary(window))} " +
+                "input=\(debugCommandPaletteResponderSummary(input)) " +
+                "frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return false
+        }
+
+        if let textView = input as? NSTextView, !textView.isFieldEditor {
+            let length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: length, length: 0))
+        } else {
+            normalizeSelectionAfterProgrammaticFocus()
+        }
+
+        let didSettle = isPaletteTextInputFirstResponder(window.firstResponder)
+#if DEBUG
+        dlog(
+            "palette.focus.direct settled window={\(debugCommandPaletteWindowSummary(window))} " +
+            "didSettle=\(didSettle ? 1 : 0) frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        return didSettle
+    }
+
     private func scheduleFocusIntoPalette(retries: Int = 4) {
+#if DEBUG
+        if let window {
+            dlog(
+                "palette.focus.schedule retries=\(retries) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+        } else {
+            dlog("palette.focus.schedule retries=\(retries) window=nil")
+        }
+#endif
         scheduledFocusWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             self?.scheduledFocusWorkItem = nil
@@ -1131,27 +1285,69 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     private func focusIntoPalette(retries: Int) {
         guard let window else { return }
+#if DEBUG
+        dlog(
+            "palette.focus.retry start retries=\(retries) " +
+            "window={\(debugCommandPaletteWindowSummary(window))} " +
+            "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
         if isPaletteTextInputFirstResponder(window.firstResponder) {
+#if DEBUG
+            dlog(
+                "palette.focus.retry alreadyFocused window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
             return
         }
 
-        if let textField = firstEditableTextField(in: hostingView),
-           window.makeFirstResponder(textField),
-           isPaletteTextInputFirstResponder(window.firstResponder) {
-            normalizeSelectionAfterProgrammaticFocus()
+        if focusPaletteTextInput(in: window) {
+#if DEBUG
+            dlog(
+                "palette.focus.retry directSuccess retries=\(retries) " +
+                "window={\(debugCommandPaletteWindowSummary(window))}"
+            )
+#endif
             return
         }
 
-        if window.makeFirstResponder(containerView) {
-            if let textField = firstEditableTextField(in: hostingView),
-               window.makeFirstResponder(textField),
-               isPaletteTextInputFirstResponder(window.firstResponder) {
-                normalizeSelectionAfterProgrammaticFocus()
+        let containerFocused = window.makeFirstResponder(containerView)
+#if DEBUG
+        dlog(
+            "palette.focus.retry containerResult retries=\(retries) " +
+            "window={\(debugCommandPaletteWindowSummary(window))} " +
+            "didFocusContainer=\(containerFocused ? 1 : 0) " +
+            "frAfterContainer=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        if containerFocused {
+            if focusPaletteTextInput(in: window) {
+#if DEBUG
+                dlog(
+                    "palette.focus.retry containerAssistedSuccess retries=\(retries) " +
+                    "window={\(debugCommandPaletteWindowSummary(window))}"
+                )
+#endif
                 return
             }
         }
 
-        guard retries > 0 else { return }
+        guard retries > 0 else {
+#if DEBUG
+            dlog(
+                "palette.focus.retry exhausted window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        dlog(
+            "palette.focus.retry reschedule nextRetries=\(retries - 1) " +
+            "window={\(debugCommandPaletteWindowSummary(window))}"
+        )
+#endif
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
             self?.focusIntoPalette(retries: retries - 1)
         }
@@ -1185,11 +1381,22 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             return
         }
         guard isPaletteVisible else {
+#if DEBUG
+            dlog(
+                "palette.focus.lock inactive visible=0 window={\(debugCommandPaletteWindowSummary(window))}"
+            )
+#endif
             stopFocusLockTimer()
             return
         }
 
         guard window.isKeyWindow else {
+#if DEBUG
+            dlog(
+                "palette.focus.lock keyWindowMissing window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
             stopFocusLockTimer()
             if isPaletteResponder(window.firstResponder) {
                 _ = window.makeFirstResponder(nil)
@@ -1199,6 +1406,12 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
         startFocusLockTimer()
         if !isPaletteTextInputFirstResponder(window.firstResponder) {
+#if DEBUG
+            dlog(
+                "palette.focus.lock requestRestore window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
             scheduleFocusIntoPalette(retries: 8)
         }
     }
@@ -1253,6 +1466,17 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             previouslyVisible: isPaletteVisible,
             isVisible: isVisible
         )
+#if DEBUG
+        if let window {
+            dlog(
+                "palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+        } else {
+            dlog("palette.overlay.update visible=\(isVisible ? 1 : 0) promote=\(shouldPromote ? 1 : 0) window=nil")
+        }
+#endif
         isPaletteVisible = isVisible
         if isVisible {
             hostingView.rootView = rootView
@@ -1603,6 +1827,8 @@ struct ContentView: View {
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
+    @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
+    @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     @State private var commandPaletteSelectedResultIndex: Int = 0
     @State private var commandPaletteSelectionAnchorCommandID: String?
     @State private var commandPaletteHoveredResultIndex: Int?
@@ -1639,6 +1865,7 @@ struct ContentView: View {
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
+    @State private var commandPaletteShouldFocusWorkspaceDescriptionEditor = false
     @FocusState private var isCommandPaletteSearchFocused: Bool
     @FocusState private var isCommandPaletteRenameFocused: Bool
 
@@ -1646,6 +1873,7 @@ struct ContentView: View {
         case commands
         case renameInput(CommandPaletteRenameTarget)
         case renameConfirm(CommandPaletteRenameTarget, proposedName: String)
+        case workspaceDescriptionInput(CommandPaletteWorkspaceDescriptionTarget)
     }
 
     private enum CommandPaletteListScope: String {
@@ -1697,6 +1925,25 @@ struct ContentView: View {
             case .tab:
                 return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
             }
+        }
+    }
+
+    private struct CommandPaletteWorkspaceDescriptionTarget: Equatable {
+        let workspaceId: UUID
+        let currentDescription: String
+
+        var placeholder: String {
+            String(
+                localized: "commandPalette.description.workspacePlaceholder",
+                defaultValue: "Workspace description"
+            )
+        }
+
+        var inputHint: String {
+            String(
+                localized: "commandPalette.description.workspaceInputHint",
+                defaultValue: "Press Enter to save. Press Shift-Enter for a new line, or Escape to cancel."
+            )
         }
     }
 
@@ -1926,6 +2173,7 @@ struct ContentView: View {
         static let hasWorkspace = "workspace.hasSelection"
         static let workspaceName = "workspace.name"
         static let workspaceHasCustomName = "workspace.hasCustomName"
+        static let workspaceHasCustomDescription = "workspace.hasCustomDescription"
         static let workspaceMinimalModeEnabled = "workspace.minimalModeEnabled"
         static let workspaceShouldPin = "workspace.shouldPin"
         static let workspaceHasPullRequests = "workspace.hasPullRequests"
@@ -2997,6 +3245,26 @@ struct ContentView: View {
             openCommandPaletteRenameWorkspaceInput()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteEditWorkspaceDescriptionRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            let shouldHandle = Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            )
+#if DEBUG
+            dlog(
+                "palette.wsDescription.request observed={\(debugCommandPaletteWindowSummary(observedWindow))} " +
+                "requested={\(debugCommandPaletteWindowSummary(requestedWindow))} " +
+                "shouldHandle=\(shouldHandle ? 1 : 0) presented=\(isCommandPalettePresented ? 1 : 0) " +
+                "mode=\(debugCommandPaletteModeLabel(commandPaletteMode))"
+            )
+#endif
+            guard shouldHandle else { return }
+            openCommandPaletteWorkspaceDescriptionInput()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteMoveSelection)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .commands = commandPaletteMode else { return }
@@ -3590,6 +3858,10 @@ struct ContentView: View {
         GeometryReader { proxy in
             let maxAllowedWidth = max(340, proxy.size.width - 260)
             let targetWidth = min(560, maxAllowedWidth)
+            let workspaceDescriptionMaxEditorHeight = max(
+                CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
+                proxy.size.height - 120
+            )
 
             ZStack(alignment: .top) {
                 Color.clear
@@ -3616,6 +3888,11 @@ struct ContentView: View {
                         commandPaletteRenameInputView(target: target)
                     case let .renameConfirm(target, proposedName):
                         commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
+                    case .workspaceDescriptionInput(let target):
+                        commandPaletteWorkspaceDescriptionInputView(
+                            target: target,
+                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                        )
                     }
                 }
                 .frame(width: targetWidth)
@@ -3807,25 +4084,79 @@ struct ContentView: View {
         }
     }
 
-    private func commandPaletteRenameInputView(target: CommandPaletteRenameTarget) -> some View {
-        VStack(spacing: 0) {
-            TextField(target.placeholder, text: $commandPaletteRenameDraft)
+    private enum CommandPaletteEditorFieldStyle {
+        case singleLine(
+            accessibilityIdentifier: String,
+            focus: FocusState<Bool>.Binding,
+            onDeleteBackward: ((EventModifiers) -> BackportKeyPressResult)?
+        )
+        case multiline(
+            accessibilityIdentifier: String,
+            accessibilityLabel: String,
+            focus: Binding<Bool>,
+            measuredHeight: Binding<CGFloat>,
+            maxHeight: CGFloat
+        )
+    }
+
+    @ViewBuilder
+    private func commandPaletteEditorField(
+        style: CommandPaletteEditorFieldStyle,
+        placeholder: String,
+        text: Binding<String>,
+        onSubmit: @escaping (String) -> Void,
+        onEscape: @escaping () -> Void,
+        onInteraction: (() -> Void)? = nil
+    ) -> some View {
+        switch style {
+        case .singleLine(let accessibilityIdentifier, let focus, let onDeleteBackward):
+            TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .regular))
                 .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
-                .focused($isCommandPaletteRenameFocused)
-                .accessibilityIdentifier("CommandPaletteRenameField")
+                .focused(focus)
+                .accessibilityIdentifier(accessibilityIdentifier)
                 .backport.onKeyPress(.delete) { modifiers in
-                    handleCommandPaletteRenameDeleteBackward(modifiers: modifiers)
+                    onDeleteBackward?(modifiers) ?? .ignored
                 }
                 .onSubmit {
-                    continueRenameFlow(target: target)
+                    onSubmit(text.wrappedValue)
                 }
                 .onTapGesture {
-                    handleCommandPaletteRenameInputInteraction()
+                    onInteraction?()
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
+        case .multiline(let accessibilityIdentifier, let accessibilityLabel, let focus, let measuredHeight, let maxHeight):
+            CommandPaletteMultilineTextEditorRepresentable(
+                placeholder: placeholder,
+                accessibilityLabel: accessibilityLabel,
+                accessibilityIdentifier: accessibilityIdentifier,
+                text: text,
+                isFocused: focus,
+                measuredHeight: measuredHeight,
+                maxHeight: maxHeight,
+                onSubmit: onSubmit,
+                onEscape: onEscape
+            )
+            .frame(height: measuredHeight.wrappedValue)
+        }
+    }
+
+    private func commandPaletteRenameInputView(target: CommandPaletteRenameTarget) -> some View {
+        VStack(spacing: 0) {
+            commandPaletteEditorField(
+                style: .singleLine(
+                    accessibilityIdentifier: "CommandPaletteRenameField",
+                    focus: $isCommandPaletteRenameFocused,
+                    onDeleteBackward: handleCommandPaletteRenameDeleteBackward(modifiers:)
+                ),
+                placeholder: target.placeholder,
+                text: $commandPaletteRenameDraft,
+                onSubmit: { _ in continueRenameFlow(target: target) },
+                onEscape: { dismissCommandPalette() },
+                onInteraction: handleCommandPaletteRenameInputInteraction
+            )
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
 
             Divider()
 
@@ -3888,6 +4219,65 @@ struct ContentView: View {
             .frame(width: 0, height: 0)
             .opacity(0)
             .accessibilityHidden(true)
+        }
+    }
+
+    private func commandPaletteWorkspaceDescriptionInputView(
+        target: CommandPaletteWorkspaceDescriptionTarget,
+        maxEditorHeight: CGFloat
+    ) -> some View {
+        VStack(spacing: 0) {
+            commandPaletteEditorField(
+                style: .multiline(
+                    accessibilityIdentifier: "CommandPaletteWorkspaceDescriptionEditor",
+                    accessibilityLabel: String(
+                        localized: "command.editWorkspaceDescription.title",
+                        defaultValue: "Edit Workspace Description…"
+                    ),
+                    focus: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
+                    measuredHeight: $commandPaletteWorkspaceDescriptionHeight,
+                    maxHeight: maxEditorHeight
+                ),
+                placeholder: target.placeholder,
+                text: $commandPaletteWorkspaceDescriptionDraft,
+                onSubmit: { proposedDescription in
+                    applyWorkspaceDescriptionFlow(target: target, proposedDescription: proposedDescription)
+                },
+                onEscape: { dismissCommandPalette() }
+            )
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+
+            Divider()
+
+            Text(target.inputHint)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+        }
+        .onAppear {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.view.appear workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+                "draftLen=\((commandPaletteWorkspaceDescriptionDraft as NSString).length) " +
+                "height=\(String(format: "%.1f", commandPaletteWorkspaceDescriptionHeight)) " +
+                "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
+            )
+#endif
+            resetCommandPaletteWorkspaceDescriptionFocus()
+        }
+        .onChange(of: commandPaletteShouldFocusWorkspaceDescriptionEditor) { _, newValue in
+#if DEBUG
+            dlog(
+                "palette.wsDescription.focus.binding new=\(newValue ? 1 : 0) " +
+                "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
+                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))} " +
+                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+            )
+#endif
         }
     }
 
@@ -4012,7 +4402,8 @@ struct ContentView: View {
 
                 if shouldSubmitCommandPaletteWithReturn(
                     keyCode: event.keyCode,
-                    flags: event.modifierFlags
+                    flags: event.modifierFlags,
+                    mode: "single_line"
                 ) {
                     parent.onSubmit()
                     return true
@@ -4125,6 +4516,568 @@ struct ContentView: View {
             nsView.onHandleKeyEvent = nil
             coordinator.detachEditorTextDidChangeObserver()
             coordinator.parentField = nil
+        }
+    }
+
+    private final class CommandPalettePassthroughLabel: NSTextField {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    private final class CommandPaletteMultilineTextView: NSTextView {
+        var onHandleKeyEvent: ((NSEvent, NSTextView?) -> Bool)?
+        var onDidBecomeFirstResponder: (() -> Void)?
+
+        override func flagsChanged(with event: NSEvent) {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.flagsChanged " +
+                "\(debugCommandPaletteKeyEventSummary(event))"
+            )
+#endif
+            super.flagsChanged(with: event)
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            let becameFirstResponder = super.becomeFirstResponder()
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.textView.becomeFirstResponder success=\(becameFirstResponder ? 1 : 0) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "fr=\(debugCommandPaletteResponderSummary(window?.firstResponder))"
+            )
+#endif
+            if becameFirstResponder {
+                onDidBecomeFirstResponder?()
+            }
+            return becameFirstResponder
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if hasMarkedText() {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.keyDown markedText=1 " +
+                    "\(debugCommandPaletteKeyEventSummary(event))"
+                )
+#endif
+                super.keyDown(with: event)
+                return
+            }
+            let handled = onHandleKeyEvent?(event, self) == true
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.keyDown handled=\(handled ? 1 : 0) " +
+                "\(debugCommandPaletteKeyEventSummary(event))"
+            )
+#endif
+            if handled {
+                return
+            }
+            super.keyDown(with: event)
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            if hasMarkedText() {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.performKeyEquivalent markedText=1 " +
+                    "\(debugCommandPaletteKeyEventSummary(event))"
+                )
+#endif
+                return super.performKeyEquivalent(with: event)
+            }
+            let handled = onHandleKeyEvent?(event, self) == true
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.performKeyEquivalent handled=\(handled ? 1 : 0) " +
+                "\(debugCommandPaletteKeyEventSummary(event))"
+            )
+#endif
+            if handled {
+                return true
+            }
+            let result = super.performKeyEquivalent(with: event)
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.performKeyEquivalent superResult=\(result ? 1 : 0) " +
+                "\(debugCommandPaletteKeyEventSummary(event))"
+            )
+#endif
+            return result
+        }
+
+        override func doCommand(by commandSelector: Selector) {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.doCommand selector=\(NSStringFromSelector(commandSelector)) " +
+                "len=\((string as NSString).length) " +
+                "sel=\(selectedRange().location):\(selectedRange().length)"
+            )
+#endif
+            super.doCommand(by: commandSelector)
+        }
+
+        override func insertNewline(_ sender: Any?) {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.insertNewline " +
+                "len=\((string as NSString).length) " +
+                "sel=\(selectedRange().location):\(selectedRange().length)"
+            )
+#endif
+            super.insertNewline(sender)
+        }
+
+        override func insertLineBreak(_ sender: Any?) {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.insertLineBreak " +
+                "len=\((string as NSString).length) " +
+                "sel=\(selectedRange().location):\(selectedRange().length)"
+            )
+#endif
+            super.insertLineBreak(sender)
+        }
+
+        override func insertNewlineIgnoringFieldEditor(_ sender: Any?) {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.insertNewlineIgnoringFieldEditor " +
+                "len=\((string as NSString).length) " +
+                "sel=\(selectedRange().location):\(selectedRange().length)"
+            )
+#endif
+            super.insertNewlineIgnoringFieldEditor(sender)
+        }
+    }
+
+    private final class CommandPaletteMultilineTextEditorView: NSView {
+        private static let font = NSFont.systemFont(ofSize: 13)
+        private static let textInset = NSSize(width: 0, height: 2)
+        static let defaultMinimumHeight: CGFloat = {
+            let lineHeight = ceil(font.ascender - font.descender + font.leading)
+            return lineHeight * 5 + textInset.height * 2
+        }()
+
+        private let scrollView = NSScrollView(frame: .zero)
+        let textView = CommandPaletteMultilineTextView(frame: .zero)
+        private let placeholderField = CommandPalettePassthroughLabel(labelWithString: "")
+        var onMeasuredHeightChange: ((CGFloat) -> Void)?
+        private var lastReportedHeight: CGFloat?
+        var maximumHeight: CGFloat = .greatestFiniteMagnitude {
+            didSet {
+                refreshMetrics()
+            }
+        }
+
+        var placeholder: String = "" {
+            didSet {
+                placeholderField.stringValue = placeholder
+                updatePlaceholderVisibility()
+            }
+        }
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+
+            scrollView.translatesAutoresizingMaskIntoConstraints = false
+            scrollView.borderType = .noBorder
+            scrollView.drawsBackground = false
+            scrollView.hasVerticalScroller = true
+            scrollView.autohidesScrollers = true
+            scrollView.scrollerStyle = .overlay
+            addSubview(scrollView)
+
+            textView.translatesAutoresizingMaskIntoConstraints = false
+            textView.isEditable = true
+            textView.isSelectable = true
+            textView.isRichText = false
+            textView.importsGraphics = false
+            textView.isHorizontallyResizable = false
+            textView.isVerticallyResizable = true
+            textView.backgroundColor = .clear
+            textView.drawsBackground = false
+            textView.font = Self.font
+            textView.textColor = .labelColor
+            textView.insertionPointColor = .labelColor
+            textView.textContainerInset = Self.textInset
+            textView.textContainer?.lineFragmentPadding = 0
+            textView.textContainer?.widthTracksTextView = true
+            textView.textContainer?.heightTracksTextView = false
+            textView.minSize = NSSize(width: 0, height: Self.defaultMinimumHeight)
+            textView.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            scrollView.documentView = textView
+
+            placeholderField.translatesAutoresizingMaskIntoConstraints = false
+            placeholderField.font = Self.font
+            placeholderField.textColor = .secondaryLabelColor
+            placeholderField.lineBreakMode = .byWordWrapping
+            placeholderField.maximumNumberOfLines = 0
+            addSubview(placeholderField)
+
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(textDidChange(_:)),
+                name: NSText.didChangeNotification,
+                object: textView
+            )
+
+            NSLayoutConstraint.activate([
+                scrollView.topAnchor.constraint(equalTo: topAnchor),
+                scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+                scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+
+                placeholderField.topAnchor.constraint(equalTo: topAnchor, constant: Self.textInset.height),
+                placeholderField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.textInset.width),
+                placeholderField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -Self.textInset.width),
+            ])
+
+            updatePlaceholderVisibility()
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        override func layout() {
+            super.layout()
+            updateTextViewLayout()
+            reportMeasuredHeightIfNeeded()
+        }
+
+        func refreshMetrics() {
+            updatePlaceholderVisibility()
+            needsLayout = true
+            layoutSubtreeIfNeeded()
+            reportMeasuredHeightIfNeeded()
+        }
+
+        func focusIfNeeded() {
+            guard let window else {
+#if DEBUG
+                dlog("palette.wsDescription.editor.focusIfNeeded window=nil")
+#endif
+                return
+            }
+            guard window.firstResponder !== textView else {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.focusIfNeeded alreadyFocused window={\(debugCommandPaletteWindowSummary(window))}"
+                )
+#endif
+                return
+            }
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.focusIfNeeded attempt window={\(debugCommandPaletteWindowSummary(window))} " +
+                "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+            let didFocus = window.makeFirstResponder(textView)
+            let length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: length, length: 0))
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.focusIfNeeded result didFocus=\(didFocus ? 1 : 0) " +
+                "window={\(debugCommandPaletteWindowSummary(window))} " +
+                "frAfter=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+            )
+#endif
+        }
+
+        private func cappedMaximumHeight() -> CGFloat {
+            max(Self.defaultMinimumHeight, maximumHeight)
+        }
+
+        private func naturalHeight(for width: CGFloat) -> CGFloat {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else {
+                return Self.defaultMinimumHeight
+            }
+            textContainer.containerSize = NSSize(
+                width: width,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            layoutManager.ensureLayout(for: textContainer)
+            let usedRect = layoutManager.usedRect(for: textContainer)
+            let lineHeight = ceil(Self.font.ascender - Self.font.descender + Self.font.leading)
+            let contentHeight = max(lineHeight, ceil(usedRect.height))
+            return max(
+                Self.defaultMinimumHeight,
+                ceil(contentHeight + Self.textInset.height * 2)
+            )
+        }
+
+        private func updateTextViewLayout() {
+            let availableWidth = max(scrollView.contentSize.width, bounds.width, 1)
+            let naturalHeight = naturalHeight(for: availableWidth)
+            let measuredHeight = min(cappedMaximumHeight(), naturalHeight)
+            let documentHeight = max(naturalHeight, measuredHeight)
+            textView.frame = NSRect(x: 0, y: 0, width: availableWidth, height: documentHeight)
+        }
+
+        private func fittingHeight() -> CGFloat {
+            let availableWidth = max(scrollView.contentSize.width, bounds.width, 1)
+            return min(cappedMaximumHeight(), naturalHeight(for: availableWidth))
+        }
+
+        private func reportMeasuredHeightIfNeeded() {
+            let height = fittingHeight()
+            guard lastReportedHeight == nil || abs((lastReportedHeight ?? height) - height) > 0.5 else { return }
+            lastReportedHeight = height
+            onMeasuredHeightChange?(height)
+        }
+
+        @objc
+        private func textDidChange(_ notification: Notification) {
+            updatePlaceholderVisibility()
+            reportMeasuredHeightIfNeeded()
+#if DEBUG
+            let newlineCount = textView.string.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "palette.wsDescription.editor.textDidChange len=\((textView.string as NSString).length) " +
+                "newlines=\(newlineCount)"
+            )
+#endif
+        }
+
+        private func updatePlaceholderVisibility() {
+            placeholderField.isHidden = textView.string.isEmpty == false
+        }
+    }
+
+    private struct CommandPaletteMultilineTextEditorRepresentable: NSViewRepresentable {
+        static let defaultMinimumHeight = CommandPaletteMultilineTextEditorView.defaultMinimumHeight
+
+        let placeholder: String
+        let accessibilityLabel: String
+        let accessibilityIdentifier: String
+        @Binding var text: String
+        @Binding var isFocused: Bool
+        @Binding var measuredHeight: CGFloat
+        let maxHeight: CGFloat
+        let onSubmit: (String) -> Void
+        let onEscape: () -> Void
+
+        final class Coordinator: NSObject, NSTextViewDelegate {
+            var parent: CommandPaletteMultilineTextEditorRepresentable
+            var isProgrammaticMutation = false
+            var pendingFocusRequest = false
+
+            init(parent: CommandPaletteMultilineTextEditorRepresentable) {
+                self.parent = parent
+            }
+
+            func textDidBeginEditing(_ notification: Notification) {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.beginEditing focus=\(parent.isFocused ? 1 : 0) " +
+                    "responder=\(debugCommandPaletteResponderSummary(notification.object as? NSResponder))"
+                )
+#endif
+                if !parent.isFocused {
+                    DispatchQueue.main.async {
+                        self.parent.isFocused = true
+                    }
+                }
+            }
+
+            func textDidChange(_ notification: Notification) {
+                guard !isProgrammaticMutation,
+                      let textView = notification.object as? NSTextView else { return }
+                parent.text = textView.string
+            }
+
+            func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.command selector=\(NSStringFromSelector(commandSelector)) " +
+                    "len=\((textView.string as NSString).length) " +
+                    "sel=\(textView.selectedRange().location):\(textView.selectedRange().length)"
+                )
+#endif
+                return false
+            }
+
+            func handleDidBecomeFirstResponder() {
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.didBecomeFirstResponder focus=\(parent.isFocused ? 1 : 0)"
+                )
+#endif
+                if !parent.isFocused {
+                    parent.isFocused = true
+                }
+            }
+
+            func handleMeasuredHeight(_ height: CGFloat) {
+                guard abs(parent.measuredHeight - height) > 0.5 else { return }
+                DispatchQueue.main.async {
+                    self.parent.measuredHeight = height
+                }
+            }
+
+            func handleKeyEvent(_ event: NSEvent, editor: NSTextView?) -> Bool {
+                guard !(editor?.hasMarkedText() ?? false) else { return false }
+
+                let normalizedFlags = event.modifierFlags
+                    .intersection(.deviceIndependentFlagsMask)
+                    .subtracting([.numericPad, .function, .capsLock])
+
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.handleKeyEvent " +
+                    "\(debugCommandPaletteKeyEventSummary(event)) " +
+                    "normalized=\(debugCommandPaletteModifierFlagsSummary(normalizedFlags))"
+                )
+#endif
+
+                if event.keyCode == 36 || event.keyCode == 76 {
+                    if normalizedFlags.isEmpty {
+                        let currentText = editor?.string ?? parent.text
+#if DEBUG
+                        dlog("palette.wsDescription.editor.handleKeyEvent action=submit")
+                        dlog(
+                            "palette.wsDescription.editor.handleKeyEvent submitText " +
+                            "len=\((currentText as NSString).length) " +
+                            "text=\"\(debugCommandPaletteTextPreview(currentText))\""
+                        )
+#endif
+                        if parent.text != currentText {
+                            parent.text = currentText
+                        }
+                        parent.onSubmit(currentText)
+                        return true
+                    }
+                    if normalizedFlags == [.shift] {
+#if DEBUG
+                        dlog("palette.wsDescription.editor.handleKeyEvent action=allowShiftReturn")
+#endif
+                        return false
+                    }
+                }
+
+                if event.keyCode == 53, normalizedFlags.isEmpty {
+#if DEBUG
+                    dlog("palette.wsDescription.editor.handleKeyEvent action=escape")
+#endif
+                    parent.onEscape()
+                    return true
+                }
+
+#if DEBUG
+                dlog("palette.wsDescription.editor.handleKeyEvent action=passThrough")
+#endif
+                return false
+            }
+        }
+
+        func makeCoordinator() -> Coordinator {
+            Coordinator(parent: self)
+        }
+
+        func makeNSView(context: Context) -> CommandPaletteMultilineTextEditorView {
+            let view = CommandPaletteMultilineTextEditorView(frame: .zero)
+            view.placeholder = placeholder
+            view.maximumHeight = maxHeight
+            view.textView.string = text
+            view.textView.delegate = context.coordinator
+            view.textView.setAccessibilityLabel(accessibilityLabel)
+            view.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+            view.setAccessibilityIdentifier(accessibilityIdentifier)
+            view.textView.onHandleKeyEvent = { [weak coordinator = context.coordinator] event, editor in
+                coordinator?.handleKeyEvent(event, editor: editor) ?? false
+            }
+            view.textView.onDidBecomeFirstResponder = { [weak coordinator = context.coordinator] in
+                coordinator?.handleDidBecomeFirstResponder()
+            }
+            view.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
+                coordinator?.handleMeasuredHeight(height)
+            }
+            view.refreshMetrics()
+#if DEBUG
+            dlog(
+                "palette.wsDescription.editor.make focus=\(isFocused ? 1 : 0) " +
+                "textLen=\((text as NSString).length) " +
+                "height=\(String(format: "%.1f", measuredHeight))"
+            )
+#endif
+            return view
+        }
+
+        func updateNSView(_ nsView: CommandPaletteMultilineTextEditorView, context: Context) {
+            context.coordinator.parent = self
+            nsView.placeholder = placeholder
+            nsView.maximumHeight = maxHeight
+            nsView.textView.setAccessibilityLabel(accessibilityLabel)
+            nsView.textView.setAccessibilityIdentifier(accessibilityIdentifier)
+            nsView.setAccessibilityIdentifier(accessibilityIdentifier)
+
+            if nsView.textView.string != text {
+                context.coordinator.isProgrammaticMutation = true
+                nsView.textView.string = text
+                context.coordinator.isProgrammaticMutation = false
+            }
+            nsView.onMeasuredHeightChange = { [weak coordinator = context.coordinator] height in
+                coordinator?.handleMeasuredHeight(height)
+            }
+            nsView.refreshMetrics()
+
+            guard let window = nsView.window else {
+#if DEBUG
+                if isFocused {
+                    dlog(
+                        "palette.wsDescription.editor.update waitingForWindow focus=1 " +
+                        "pending=\(context.coordinator.pendingFocusRequest ? 1 : 0)"
+                    )
+                }
+#endif
+                return
+            }
+            let isFirstResponder = window.firstResponder === nsView.textView
+#if DEBUG
+            if isFocused || context.coordinator.pendingFocusRequest {
+                dlog(
+                    "palette.wsDescription.editor.update focus=\(isFocused ? 1 : 0) " +
+                    "isFirstResponder=\(isFirstResponder ? 1 : 0) " +
+                    "pending=\(context.coordinator.pendingFocusRequest ? 1 : 0) " +
+                    "window={\(debugCommandPaletteWindowSummary(window))} " +
+                    "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                )
+            }
+#endif
+            if isFocused, !isFirstResponder, !context.coordinator.pendingFocusRequest {
+                context.coordinator.pendingFocusRequest = true
+#if DEBUG
+                dlog(
+                    "palette.wsDescription.editor.update scheduleFocus window={\(debugCommandPaletteWindowSummary(window))} " +
+                    "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+                )
+#endif
+                DispatchQueue.main.async { [weak nsView, weak coordinator = context.coordinator] in
+                    guard let coordinator else { return }
+                    coordinator.pendingFocusRequest = false
+                    guard coordinator.parent.isFocused, let nsView else { return }
+                    nsView.focusIfNeeded()
+                }
+            }
+        }
+
+        static func dismantleNSView(_ nsView: CommandPaletteMultilineTextEditorView, coordinator: Coordinator) {
+            nsView.textView.delegate = nil
+            nsView.textView.onHandleKeyEvent = nil
+            nsView.textView.onDidBecomeFirstResponder = nil
+            nsView.onMeasuredHeightChange = nil
         }
     }
 
@@ -5045,7 +5998,8 @@ struct ContentView: View {
         return CommandPaletteSwitcherSearchMetadata(
             directories: directories,
             branches: branches,
-            ports: ports
+            ports: ports,
+            description: workspace.customDescription
         )
     }
 
@@ -5191,6 +6145,8 @@ struct ContentView: View {
             return .renameTab
         case "palette.renameWorkspace":
             return .renameWorkspace
+        case "palette.editWorkspaceDescription":
+            return .editWorkspaceDescription
         case "palette.nextWorkspace":
             return .nextSidebarTab
         case "palette.previousWorkspace":
@@ -5273,6 +6229,7 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.hasWorkspace, true)
             snapshot.setString(CommandPaletteContextKeys.workspaceName, workspaceDisplayName(workspace))
             snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomName, workspace.customTitle != nil)
+            snapshot.setBool(CommandPaletteContextKeys.workspaceHasCustomDescription, workspace.hasCustomDescription)
             snapshot.setBool(CommandPaletteContextKeys.workspaceShouldPin, !workspace.isPinned)
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasPullRequests,
@@ -5588,6 +6545,16 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.editWorkspaceDescription",
+                title: constant(String(localized: "command.editWorkspaceDescription.title", defaultValue: "Edit Workspace Description…")),
+                subtitle: workspaceSubtitle,
+                keywords: ["edit", "workspace", "description", "notes", "markdown"],
+                dismissOnRun: false,
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.clearWorkspaceName",
                 title: constant(String(localized: "command.clearWorkspaceName.title", defaultValue: "Clear Workspace Name")),
                 subtitle: workspaceSubtitle,
@@ -5595,6 +6562,18 @@ struct ContentView: View {
                 when: {
                     $0.bool(CommandPaletteContextKeys.hasWorkspace)
                         && $0.bool(CommandPaletteContextKeys.workspaceHasCustomName)
+                }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.clearWorkspaceDescription",
+                title: constant(String(localized: "command.clearWorkspaceDescription.title", defaultValue: "Clear Workspace Description")),
+                subtitle: workspaceSubtitle,
+                keywords: ["clear", "workspace", "description", "notes"],
+                when: {
+                    $0.bool(CommandPaletteContextKeys.hasWorkspace)
+                        && $0.bool(CommandPaletteContextKeys.workspaceHasCustomDescription)
                 }
             )
         )
@@ -6214,12 +7193,22 @@ struct ContentView: View {
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
         }
+        registry.register(commandId: "palette.editWorkspaceDescription") {
+            beginWorkspaceDescriptionFlow()
+        }
         registry.register(commandId: "palette.clearWorkspaceName") {
             guard let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
                 return
             }
             tabManager.clearCustomTitle(tabId: workspace.id)
+        }
+        registry.register(commandId: "palette.clearWorkspaceDescription") {
+            guard let workspace = tabManager.selectedWorkspace else {
+                NSSound.beep()
+                return
+            }
+            tabManager.clearCustomDescription(tabId: workspace.id)
         }
         registry.register(commandId: "palette.toggleWorkspacePin") {
             guard let workspace = tabManager.selectedWorkspace else {
@@ -6605,6 +7594,7 @@ struct ContentView: View {
         for port in metadata.ports {
             hasher.combine(port)
         }
+        hasher.combine(metadata.description ?? "")
     }
 
     static func commandPaletteScrollPositionAnchor(
@@ -6796,6 +7786,21 @@ struct ContentView: View {
             continueRenameFlow(target: target)
         case .renameConfirm(let target, let proposedName):
             applyRenameFlow(target: target, proposedName: proposedName)
+        case .workspaceDescriptionInput(let target):
+#if DEBUG
+            let newlineCount = commandPaletteWorkspaceDescriptionDraft.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "palette.wsDescription.submit.request workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+                "draftLen=\((commandPaletteWorkspaceDescriptionDraft as NSString).length) " +
+                "newlines=\(newlineCount)"
+            )
+#endif
+            applyWorkspaceDescriptionFlow(
+                target: target,
+                proposedDescription: commandPaletteWorkspaceDescriptionDraft
+            )
         }
     }
 
@@ -6856,6 +7861,27 @@ struct ContentView: View {
         beginRenameWorkspaceFlow()
     }
 
+    private func openCommandPaletteWorkspaceDescriptionInput() {
+#if DEBUG
+        dlog(
+            "palette.wsDescription.open begin presented=\(isCommandPalettePresented ? 1 : 0) " +
+            "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
+            "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
+        )
+#endif
+        if !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        beginWorkspaceDescriptionFlow()
+#if DEBUG
+        dlog(
+            "palette.wsDescription.open end presented=\(isCommandPalettePresented ? 1 : 0) " +
+            "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
+            "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
+        )
+#endif
+    }
+
     private func presentFeedbackComposer() {
         DispatchQueue.main.async {
             isFeedbackComposerPresented = true
@@ -6909,6 +7935,8 @@ struct ContentView: View {
             mode = "rename_input"
         case .renameConfirm:
             mode = "rename_confirm"
+        case .workspaceDescriptionInput:
+            mode = "workspace_description_input"
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
@@ -6947,11 +7975,14 @@ struct ContentView: View {
         commandPaletteMode = .commands
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
+        commandPaletteWorkspaceDescriptionDraft = ""
+        commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         resetCommandPaletteSearchFocus()
         syncCommandPaletteDebugStateForObservedWindow()
@@ -6966,17 +7997,34 @@ struct ContentView: View {
         preferredFocusTarget: CommandPaletteRestoreFocusTarget?
     ) {
         let focusTarget = preferredFocusTarget ?? commandPaletteRestoreFocusTarget
+#if DEBUG
+        if case .workspaceDescriptionInput(let target) = commandPaletteMode {
+            let newlineCount = commandPaletteWorkspaceDescriptionDraft.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "palette.wsDescription.dismiss workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+                "restoreFocus=\(restoreFocus ? 1 : 0) " +
+                "draftLen=\((commandPaletteWorkspaceDescriptionDraft as NSString).length) " +
+                "newlines=\(newlineCount) " +
+                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))}"
+            )
+        }
+#endif
         cancelCommandPaletteSearch()
         commandPaletteSearchRequestID &+= 1
         isCommandPalettePresented = false
         commandPaletteMode = .commands
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
+        commandPaletteWorkspaceDescriptionDraft = ""
+        commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
         commandPaletteSelectionAnchorCommandID = nil
         commandPaletteHoveredResultIndex = nil
         commandPaletteScrollTargetIndex = nil
         commandPaletteScrollTargetAnchor = nil
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         isCommandPaletteSearchFocused = false
         isCommandPaletteRenameFocused = false
         commandPaletteRestoreFocusTarget = nil
@@ -7193,6 +8241,19 @@ struct ContentView: View {
             return "browser.findField"
         }
     }
+
+    private func debugCommandPaletteModeLabel(_ mode: CommandPaletteMode) -> String {
+        switch mode {
+        case .commands:
+            return "commands"
+        case .renameInput:
+            return "renameInput"
+        case .renameConfirm:
+            return "renameConfirm"
+        case .workspaceDescriptionInput:
+            return "workspaceDescriptionInput"
+        }
+    }
 #endif
 
     private func resetCommandPaletteSearchFocus() {
@@ -7201,6 +8262,39 @@ struct ContentView: View {
 
     private func resetCommandPaletteRenameFocus() {
         applyCommandPaletteInputFocusPolicy(commandPaletteRenameInputFocusPolicy())
+    }
+
+    private func resetCommandPaletteWorkspaceDescriptionFocus() {
+#if DEBUG
+        dlog(
+            "palette.wsDescription.focus.reset schedule presented=\(isCommandPalettePresented ? 1 : 0) " +
+            "mode=\(debugCommandPaletteModeLabel(commandPaletteMode)) " +
+            "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
+        )
+#endif
+        DispatchQueue.main.async {
+#if DEBUG
+            dlog(
+                "palette.wsDescription.focus.reset apply.before search=\(isCommandPaletteSearchFocused ? 1 : 0) " +
+                "rename=\(isCommandPaletteRenameFocused ? 1 : 0) " +
+                "editor=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0) " +
+                "window={\(debugCommandPaletteWindowSummary(observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow))} " +
+                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+            )
+#endif
+            isCommandPaletteSearchFocused = false
+            isCommandPaletteRenameFocused = false
+            commandPaletteShouldFocusWorkspaceDescriptionEditor = true
+            commandPalettePendingTextSelectionBehavior = nil
+#if DEBUG
+            dlog(
+                "palette.wsDescription.focus.reset apply.after search=\(isCommandPaletteSearchFocused ? 1 : 0) " +
+                "rename=\(isCommandPaletteRenameFocused ? 1 : 0) " +
+                "editor=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0) " +
+                "fr=\(debugCommandPaletteResponderSummary((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder))"
+            )
+#endif
+        }
     }
 
     private func handleCommandPaletteRenameInputInteraction() {
@@ -7222,6 +8316,7 @@ struct ContentView: View {
 
     private func applyCommandPaletteInputFocusPolicy(_ policy: CommandPaletteInputFocusPolicy) {
         DispatchQueue.main.async {
+            commandPaletteShouldFocusWorkspaceDescriptionEditor = false
             switch policy.focusTarget {
             case .search:
                 isCommandPaletteRenameFocused = false
@@ -7253,6 +8348,8 @@ struct ContentView: View {
             case .commands, .renameInput:
                 break
             case .renameConfirm:
+                return
+            case .workspaceDescriptionInput:
                 return
             }
         }
@@ -7407,6 +8504,18 @@ struct ContentView: View {
         startRenameFlow(target)
     }
 
+    private func beginWorkspaceDescriptionFlow() {
+        guard let workspace = tabManager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+        let target = CommandPaletteWorkspaceDescriptionTarget(
+            workspaceId: workspace.id,
+            currentDescription: workspace.customDescription ?? ""
+        )
+        startWorkspaceDescriptionFlow(target)
+    }
+
     private func beginRenameTabFlow() {
         guard let panelContext = focusedPanelContext else {
             NSSound.beep()
@@ -7426,8 +8535,33 @@ struct ContentView: View {
 
     private func startRenameFlow(_ target: CommandPaletteRenameTarget) {
         commandPaletteRenameDraft = target.currentName
+        commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         commandPaletteMode = .renameInput(target)
         resetCommandPaletteRenameFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func startWorkspaceDescriptionFlow(_ target: CommandPaletteWorkspaceDescriptionTarget) {
+#if DEBUG
+        dlog(
+            "palette.wsDescription.flow.start workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+            "descLen=\((target.currentDescription as NSString).length) " +
+            "presented=\(isCommandPalettePresented ? 1 : 0) " +
+            "modeBefore=\(debugCommandPaletteModeLabel(commandPaletteMode))"
+        )
+#endif
+        commandPaletteWorkspaceDescriptionDraft = target.currentDescription
+        commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
+        commandPalettePendingTextSelectionBehavior = nil
+        commandPaletteMode = .workspaceDescriptionInput(target)
+        resetCommandPaletteWorkspaceDescriptionFocus()
+#if DEBUG
+        dlog(
+            "palette.wsDescription.flow.armed workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+            "height=\(String(format: "%.1f", commandPaletteWorkspaceDescriptionHeight)) " +
+            "modeAfter=\(debugCommandPaletteModeLabel(commandPaletteMode))"
+        )
+#endif
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
@@ -7452,6 +8586,43 @@ struct ContentView: View {
             workspace.setPanelCustomTitle(panelId: panelId, title: normalizedName)
         }
 
+        dismissCommandPalette()
+    }
+
+    private func applyWorkspaceDescriptionFlow(
+        target: CommandPaletteWorkspaceDescriptionTarget,
+        proposedDescription: String
+    ) {
+        guard tabManager.tabs.contains(where: { $0.id == target.workspaceId }) else {
+            NSSound.beep()
+            return
+        }
+#if DEBUG
+        let newlineCount = proposedDescription.reduce(into: 0) { count, character in
+            if character == "\n" { count += 1 }
+        }
+        dlog(
+            "palette.wsDescription.apply.begin workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+            "proposedLen=\((proposedDescription as NSString).length) " +
+            "newlines=\(newlineCount) " +
+            "text=\"\(debugCommandPaletteTextPreview(proposedDescription))\""
+        )
+#endif
+        tabManager.setCustomDescription(tabId: target.workspaceId, description: proposedDescription)
+#if DEBUG
+        if let updatedWorkspace = tabManager.tabs.first(where: { $0.id == target.workspaceId }) {
+            let persisted = updatedWorkspace.customDescription ?? ""
+            let persistedNewlineCount = persisted.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "palette.wsDescription.apply.end workspace=\(target.workspaceId.uuidString.prefix(8)) " +
+                "persistedLen=\((persisted as NSString).length) " +
+                "persistedNewlines=\(persistedNewlineCount) " +
+                "text=\"\(debugCommandPaletteTextPreview(persisted))\""
+            )
+        }
+#endif
         dismissCommandPalette()
     }
 
@@ -7574,15 +8745,18 @@ struct CommandPaletteSwitcherSearchMetadata: Equatable, Sendable {
     let directories: [String]
     let branches: [String]
     let ports: [Int]
+    let description: String?
 
     init(
         directories: [String] = [],
         branches: [String] = [],
-        ports: [Int] = []
+        ports: [Int] = [],
+        description: String? = nil
     ) {
         self.directories = directories
         self.branches = branches
         self.ports = ports
+        self.description = description
     }
 }
 
@@ -7610,6 +8784,7 @@ enum CommandPaletteSwitcherSearchIndexer {
         let directoryTokens = metadata.directories.flatMap { directoryTokensForSearch($0, detail: detail) }
         let branchTokens = metadata.branches.flatMap { branchTokensForSearch($0, detail: detail) }
         let portTokens = metadata.ports.flatMap(portTokensForSearch)
+        let descriptionTokens = descriptionTokensForSearch(metadata.description)
 
         var contextKeywords: [String] = []
         if !directoryTokens.isEmpty {
@@ -7621,8 +8796,11 @@ enum CommandPaletteSwitcherSearchIndexer {
         if !portTokens.isEmpty {
             contextKeywords.append(contentsOf: ["port", "ports"])
         }
+        if !descriptionTokens.isEmpty {
+            contextKeywords.append(contentsOf: ["description", "descriptions", "notes", "note"])
+        }
 
-        return contextKeywords + directoryTokens + branchTokens + portTokens
+        return contextKeywords + directoryTokens + branchTokens + portTokens + descriptionTokens
     }
 
     private static func directoryTokensForSearch(
@@ -7666,6 +8844,18 @@ enum CommandPaletteSwitcherSearchIndexer {
         guard (1...65535).contains(port) else { return [] }
         let portText = String(port)
         return [portText, ":\(portText)"]
+    }
+
+    private static func descriptionTokensForSearch(_ rawDescription: String?) -> [String] {
+        let trimmed = rawDescription?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return [] }
+        let normalizedWhitespace = trimmed.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        let components = normalizedWhitespace.components(separatedBy: metadataDelimiters).filter { !$0.isEmpty }
+        return uniqueNormalizedPreservingOrder([trimmed, normalizedWhitespace] + components)
     }
 
     private static func uniqueNormalizedPreservingOrder(_ values: [String]) -> [String] {
@@ -11582,6 +12772,14 @@ private struct TabItemView: View, Equatable {
                 .frame(width: trailingAccessoryWidth, height: 16, alignment: .trailing)
             }
 
+            if let description = tab.customDescription {
+                SidebarWorkspaceDescriptionText(
+                    markdown: description,
+                    isActive: usesInvertedActiveForeground
+                )
+                .id(description)
+            }
+
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
                     .font(.system(size: 10))
@@ -11811,6 +13009,22 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onReceive(
+            tab.sidebarImmediateObservationPublisher
+                .receive(on: RunLoop.main)
+        ) { _ in
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            dlog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=immediate " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
+            workspaceObservationGeneration &+= 1
+        }
+        .onReceive(
             tab.sidebarObservationPublisher
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst
@@ -11818,6 +13032,16 @@ private struct TabItemView: View, Equatable {
                 // row redraws once with the settled state instead of blinking.
                 .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
         ) { _ in
+#if DEBUG
+            let description = tab.customDescription ?? ""
+            dlog(
+                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                "source=debounced " +
+                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                "descLen=\((description as NSString).length) " +
+                "desc=\"\(debugCommandPaletteTextPreview(description))\""
+            )
+#endif
             workspaceObservationGeneration &+= 1
         }
         .onDrag {
@@ -11910,6 +13134,7 @@ private struct TabItemView: View, Equatable {
             single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
             isMulti: isMulti)
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
+        let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
         Button(pinLabel) {
             for id in targetIds {
@@ -11934,6 +13159,25 @@ private struct TabItemView: View, Equatable {
         if tab.hasCustomTitle {
             Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
                 tabManager.clearCustomTitle(tabId: tab.id)
+            }
+        }
+
+        if !isMulti {
+            if let key = editWorkspaceDescriptionShortcut.keyEquivalent {
+                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+                    beginWorkspaceDescriptionEditFromContextMenu()
+                }
+                .keyboardShortcut(key, modifiers: editWorkspaceDescriptionShortcut.eventModifiers)
+            } else {
+                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+                    beginWorkspaceDescriptionEditFromContextMenu()
+                }
+            }
+
+            if tab.hasCustomDescription {
+                Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
+                    tabManager.clearCustomDescription(tabId: tab.id)
+                }
             }
         }
 
@@ -12708,6 +13952,83 @@ private struct TabItemView: View, Equatable {
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
         tabManager.setCustomTitle(tabId: tab.id, title: input.stringValue)
+    }
+
+    private func beginWorkspaceDescriptionEditFromContextMenu() {
+        selectedTabIds = [tab.id]
+        lastSidebarSelectionIndex = index
+        tabManager.selectTab(tab)
+        setSelectionToTabs()
+        _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+    }
+}
+
+private struct SidebarWorkspaceDescriptionText: View {
+    let markdown: String
+    let isActive: Bool
+
+    var body: some View {
+        let renderedMarkdown = SidebarMarkdownRenderer.renderWorkspaceDescription(markdown)
+        Group {
+            if let renderedMarkdown {
+                Text(renderedMarkdown)
+            } else {
+                Text(markdown)
+            }
+        }
+        .font(.system(size: 10.5))
+        .foregroundColor(foregroundColor)
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
+        .accessibilityLabel(accessibilityText(renderedMarkdown: renderedMarkdown))
+        .onAppear {
+#if DEBUG
+            let newlineCount = markdown.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "sidebar.description.render workspaceState=appear " +
+                "len=\((markdown as NSString).length) " +
+                "newlines=\(newlineCount) " +
+                "text=\"\(debugCommandPaletteTextPreview(markdown))\""
+            )
+#endif
+        }
+        .onChange(of: markdown) { newValue in
+#if DEBUG
+            let newlineCount = newValue.reduce(into: 0) { count, character in
+                if character == "\n" { count += 1 }
+            }
+            dlog(
+                "sidebar.description.render workspaceState=change " +
+                "len=\((newValue as NSString).length) " +
+                "newlines=\(newlineCount) " +
+                "text=\"\(debugCommandPaletteTextPreview(newValue))\""
+            )
+#endif
+        }
+    }
+
+    private var foregroundColor: Color {
+        isActive ? .white.opacity(0.84) : .secondary.opacity(0.95)
+    }
+
+    private func accessibilityText(renderedMarkdown: AttributedString?) -> String {
+        if let renderedMarkdown {
+            return String(renderedMarkdown.characters)
+        }
+        return markdown
+    }
+}
+
+enum SidebarMarkdownRenderer {
+    static func renderWorkspaceDescription(_ markdown: String) -> AttributedString? {
+        try? AttributedString(
+            markdown: markdown,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )
     }
 }
 

@@ -169,6 +169,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.editWorkspaceDescription.defaultsKey) private var editWorkspaceDescriptionShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -776,6 +777,10 @@ struct cmuxApp: App {
                     _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: editWorkspaceDescriptionMenuShortcut) {
+                    _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+                }
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: splitRightMenuShortcut) {
@@ -974,6 +979,13 @@ struct cmuxApp: App {
         )
     }
 
+    private var editWorkspaceDescriptionMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: editWorkspaceDescriptionShortcutData,
+            fallback: KeyboardShortcutSettings.Action.editWorkspaceDescription.defaultShortcut
+        )
+    }
+
     private var closeWorkspaceMenuShortcut: StoredShortcut {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
@@ -1135,6 +1147,11 @@ struct cmuxApp: App {
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+            _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
         }
         .disabled(workspace == nil)
 
