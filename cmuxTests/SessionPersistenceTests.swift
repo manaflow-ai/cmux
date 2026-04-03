@@ -1376,30 +1376,31 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
 
     func testDenylistBlocksSensitiveCredentials() {
         // Commands with tokens/credentials anywhere should be blocked to prevent
-        // persisting secrets to session JSON
-        let allowlist = "opencode *\nnpm *\nmysql *\naws *"
+        // persisting secrets to session JSON.
+        // IMPORTANT: Include all command prefixes in allowlist so we're testing denylist, not allowlist rejection
+        let allowlist = "opencode *\nnpm *\nmysql *\naws *\nmycli *\npsql *"
         assertAllBlocked([
-            // API keys and tokens
-            "opencode --api-key=sk-1234567890",
-            "opencode --token=abc123",
-            "npm run dev --access-token=xyz",
-            "mycli --bearer=eyJhbGc...",
-            "mycli --secret=supersecret",
+            // API keys and tokens (these WOULD match allowlist if not for denylist)
+            "opencode --api-key=test-key-here",
+            "opencode --token=test-token",
+            "npm run dev --access-token=test-token",
+            "mycli --bearer=test-bearer",
+            "mycli --secret=test-secret",
             // Passwords
             "mysql -u root -p password123",
-            "mycli --password=secret",
-            "psql --passwd=dbpass",
+            "mycli --password=test-pass",
+            "psql --passwd=test-pass",
             // AWS credentials
-            "aws --aws-access-key-id=AKIA...",
-            "aws --aws-secret-access-key=secret",
-            "AWS_ACCESS_KEY_ID=AKIA... aws s3 ls",
+            "aws --aws-access-key-id=AKIAIOSFODNN7EXAMPLE",
+            "aws --aws-secret-access-key=test-secret",
+            "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE aws s3 ls",
             // Database connection strings
             "mycli mongodb://user:pass@host/db",
             "mycli postgresql://user:pass@host/db",
             "mycli mysql://user:pass@host/db",
             // Generic sensitive patterns
             "mycli --credentials=path/to/creds",
-            "mycli --auth=bearer-token",
+            "mycli --auth=test-auth",
         ], allowlist: allowlist)
     }
 

@@ -2861,7 +2861,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        isTerminatingApp = true
+        // Don't set isTerminatingApp yet - user may cancel the quit dialog.
+        // Precautionary save uses async refresh; final save in applicationWillTerminate uses sync.
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.

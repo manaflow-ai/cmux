@@ -627,6 +627,7 @@ enum SessionRestoreCommandSettings {
         "csrutil ",
         "nvram ",
         "bless ",
+
         // Container cleanup
         "docker system prune",
         "docker rm -f",
@@ -682,13 +683,12 @@ enum SessionRestoreCommandSettings {
         "--secret ",
         "--client-secret=",
         "--client-secret ",
-        // Passwords
+        // Passwords (long flags only - short flags like -p are too ambiguous)
+        // Note: MySQL-family tools (-p for password) are handled separately by isMySQLPasswordCommand()
         "--password=",
         "--password ",
         "--passwd=",
         "--passwd ",
-        "-p ",  // Common short flag for password (mysql, etc.)
-        "-P ",  // Alternative password flag
         // AWS credentials
         "--aws-access-key-id=",
         "--aws-secret-access-key=",
@@ -772,20 +772,52 @@ enum SessionRestoreCommandSettings {
             }
         }
 
+        // Check MySQL-family commands with -p flag (password)
+        // These tools use -p for password, unlike cargo/flask/npm which use it for port/package
+        if isMySQLPasswordCommand(lowercased) {
+            return true
+        }
+
         return false
+    }
+
+    /// Check if a command is a MySQL-family tool with -p password flag
+    /// MySQL, MariaDB, mysqldump, mysqladmin all use -p for password
+    private static func isMySQLPasswordCommand(_ lowercasedCommand: String) -> Bool {
+        let mysqlTools = ["mysql", "mariadb", "mysqldump", "mysqladmin"]
+
+        // Check if command starts with or contains a mysql tool
+        let commandBase = lowercasedCommand.split(separator: " ").first.map(String.init) ?? ""
+        let toolName = commandBase.split(separator: "/").last.map(String.init) ?? commandBase
+
+        guard mysqlTools.contains(toolName) else { return false }
+
+        // Check if -p flag is present (with or without space before value)
+        // -p, -pPASSWORD, or -p PASSWORD
+        return lowercasedCommand.contains(" -p") || lowercasedCommand.contains(" -p=")
     }
 
     private static func commandMatchesPattern(_ command: String, pattern: String) -> Bool {
         let trimmedPattern = pattern.trimmingCharacters(in: .whitespaces)
 
-        // Prefix match: "opencode *" matches "opencode" and "opencode --flag"
+        // Extract command basename for matching (handles /usr/bin/opencode -> opencode)
+        let commandParts = command.split(separator: " ", maxSplits: 1)
+        let commandExec = String(commandParts.first ?? "")
+        let commandBasename = URL(fileURLWithPath: commandExec).lastPathComponent
+        let commandWithBasename = commandParts.count > 1
+            ? "\(commandBasename) \(commandParts[1])"
+            : commandBasename
+
+        // Prefix match: "opencode *" matches "opencode", "/usr/bin/opencode --flag", etc.
         if trimmedPattern.hasSuffix(" *") {
             let prefix = String(trimmedPattern.dropLast(2))
-            return command == prefix || command.hasPrefix(prefix + " ")
+            // Match against both full path command and basename-only version
+            return command == prefix || command.hasPrefix(prefix + " ") ||
+                   commandWithBasename == prefix || commandWithBasename.hasPrefix(prefix + " ")
         }
 
-        // Exact match
-        return command == trimmedPattern
+        // Exact match (also check basename version)
+        return command == trimmedPattern || commandWithBasename == trimmedPattern
     }
 }
 
@@ -1024,12 +1056,10 @@ enum SessionForegroundProcessDetector {
 
         guard !args.isEmpty else { return nil }
 
-        // Return just the command and arguments (strip full path from argv[0])
+        // Keep full path to preserve exact executable location (e.g., /opt/mycompany/tool)
         // Shell-quote arguments that contain spaces, quotes, or special chars
-        let execName = URL(fileURLWithPath: args[0]).lastPathComponent
-        let quotedArgs = args.dropFirst().map { shellQuoteIfNeeded($0) }
-        let restArgs = quotedArgs.joined(separator: " ")
-        return restArgs.isEmpty ? execName : "\(execName) \(restArgs)"
+        let quotedArgs = args.map { shellQuoteIfNeeded($0) }
+        return quotedArgs.joined(separator: " ")
     }
 
     /// Shell-quote a string if it contains spaces, quotes, or shell metacharacters.

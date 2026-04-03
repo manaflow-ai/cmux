@@ -8040,6 +8040,8 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
+        // Clear stale local TTY name - remote terminals use remote TTYs, not local ones
+        surfaceTTYNames.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
@@ -9567,7 +9569,8 @@ final class Workspace: Identifiable, ObservableObject {
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
         }
-        if let restoreCommand = detached.restoreCommand {
+        // Don't restore command for remote-backed terminals (their commands ran on remote server)
+        if !detached.isRemoteTerminal, let restoreCommand = detached.restoreCommand {
             setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
         }
         if detached.isPinned {

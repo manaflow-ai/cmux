@@ -3917,12 +3917,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return baseConfig.command
         }()
         // Prefer explicit initialInput (for session restore), then config template's initial input
+        // Both paths validate: no embedded newlines (command injection prevention)
         let resolvedInitialInput: String? = {
             if let initialInput, !initialInput.isEmpty {
                 // Append newline to execute the command
                 return initialInput + "\n"
             }
-            return baseConfig.initialInput
+            // Fallback to config's initial input, but normalize it consistently
+            // (the constructor already rejects newlines in initialInput; apply same check here)
+            if let baseInput = baseConfig.initialInput,
+               !baseInput.isEmpty,
+               !baseInput.contains("\n"),
+               !baseInput.contains("\r") {
+                return baseInput
+            }
+            return nil
         }()
 #if DEBUG
         if resolvedInitialInput != nil || initialInput != nil || baseConfig.initialInput != nil {
