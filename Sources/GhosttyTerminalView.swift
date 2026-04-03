@@ -1139,7 +1139,10 @@ class GhosttyApp {
         // Create runtime config with callbacks
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
-        runtimeConfig.supports_selection_clipboard = true
+        // macOS has no native selection clipboard (unlike X11). Setting this
+        // to false makes ghostty's copy-on-select write directly to the system
+        // clipboard so Cmd+V / paste works as expected.
+        runtimeConfig.supports_selection_clipboard = false
         runtimeConfig.wakeup_cb = { userdata in
             GhosttyApp.shared.scheduleTick()
         }
