@@ -7,6 +7,24 @@ struct GhosttyConfig {
         case dark
     }
 
+    enum NonNativeFullscreenMode: String, Hashable {
+        case off = "false"
+        case on = "true"
+        case visibleMenu = "visible-menu"
+        case paddedNotch = "padded-notch"
+
+        var isEnabled: Bool { self != .off }
+
+        var fullscreenStyle: NonNativeFullscreen.Style? {
+            switch self {
+            case .off: return nil
+            case .on: return .nonNative
+            case .visibleMenu: return .visibleMenu
+            case .paddedNotch: return .paddedNotch
+            }
+        }
+    }
+
     private static let cmuxReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let loadCacheLock = NSLock()
     private static var cachedConfigsByColorScheme: [ColorSchemePreference: GhosttyConfig] = [:]
@@ -35,6 +53,9 @@ struct GhosttyConfig {
     var sidebarBackgroundLight: NSColor?
     var sidebarBackgroundDark: NSColor?
     var sidebarTintOpacity: Double?
+
+    // Fullscreen mode
+    var macosNonNativeFullscreen: NonNativeFullscreenMode = .off
 
     // Palette colors (0-15)
     var palette: [Int: NSColor] = [:]
@@ -256,7 +277,7 @@ struct GhosttyConfig {
                     }
                 case "background-opacity":
                     if let opacity = Double(value) {
-                        backgroundOpacity = opacity
+                        backgroundOpacity = min(1.0, max(0.0, opacity))
                     }
                 case "foreground":
                     if let color = NSColor(hex: value) {
@@ -303,6 +324,10 @@ struct GhosttyConfig {
                 case "sidebar-tint-opacity":
                     if let opacity = Double(value) {
                         sidebarTintOpacity = min(max(opacity, 0), 1)
+                    }
+                case "macos-non-native-fullscreen":
+                    if let mode = NonNativeFullscreenMode(rawValue: value) {
+                        macosNonNativeFullscreen = mode
                     }
                 default:
                     break

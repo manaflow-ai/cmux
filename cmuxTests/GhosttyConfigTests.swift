@@ -141,6 +141,49 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(config.backgroundOpacity, 0.42, accuracy: 0.0001)
     }
 
+    func testParseBackgroundOpacityClampsValueAboveOne() {
+        var config = GhosttyConfig()
+        config.parse("background-opacity = 1.5")
+        XCTAssertEqual(config.backgroundOpacity, 1.0, accuracy: 0.0001)
+    }
+
+    func testParseBackgroundOpacityClampsNegativeValue() {
+        var config = GhosttyConfig()
+        config.parse("background-opacity = -0.3")
+        XCTAssertEqual(config.backgroundOpacity, 0.0, accuracy: 0.0001)
+    }
+
+    func testParseMacosNonNativeFullscreenTrue() {
+        var config = GhosttyConfig()
+        config.parse("macos-non-native-fullscreen = true")
+        XCTAssertEqual(config.macosNonNativeFullscreen, .on)
+        XCTAssertTrue(config.macosNonNativeFullscreen.isEnabled)
+    }
+
+    func testParseMacosNonNativeFullscreenFalse() {
+        var config = GhosttyConfig()
+        config.parse("macos-non-native-fullscreen = false")
+        XCTAssertEqual(config.macosNonNativeFullscreen, .off)
+        XCTAssertFalse(config.macosNonNativeFullscreen.isEnabled)
+    }
+
+    func testParseMacosNonNativeFullscreenVisibleMenu() {
+        var config = GhosttyConfig()
+        config.parse("macos-non-native-fullscreen = visible-menu")
+        XCTAssertEqual(config.macosNonNativeFullscreen, .visibleMenu)
+    }
+
+    func testParseMacosNonNativeFullscreenPaddedNotch() {
+        var config = GhosttyConfig()
+        config.parse("macos-non-native-fullscreen = padded-notch")
+        XCTAssertEqual(config.macosNonNativeFullscreen, .paddedNotch)
+    }
+
+    func testParseMacosNonNativeFullscreenDefaultIsOff() {
+        let config = GhosttyConfig()
+        XCTAssertEqual(config.macosNonNativeFullscreen, .off)
+    }
+
     func testLoadThemeResolvesBuiltinAliasFromGhosttyResourcesDir() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-themes-\(UUID().uuidString)")

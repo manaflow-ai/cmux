@@ -1584,6 +1584,7 @@ struct ContentView: View {
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
+    @State private var nonNativeFullscreen: NonNativeFullscreen?
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @State private var previousSelectedWorkspaceId: UUID?
@@ -3081,6 +3082,10 @@ struct ContentView: View {
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()
+            // Re-apply transparency after native fullscreen exit
+            DispatchQueue.main.async {
+                applyWindowTransparencyState(to: window)
+            }
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
@@ -3471,6 +3476,38 @@ struct ContentView: View {
         guard let window = NSApp.windows.first(where: { $0.identifier?.rawValue == windowIdentifier }) else { return }
         let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
         WindowGlassEffect.updateTint(to: window, color: tintColor)
+    }
+
+    /// Re-applies window transparency and glass effect state.
+    /// Called after non-native fullscreen toggling so that `background-opacity`
+    /// is preserved when the window fills the screen.
+    private func applyWindowTransparencyState(to window: NSWindow) {
+        let currentThemeBackground = GhosttyBackgroundTheme.currentColor()
+        let shouldApplyWindowGlass = cmuxShouldApplyWindowGlass(
+            sidebarBlendMode: sidebarBlendMode,
+            bgGlassEnabled: bgGlassEnabled,
+            glassEffectAvailable: WindowGlassEffect.isAvailable
+        )
+        let shouldForceTransparentHosting =
+            shouldApplyWindowGlass || currentThemeBackground.alphaComponent < 0.999
+
+        if shouldForceTransparentHosting {
+            window.isOpaque = false
+            window.backgroundColor = NSColor.white.withAlphaComponent(0.001)
+            if let contentView = window.contentView {
+                makeViewHierarchyTransparent(contentView)
+            }
+        } else {
+            window.backgroundColor = currentThemeBackground
+            window.isOpaque = currentThemeBackground.alphaComponent >= 0.999
+        }
+
+        if shouldApplyWindowGlass {
+            let tintColor = (NSColor(hex: bgGlassTintHex) ?? .black).withAlphaComponent(bgGlassTintOpacity)
+            WindowGlassEffect.apply(to: window, tintColor: tintColor)
+        } else {
+            WindowGlassEffect.remove(from: window)
+        }
     }
 
     private func setTitlebarControlsHidden(_ hidden: Bool, in window: NSWindow) {
@@ -6162,7 +6199,26 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
-            window.toggleFullScreen(nil)
+            let config = GhosttyConfig.load()
+            if let style = config.macosNonNativeFullscreen.fullscreenStyle {
+                if nonNativeFullscreen == nil {
+                    nonNativeFullscreen = NonNativeFullscreen(window: window, style: style)
+                }
+                nonNativeFullscreen?.toggle()
+                let nowFullScreen = nonNativeFullscreen?.isFullScreen ?? false
+                isFullScreen = nowFullScreen
+                setTitlebarControlsHidden(nowFullScreen, in: window)
+                if nowFullScreen {
+                    AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+                } else {
+                    AppDelegate.shared?.fullscreenControlsViewModel = nil
+                }
+                syncTrafficLightInset()
+                // Re-apply transparency state after non-native fullscreen toggle
+                applyWindowTransparencyState(to: window)
+            } else {
+                window.toggleFullScreen(nil)
+            }
         }
         registry.register(commandId: "palette.reopenClosedBrowserTab") {
             _ = tabManager.reopenMostRecentlyClosedBrowserPanel()
