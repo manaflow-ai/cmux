@@ -554,130 +554,129 @@ enum SessionRestoreCommandSettings {
 
     // MARK: - Hardcoded Denylist (Safety Net)
 
-    /// Command prefixes that are blocked but not covered by dangerousExecutables.
-    /// These are more specific patterns (git destructive, database ops, etc.)
-    private static let denylistPrefixes = [
-        // Permission changes (not always dangerous, but risky for auto-restore)
-        "chmod ",
-        "chown ",
-        "chgrp ",
-        "chattr ",
-        "setfacl ",
-        // Git destructive operations
-        "git push --force",
-        "git push -f",
-        "git reset --hard",
-        "git clean -fd",
-        "git clean -f",
-        // Database destructive
-        "drop database",
-        "drop table",
-        "truncate ",
-        "dropdb ",
-        "dropuser ",
-        // System services
-        "systemctl stop",
-        "systemctl disable",
-        "launchctl unload",
-        "launchctl bootout",
-        "launchctl remove",
-        // Kill operations
-        "kill ",
-        "killall ",
-        "pkill ",
-        "xkill",
-        // Remote code execution (curl/wget to shell)
-        "curl ",
-        "wget -O- ",
-        "wget -O - ",
+    // MARK: - Denylist Configuration
+    //
+    // Defense-in-depth: These lists block dangerous commands from being auto-restored.
+    // The primary security boundary is the user's allowlist, but these patterns catch
+    // catastrophic mistakes even if the allowlist is too permissive.
+    //
+    // Philosophy: Start aggressive, loosen as needed. False positives are safer than
+    // allowing destructive commands to auto-restore.
+
+    /// Dangerous executables blocked anywhere in a command (word-boundary aware).
+    /// Matches: "sudo rm", "cd /tmp && sudo", "/usr/bin/sudo", "$(curl ...)", etc.
+    /// Does NOT match: "sudoku", "rm-old-files" (no word boundary).
+    private static let dangerousExecutables = [
+        // Privilege escalation
+        "sudo", "doas", "su", "pkexec", "runas",
+        // Destructive file operations
+        "rm", "rmdir", "shred", "srm", "unlink", "mv",
+        // Disk/partition operations
+        "dd", "mkfs", "newfs", "fdisk", "parted", "diskutil", "hdparm", "badblocks",
+        // System control
+        "reboot", "shutdown", "halt", "poweroff", "init",
+        // Permission/ownership changes
+        "chmod", "chown", "chgrp", "chattr", "setfacl",
+        // Process control
+        "kill", "killall", "pkill", "xkill",
+        // Remote code execution vectors
+        "curl", "wget",
+        // Filesystem check (can destroy encrypted volumes)
+        "fsck",
+        // Database admin
+        "dropdb", "dropuser", "createdb", "createuser",
         // Cron/scheduler
-        "crontab -r",
-        "crontab -ir",
-        // History replay
-        "history | sh",
-        "history | bash",
-        "history | zsh",
-        "fc -s",
+        "crontab",
         // macOS system integrity
-        "csrutil ",
-        "nvram ",
-        "bless ",
-        "diskutil ",
-        // Container cleanup
+        "csrutil", "nvram", "bless",
+        // Network/firewall
+        "iptables", "pfctl", "networksetup",
+        // Dangerous archivers (can overwrite system files as root)
+        "tar",
+    ]
+
+    /// Substrings that block a command if found anywhere.
+    /// Used for: credentials, destructive operations, sensitive file access.
+    private static let denylistContains = [
+        // API keys and tokens
+        "--api-key=", "--api-key ",
+        "--apikey=", "--apikey ",
+        "--token=", "--token ",
+        "--access-token=", "--access-token ",
+        "--auth-token=", "--auth-token ",
+        "--bearer=", "--bearer ",
+        "--secret=", "--secret ",
+        "--client-secret=", "--client-secret ",
+        // Passwords (long flags only; MySQL -p handled separately)
+        "--password=", "--password ",
+        "--passwd=", "--passwd ",
+        // AWS credentials
+        "--aws-access-key-id=", "--aws-secret-access-key=",
+        "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=",
+        // SSH/auth keys
+        "--private-key=", "--private-key ",
+        "--ssh-key=", "--ssh-key ",
+        // Generic auth
+        "--credentials=", "--credentials ",
+        "--auth=", "--auth ",
+        // Database connection strings
+        "mongodb://", "mongodb+srv://",
+        "postgresql://", "postgres://",
+        "mysql://", "redis://", "amqp://", "rediss://",
+        // Git destructive
+        "git push --force", "git push -f",
+        "git reset --hard",
+        "git clean -f",
+        "git checkout --force",
+        // Database destructive
+        "drop database", "drop table", "drop schema", "drop index",
+        "truncate table", "truncate ",
+        "delete from",
+        // System services
+        "systemctl stop", "systemctl disable", "systemctl mask",
+        "launchctl unload", "launchctl bootout", "launchctl remove",
+        "service stop",
+        // Container destructive
         "docker system prune",
-        "docker rm -f",
-        "docker container prune",
-        "docker volume prune",
-        "docker image prune -a",
-        "podman system prune",
-        "podman rm -f",
+        "docker rm -f", "docker container rm -f",
+        "docker volume rm", "docker volume prune",
+        "docker image prune", "docker container prune",
+        "podman system prune", "podman rm -f",
+        // Kubernetes destructive
+        "kubectl delete namespace", "kubectl delete ns",
+        "kubectl delete --all",
+        "kubectl drain", "kubectl cordon",
         // Environment manipulation
         "unset PATH",
         "export PATH=",
-        "export PATH=\"\"",
-        // Network
-        "iptables -F",
-        "iptables --flush",
-        "pfctl -F",
-        "networksetup -setnetworkserviceenabled",
-    ]
-
-    /// Substrings that block a command if found anywhere (for sensitive args)
-    /// These patterns catch credentials/tokens that shouldn't be persisted to session JSON
-    private static let denylistContains = [
-        // API keys and tokens
-        "--api-key=",
-        "--api-key ",
-        "--apikey=",
-        "--apikey ",
-        "--token=",
-        "--token ",
-        "--access-token=",
-        "--access-token ",
-        "--auth-token=",
-        "--auth-token ",
-        "--bearer=",
-        "--bearer ",
-        "--secret=",
-        "--secret ",
-        "--client-secret=",
-        "--client-secret ",
-        // Passwords (long flags only - short flags like -p are too ambiguous)
-        // Note: MySQL-family tools (-p for password) are handled separately by isMySQLPasswordCommand()
-        "--password=",
-        "--password ",
-        "--passwd=",
-        "--passwd ",
-        // AWS credentials
-        "--aws-access-key-id=",
-        "--aws-secret-access-key=",
-        "AWS_ACCESS_KEY_ID=",
-        "AWS_SECRET_ACCESS_KEY=",
-        // SSH/auth
-        "--private-key=",
-        "--private-key ",
-        "--ssh-key=",
-        "--ssh-key ",
-        // Database connection strings (often contain passwords)
-        "mongodb://",
-        "postgresql://",
-        "mysql://",
-        "redis://",
-        // Generic sensitive patterns
-        "--credentials=",
-        "--credentials ",
-        "--auth=",
-        "--auth ",
-    ]
-
-    /// Dangerous executables that should be blocked anywhere in a command.
-    /// These are checked with word-boundary awareness (space, /, |, ;, &, `, $( before them).
-    /// This catches: "sudo rm", "cd /tmp && sudo", "echo | rm -rf", "/usr/bin/sudo", etc.
-    private static let dangerousExecutables = [
-        "sudo", "doas", "su", "pkexec", "runas",  // Privilege escalation
-        "rm", "rmdir", "shred", "srm", "unlink",  // Destructive file ops
-        "dd", "mkfs", "newfs", "fdisk", "parted", // Disk operations
-        "reboot", "shutdown", "halt", "poweroff", "init",  // System control
+        // Piped shell execution
+        "| sh", "| bash", "| zsh", "| ksh", "| fish",
+        "| /bin/sh", "| /bin/bash", "| /bin/zsh",
+        // History replay
+        "history | sh", "history | bash", "history | zsh",
+        "fc -s",
+        // Fork bomb
+        ":(){ :|:& };:",
+        // Disk write targets
+        "of=/dev/sd", "of=/dev/nvme", "of=/dev/disk",
+        "> /dev/sd", "> /dev/nvme",
+        // Sensitive file access
+        "/etc/shadow",
+        ".ssh/id_rsa", ".ssh/id_ed25519", ".ssh/id_ecdsa", ".ssh/id_dsa",
+        ".ssh/authorized_keys",
+        ".aws/credentials",
+        ".kube/config",
+        ".npmrc",
+        ".netrc",
+        ".git-credentials",
+        ".docker/config.json",
+        // npm/yarn destructive
+        "npm unpublish",
+        "npm deprecate",
+        // Homebrew destructive (macOS)
+        "brew uninstall --force",
+        "brew remove --force",
+        "brew unlink --force",
     ]
 
     /// Check if a command matches the allowlist.
@@ -724,28 +723,11 @@ enum SessionRestoreCommandSettings {
 
         // Check if any dangerous executable appears anywhere in the command.
         // This catches: "sudo rm", "cd /tmp && sudo rm", "echo | rm -rf", "/usr/bin/sudo", etc.
-        // We look for the executable name preceded by a word boundary character.
         if containsDangerousExecutable(lowercased) {
             return true
         }
 
-        // Check prefix patterns (git destructive, chmod, database ops, etc.)
-        // Extract basename for prefix matching (handles /usr/bin/git -> git)
-        let commandParts = lowercased.split(separator: " ", maxSplits: 1)
-        let commandExec = String(commandParts.first ?? "")
-        let commandBasename = URL(fileURLWithPath: commandExec).lastPathComponent
-        let commandWithBasename = commandParts.count > 1
-            ? "\(commandBasename) \(commandParts[1])"
-            : commandBasename
-
-        for prefix in denylistPrefixes {
-            let lowerPrefix = prefix.lowercased()
-            if lowercased.hasPrefix(lowerPrefix) || commandWithBasename.hasPrefix(lowerPrefix) {
-                return true
-            }
-        }
-
-        // Check substring matches (for sensitive args anywhere in command)
+        // Check substring matches (credentials, destructive patterns, sensitive files)
         for substring in denylistContains {
             if lowercased.contains(substring.lowercased()) {
                 return true

