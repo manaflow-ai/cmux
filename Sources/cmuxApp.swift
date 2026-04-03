@@ -351,7 +351,7 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
-                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux settings.json")) {
+                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open settings.json")) {
                     openCmuxSettingsFileInEditor()
                 }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
@@ -4462,28 +4462,12 @@ struct SettingsView: View {
             ZStack(alignment: .top) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    SettingsCard {
-                        SettingsCardRow(
-                            String(localized: "settings.app.settingsFile", defaultValue: "Settings File"),
-                            subtitle: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath()
-                        ) {
-                            HStack(spacing: 8) {
-                                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
-                                    openCmuxSettingsFileInEditor()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsFileOpenButton")
-
-                                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
-                                    openCmuxSettingsFileInTextEdit()
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
-                            }
-                        }
-                    }
+                    SettingsFileHeroCard(
+                        title: String(localized: "settings.app.settingsFile", defaultValue: "settings.json"),
+                        path: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath(),
+                        onOpen: openCmuxSettingsFileInEditor,
+                        onOpenInTextEdit: openCmuxSettingsFileInTextEdit
+                    )
 
                     SettingsSectionHeader(title: String(localized: "settings.section.app", defaultValue: "App"))
                     SettingsCard {
@@ -6046,6 +6030,51 @@ private struct SettingsCard<Content: View>: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
                         .stroke(Color(nsColor: NSColor.separatorColor).opacity(0.5), lineWidth: 1)
+                )
+        )
+    }
+}
+
+private struct SettingsFileHeroCard: View {
+    let title: String
+    let path: String
+    let onOpen: () -> Void
+    let onOpenInTextEdit: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+
+            Text(path)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(.secondary)
+                .textSelection(.enabled)
+
+            HStack(spacing: 8) {
+                Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                    onOpen()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFileOpenButton")
+
+                Button(String(localized: "settings.app.settingsFile.openInTextEditButton", defaultValue: "Open in TextEdit")) {
+                    onOpenInTextEdit()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsFileOpenInTextEditButton")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                .fill(Color(nsColor: NSColor.controlBackgroundColor).opacity(0.92))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15, style: .continuous)
+                        .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
                 )
         )
     }

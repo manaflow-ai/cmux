@@ -37183,13 +37183,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux settings.json"
+            "value": "Open settings.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux settings.jsonを開く"
+            "value": "settings.jsonを開く"
           }
         }
       }
@@ -47873,13 +47873,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings File"
+            "value": "settings.json"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定ファイル"
+            "value": "settings.json"
           }
         }
       }
