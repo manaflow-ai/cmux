@@ -753,14 +753,23 @@ enum SessionRestoreCommandSettings {
     private static func isCommandDenied(_ command: String) -> Bool {
         let lowercased = command.lowercased()
 
-        // Check exact matches
-        if denylistExact.contains(lowercased) {
+        // Extract basename version for matching (handles /usr/bin/sudo -> sudo)
+        let commandParts = lowercased.split(separator: " ", maxSplits: 1)
+        let commandExec = String(commandParts.first ?? "")
+        let commandBasename = URL(fileURLWithPath: commandExec).lastPathComponent
+        let commandWithBasename = commandParts.count > 1
+            ? "\(commandBasename) \(commandParts[1])"
+            : commandBasename
+
+        // Check exact matches (both full path and basename)
+        if denylistExact.contains(lowercased) || denylistExact.contains(commandWithBasename) {
             return true
         }
 
-        // Check prefix matches
+        // Check prefix matches (both full path and basename)
         for prefix in denylistPrefixes {
-            if lowercased.hasPrefix(prefix.lowercased()) {
+            let lowerPrefix = prefix.lowercased()
+            if lowercased.hasPrefix(lowerPrefix) || commandWithBasename.hasPrefix(lowerPrefix) {
                 return true
             }
         }
