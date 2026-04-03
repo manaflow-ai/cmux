@@ -3975,8 +3975,7 @@ struct SettingsView: View {
     @State private var telemetryValueAtLaunch = TelemetrySettings.enabledForCurrentLaunch
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
-    @State private var workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
-    @State private var workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+    @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
     @State private var trustedDirectoriesDraft: String = CmuxDirectoryTrust.shared.allTrustedPaths.joined(separator: "\n")
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
@@ -5034,71 +5033,68 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.workspaceColors.paletteNote", defaultValue: "Customize the workspace color palette used by Sidebar > Workspace Color. \"Choose Custom Color...\" entries are persisted below."))
+                        SettingsCardNote(
+                            String(
+                                localized: "settings.workspaceColors.dictionaryNote",
+                                defaultValue: "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+                            )
+                        )
 
-                        ForEach(Array(workspaceTabDefaultEntries.enumerated()), id: \.element.name) { index, entry in
-                            if index > 0 {
-                                SettingsCardDivider()
-                            }
-                            SettingsCardRow(
-                                entry.name,
-                                subtitle: String(localized: "settings.workspaceColors.base", defaultValue: "Base: \(baseTabColorHex(for: entry.name))")
-                            ) {
-                                HStack(spacing: 8) {
-                                    ColorPicker(
-                                        "",
-                                        selection: defaultTabColorBinding(for: entry.name),
-                                        supportsOpacity: false
-                                    )
-                                    .labelsHidden()
-                                    .frame(width: 38)
-
-                                    Text(entry.hex)
-                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 76, alignment: .trailing)
-                                }
-                            }
-                        }
-
-                        SettingsCardDivider()
-
-                        if workspaceTabCustomColors.isEmpty {
-                            SettingsCardNote(String(localized: "settings.workspaceColors.noCustomColors", defaultValue: "Custom colors: none yet. Use \"Choose Custom Color...\" from a workspace context menu."))
+                        if workspaceTabPaletteEntries.isEmpty {
+                            SettingsCardNote(
+                                String(
+                                    localized: "settings.workspaceColors.emptyPalette",
+                                    defaultValue: "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+                                )
+                            )
                         } else {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(String(localized: "settings.workspaceColors.customColors", defaultValue: "Custom Colors"))
-                                    .font(.system(size: 13, weight: .semibold))
-
-                                ForEach(workspaceTabCustomColors, id: \.self) { hex in
+                            ForEach(Array(workspaceTabPaletteEntries.enumerated()), id: \.element.name) { index, entry in
+                                if index > 0 {
+                                    SettingsCardDivider()
+                                }
+                                SettingsCardRow(
+                                    entry.name,
+                                    subtitle: baseTabColorHex(for: entry.name).map {
+                                        String(localized: "settings.workspaceColors.base", defaultValue: "Base: \($0)")
+                                    } ?? String(
+                                        localized: "settings.workspaceColors.customEntry",
+                                        defaultValue: "Named palette entry."
+                                    )
+                                ) {
                                     HStack(spacing: 8) {
-                                        Circle()
-                                            .fill(Color(nsColor: NSColor(hex: hex) ?? .gray))
-                                            .frame(width: 11, height: 11)
+                                        ColorPicker(
+                                            "",
+                                            selection: tabColorBinding(for: entry.name),
+                                            supportsOpacity: false
+                                        )
+                                        .labelsHidden()
+                                        .frame(width: 38)
 
-                                        Text(hex)
+                                        Text(entry.hex)
                                             .font(.system(size: 12, weight: .medium, design: .monospaced))
                                             .foregroundStyle(.secondary)
+                                            .frame(width: 76, alignment: .trailing)
 
-                                        Spacer(minLength: 8)
-
-                                        Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
-                                            removeWorkspaceCustomColor(hex)
+                                        if baseTabColorHex(for: entry.name) == nil {
+                                            Button(String(localized: "settings.workspaceColors.remove", defaultValue: "Remove")) {
+                                                removeWorkspaceColor(named: entry.name)
+                                            }
+                                            .buttonStyle(.bordered)
+                                            .controlSize(.small)
                                         }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
                                     }
                                 }
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
                         }
 
                         SettingsCardDivider()
 
                         SettingsCardRow(
                             String(localized: "settings.workspaceColors.resetPalette", defaultValue: "Reset Palette"),
-                            subtitle: String(localized: "settings.workspaceColors.resetPalette.subtitle", defaultValue: "Restore built-in defaults and clear all custom colors.")
+                            subtitle: String(
+                                localized: "settings.workspaceColors.resetPalette.subtitleV2",
+                                defaultValue: "Restore the built-in palette and remove extra named colors."
+                            )
                         ) {
                             Button(String(localized: "settings.workspaceColors.resetPalette.button", defaultValue: "Reset")) {
                                 resetWorkspaceTabColors()
@@ -5929,28 +5925,28 @@ struct SettingsView: View {
         DispatchQueue.main.async { isResettingSettings = false }
     }
 
-    private func defaultTabColorBinding(for name: String) -> Binding<Color> {
+    private func tabColorBinding(for name: String) -> Binding<Color> {
         Binding(
             get: {
-                let hex = WorkspaceTabColorSettings.defaultColorHex(named: name)
+                let hex = WorkspaceTabColorSettings.currentColorHex(named: name)
+                    ?? WorkspaceTabColorSettings.defaultColorHex(named: name)
+                    ?? "#1565C0"
                 return Color(nsColor: NSColor(hex: hex) ?? .systemBlue)
             },
             set: { newValue in
                 let hex = NSColor(newValue).hexString()
-                WorkspaceTabColorSettings.setDefaultColor(named: name, hex: hex)
+                WorkspaceTabColorSettings.setColor(named: name, hex: hex)
                 reloadWorkspaceTabColorSettings()
             }
         )
     }
 
-    private func baseTabColorHex(for name: String) -> String {
-        WorkspaceTabColorSettings.defaultPalette
-            .first(where: { $0.name == name })?
-            .hex ?? "#1565C0"
+    private func baseTabColorHex(for name: String) -> String? {
+        WorkspaceTabColorSettings.defaultColorHex(named: name)
     }
 
-    private func removeWorkspaceCustomColor(_ hex: String) {
-        WorkspaceTabColorSettings.removeCustomColor(hex)
+    private func removeWorkspaceColor(named name: String) {
+        WorkspaceTabColorSettings.removeColor(named: name)
         reloadWorkspaceTabColorSettings()
     }
 
@@ -5960,8 +5956,7 @@ struct SettingsView: View {
     }
 
     private func reloadWorkspaceTabColorSettings() {
-        workspaceTabDefaultEntries = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
-        workspaceTabCustomColors = WorkspaceTabColorSettings.customColors()
+        workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
     }
 
     private func saveBrowserInsecureHTTPAllowlist() {

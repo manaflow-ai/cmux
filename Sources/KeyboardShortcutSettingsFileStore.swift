@@ -490,9 +490,36 @@ final class CmuxSettingsFileStore {
             ) else { return }
             snapshot.managedUserDefaults["sidebarNotificationBadgeColorHex"] = .nullableString(value)
         }
+        if section.keys.contains("colors") {
+            guard let rawColors = section["colors"] as? [String: Any] else {
+                logInvalid("workspaceColors.colors", sourcePath: sourcePath)
+                return
+            }
+
+            var normalizedPalette: [String: String] = [:]
+            for (rawName, rawValue) in rawColors {
+                let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else {
+                    NSLog("[CmuxSettingsFileStore] ignoring empty workspace color name in %@", sourcePath)
+                    continue
+                }
+                guard let hex = jsonString(rawValue),
+                      let normalizedHex = WorkspaceTabColorSettings.normalizedHex(hex) else {
+                    NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color '%@' in %@", name, sourcePath)
+                    continue
+                }
+                normalizedPalette[name] = normalizedHex
+            }
+            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedPalette)
+            return
+        }
+
+        let validNames = Set(WorkspaceTabColorSettings.defaultPalette.map(\.name))
+        var normalizedLegacyPalette: [String: String]? = nil
         if let rawOverrides = section["paletteOverrides"] as? [String: Any] {
-            var normalized: [String: String] = [:]
-            let validNames = Set(WorkspaceTabColorSettings.defaultPalette.map(\.name))
+            var palette = Dictionary(
+                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+            )
             for (name, rawValue) in rawOverrides {
                 guard validNames.contains(name) else {
                     NSLog("[CmuxSettingsFileStore] ignoring unknown workspace color '%@' in %@", name, sourcePath)
@@ -503,13 +530,31 @@ final class CmuxSettingsFileStore {
                     NSLog("[CmuxSettingsFileStore] ignoring invalid workspace color override '%@' in %@", name, sourcePath)
                     continue
                 }
-                normalized[name] = normalizedHex
+                palette[name] = normalizedHex
             }
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.defaultOverridesKey] = .stringDictionary(normalized)
+            normalizedLegacyPalette = palette
         }
-        if let rawColors = jsonStringArray(section["customColors"]) {
-            let normalized = rawColors.compactMap(WorkspaceTabColorSettings.normalizedHex(_:))
-            snapshot.managedUserDefaults[WorkspaceTabColorSettings.customColorsKey] = .stringArray(normalized)
+        if let rawCustomColors = jsonStringArray(section["customColors"]) {
+            var palette = normalizedLegacyPalette ?? Dictionary(
+                uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+            )
+            var existingNames = Set(palette.keys)
+            var seenCustomHexes: Set<String> = []
+            for rawHex in rawCustomColors {
+                guard let normalizedHex = WorkspaceTabColorSettings.normalizedHex(rawHex),
+                      seenCustomHexes.insert(normalizedHex).inserted else { continue }
+                var index = 1
+                while existingNames.contains("Custom \(index)") {
+                    index += 1
+                }
+                let name = "Custom \(index)"
+                palette[name] = normalizedHex
+                existingNames.insert(name)
+            }
+            normalizedLegacyPalette = palette
+        }
+        if let normalizedLegacyPalette {
+            snapshot.managedUserDefaults[WorkspaceTabColorSettings.paletteKey] = .stringDictionary(normalizedLegacyPalette)
         }
     }
 
@@ -959,6 +1004,12 @@ final class CmuxSettingsFileStore {
             guard let value = defaults.array(forKey: defaultsKey) as? [String] else { return .absent }
             return .stringArray(value)
         case .stringDictionary:
+            if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+                guard let value = WorkspaceTabColorSettings.backupPaletteMap(defaults: defaults) else {
+                    return .absent
+                }
+                return .stringDictionary(value)
+            }
             guard let value = defaults.dictionary(forKey: defaultsKey) as? [String: String] else {
                 return .absent
             }
@@ -975,6 +1026,15 @@ final class CmuxSettingsFileStore {
 
     private func applyManagedUserDefaultsValue(_ value: ManagedSettingsValue, for defaultsKey: String) {
         let defaults = UserDefaults.standard
+        if defaultsKey == WorkspaceTabColorSettings.paletteKey,
+           case .stringDictionary(let next) = value {
+            let current = WorkspaceTabColorSettings.resolvedPaletteMap(defaults: defaults)
+            if current != next {
+                WorkspaceTabColorSettings.persistPaletteMap(next, defaults: defaults)
+            }
+            return
+        }
+
         switch value {
         case .bool(let next):
             let current = defaults.object(forKey: defaultsKey) as? Bool
@@ -1030,6 +1090,18 @@ final class CmuxSettingsFileStore {
 
     private func restoreUserDefaultsBackup(_ backup: BackupValue, for defaultsKey: String) {
         let defaults = UserDefaults.standard
+        if defaultsKey == WorkspaceTabColorSettings.paletteKey {
+            switch backup {
+            case .absent:
+                WorkspaceTabColorSettings.reset(defaults: defaults)
+            case .stringDictionary(let value):
+                WorkspaceTabColorSettings.persistPaletteMap(value, defaults: defaults)
+            default:
+                break
+            }
+            return
+        }
+
         switch backup {
         case .absent:
             defaults.removeObject(forKey: defaultsKey)
@@ -1218,8 +1290,9 @@ final class CmuxSettingsFileStore {
                     "indicatorStyle": SidebarActiveTabIndicatorSettings.defaultStyle.rawValue,
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
-                    "paletteOverrides": [:],
-                    "customColors": [String](),
+                    "colors": Dictionary(
+                        uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) }
+                    ),
                 ],
             ],
             [

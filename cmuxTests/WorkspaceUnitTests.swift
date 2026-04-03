@@ -598,6 +598,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json""#))
         XCTAssertTrue(contents.contains(#""schemaVersion": 1,"#))
         XCTAssertTrue(contents.contains(#"//   "app" : {"#))
+        XCTAssertTrue(contents.contains(#"//     "colors" : {"#))
+        XCTAssertTrue(contents.contains(##"//       "Red" : "#C0392B""##))
         XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
     }
 
@@ -817,6 +819,129 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, false)
+        XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
+    }
+
+    func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {
+        let defaults = UserDefaults.standard
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
+        let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            if let previousPalette {
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+            }
+            if let previousLegacyOverrides {
+                defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
+            }
+            if let previousLegacyCustomColors {
+                defaults.set(previousLegacyCustomColors, forKey: "workspaceTabColor.customColors")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "colors": {
+                  "Blue": "#2244ff",
+                  "Neon Mint": "#00f5d4"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
+        XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
+    }
+
+    func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
+        let defaults = UserDefaults.standard
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
+        let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            if let previousPalette {
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+            }
+            if let previousLegacyOverrides {
+                defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
+            }
+            if let previousLegacyCustomColors {
+                defaults.set(previousLegacyCustomColors, forKey: "workspaceTabColor.customColors")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let managedSettingsURL = directoryURL.appendingPathComponent("managed.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "colors": {
+                  "Neon Mint": "#00F5D4"
+                }
+              }
+            }
+            """,
+            to: managedSettingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: managedSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults).map(\.name), ["Neon Mint"])
+
+        let missingSettingsURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let restored = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(restored.first(where: { $0.name == "Blue" })?.hex, "#010203")
+        XCTAssertEqual(restored.first(where: { $0.name == "Custom 1" })?.hex, "#778899")
         XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
     }
 
@@ -1366,14 +1491,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
     }
 
     func testBuiltInPaletteMatchesOriginalPRPalette() {
-        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
+        let palette = WorkspaceTabColorSettings.defaultPalette
         XCTAssertEqual(palette.count, 16)
         XCTAssertEqual(palette.first?.name, "Red")
         XCTAssertEqual(palette.first?.hex, "#C0392B")
@@ -1381,8 +1499,19 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
     }
 
-    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {
-        let suiteName = "WorkspaceTabColorSettingsTests.DefaultOverride.\(UUID().uuidString)"
+    func testPaletteFallsBackToBuiltInDefaultsWhenUnset() {
+        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
+    }
+
+    func testSetColorRoundTripFallsBackWhenResetToBase() {
+        let suiteName = "WorkspaceTabColorSettingsTests.SetColor.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
             return
@@ -1391,25 +1520,27 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
 
         let first = WorkspaceTabColorSettings.defaultPalette[0]
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
 
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#00aa33", defaults: defaults)
+        WorkspaceTabColorSettings.setColor(named: first.name, hex: "#00aa33", defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             "#00AA33"
         )
+        XCTAssertNotNil(defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey))
 
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: first.hex, defaults: defaults)
+        WorkspaceTabColorSettings.setColor(named: first.name, hex: first.hex, defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
     }
 
-    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() {
-        let suiteName = "WorkspaceTabColorSettingsTests.CustomColors.\(UUID().uuidString)"
+    func testAddCustomColorCreatesNamedEntriesAndDeduplicatesByHex() {
+        let suiteName = "WorkspaceTabColorSettingsTests.NamedCustomColors.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
             return
@@ -1430,13 +1561,54 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         )
         XCTAssertNil(WorkspaceTabColorSettings.addCustomColor("nope", defaults: defaults))
 
+        let customEntries = WorkspaceTabColorSettings.customPaletteEntries(defaults: defaults)
+        XCTAssertEqual(customEntries.map(\.name), ["Custom 1", "Custom 2"])
+        XCTAssertEqual(customEntries.map(\.hex), ["#00AA33", "#112233"])
+    }
+
+    func testPaletteDictionaryCanRemoveBuiltInEntriesAndAddNamedOnes() {
+        let suiteName = "WorkspaceTabColorSettingsTests.DictionaryPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var palette = Dictionary(uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) })
+        palette.removeValue(forKey: "Red")
+        palette["Neon Mint"] = "#00F5D4"
+        WorkspaceTabColorSettings.persistPaletteMap(palette, defaults: defaults)
+
+        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertFalse(resolved.contains(where: { $0.name == "Red" }))
+        XCTAssertEqual(resolved.first?.name, "Crimson")
+        XCTAssertEqual(resolved.last?.name, "Neon Mint")
+        XCTAssertEqual(resolved.last?.hex, "#00F5D4")
+    }
+
+    func testLegacyKeysStillResolveIntoEffectivePalette() {
+        let suiteName = "WorkspaceTabColorSettingsTests.LegacyKeys.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
+
+        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.customColors(defaults: defaults),
-            ["#00AA33", "#112233"]
+            resolved.first(where: { $0.name == "Blue" })?.hex,
+            "#010203"
+        )
+        XCTAssertEqual(
+            resolved.first(where: { $0.name == "Custom 1" })?.hex,
+            "#778899"
         )
     }
 
-    func testPaletteIncludesCustomEntriesAndResetClearsAll() {
+    func testResetClearsNewAndLegacyStorage() {
         let suiteName = "WorkspaceTabColorSettingsTests.Reset.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -1444,23 +1616,16 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let first = WorkspaceTabColorSettings.defaultPalette[0]
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#334455", defaults: defaults)
-        _ = WorkspaceTabColorSettings.addCustomColor("#778899", defaults: defaults)
-
-        let paletteBeforeReset = WorkspaceTabColorSettings.palette(defaults: defaults)
-        XCTAssertEqual(paletteBeforeReset.count, WorkspaceTabColorSettings.defaultPalette.count + 1)
-        XCTAssertEqual(paletteBeforeReset[0].hex, "#334455")
-        XCTAssertEqual(paletteBeforeReset.last?.name, "Custom 1")
-        XCTAssertEqual(paletteBeforeReset.last?.hex, "#778899")
+        WorkspaceTabColorSettings.persistPaletteMap(["Neon Mint": "#00F5D4"], defaults: defaults)
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
 
         WorkspaceTabColorSettings.reset(defaults: defaults)
 
-        XCTAssertEqual(WorkspaceTabColorSettings.customColors(defaults: defaults), [])
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
-            first.hex
-        )
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
+        XCTAssertNil(defaults.object(forKey: "workspaceTabColor.defaultOverrides"))
+        XCTAssertNil(defaults.object(forKey: "workspaceTabColor.customColors"))
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
     }
 
     func testDisplayColorLightModeKeepsOriginalHex() {

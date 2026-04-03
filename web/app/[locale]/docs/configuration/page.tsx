@@ -59,6 +59,14 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "workspaceColors": {
+  //   "colors": {
+  //     "Red": "#C0392B",
+  //     "Blue": "#1565C0",
+  //     "Neon Mint": "#00F5D4"
+  //   }
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
@@ -126,7 +134,14 @@ function formatDefaultValue(value: unknown): string {
   if (typeof value === "string") {
     return JSON.stringify(value);
   }
+  if (typeof value === "object" && value !== null) {
+    return JSON.stringify(value, null, 2) ?? "none";
+  }
   return JSON.stringify(value) ?? "none";
+}
+
+function hasComplexDefaultValue(value: unknown): boolean {
+  return typeof value === "object" && value !== null;
 }
 
 function PropertyCard({ path, property }: { path: string; property: SchemaProperty }) {
@@ -146,7 +161,13 @@ function PropertyCard({ path, property }: { path: string; property: SchemaProper
         <div>
           <dt className="font-medium text-foreground">Default</dt>
           <dd className="text-muted">
-            <code>{formatDefaultValue(property.default)}</code>
+            {hasComplexDefaultValue(property.default) ? (
+              <pre className="overflow-x-auto rounded-lg bg-background/60 p-3 text-xs text-foreground">
+                <code>{formatDefaultValue(property.default)}</code>
+              </pre>
+            ) : (
+              <code>{formatDefaultValue(property.default)}</code>
+            )}
           </dd>
         </div>
         {property.enum && (
@@ -292,6 +313,26 @@ working-directory = ~/code`}</CodeBlock>
             </h3>
             {property.description && <p>{property.description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
+            {sectionName === "workspaceColors" && (
+              <>
+                <p>
+                  <code>workspaceColors.colors</code> is the full palette. Keep the built-in keys
+                  you want, delete keys to remove colors from the picker, and add more named color
+                  entries to extend it. Older <code>paletteOverrides</code> and{" "}
+                  <code>customColors</code> files still parse during upgrades, but new files
+                  should use <code>colors</code>.
+                </p>
+                <CodeBlock lang="json">{`{
+  "workspaceColors": {
+    "colors": {
+      "Red": "#C0392B",
+      "Blue": "#1565C0",
+      "Neon Mint": "#00F5D4"
+    }
+  }
+}`}</CodeBlock>
+              </>
+            )}
           </section>
         );
       })}

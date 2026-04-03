@@ -64550,6 +64550,57 @@
         }
       }
     },
+    "settings.workspaceColors.customEntry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Named palette entry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きのパレット項目です。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.dictionaryNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit settings.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前付きカラーの追加や削除は settings.json を編集してください。「カスタムカラーを選択…」は引き続きローカルの Custom N エントリを追加します。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.emptyPalette": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No palette entries. Add colors in settings.json or use \"Choose Custom Color...\" from a workspace context menu."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パレット項目はありません。settings.json でカラーを追加するか、ワークスペースのコンテキストメニューから「カスタムカラーを選択…」を使ってください。"
+          }
+        }
+      }
+    },
     "settings.workspaceColors.indicator": {
       "extractionState": "manual",
       "localizations": {
@@ -65379,6 +65430,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відновити вбудовані стандартні значення та очистити всі власні кольори."
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.resetPalette.subtitleV2": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore the built-in palette and remove extra named colors."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組み込みパレットを復元し、追加した名前付きカラーを削除します。"
           }
         }
       }

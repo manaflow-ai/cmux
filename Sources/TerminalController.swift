@@ -4156,8 +4156,8 @@ class TerminalController {
                     return
                 }
                 let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from effective palette (includes user overrides, excludes custom entries)
-                let effectivePalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+                // Resolve named colors from the effective palette, including file-defined additions.
+                let effectivePalette = WorkspaceTabColorSettings.palette()
                 let hex: String
                 if let entry = effectivePalette.first(where: {
                     $0.name.caseInsensitiveCompare(colorInput) == .orderedSame

@@ -230,22 +230,30 @@
           "default": null,
           "description": "Override the unread notification badge color."
         },
-        "paletteOverrides": {
+        "colors": {
           "type": "object",
-          "default": {},
-          "description": "Override built-in workspace color names with custom hex values. Unknown names are ignored.",
+          "description": "Full named workspace color palette. Include built-in entries you want to keep, remove keys to remove colors, and add more named entries to extend the picker.",
+          "default": {
+            "Red": "#C0392B",
+            "Crimson": "#922B21",
+            "Orange": "#A04000",
+            "Amber": "#7D6608",
+            "Olive": "#4A5C18",
+            "Green": "#196F3D",
+            "Teal": "#006B6B",
+            "Aqua": "#0E6B8C",
+            "Blue": "#1565C0",
+            "Navy": "#1A5276",
+            "Indigo": "#283593",
+            "Purple": "#6A1B9A",
+            "Magenta": "#AD1457",
+            "Rose": "#880E4F",
+            "Brown": "#7B3F00",
+            "Charcoal": "#3E4B5E"
+          },
           "additionalProperties": {
             "$ref": "#/$defs/colorHex"
           }
-        },
-        "customColors": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/colorHex"
-          },
-          "maxItems": 24,
-          "default": [],
-          "description": "Custom workspace colors available in the picker."
         }
       }
     },
