@@ -58,6 +58,12 @@ def extract_text(entry):
     return ''
 
 def tokenize(text):
+    # Redact sensitive spans before tokenization to prevent leaking into tab names
+    text = re.sub(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', text)  # UUIDs
+    text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)  # emails
+    text = re.sub(r'(/[a-zA-Z0-9._-]+){2,}', '', text)  # file paths
+    text = re.sub(r'[A-Z_]{2,}=[^\s]+', '', text)  # ENV_VAR=value
+    text = re.sub(r'\b[0-9]{6,}\b', '', text)  # long numeric sequences
     # Clean markup/code
     text = re.sub(r'https?://\S+', '', text)
     text = re.sub(r'\x60{3}.*?\x60{3}', '', text, flags=re.S)
