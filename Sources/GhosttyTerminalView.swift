@@ -3972,6 +3972,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Ghostty's default.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
+        // Sync occlusion state to the newly created C surface. Ghostty surfaces
+        // default to visible=true, but this surface may be in a background tab
+        // or hidden workspace. Mirrors the focus sync pattern above.
+        if let view = attachedView {
+            setOcclusion(view.isVisibleInUI)
+        }
+
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
             object: self,
