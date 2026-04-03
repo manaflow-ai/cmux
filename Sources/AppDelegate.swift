@@ -9991,6 +9991,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Numeric shortcuts for surfaces within the focused pane (9 = last).
+        // Evaluated before workspace shortcuts so that when both shortcuts share the
+        // same modifier key (e.g. the user remaps workspace shortcut to Control+N),
+        // the workspace handler's unconditional "return true" cannot swallow a
+        // Control+1 surface-switch event before this check runs. See #2163.
+        if let digit = numberedShortcutDigit(
+            event: event,
+            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
+        ) {
+            if digit == 9 {
+                tabManager?.selectLastSurface()
+            } else {
+                tabManager?.selectSurface(at: digit - 1)
+            }
+            return true
+        }
+
         // Numeric shortcuts for specific workspaces (9 = last workspace)
         // Always consume the event when the digit matches to prevent Ghostty's
         // goto_tab fallback from creating a new window when the index is out of bounds.
@@ -10006,19 +10023,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
 #endif
                 manager.selectTab(at: targetIndex)
-            }
-            return true
-        }
-
-        // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedShortcutDigit(
-            event: event,
-            shortcut: KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
-        ) {
-            if digit == 9 {
-                tabManager?.selectLastSurface()
-            } else {
-                tabManager?.selectSurface(at: digit - 1)
             }
             return true
         }
