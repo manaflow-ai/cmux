@@ -9984,11 +9984,13 @@ struct VerticalTabsSidebar: View {
                                     selectedTabIds: $selectedTabIds,
                                     lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
                                     showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                    notificationStatus: notificationStore.workspaceNotificationSidebarStatus(forTabId: tab.id),
                                     dragAutoScrollController: dragAutoScrollController,
                                     draggedTabId: $draggedTabId,
                                     dropIndicator: $dropIndicator,
                                     contextMenuWorkspaceIds: contextMenuWorkspaceIds,
                                     remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                                    contextMenuAllWorkspacesMuted: notificationStore.areAllWorkspacesMuted(contextMenuWorkspaceIds),
                                     allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
                                     allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
                                     settings: tabItemSettings
@@ -12372,6 +12374,36 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
+private enum WorkspaceNotificationSnoozeOption: CaseIterable, Identifiable {
+    case fifteenMinutes
+    case oneHour
+    case fourHours
+
+    var id: Self { self }
+
+    var duration: TimeInterval {
+        switch self {
+        case .fifteenMinutes:
+            return 15 * 60
+        case .oneHour:
+            return 60 * 60
+        case .fourHours:
+            return 4 * 60 * 60
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .fifteenMinutes:
+            return String(localized: "notifications.action.snooze15m", defaultValue: "Snooze 15 Minutes")
+        case .oneHour:
+            return String(localized: "notifications.action.snooze1h", defaultValue: "Snooze 1 Hour")
+        case .fourHours:
+            return String(localized: "notifications.action.snooze4h", defaultValue: "Snooze 4 Hours")
+        }
+    }
+}
+
 private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
 
@@ -12389,8 +12421,10 @@ private struct TabItemView: View, Equatable {
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
+        lhs.notificationStatus == rhs.notificationStatus &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
+        lhs.contextMenuAllWorkspacesMuted == rhs.contextMenuAllWorkspacesMuted &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.settings == rhs.settings
@@ -12416,11 +12450,13 @@ private struct TabItemView: View, Equatable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     let showsModifierShortcutHints: Bool
+    let notificationStatus: WorkspaceNotificationSidebarStatus
     let dragAutoScrollController: SidebarDragAutoScrollController
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
+    let contextMenuAllWorkspacesMuted: Bool
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
     let settings: SidebarTabItemSettingsSnapshot
@@ -12651,6 +12687,83 @@ private struct TabItemView: View, Equatable {
         settings.visibleAuxiliaryDetails
     }
 
+    private var notificationStatusForegroundColor: Color {
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : .secondary
+    }
+
+    private func notificationStatusItem(
+        systemImage: String,
+        text: String? = nil,
+        helpText: String
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 9, weight: .semibold))
+            if let text {
+                Text(text)
+                    .font(.system(size: 10, weight: .medium))
+                    .monospacedDigit()
+            }
+        }
+        .foregroundColor(notificationStatusForegroundColor)
+        .safeHelp(helpText)
+    }
+
+    @ViewBuilder
+    private var workspaceNotificationStatusRow: some View {
+        if notificationStatus.hasVisibleStatus {
+            HStack(spacing: 6) {
+                if notificationStatus.isMuted {
+                    notificationStatusItem(
+                        systemImage: "bell.slash.fill",
+                        text: String(
+                            localized: "notifications.muted.title",
+                            defaultValue: "Muted"
+                        ),
+                        helpText: String(
+                            localized: "notifications.status.mutedWorkspace",
+                            defaultValue: "Muted Workspace"
+                        )
+                    )
+                }
+
+                if notificationStatus.bookmarkedCount > 0 {
+                    notificationStatusItem(
+                        systemImage: "bookmark.fill",
+                        text: "\(notificationStatus.bookmarkedCount)",
+                        helpText: String(
+                            localized: "notifications.filter.bookmarked",
+                            defaultValue: "Bookmarked"
+                        )
+                    )
+                }
+
+                if notificationStatus.snoozedCount > 0 {
+                    notificationStatusItem(
+                        systemImage: "clock.fill",
+                        text: "\(notificationStatus.snoozedCount)",
+                        helpText: String(
+                            localized: "notifications.status.snoozed",
+                            defaultValue: "Snoozed"
+                        )
+                    )
+                }
+
+                if notificationStatus.hiddenCount > 0 {
+                    notificationStatusItem(
+                        systemImage: "eye.slash",
+                        text: "\(notificationStatus.hiddenCount)",
+                        helpText: String(
+                            localized: "notifications.status.hidden",
+                            defaultValue: "Hidden"
+                        )
+                    )
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
     var body: some View {
         let _ = workspaceObservationGeneration
         let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
@@ -12788,6 +12901,8 @@ private struct TabItemView: View, Equatable {
                     .truncationMode(.tail)
                     .multilineTextAlignment(.leading)
             }
+
+            workspaceNotificationStatusRow
 
             remoteWorkspaceSection
 
@@ -13133,6 +13248,9 @@ private struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.markWorkspacesUnread", defaultValue: "Mark Workspaces as Unread"),
             single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
             isMulti: isMulti)
+        let muteNotificationsLabel = contextMenuAllWorkspacesMuted
+            ? String(localized: "contextMenu.unmuteNotifications", defaultValue: "Unmute Notifications")
+            : String(localized: "contextMenu.muteNotifications", defaultValue: "Mute Notifications")
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
@@ -13320,6 +13438,40 @@ private struct TabItemView: View, Equatable {
             markTabsUnread(targetIds)
         }
         .disabled(!hasReadNotifications(in: targetIds))
+
+        Button(muteNotificationsLabel) {
+            for id in targetIds {
+                if contextMenuAllWorkspacesMuted {
+                    notificationStore.unmuteWorkspace(tabId: id)
+                } else {
+                    let workspaceLabel = tabManager.tabs.first(where: { $0.id == id })?.title
+                    notificationStore.muteWorkspace(tabId: id, label: workspaceLabel)
+                }
+            }
+        }
+        .disabled(targetIds.isEmpty)
+
+        Button(String(localized: "contextMenu.hideNotifications", defaultValue: "Hide Notifications")) {
+            for id in targetIds {
+                notificationStore.hideNotifications(forTabId: id)
+            }
+        }
+
+        Button(String(localized: "contextMenu.bookmarkNotifications", defaultValue: "Bookmark Notifications")) {
+            for id in targetIds {
+                notificationStore.bookmarkNotifications(forTabId: id)
+            }
+        }
+
+        Menu(String(localized: "contextMenu.snoozeNotifications", defaultValue: "Snooze Notifications")) {
+            ForEach(WorkspaceNotificationSnoozeOption.allCases) { option in
+                Button(option.title) {
+                    for id in targetIds {
+                        notificationStore.snoozeNotifications(forTabId: id, for: option.duration)
+                    }
+                }
+            }
+        }
     }
 
     private var selectionBackgroundColor: NSColor {

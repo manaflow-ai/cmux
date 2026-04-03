@@ -655,6 +655,22 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
+enum NotificationArchiveReason: String, Hashable {
+    case hidden
+    case snoozed
+    case mutedWorkspace
+    case mutedProcess
+
+    var isMuted: Bool {
+        switch self {
+        case .mutedWorkspace, .mutedProcess:
+            return true
+        case .hidden, .snoozed:
+            return false
+        }
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -662,8 +678,61 @@ struct TerminalNotification: Identifiable, Hashable {
     let title: String
     let subtitle: String
     let body: String
+    let processIdentifier: String?
+    let processDisplayName: String?
     let createdAt: Date
     var isRead: Bool
+    var isBookmarked: Bool = false
+    var archivedReason: NotificationArchiveReason? = nil
+    var archivedAt: Date? = nil
+    var snoozedUntil: Date? = nil
+
+    var isArchived: Bool {
+        archivedReason != nil
+    }
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        processIdentifier: String? = nil,
+        processDisplayName: String? = nil,
+        createdAt: Date,
+        isRead: Bool,
+        isBookmarked: Bool = false,
+        archivedReason: NotificationArchiveReason? = nil,
+        archivedAt: Date? = nil,
+        snoozedUntil: Date? = nil
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.processIdentifier = processIdentifier
+        self.processDisplayName = processDisplayName
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.isBookmarked = isBookmarked
+        self.archivedReason = archivedReason
+        self.archivedAt = archivedAt
+        self.snoozedUntil = snoozedUntil
+    }
+}
+
+struct WorkspaceNotificationSidebarStatus: Equatable {
+    let isMuted: Bool
+    let bookmarkedCount: Int
+    let hiddenCount: Int
+    let snoozedCount: Int
+
+    var hasVisibleStatus: Bool {
+        isMuted || bookmarkedCount > 0 || hiddenCount > 0 || snoozedCount > 0
+    }
 }
 
 @MainActor
@@ -679,12 +748,23 @@ final class TerminalNotificationStore: ObservableObject {
         var unreadByTabSurface = Set<TabSurfaceKey>()
         var latestUnreadByTabId: [UUID: TerminalNotification] = [:]
         var latestByTabId: [UUID: TerminalNotification] = [:]
+        var activeCountByTabId: [UUID: Int] = [:]
+        var bookmarkedCountByTabId: [UUID: Int] = [:]
+    }
+
+    private struct ArchivedNotificationIndexes {
+        var countByTabId: [UUID: Int] = [:]
+        var hiddenCountByTabId: [UUID: Int] = [:]
+        var snoozedCountByTabId: [UUID: Int] = [:]
+        var bookmarkedCountByTabId: [UUID: Int] = [:]
     }
 
     static let shared = TerminalNotificationStore()
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+    private static let mutedWorkspacesDefaultsKey = "notifications.mutedWorkspaces"
+    private static let mutedProcessesDefaultsKey = "notifications.mutedProcesses"
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -697,10 +777,18 @@ final class TerminalNotificationStore: ObservableObject {
             refreshDockBadge()
         }
     }
+    @Published private(set) var archivedNotifications: [TerminalNotification] = [] {
+        didSet {
+            archivedIndexes = Self.buildArchivedIndexes(for: archivedNotifications)
+        }
+    }
+    @Published private(set) var mutedWorkspaceLabelsById: [UUID: String] = [:]
+    @Published private(set) var mutedProcessLabelsById: [String: String] = [:]
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
 
     private let center = UNUserNotificationCenter.current()
+    private let defaults = UserDefaults.standard
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasPromptedForSettings = false
@@ -734,9 +822,13 @@ final class TerminalNotificationStore: ObservableObject {
         store.playSuppressedNotificationFeedback(for: notification)
     }
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var snoozeResurfaceWorkItems: [UUID: DispatchWorkItem] = [:]
     private var indexes = NotificationIndexes()
+    private var archivedIndexes = ArchivedNotificationIndexes()
 
     private init() {
+        mutedWorkspaceLabelsById = Self.loadMutedWorkspaceLabels(defaults: defaults)
+        mutedProcessLabelsById = Self.loadMutedProcessLabels(defaults: defaults)
         indexes = Self.buildIndexes(for: notifications)
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -776,6 +868,37 @@ final class TerminalNotificationStore: ObservableObject {
 
     var unreadCount: Int {
         indexes.unreadCount
+    }
+
+    var hasMutedSources: Bool {
+        !mutedWorkspaceLabelsById.isEmpty || !mutedProcessLabelsById.isEmpty
+    }
+
+    var bookmarkedCount: Int {
+        notifications.lazy.filter { $0.isBookmarked }.count +
+            archivedNotifications.lazy.filter { $0.isBookmarked }.count
+    }
+
+    func bookmarkedNotifications() -> [TerminalNotification] {
+        notifications.filter { $0.isBookmarked } + archivedNotifications.filter { $0.isBookmarked }
+    }
+
+    func isWorkspaceMuted(_ tabId: UUID) -> Bool {
+        mutedWorkspaceLabelsById[tabId] != nil
+    }
+
+    func mutedWorkspaceLabel(for tabId: UUID) -> String? {
+        mutedWorkspaceLabelsById[tabId]
+    }
+
+    func isProcessMuted(_ identifier: String?) -> Bool {
+        guard let identifier else { return false }
+        return mutedProcessLabelsById[identifier] != nil
+    }
+
+    func mutedProcessLabel(for identifier: String?) -> String? {
+        guard let identifier else { return nil }
+        return mutedProcessLabelsById[identifier]
     }
 
     private func logAuthorization(_ message: String) {
@@ -878,6 +1001,36 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadByTabSurface.contains(TabSurfaceKey(tabId: tabId, surfaceId: surfaceId))
     }
 
+    func hasActiveNotifications(forTabId tabId: UUID) -> Bool {
+        indexes.activeCountByTabId[tabId, default: 0] > 0
+    }
+
+    func hasAnyNotifications(forTabId tabId: UUID) -> Bool {
+        hasActiveNotifications(forTabId: tabId) || archivedIndexes.countByTabId[tabId, default: 0] > 0
+    }
+
+    func hasActiveNotifications(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { hasActiveNotifications(forTabId: $0) }
+    }
+
+    func hasAnyNotifications(forTabIds tabIds: [UUID]) -> Bool {
+        tabIds.contains { hasAnyNotifications(forTabId: $0) }
+    }
+
+    func areAllWorkspacesMuted(_ tabIds: [UUID]) -> Bool {
+        !tabIds.isEmpty && tabIds.allSatisfy(isWorkspaceMuted)
+    }
+
+    func workspaceNotificationSidebarStatus(forTabId tabId: UUID) -> WorkspaceNotificationSidebarStatus {
+        WorkspaceNotificationSidebarStatus(
+            isMuted: isWorkspaceMuted(tabId),
+            bookmarkedCount: indexes.bookmarkedCountByTabId[tabId, default: 0]
+                + archivedIndexes.bookmarkedCountByTabId[tabId, default: 0],
+            hiddenCount: archivedIndexes.hiddenCountByTabId[tabId, default: 0],
+            snoozedCount: archivedIndexes.snoozedCountByTabId[tabId, default: 0]
+        )
+    }
+
     func hasVisibleNotificationIndicator(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId) ||
             focusedReadIndicatorByTabId[tabId] == surfaceId
@@ -914,14 +1067,6 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
-        var updated = notifications
-        var idsToClear: [String] = []
-        updated.removeAll { existing in
-            guard existing.tabId == tabId, existing.surfaceId == surfaceId else { return false }
-            idsToClear.append(existing.id.uuidString)
-            return true
-        }
-
         if let existingIndicatorSurfaceId = focusedReadIndicatorByTabId[tabId],
            existingIndicatorSurfaceId != surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: tabId)
@@ -933,11 +1078,26 @@ final class TerminalNotificationStore: ObservableObject {
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
         let shouldSuppressExternalDelivery = isAppFocused && isFocusedPanel
+        let processDescriptor = resolveProcessDescriptor(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle
+        )
+        let mutedReason: NotificationArchiveReason? = {
+            if isWorkspaceMuted(tabId) {
+                return .mutedWorkspace
+            }
+            if isProcessMuted(processDescriptor.identifier) {
+                return .mutedProcess
+            }
+            return nil
+        }()
         if shouldSuppressExternalDelivery {
             setFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         }
 
-        if WorkspaceAutoReorderSettings.isEnabled() {
+        if WorkspaceAutoReorderSettings.isEnabled(), mutedReason == nil {
             AppDelegate.shared?.tabManager?.moveTabToTopForNotification(tabId)
         }
 
@@ -948,18 +1108,19 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
+            processIdentifier: processDescriptor.identifier,
+            processDisplayName: processDescriptor.label,
             createdAt: now,
             isRead: false
         )
-        updated.insert(notification, at: 0)
-        notifications = updated
         if let cooldownKey, resolvedCooldownInterval != nil {
             lastNotificationDateByCooldownKey[cooldownKey] = now
         }
-        if !idsToClear.isEmpty {
-            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
-            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+        if let mutedReason {
+            archiveIncomingNotification(notification, reason: mutedReason)
+            return
         }
+        insertNotificationIntoInbox(notification, removingMatchingInboxEntries: true)
         if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification)
         } else {
@@ -968,16 +1129,21 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(id: UUID) {
-        var updated = notifications
-        guard let index = updated.firstIndex(where: { $0.id == id }) else { return }
-        guard !updated[index].isRead else { return }
-        updated[index].isRead = true
-        notifications = updated
+        guard updateNotification(id: id, update: { notification in
+            notification.isRead = true
+        }) else { return }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+    }
+
+    func markUnread(id: UUID) {
+        _ = updateNotification(id: id, update: { notification in
+            notification.isRead = false
+        })
     }
 
     func markRead(forTabId tabId: UUID) {
         var updated = notifications
+        var archivedUpdated = archivedNotifications
         var idsToClear: [String] = []
         for index in updated.indices {
             if updated[index].tabId == tabId && !updated[index].isRead {
@@ -985,14 +1151,22 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        for index in archivedUpdated.indices {
+            if archivedUpdated[index].tabId == tabId && !archivedUpdated[index].isRead {
+                archivedUpdated[index].isRead = true
+                idsToClear.append(archivedUpdated[index].id.uuidString)
+            }
+        }
         if !idsToClear.isEmpty {
             notifications = updated
+            archivedNotifications = archivedUpdated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         }
     }
 
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
         var updated = notifications
+        var archivedUpdated = archivedNotifications
         var idsToClear: [String] = []
         for index in updated.indices {
             if updated[index].tabId == tabId,
@@ -1002,8 +1176,17 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        for index in archivedUpdated.indices {
+            if archivedUpdated[index].tabId == tabId,
+               archivedUpdated[index].surfaceId == surfaceId,
+               !archivedUpdated[index].isRead {
+                archivedUpdated[index].isRead = true
+                idsToClear.append(archivedUpdated[index].id.uuidString)
+            }
+        }
         if !idsToClear.isEmpty {
             notifications = updated
+            archivedNotifications = archivedUpdated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
@@ -1011,6 +1194,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func markUnread(forTabId tabId: UUID) {
         var updated = notifications
+        var archivedUpdated = archivedNotifications
         var didChange = false
         for index in updated.indices {
             if updated[index].tabId == tabId, updated[index].isRead {
@@ -1018,8 +1202,15 @@ final class TerminalNotificationStore: ObservableObject {
                 didChange = true
             }
         }
+        for index in archivedUpdated.indices {
+            if archivedUpdated[index].tabId == tabId, archivedUpdated[index].isRead {
+                archivedUpdated[index].isRead = false
+                didChange = true
+            }
+        }
         if didChange {
             notifications = updated
+            archivedNotifications = archivedUpdated
         }
     }
 
@@ -1043,6 +1234,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func markAllRead() {
         var updated = notifications
+        var archivedUpdated = archivedNotifications
         var idsToClear: [String] = []
         for index in updated.indices {
             if !updated[index].isRead {
@@ -1050,31 +1242,145 @@ final class TerminalNotificationStore: ObservableObject {
                 idsToClear.append(updated[index].id.uuidString)
             }
         }
+        for index in archivedUpdated.indices {
+            if !archivedUpdated[index].isRead {
+                archivedUpdated[index].isRead = true
+                idsToClear.append(archivedUpdated[index].id.uuidString)
+            }
+        }
         if !idsToClear.isEmpty {
             notifications = updated
+            archivedNotifications = archivedUpdated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
     }
 
+    func setBookmarked(id: UUID, isBookmarked: Bool) {
+        _ = updateNotification(id: id, update: { notification in
+            notification.isBookmarked = isBookmarked
+        })
+    }
+
+    func setBookmarked(forTabId tabId: UUID, isBookmarked: Bool) {
+        var updated = notifications
+        var archivedUpdated = archivedNotifications
+        var didChange = false
+        for index in updated.indices {
+            guard updated[index].tabId == tabId,
+                  updated[index].isBookmarked != isBookmarked else { continue }
+            updated[index].isBookmarked = isBookmarked
+            didChange = true
+        }
+        for index in archivedUpdated.indices {
+            guard archivedUpdated[index].tabId == tabId,
+                  archivedUpdated[index].isBookmarked != isBookmarked else { continue }
+            archivedUpdated[index].isBookmarked = isBookmarked
+            didChange = true
+        }
+        guard didChange else { return }
+        notifications = updated
+        archivedNotifications = archivedUpdated
+    }
+
+    func toggleBookmark(id: UUID) {
+        _ = updateNotification(id: id, update: { notification in
+            notification.isBookmarked.toggle()
+        })
+    }
+
+    func bookmarkNotifications(forTabId tabId: UUID) {
+        setBookmarked(forTabId: tabId, isBookmarked: true)
+    }
+
+    func hide(id: UUID) {
+        archive(id: id, reason: .hidden)
+    }
+
+    func hideNotifications(forTabId tabId: UUID) {
+        archiveNotifications(
+            matching: { $0.tabId == tabId },
+            reason: .hidden
+        )
+    }
+
+    func restore(id: UUID) {
+        guard let notification = removeArchivedNotification(id: id) else { return }
+        cancelSnoozeResurface(id: id)
+        insertArchivedNotificationIntoInbox(notification)
+    }
+
+    func snooze(id: UUID, for duration: TimeInterval) {
+        guard duration.isFinite, duration > 0 else { return }
+        archive(id: id, reason: .snoozed, snoozedUntil: Date().addingTimeInterval(duration))
+    }
+
+    func snoozeNotifications(forTabId tabId: UUID, for duration: TimeInterval) {
+        guard duration.isFinite, duration > 0 else { return }
+        archiveNotifications(
+            matching: { $0.tabId == tabId },
+            reason: .snoozed,
+            snoozedUntil: Date().addingTimeInterval(duration)
+        )
+    }
+
+    func muteWorkspace(tabId: UUID, label: String? = nil) {
+        mutedWorkspaceLabelsById[tabId] = resolvedWorkspaceLabel(for: tabId, fallback: label)
+        persistMutedSettings()
+        archiveActiveNotifications(
+            matching: { $0.tabId == tabId },
+            reason: .mutedWorkspace
+        )
+    }
+
+    func unmuteWorkspace(tabId: UUID) {
+        guard mutedWorkspaceLabelsById.removeValue(forKey: tabId) != nil else { return }
+        persistMutedSettings()
+    }
+
+    func muteProcess(identifier: String, label: String? = nil) {
+        let resolvedLabel = resolvedProcessLabel(label, fallbackIdentifier: identifier)
+        mutedProcessLabelsById[identifier] = resolvedLabel
+        persistMutedSettings()
+        archiveActiveNotifications(
+            matching: { $0.processIdentifier == identifier },
+            reason: .mutedProcess
+        )
+    }
+
+    func unmuteProcess(identifier: String) {
+        guard mutedProcessLabelsById.removeValue(forKey: identifier) != nil else { return }
+        persistMutedSettings()
+    }
+
     func remove(id: UUID) {
         var updated = notifications
-        let removed = updated.first(where: { $0.id == id })
-        let originalCount = updated.count
+        let removed = updated.first(where: { $0.id == id }) ?? archivedNotifications.first(where: { $0.id == id })
+        let activeOriginalCount = updated.count
         updated.removeAll { $0.id == id }
-        guard updated.count != originalCount else { return }
+        var archivedUpdated = archivedNotifications
+        let archivedOriginalCount = archivedUpdated.count
+        archivedUpdated.removeAll { $0.id == id }
+        guard updated.count != activeOriginalCount || archivedUpdated.count != archivedOriginalCount else { return }
         notifications = updated
+        archivedNotifications = archivedUpdated
+        cancelSnoozeResurface(id: id)
         if let removed {
             clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
         }
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [id.uuidString])
     }
 
     func clearAll() {
-        guard !notifications.isEmpty || !focusedReadIndicatorByTabId.isEmpty else { return }
-        let ids = notifications.map { $0.id.uuidString }
+        guard !notifications.isEmpty
+                || !archivedNotifications.isEmpty
+                || !focusedReadIndicatorByTabId.isEmpty else { return }
+        let ids = (notifications + archivedNotifications).map { $0.id.uuidString }
         notifications.removeAll()
+        archivedNotifications.removeAll()
         focusedReadIndicatorByTabId.removeAll()
+        cancelAllSnoozeResurfaces()
         center.removeDeliveredNotificationsOffMain(withIdentifiers: ids)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: ids)
     }
@@ -1082,6 +1388,8 @@ final class TerminalNotificationStore: ObservableObject {
     func clearNotifications(forTabId tabId: UUID, surfaceId: UUID?) {
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
+        var archivedUpdated: [TerminalNotification] = []
+        archivedUpdated.reserveCapacity(archivedNotifications.count)
         var idsToClear: [String] = []
         for notification in notifications {
             if notification.tabId == tabId, notification.surfaceId == surfaceId {
@@ -1090,8 +1398,17 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
+        for notification in archivedNotifications {
+            if notification.tabId == tabId, notification.surfaceId == surfaceId {
+                idsToClear.append(notification.id.uuidString)
+                cancelSnoozeResurface(id: notification.id)
+            } else {
+                archivedUpdated.append(notification)
+            }
+        }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
+        archivedNotifications = archivedUpdated
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1100,6 +1417,8 @@ final class TerminalNotificationStore: ObservableObject {
     func clearNotifications(forTabId tabId: UUID) {
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
+        var archivedUpdated: [TerminalNotification] = []
+        archivedUpdated.reserveCapacity(archivedNotifications.count)
         var idsToClear: [String] = []
         for notification in notifications {
             if notification.tabId == tabId {
@@ -1108,8 +1427,17 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
+        for notification in archivedNotifications {
+            if notification.tabId == tabId {
+                idsToClear.append(notification.id.uuidString)
+                cancelSnoozeResurface(id: notification.id)
+            } else {
+                archivedUpdated.append(notification)
+            }
+        }
         guard !idsToClear.isEmpty else { return }
         notifications = updated
+        archivedNotifications = archivedUpdated
         clearFocusedReadIndicator(forTabId: tabId)
         center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
         center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1326,9 +1654,281 @@ final class TerminalNotificationStore: ObservableObject {
         return shouldDeferAutomaticAuthorizationRequest(status: status, isAppActive: isAppActive)
     }
 
+    private func updateNotification(
+        id: UUID,
+        update: (inout TerminalNotification) -> Void
+    ) -> Bool {
+        if let index = notifications.firstIndex(where: { $0.id == id }) {
+            var updated = notifications
+            update(&updated[index])
+            notifications = updated
+            return true
+        }
+        if let index = archivedNotifications.firstIndex(where: { $0.id == id }) {
+            var updated = archivedNotifications
+            update(&updated[index])
+            archivedNotifications = updated
+            return true
+        }
+        return false
+    }
+
+    private func archive(id: UUID, reason: NotificationArchiveReason, snoozedUntil: Date? = nil) {
+        guard let notification = removeActiveNotification(id: id) ?? removeArchivedNotification(id: id) else {
+            return
+        }
+        archiveIncomingNotification(notification, reason: reason, snoozedUntil: snoozedUntil)
+    }
+
+    private func archiveIncomingNotification(
+        _ notification: TerminalNotification,
+        reason: NotificationArchiveReason,
+        snoozedUntil: Date? = nil
+    ) {
+        var archived = archivedNotifications
+        var archivedNotification = notification
+        archivedNotification.archivedReason = reason
+        archivedNotification.archivedAt = Date()
+        archivedNotification.snoozedUntil = reason == .snoozed ? snoozedUntil : nil
+        archived.insert(archivedNotification, at: 0)
+        archivedNotifications = archived
+        clearFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
+        center.removeDeliveredNotificationsOffMain(withIdentifiers: [notification.id.uuidString])
+        center.removePendingNotificationRequestsOffMain(withIdentifiers: [notification.id.uuidString])
+        if reason == .snoozed, let snoozedUntil {
+            scheduleSnoozeResurface(for: archivedNotification, at: snoozedUntil)
+        } else {
+            cancelSnoozeResurface(id: archivedNotification.id)
+        }
+    }
+
+    private func insertNotificationIntoInbox(
+        _ notification: TerminalNotification,
+        removingMatchingInboxEntries: Bool
+    ) {
+        var updated = notifications
+        var idsToClear: [String] = []
+
+        if removingMatchingInboxEntries {
+            updated.removeAll { existing in
+                guard existing.tabId == notification.tabId,
+                      existing.surfaceId == notification.surfaceId,
+                      !existing.isBookmarked else { return false }
+                idsToClear.append(existing.id.uuidString)
+                return true
+            }
+        }
+
+        let insertIndex = updated.firstIndex { existing in
+            existing.createdAt < notification.createdAt
+        } ?? updated.endIndex
+        updated.insert(notification, at: insertIndex)
+        notifications = updated
+
+        if !idsToClear.isEmpty {
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
+        }
+    }
+
+    private func insertArchivedNotificationIntoInbox(_ notification: TerminalNotification) {
+        var restored = notification
+        restored.archivedReason = nil
+        restored.archivedAt = nil
+        restored.snoozedUntil = nil
+        insertNotificationIntoInbox(restored, removingMatchingInboxEntries: false)
+    }
+
+    private func archiveActiveNotifications(
+        matching predicate: (TerminalNotification) -> Bool,
+        reason: NotificationArchiveReason,
+        snoozedUntil: Date? = nil
+    ) {
+        let matchingNotifications = notifications.filter(predicate)
+        guard !matchingNotifications.isEmpty else { return }
+        notifications.removeAll(where: predicate)
+        for notification in matchingNotifications.reversed() {
+            archiveIncomingNotification(
+                notification,
+                reason: reason,
+                snoozedUntil: snoozedUntil
+            )
+        }
+    }
+
+    private func archiveNotifications(
+        matching predicate: (TerminalNotification) -> Bool,
+        reason: NotificationArchiveReason,
+        snoozedUntil: Date? = nil
+    ) {
+        let activeIds = notifications.filter(predicate).map(\.id)
+        let archivedIds = archivedNotifications.filter(predicate).map(\.id)
+        let ids = activeIds + archivedIds
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            archive(id: id, reason: reason, snoozedUntil: snoozedUntil)
+        }
+    }
+
+    private func removeActiveNotification(id: UUID) -> TerminalNotification? {
+        guard let index = notifications.firstIndex(where: { $0.id == id }) else { return nil }
+        var updated = notifications
+        let removed = updated.remove(at: index)
+        notifications = updated
+        return removed
+    }
+
+    private func removeArchivedNotification(id: UUID) -> TerminalNotification? {
+        guard let index = archivedNotifications.firstIndex(where: { $0.id == id }) else { return nil }
+        var updated = archivedNotifications
+        let removed = updated.remove(at: index)
+        archivedNotifications = updated
+        return removed
+    }
+
+    private func scheduleSnoozeResurface(for notification: TerminalNotification, at date: Date) {
+        cancelSnoozeResurface(id: notification.id)
+        let delay = max(0, date.timeIntervalSinceNow)
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                self?.resurfaceSnoozedNotification(id: notification.id)
+            }
+        }
+        snoozeResurfaceWorkItems[notification.id] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    private func cancelSnoozeResurface(id: UUID) {
+        snoozeResurfaceWorkItems.removeValue(forKey: id)?.cancel()
+    }
+
+    private func cancelAllSnoozeResurfaces() {
+        for (_, workItem) in snoozeResurfaceWorkItems {
+            workItem.cancel()
+        }
+        snoozeResurfaceWorkItems.removeAll()
+    }
+
+    private func resurfaceSnoozedNotification(id: UUID) {
+        cancelSnoozeResurface(id: id)
+        guard let notification = removeArchivedNotification(id: id) else { return }
+        guard notification.archivedReason == .snoozed else {
+            archivedNotifications.insert(notification, at: 0)
+            return
+        }
+        if isWorkspaceMuted(notification.tabId) {
+            archiveIncomingNotification(notification, reason: .mutedWorkspace)
+            return
+        }
+        if isProcessMuted(notification.processIdentifier) {
+            archiveIncomingNotification(notification, reason: .mutedProcess)
+            return
+        }
+        insertArchivedNotificationIntoInbox(notification)
+    }
+
+    private func resolveProcessDescriptor(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String
+    ) -> (identifier: String?, label: String?) {
+        let workspaceTitle = AppDelegate.shared?.tabTitle(for: tabId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let surfaceId,
+           let workspace = AppDelegate.shared?.workspaceFor(tabId: tabId),
+           let panel = workspace.panels[surfaceId] {
+            let candidate = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !candidate.isEmpty, candidate != workspaceTitle {
+                return (Self.normalizedProcessIdentifier(candidate), candidate)
+            }
+        }
+        let fallbackTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fallbackTitle.isEmpty, fallbackTitle != workspaceTitle {
+            return (Self.normalizedProcessIdentifier(fallbackTitle), fallbackTitle)
+        }
+        let fallbackSubtitle = subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fallbackSubtitle.isEmpty, fallbackSubtitle != workspaceTitle {
+            return (Self.normalizedProcessIdentifier(fallbackSubtitle), fallbackSubtitle)
+        }
+        return (nil, nil)
+    }
+
+    private func resolvedWorkspaceLabel(for tabId: UUID, fallback: String?) -> String {
+        let trimmedFallback = fallback?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedFallback.isEmpty {
+            return trimmedFallback
+        }
+        let resolvedTitle = AppDelegate.shared?.tabTitle(for: tabId)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !resolvedTitle.isEmpty {
+            return resolvedTitle
+        }
+        return String(localized: "notifications.workspace.fallback", defaultValue: "Workspace")
+    }
+
+    private func resolvedProcessLabel(_ label: String?, fallbackIdentifier: String) -> String {
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? fallbackIdentifier : trimmed
+    }
+
+    private static func normalizedProcessIdentifier(_ label: String) -> String? {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let collapsedWhitespace = trimmed.replacingOccurrences(
+            of: "\\s+",
+            with: " ",
+            options: .regularExpression
+        )
+        return collapsedWhitespace.lowercased()
+    }
+
+    private static func loadMutedWorkspaceLabels(
+        defaults: UserDefaults
+    ) -> [UUID: String] {
+        guard let raw = defaults.dictionary(forKey: mutedWorkspacesDefaultsKey) as? [String: String] else {
+            return [:]
+        }
+        var resolved: [UUID: String] = [:]
+        for (key, value) in raw {
+            guard let id = UUID(uuidString: key) else { continue }
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            resolved[id] = trimmedValue.isEmpty ? key : trimmedValue
+        }
+        return resolved
+    }
+
+    private static func loadMutedProcessLabels(
+        defaults: UserDefaults
+    ) -> [String: String] {
+        guard let raw = defaults.dictionary(forKey: mutedProcessesDefaultsKey) as? [String: String] else {
+            return [:]
+        }
+        var resolved: [String: String] = [:]
+        for (key, value) in raw {
+            let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedKey.isEmpty else { continue }
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            resolved[trimmedKey] = trimmedValue.isEmpty ? trimmedKey : trimmedValue
+        }
+        return resolved
+    }
+
+    private func persistMutedSettings() {
+        let workspaceValues = mutedWorkspaceLabelsById.reduce(into: [String: String]()) { result, entry in
+            result[entry.key.uuidString] = entry.value
+        }
+        defaults.set(workspaceValues, forKey: Self.mutedWorkspacesDefaultsKey)
+        defaults.set(mutedProcessLabelsById, forKey: Self.mutedProcessesDefaultsKey)
+    }
+
     private static func buildIndexes(for notifications: [TerminalNotification]) -> NotificationIndexes {
         var indexes = NotificationIndexes()
         for notification in notifications {
+            indexes.activeCountByTabId[notification.tabId, default: 0] += 1
+            if notification.isBookmarked {
+                indexes.bookmarkedCountByTabId[notification.tabId, default: 0] += 1
+            }
             if indexes.latestByTabId[notification.tabId] == nil {
                 indexes.latestByTabId[notification.tabId] = notification
             }
@@ -1343,6 +1943,25 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         return indexes
+    }
+
+    private static func buildArchivedIndexes(
+        for notifications: [TerminalNotification]
+    ) -> ArchivedNotificationIndexes {
+        notifications.reduce(into: ArchivedNotificationIndexes()) { result, notification in
+            result.countByTabId[notification.tabId, default: 0] += 1
+            if notification.isBookmarked {
+                result.bookmarkedCountByTabId[notification.tabId, default: 0] += 1
+            }
+            switch notification.archivedReason {
+            case .hidden:
+                result.hiddenCountByTabId[notification.tabId, default: 0] += 1
+            case .snoozed:
+                result.snoozedCountByTabId[notification.tabId, default: 0] += 1
+            case .mutedWorkspace, .mutedProcess, nil:
+                break
+            }
+        }
     }
 
 #if DEBUG
@@ -1403,7 +2022,9 @@ final class TerminalNotificationStore: ObservableObject {
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         self.notifications = notifications
+        archivedNotifications.removeAll()
         focusedReadIndicatorByTabId.removeAll()
+        cancelAllSnoozeResurfaces()
     }
 #endif
 
