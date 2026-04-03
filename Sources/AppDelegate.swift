@@ -5451,14 +5451,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
-        if let window = event.window, isMainTerminalWindow(window) {
+        if let window = resolvedShortcutEventWindow(event),
+           isMainTerminalWindow(window) {
             return window
-        }
-        let eventWindowNumber = event.windowNumber
-        if eventWindowNumber > 0,
-           let numberedWindow = NSApp.window(withWindowNumber: eventWindowNumber),
-           isMainTerminalWindow(numberedWindow) {
-            return numberedWindow
         }
         if let keyWindow = NSApp.keyWindow, isMainTerminalWindow(keyWindow) {
             return keyWindow
@@ -5467,6 +5462,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return mainWindow
         }
         return nil
+    }
+
+    private func resolvedShortcutEventWindow(_ event: NSEvent) -> NSWindow? {
+        if let window = event.window {
+            return window
+        }
+        let eventWindowNumber = event.windowNumber
+        guard eventWindowNumber > 0 else { return nil }
+        return NSApp.window(withWindowNumber: eventWindowNumber)
     }
 
     /// Re-sync app-level active window pointers from the currently focused main terminal window.
@@ -6100,16 +6104,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if shortcutEventHasAddressableWindow(event) {
+            if let eventWindow = resolvedShortcutEventWindow(event),
+               cmuxWindowShouldOwnCloseShortcut(eventWindow) {
+                // Auxiliary cmux windows do not own a terminal tab manager. Let them fall back
+                // to the active main terminal window so app shortcuts like Cmd+W still route.
+            } else {
 #if DEBUG
-            logWorkspaceCreationRouting(
-                phase: "choose",
-                source: "shortcut.routing",
-                reason: "event_context_required_no_fallback",
-                event: event,
-                chosenContext: nil
-            )
+                logWorkspaceCreationRouting(
+                    phase: "choose",
+                    source: "shortcut.routing",
+                    reason: "event_context_required_no_fallback",
+                    event: event,
+                    chosenContext: nil
+                )
 #endif
-            return nil
+                return nil
+            }
         }
 
         if let keyWindow = NSApp.keyWindow,
@@ -9938,10 +9948,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Cmd+W must close the focused panel even if first-responder momentarily lags on a
         // browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
+            let targetWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             // Browser popup windows primarily intercept Cmd+W in BrowserPopupPanel.
             // This AppDelegate path is a fallback for cases where AppKit routes the
             // event through the global shortcut handler first.
-            if let targetWindow = [NSApp.keyWindow, event.window]
+            if let targetWindow = [targetWindow, NSApp.keyWindow]
                 .compactMap({ $0 })
                 .first(where: { $0.identifier?.rawValue == "cmux.browser-popup" }) {
 #if DEBUG
@@ -9949,27 +9961,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
                 targetWindow.performClose(nil)
                 return true
-            } else if let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            } else if let targetWindow,
                cmuxWindowShouldOwnCloseShortcut(targetWindow) {
                 targetWindow.performClose(nil)
             } else {
-                let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-                if let terminalContext = focusedTerminalShortcutContext(preferredWindow: targetWindow) {
+                if let routedManager {
 #if DEBUG
+                    let selectedWorkspace = routedManager.selectedWorkspace
                     dlog(
-                        "shortcut.cmdW route=ghostty workspace=\(terminalContext.workspaceId.uuidString.prefix(5)) " +
-                        "panel=\(terminalContext.panelId.uuidString.prefix(5)) selected=\(terminalContext.tabManager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
+                        "shortcut.cmdW route=workspaceModel workspace=\(selectedWorkspace?.id.uuidString.prefix(5) ?? "nil") " +
+                        "panel=\(selectedWorkspace?.focusedPanelId?.uuidString.prefix(5) ?? "nil") " +
+                        "selected=\(routedManager.selectedTabId?.uuidString.prefix(5) ?? "nil")"
                     )
 #endif
-                    terminalContext.tabManager.closePanelWithConfirmation(
-                        tabId: terminalContext.workspaceId,
-                        surfaceId: terminalContext.panelId
-                    )
+                    routedManager.closeCurrentPanelWithConfirmation()
                 } else {
 #if DEBUG
-                    dlog("shortcut.cmdW route=focusedPanelFallback")
+                    dlog("shortcut.cmdW route=noManager")
 #endif
-                    tabManager?.closeCurrentPanelWithConfirmation()
+                    return false
                 }
             }
             return true
@@ -10167,17 +10177,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            tabManager?.focusedBrowserPanel?.goBack()
+            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+                return false
+            }
+            focusedBrowserPanel.goBack()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            tabManager?.focusedBrowserPanel?.goForward()
+            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+                return false
+            }
+            focusedBrowserPanel.goForward()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            tabManager?.focusedBrowserPanel?.reload()
+            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+                return false
+            }
+            focusedBrowserPanel.reload()
             return true
         }
 
@@ -11091,6 +11110,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // a Latin shortcut key — skip this guard and fall through to layout-based matching.
         let hasEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
         let eventCharsAreASCII = eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true
+        let shortcutKeyIsDigit = shortcutKey.count == 1 && shortcutKey.first?.isNumber == true
+        if shortcutKeyIsDigit,
+           hasEventChars,
+           eventCharsAreASCII,
+           digitForNumberKeyCode(event.keyCode) == nil {
+            return false
+        }
         if hasEventChars,
            eventCharsAreASCII,
            flags.contains(.command),
@@ -11145,6 +11171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         guard flags == stroke.modifierFlags else { return nil }
+        let numberKeyDigit = digitForNumberKeyCode(event.keyCode)
 
         if let digit = numberedShortcutDigit(
             eventCharacter: event.charactersIgnoringModifiers,
@@ -11154,16 +11181,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return digit
         }
 
-        let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
-        if let digit = numberedShortcutDigit(
-            eventCharacter: layoutCharacter,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: event.keyCode
-        ) {
-            return digit
+        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
+        let hasUsableASCIIEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
+            && (eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true)
+        if !hasUsableASCIIEventChars || numberKeyDigit != nil {
+            let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
+            if let digit = numberedShortcutDigit(
+                eventCharacter: layoutCharacter,
+                applyShiftSymbolNormalization: false,
+                eventKeyCode: event.keyCode
+            ) {
+                return digit
+            }
         }
 
-        return digitForNumberKeyCode(event.keyCode)
+        return numberKeyDigit
     }
 
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {

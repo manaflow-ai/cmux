@@ -1383,6 +1383,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+
         let defaults = UserDefaults.standard
         let originalSetting = defaults.object(forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
         defaults.set(false, forKey: appDelegateLastSurfaceCloseShortcutDefaultsKey)
@@ -1404,6 +1406,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected test window, manager, workspace, and focused panel")
             return
         }
+
+        // This test exercises keep-workspace-open semantics, not close-confirm heuristics.
+        // Mark the shell idle so Cmd+W routes through the immediate close path deterministically.
+        workspace.updatePanelShellActivityState(panelId: initialPanelId, state: .promptIdle)
 
         guard let event = makeKeyDownEvent(
             key: "w",

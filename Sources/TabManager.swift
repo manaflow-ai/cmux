@@ -2690,8 +2690,9 @@ class TabManager: ObservableObject {
         UITestRecorder.incrementInt("closePanelInvocations")
 #endif
         guard let selectedId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedId }),
-              let focusedPanelId = tab.focusedPanelId else { return }
+              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
+        reconcileFocusedPanelFromFirstResponderForKeyboard()
+        guard let focusedPanelId = shortcutCloseTargetPanelId(in: tab) else { return }
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
@@ -3006,6 +3007,28 @@ class TabManager: ObservableObject {
             "panelsAfterCall=\(tab.panels.count)"
         )
 #endif
+    }
+
+    private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        if workspace.panels.count == 1 {
+            return workspace.panels.keys.first
+        }
+
+        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        if let candidatePane,
+           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
+                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+           workspace.panels[panelId] != nil {
+            return panelId
+        }
+
+        return nil
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
