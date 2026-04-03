@@ -432,6 +432,7 @@ dependencies = [
  "glib",
  "gtk4",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -70,12 +70,55 @@ fn create_workspace_row(workspace: &Workspace, index: usize) -> gtk4::ListBoxRow
     let row = gtk4::ListBoxRow::new();
     row.add_css_class("workspace-row");
 
-    let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
+    let outer = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
     outer.set_margin_start(10);
     outer.set_margin_end(10);
     outer.set_margin_top(8);
     outer.set_margin_bottom(8);
 
+    // 1. Title row: index + title + unread badge
+    outer.append(&build_title_row(workspace, index));
+
+    // 2. Status entries (all of them)
+    for entry in &workspace.status_entries {
+        outer.append(&build_status_label(entry));
+    }
+
+    // 3. Git branch
+    if let Some(ref branch) = workspace.git_branch {
+        outer.append(&build_branch_label(branch));
+    }
+
+    // 4. Directory (only if not redundant with branch display)
+    let dir = compact_path(&workspace.current_directory);
+    if dir != "~" || workspace.git_branch.is_none() {
+        outer.append(&build_meta_label(&dir, "sidebar-directory"));
+    }
+
+    // 5. Progress
+    if let Some(ref progress) = workspace.progress {
+        outer.append(&build_progress_widget(progress));
+    }
+
+    // 6. Latest log entry
+    if let Some(entry) = workspace.log_entries.last() {
+        outer.append(&build_log_label(entry));
+    }
+
+    // 7. Latest notification
+    if let Some(ref notification) = workspace.latest_notification {
+        let label = build_meta_label(notification, "sidebar-notification-text");
+        if workspace.unread_count > 0 {
+            label.add_css_class("sidebar-notification");
+        }
+        outer.append(&label);
+    }
+
+    row.set_child(Some(&outer));
+    row
+}
+
+fn build_title_row(workspace: &Workspace, index: usize) -> gtk4::Box {
     let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
 
     let index_label = gtk4::Label::new(Some(&format!("{}", index + 1)));
@@ -96,54 +139,111 @@ fn create_workspace_row(workspace: &Workspace, index: usize) -> gtk4::ListBoxRow
         header.append(&badge);
     }
 
-    outer.append(&header);
+    header
+}
 
-    let meta_label = gtk4::Label::new(Some(&workspace_meta_text(workspace)));
-    meta_label.set_halign(gtk4::Align::Start);
-    meta_label.set_wrap(false);
-    meta_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    meta_label.add_css_class("caption");
-    meta_label.add_css_class("dim-label");
-    outer.append(&meta_label);
+fn build_status_label(entry: &crate::model::workspace::StatusEntry) -> gtk4::Box {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 4);
+    row.add_css_class("sidebar-status-row");
 
-    let notification_text = workspace
-        .latest_notification
-        .clone()
-        .unwrap_or_else(|| compact_path(&workspace.current_directory));
-    let notification_label = gtk4::Label::new(Some(&notification_text));
-    notification_label.set_halign(gtk4::Align::Start);
-    notification_label.set_wrap(false);
-    notification_label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-    notification_label.add_css_class("caption");
-    if workspace.unread_count > 0 {
-        notification_label.add_css_class("sidebar-notification");
+    // Color dot or icon text
+    let icon_text = entry.icon.as_deref().unwrap_or("\u{2022}"); // bullet
+    let icon = gtk4::Label::new(Some(icon_text));
+    icon.add_css_class("caption");
+    if let Some(ref color) = entry.color {
+        // Apply inline color via CSS provider
+        let css = format!("label {{ color: {}; }}", color);
+        let provider = gtk4::CssProvider::new();
+        provider.load_from_data(&css);
+        icon.style_context().add_provider(
+            &provider,
+            gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     } else {
-        notification_label.add_css_class("dim-label");
+        icon.add_css_class("accent");
     }
-    outer.append(&notification_label);
+    row.append(&icon);
 
-    row.set_child(Some(&outer));
+    let text = gtk4::Label::new(Some(&format!("{}: {}", entry.key, entry.value)));
+    text.set_halign(gtk4::Align::Start);
+    text.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    text.add_css_class("caption");
+    text.add_css_class("dim-label");
+    row.append(&text);
+
     row
 }
 
-fn workspace_meta_text(workspace: &Workspace) -> String {
-    let mut parts = Vec::new();
-
-    if let Some(status) = workspace.sidebar_status_label() {
-        parts.push(status.to_string());
-    }
-
-    if let Some(git_branch) = &workspace.git_branch {
-        parts.push(if git_branch.is_dirty {
-            format!("git {} *", git_branch.branch)
-        } else {
-            format!("git {}", git_branch.branch)
-        });
+fn build_branch_label(branch: &crate::model::panel::GitBranch) -> gtk4::Label {
+    let text = if branch.is_dirty {
+        format!("\u{2387} {} *", branch.branch) // ⎇
     } else {
-        parts.push(compact_path(&workspace.current_directory));
+        format!("\u{2387} {}", branch.branch)
+    };
+    let label = gtk4::Label::new(Some(&text));
+    label.set_halign(gtk4::Align::Start);
+    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    label.add_css_class("caption");
+    label.add_css_class("sidebar-branch");
+    label
+}
+
+fn build_progress_widget(progress: &crate::model::workspace::Progress) -> gtk4::Box {
+    let container = gtk4::Box::new(gtk4::Orientation::Vertical, 1);
+    container.add_css_class("sidebar-progress");
+
+    let bar = gtk4::ProgressBar::new();
+    bar.set_fraction(progress.value.clamp(0.0, 1.0));
+    bar.add_css_class("sidebar-progress-bar");
+    container.append(&bar);
+
+    if let Some(ref text) = progress.label {
+        let pct = (progress.value * 100.0).round() as u32;
+        let label = gtk4::Label::new(Some(&format!("{text} {pct}%")));
+        label.set_halign(gtk4::Align::Start);
+        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+        label.add_css_class("caption");
+        label.add_css_class("dim-label");
+        container.append(&label);
     }
 
-    parts.join(" | ")
+    container
+}
+
+fn build_log_label(entry: &crate::model::workspace::LogEntry) -> gtk4::Label {
+    let icon = match entry.level.as_str() {
+        "success" => "\u{2714}", // ✔
+        "warning" => "\u{26A0}", // ⚠
+        "error" => "\u{2718}",   // ✘
+        "progress" => "\u{25B6}", // ▶
+        _ => "\u{2139}",         // ℹ
+    };
+    let text = format!("{} {}", icon, entry.message);
+    let label = gtk4::Label::new(Some(&text));
+    label.set_halign(gtk4::Align::Start);
+    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    label.add_css_class("caption");
+
+    let css_class = match entry.level.as_str() {
+        "success" => "sidebar-log-success",
+        "warning" => "sidebar-log-warning",
+        "error" => "sidebar-log-error",
+        "progress" => "sidebar-log-progress",
+        _ => "dim-label",
+    };
+    label.add_css_class(css_class);
+    label
+}
+
+fn build_meta_label(text: &str, css_class: &str) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(text));
+    label.set_halign(gtk4::Align::Start);
+    label.set_wrap(false);
+    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    label.add_css_class("caption");
+    label.add_css_class("dim-label");
+    label.add_css_class(css_class);
+    label
 }
 
 fn compact_path(path: &str) -> String {

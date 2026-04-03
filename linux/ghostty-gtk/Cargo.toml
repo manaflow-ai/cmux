@@ -13,3 +13,4 @@ gtk4 = { workspace = true }
 glib = { workspace = true }
 gdk4 = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true }

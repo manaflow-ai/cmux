@@ -19,6 +19,7 @@ pub fn create_window(
     ui_events: UnboundedReceiver<UiEvent>,
 ) -> adw::ApplicationWindow {
     install_css();
+    ensure_icon_theme();
 
     let window = adw::ApplicationWindow::builder()
         .application(app)
@@ -26,6 +27,12 @@ pub fn create_window(
         .default_width(1280)
         .default_height(860)
         .build();
+
+    // Add the "background" CSS class so the window has an opaque background.
+    // Without this, the GTK default (slightly transparent) background can bleed
+    // through the GL terminal surface, making the terminal bg appear brighter
+    // than configured. Vanilla Ghostty sets this when background-opacity >= 1.
+    window.add_css_class("background");
 
     let split_view = adw::NavigationSplitView::new();
     split_view.set_min_sidebar_width(220.0);
@@ -41,9 +48,15 @@ pub fn create_window(
     let content_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     content_box.set_hexpand(true);
     content_box.set_vexpand(true);
+    // Make content containers transparent so the window's "background" CSS
+    // class is the only opaque layer. Without this, Adwaita's default
+    // container backgrounds (slightly lighter) bleed through the GL surface
+    // whose renderer clears to transparent rgba(0,0,0,0).
+    content_box.add_css_class("transparent");
     rebuild_content(&content_box, state);
 
     let content_page = adw::NavigationPage::new(&content_box, "Terminal");
+    content_page.add_css_class("transparent");
     split_view.set_content(Some(&content_page));
 
     bind_sidebar_selection(&list_box, &content_box, state);
@@ -190,7 +203,9 @@ fn bind_shared_state_updates(
                 };
 
                 match event {
-                    UiEvent::Refresh => needs_refresh = true,
+                    UiEvent::Refresh
+                    | UiEvent::SurfacePwd { .. }
+                    | UiEvent::SurfaceTitle { .. } => needs_refresh = true,
                     UiEvent::SendInput { panel_id, text } => {
                         let sent = state.send_input_to_panel(panel_id, &text);
                         if !sent {
@@ -313,6 +328,23 @@ fn setup_shortcuts(
     window.add_controller(controller);
 }
 
+/// Ensure Adwaita symbolic icons are available regardless of the active icon theme.
+///
+/// Custom themes (e.g. Flat-Remix) may not include GNOME/Adwaita-specific
+/// symbolic icons like `tab-new-symbolic`. Adding "Adwaita" as a suffix
+/// theme tells GTK to fall back to it for any missing icons.
+/// Ensure Adwaita symbolic icons are available regardless of the active icon theme.
+///
+/// Custom themes (e.g. Flat-Remix) inherit from AdwaitaLegacy/hicolor but
+/// not from the modern Adwaita theme, so GNOME symbolic icons like
+/// `tab-new-symbolic` are missing. Override via GtkSettings since this is
+/// a libadwaita app that depends on Adwaita's icon set.
+fn ensure_icon_theme() {
+    if let Some(settings) = gtk4::Settings::default() {
+        settings.set_gtk_icon_theme_name(Some("Adwaita"));
+    }
+}
+
 fn install_css() {
     let provider = gtk4::CssProvider::new();
     provider.load_from_data(
@@ -326,10 +358,44 @@ fn install_css() {
             font-weight: 600;
         }
 
+        .sidebar-branch {
+            color: @accent_color;
+        }
+
+        .sidebar-status-row {
+            margin-top: 1px;
+        }
+
+        .sidebar-progress-bar {
+            min-height: 4px;
+            border-radius: 2px;
+        }
+
+        .sidebar-log-success {
+            color: #2ec27e;
+        }
+
+        .sidebar-log-warning {
+            color: #e5a50a;
+        }
+
+        .sidebar-log-error {
+            color: #e01b24;
+        }
+
+        .sidebar-log-progress {
+            color: @accent_color;
+        }
+
+        .transparent {
+            background-color: transparent;
+        }
+
         .panel-shell {
             border: 1px solid rgba(127, 127, 127, 0.18);
             border-radius: 10px;
             padding: 3px;
+            background-color: transparent;
         }
 
         .attention-panel {

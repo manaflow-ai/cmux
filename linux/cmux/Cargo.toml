@@ -5,6 +5,7 @@ edition.workspace = true
 description = "cmux terminal multiplexer for Linux (GTK4/libadwaita)"
 
 [features]
+default = ["link-ghostty"]
 link-ghostty = ["ghostty-gtk/link-ghostty"]
 
 [[bin]]

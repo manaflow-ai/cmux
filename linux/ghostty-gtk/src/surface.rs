@@ -17,6 +17,8 @@ use std::os::raw::c_void;
 use std::ptr;
 use std::rc::Rc;
 
+pub use uuid::Uuid;
+
 use crate::callbacks::ClipboardContent;
 use crate::keys;
 
@@ -56,6 +58,22 @@ mod gl_raw {
 // GObject subclass for the GL surface widget
 // -----------------------------------------------------------------------
 
+/// Shared GL context across all GhosttyGlSurface instances.
+///
+/// When the UI layout is rebuilt (e.g., on split), GtkGLArea widgets are
+/// unrealized and re-realized. Each realization normally creates a NEW GL
+/// context, but OpenGL FBOs and VAOs are per-context objects. Ghostty's
+/// renderer creates FBOs/VAOs during surface init, so they become invalid
+/// in the new context and the surface can't render.
+///
+/// By sharing a single GL context across all surfaces, we ensure that all
+/// GL objects remain valid even after unrealize/re-realize cycles.
+/// GtkGLArea's unrealize drops its reference to the context, but our
+/// global reference keeps the context alive.
+thread_local! {
+    static SHARED_GL_CONTEXT: RefCell<Option<gdk4::GLContext>> = const { RefCell::new(None) };
+}
+
 mod imp {
     use super::*;
 
@@ -63,6 +81,7 @@ mod imp {
     pub struct GhosttyGlSurface {
         pub(super) surface: Cell<ghostty_surface_t>,
         pub(super) app: Cell<ghostty_app_t>,
+        pub(super) panel_id: Cell<Option<super::Uuid>>,
         pub(super) callback_userdata: RefCell<Option<Box<crate::callbacks::SurfaceUserdata>>>,
         pub(super) pending_text: RefCell<Vec<String>>,
         pub(super) title: RefCell<String>,
@@ -150,6 +169,14 @@ mod imp {
         fn create_context(&self) -> Option<gdk4::GLContext> {
             use gdk4::prelude::GLContextExt;
             use gtk4::prelude::NativeExt;
+
+            // Return the shared context if it exists and is still valid.
+            let existing = super::SHARED_GL_CONTEXT.with(|cell| cell.borrow().clone());
+            if let Some(ctx) = existing {
+                return Some(ctx);
+            }
+
+            // First surface — create the shared context.
             let widget = self.obj();
             let native = widget.native()?;
             let surface = native.surface()?;
@@ -158,8 +185,12 @@ mod imp {
                     // Force desktop OpenGL (not GLES) and require 4.3 core profile
                     ctx.set_use_es(0); // 0 = desktop GL, not GLES
                     ctx.set_required_version(4, 3);
-                    // Do NOT call ctx.realize() here — GtkGLArea handles that
-                    // during its own realize phase with proper FBO setup.
+
+                    // Store for reuse by all future surfaces.
+                    super::SHARED_GL_CONTEXT.with(|cell| {
+                        *cell.borrow_mut() = Some(ctx.clone());
+                    });
+
                     Some(ctx)
                 }
                 Err(e) => {
@@ -174,13 +205,21 @@ mod imp {
             if !surface.is_null() {
                 #[cfg(feature = "link-ghostty")]
                 unsafe {
-                    // GtkGLArea does NOT set glViewport before the render signal.
-                    // Ghostty's renderer reads GL_VIEWPORT via surfaceSize() to
-                    // determine the render area. We must set it here.
                     let widget = self.obj();
                     let scale = widget.scale_factor();
                     let w = widget.width() * scale;
                     let h = widget.height() * scale;
+
+                    // Ensure ghostty's internal surface size matches the
+                    // actual widget dimensions. The initial GtkGLArea resize
+                    // signal fires before the ghostty surface exists, so we
+                    // must always sync the size here.
+                    ghostty_surface_set_content_scale(surface, scale as f64, scale as f64);
+                    ghostty_surface_set_size(surface, w as u32, h as u32);
+
+                    // GtkGLArea does NOT set glViewport before the render signal.
+                    // Ghostty's renderer reads GL_VIEWPORT via surfaceSize() to
+                    // determine the render area. We must set it here.
                     gl_raw::glViewport(0, 0, w, h);
 
                     ghostty_surface_draw(surface);
@@ -306,8 +345,15 @@ impl GhosttyGlSurface {
                 return;
             }
 
+            tracing::info!(
+                ?surface,
+                scale_factor = config.scale_factor,
+                "ghostty surface created successfully"
+            );
+
             *self.imp().callback_userdata.borrow_mut() = Some(callback_userdata);
             self.imp().surface.set(surface);
+
             self.flush_pending_text();
         }
     }
@@ -441,10 +487,17 @@ impl GhosttyGlSurface {
 
                     if ime_handled {
                         let is_composing = self.imp().im_composing.get();
-                        let has_committed_text = !self.imp().im_commit_text.borrow().is_empty();
-                        if is_composing || was_composing || !has_committed_text {
+                        let has_committed_text =
+                            !self.imp().im_commit_text.borrow().is_empty();
+                        if is_composing || was_composing {
                             return glib::Propagation::Stop;
                         }
+                        // IME claimed "handled" but we weren't composing.
+                        // If it committed text, fall through so ghostty
+                        // associates it with this key event (normal typing).
+                        // If it committed nothing, the IME just observed the
+                        // key (e.g. kime checking for hangul toggle) — fall
+                        // through so ghostty still processes the key.
                     }
                 }
             }
@@ -491,6 +544,16 @@ impl GhosttyGlSurface {
             ptr::null()
         };
 
+        // Consumed modifiers: modifiers that were used by the keymap to
+        // produce the keyval (e.g. Shift is consumed when turning `;` into `:`).
+        // Without this, ghostty sees Shift+`:` instead of just `:`.
+        let consumed_mods = controller
+            .current_event()
+            .and_then(|ev| ev.downcast_ref::<gdk4::KeyEvent>().map(|ke| {
+                keys::gdk_mods_to_ghostty(ke.consumed_modifiers())
+            }))
+            .unwrap_or(0);
+
         // Unshifted codepoint: the unicode value of the key without Shift.
         // Translate the hardware keycode with no modifiers but preserving the
         // keyboard group (layout) from the current event.
@@ -512,7 +575,7 @@ impl GhosttyGlSurface {
         let key_event = ghostty_input_key_s {
             action,
             mods,
-            consumed_mods: 0,
+            consumed_mods,
             keycode,
             text: text_ptr,
             unshifted_codepoint,
@@ -663,6 +726,16 @@ impl GhosttyGlSurface {
                 }
             });
         *self.imp().resize_focus_restore_source.borrow_mut() = Some(source);
+    }
+
+    /// Set the panel ID for this surface (for reverse lookup in callbacks).
+    pub fn set_panel_id(&self, id: Uuid) {
+        self.imp().panel_id.set(Some(id));
+    }
+
+    /// Get the panel ID associated with this surface.
+    pub fn panel_id(&self) -> Option<Uuid> {
+        self.imp().panel_id.get()
     }
 
     /// Get the raw ghostty surface pointer.
