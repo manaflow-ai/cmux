@@ -632,6 +632,73 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(store.activeSourcePath, fallbackURL.path)
     }
 
+    func testSettingsFileURLForEditingUsesActiveFallbackWithoutCreatingPrimary() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.settingsFileURLForEditing().path, fallbackURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+    }
+
+    func testSettingsFileURLForEditingPrefersInvalidPrimaryForRepair() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile("{ not valid json", to: primaryURL)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.settingsFileURLForEditing().path, primaryURL.path)
+        XCTAssertEqual(store.activeSourcePath, primaryURL.path)
+    }
+
     func testSettingsFileStoreParsesJSONCCommentsAndTrailingCommas() throws {
         let directoryURL = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directoryURL) }

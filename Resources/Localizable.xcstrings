@@ -37177,6 +37177,23 @@
         }
       }
     },
+    "menu.app.openCmuxSettingsFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open cmux settings.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux settings.jsonを開く"
+          }
+        }
+      }
+    },
     "menu.checkForUpdates": {
       "extractionState": "manual",
       "localizations": {
@@ -47846,6 +47863,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Розташування нової робочої області"
+          }
+        }
+      }
+    },
+    "settings.app.settingsFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings File"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定ファイル"
+          }
+        }
+      }
+    },
+    "settings.app.settingsFile.openButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open settings.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "settings.jsonを開く"
           }
         }
       }

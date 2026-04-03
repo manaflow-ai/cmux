@@ -351,19 +351,21 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")
                 }
+                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
+                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
+                }
+                Button(String(localized: "menu.app.openCmuxSettingsFile", defaultValue: "Open cmux settings.json")) {
+                    openCmuxSettingsFileInEditor()
+                }
+                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
+                    GhosttyApp.shared.openConfigurationInTextEdit()
+                }
             }
 
             CommandGroup(replacing: .appInfo) {
                 Button(String(localized: "menu.app.about", defaultValue: "About cmux")) {
                     showAboutPanel()
                 }
-                Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
-                    GhosttyApp.shared.openConfigurationInTextEdit()
-                }
-                splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
-                    GhosttyApp.shared.reloadConfiguration(source: "menu.reload_configuration")
-                }
-                Divider()
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
@@ -3863,6 +3865,11 @@ enum PreferredEditorSettings {
     }
 }
 
+private func openCmuxSettingsFileInEditor() {
+    let url = KeyboardShortcutSettings.settingsFileStore.settingsFileURLForEditing()
+    PreferredEditorSettings.open(url)
+}
+
 struct SettingsView: View {
     private let contentTopInset: CGFloat = 8
     private let pickerColumnWidth: CGFloat = 196
@@ -3947,6 +3954,7 @@ struct SettingsView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
+    @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var shortcutResetToken = UUID()
     @State private var topBlurOpacity: Double = 0
     @State private var topBlurBaselineOffset: CGFloat?
@@ -4441,6 +4449,7 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
             ScrollView {
@@ -4560,6 +4569,20 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.settingsFile", defaultValue: "Settings File"),
+                            subtitle: KeyboardShortcutSettings.settingsFileStore.settingsFileDisplayPath()
+                        ) {
+                            Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
+                                openCmuxSettingsFileInEditor()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsFileOpenButton")
                         }
 
                         SettingsCardDivider()

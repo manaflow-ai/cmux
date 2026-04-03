@@ -150,6 +150,26 @@ final class CmuxSettingsFileStore {
         synchronized { shortcutsByAction[action] != nil }
     }
 
+    func settingsFileURLForEditing() -> URL {
+        if let activeSourcePath = synchronized({ activeSourcePath }) {
+            return URL(fileURLWithPath: activeSourcePath)
+        }
+
+        bootstrapPrimaryTemplateIfNeeded()
+        reload()
+
+        if let activeSourcePath = synchronized({ activeSourcePath }) {
+            return URL(fileURLWithPath: activeSourcePath)
+        }
+
+        return URL(fileURLWithPath: primaryPath)
+    }
+
+    func settingsFileDisplayPath() -> String {
+        let path = synchronized { activeSourcePath } ?? primaryPath
+        return (path as NSString).abbreviatingWithTildeInPath
+    }
+
     private func bootstrapPrimaryTemplateIfNeeded() {
         guard !fileManager.fileExists(atPath: primaryPath) else { return }
         if let fallbackPath, fileManager.fileExists(atPath: fallbackPath) {
