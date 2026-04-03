@@ -513,7 +513,6 @@ enum SessionRestoreCommandSettings {
         "bun dev *",
         "bun run dev *",
         // Rust
-        "cargo watch *",
         "cargo run *",
         // Python
         "uvicorn *",
