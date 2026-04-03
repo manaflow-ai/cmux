@@ -1646,6 +1646,15 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+func shouldRouteCommandPaletteSelectionNavigation(
+    delta: Int?,
+    isInteractive: Bool,
+    usesInlineTextHandling: Bool
+) -> Bool {
+    guard delta != nil, isInteractive else { return false }
+    return !usesInlineTextHandling
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,
@@ -9618,12 +9627,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
-        if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
+        let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map {
+            isCommandPaletteMultilineTextResponderActive(in: $0)
+        } ?? false
+
+        let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
             chars: chars,
             keyCode: event.keyCode
+        )
+
+        if shouldRouteCommandPaletteSelectionNavigation(
+            delta: paletteSelectionDelta,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling
         ),
-           commandPaletteInteractiveInTargetWindow,
+           let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
@@ -9637,7 +9656,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
             let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
-            let paletteUsesInlineReturnHandling = isCommandPaletteMultilineTextResponderActive(in: paletteWindow)
+            let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
             if normalizedFlags.isEmpty, event.keyCode == 53 {
                 if paletteFieldEditorHasMarkedText {
                     return false
