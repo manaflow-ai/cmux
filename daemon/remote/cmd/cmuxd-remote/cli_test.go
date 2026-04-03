@@ -43,6 +43,55 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(output)
 }
 
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stderr: %v", err)
+	}
+	os.Stderr = writer
+	defer func() {
+		os.Stderr = original
+	}()
+
+	fn()
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stderr writer: %v", err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read stderr: %v", err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close stderr reader: %v", err)
+	}
+	return string(output)
+}
+
+func withStdin(t *testing.T, input string, fn func()) {
+	t.Helper()
+	original := os.Stdin
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe stdin: %v", err)
+	}
+	if _, err := writer.WriteString(input); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	os.Stdin = reader
+	defer func() {
+		os.Stdin = original
+		_ = reader.Close()
+	}()
+
+	fn()
+}
+
 func makeShortUnixSocketPath(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "cmuxd-")
@@ -592,6 +641,71 @@ func TestCLINoSocket(t *testing.T) {
 	}
 }
 
+func TestCLICodexInstallHooksDoesNotRequireSocket(t *testing.T) {
+	codexHome := filepath.Join(t.TempDir(), "codex-home")
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CMUX_SOCKET_PATH", "")
+
+	code := runCLI([]string{"codex", "install-hooks", "--yes"})
+	if code != 0 {
+		t.Fatalf("codex install-hooks should return 0, got %d", code)
+	}
+
+	hooksContent, err := os.ReadFile(filepath.Join(codexHome, "hooks.json"))
+	if err != nil {
+		t.Fatalf("read hooks.json: %v", err)
+	}
+	if !strings.Contains(string(hooksContent), "cmux codex-hook stop") {
+		t.Fatalf("expected hooks.json to install cmux-owned stop hook, got %q", string(hooksContent))
+	}
+
+	configContent, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if !strings.Contains(string(configContent), "codex_hooks = true") {
+		t.Fatalf("expected config.toml to enable codex_hooks, got %q", string(configContent))
+	}
+
+	hooksInfo, err := os.Stat(filepath.Join(codexHome, "hooks.json"))
+	if err != nil {
+		t.Fatalf("stat hooks.json: %v", err)
+	}
+	if hooksInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("expected hooks.json mode 0600, got %#o", hooksInfo.Mode().Perm())
+	}
+	configInfo, err := os.Stat(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatalf("stat config.toml: %v", err)
+	}
+	if configInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("expected config.toml mode 0600, got %#o", configInfo.Mode().Perm())
+	}
+	dirInfo, err := os.Stat(codexHome)
+	if err != nil {
+		t.Fatalf("stat codex home: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0o700 {
+		t.Fatalf("expected codex home mode 0700, got %#o", dirInfo.Mode().Perm())
+	}
+}
+
+func TestCLICodexHookWithoutSurfaceNoOpsWithoutSocket(t *testing.T) {
+	t.Setenv("CMUX_SURFACE_ID", "")
+	t.Setenv("CMUX_SOCKET_PATH", "")
+
+	output := captureStdout(t, func() {
+		code := runCLI([]string{"codex-hook", "stop"})
+		if code != 0 {
+			t.Fatalf("codex-hook should no-op outside cmux, got %d", code)
+		}
+	})
+
+	if strings.TrimSpace(output) != "{}" {
+		t.Fatalf("expected codex-hook no-op output, got %q", output)
+	}
+}
+
 func TestCLISocketEnvVar(t *testing.T) {
 	sockPath := startMockSocket(t, "pong")
 	os.Setenv("CMUX_SOCKET_PATH", sockPath)
@@ -600,6 +714,201 @@ func TestCLISocketEnvVar(t *testing.T) {
 	code := runCLI([]string{"ping"})
 	if code != 0 {
 		t.Fatalf("ping with env socket should return 0, got %d", code)
+	}
+}
+
+func TestCLICodexHookStopNotifiesTargetSurfaceAndSetsIdleStatus(t *testing.T) {
+	sockPath := makeShortUnixSocketPath(t)
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	received := make(chan string, 4)
+	go func() {
+		for i := 0; i < 2; i++ {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				buf := make([]byte, 4096)
+				n, _ := conn.Read(buf)
+				payload := strings.TrimSpace(string(buf[:n]))
+				received <- payload
+
+				if strings.HasPrefix(payload, "{") {
+					var req map[string]any
+					_ = json.Unmarshal(buf[:n], &req)
+					resp := map[string]any{"id": req["id"], "ok": true, "result": map[string]any{}}
+					encoded, _ := json.Marshal(resp)
+					_, _ = conn.Write(append(encoded, '\n'))
+					return
+				}
+
+				_, _ = conn.Write([]byte("OK\n"))
+			}(conn)
+		}
+	}()
+
+	t.Setenv("CMUX_SOCKET_PATH", sockPath)
+	t.Setenv("CMUX_WORKSPACE_ID", "workspace-1")
+	t.Setenv("CMUX_SURFACE_ID", "surface-1")
+
+	withStdin(t, `{"session_id":"sess-1","cwd":"/tmp/research-proj","last_assistant_message":"Need your approval on the final patch."}`, func() {
+		output := captureStdout(t, func() {
+			code := runCLI([]string{"codex-hook", "stop"})
+			if code != 0 {
+				t.Fatalf("codex-hook stop should return 0, got %d", code)
+			}
+		})
+		if strings.TrimSpace(output) != "{}" {
+			t.Fatalf("expected codex-hook stop to print {}, got %q", output)
+		}
+	})
+
+	readReceived := func() string {
+		t.Helper()
+		select {
+		case payload := <-received:
+			return payload
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for codex-hook socket payload")
+			return ""
+		}
+	}
+
+	first := readReceived()
+	second := readReceived()
+
+	var requestPayload string
+	var statusPayload string
+	if strings.HasPrefix(first, "{") {
+		requestPayload = first
+		statusPayload = second
+	} else {
+		requestPayload = second
+		statusPayload = first
+	}
+
+	var request map[string]any
+	if err := json.Unmarshal([]byte(requestPayload), &request); err != nil {
+		t.Fatalf("decode notification request: %v", err)
+	}
+	if got := request["method"]; got != "notification.create_for_target" {
+		t.Fatalf("expected notification.create_for_target, got %v", got)
+	}
+	params, _ := request["params"].(map[string]any)
+	if got := params["workspace_id"]; got != "workspace-1" {
+		t.Fatalf("expected workspace_id workspace-1, got %v", got)
+	}
+	if got := params["surface_id"]; got != "surface-1" {
+		t.Fatalf("expected surface_id surface-1, got %v", got)
+	}
+	if got := params["title"]; got != "Codex" {
+		t.Fatalf("expected title Codex, got %v", got)
+	}
+	if got := params["subtitle"]; got != "Completed in research-proj" {
+		t.Fatalf("expected project subtitle, got %v", got)
+	}
+	if got := params["body"]; got != "Need your approval on the final patch." {
+		t.Fatalf("expected last assistant message body, got %v", got)
+	}
+	if statusPayload != "set_status codex Idle --icon=pause.circle.fill --color=#8E8E93 --tab=workspace-1" {
+		t.Fatalf("unexpected status payload: %q", statusPayload)
+	}
+}
+
+func TestCLICodexHookHelpDoesNotReadStdin(t *testing.T) {
+	t.Setenv("CMUX_SURFACE_ID", "surface-1")
+	stderr := captureStderr(t, func() {
+		code := runCLI([]string{"codex-hook", "--help"})
+		if code != 0 {
+			t.Fatalf("codex-hook help should return 0, got %d", code)
+		}
+	})
+	if !strings.Contains(stderr, "Usage: cmux codex-hook") {
+		t.Fatalf("expected help output, got %q", stderr)
+	}
+}
+
+func TestBuildCodexHooksContentRejectsMalformedJSON(t *testing.T) {
+	if _, err := buildCodexHooksContent("{not-json"); err == nil {
+		t.Fatal("expected malformed hooks.json to return an error")
+	}
+}
+
+func TestBuildCodexHooksContentPreservesUserManagedCompoundHooks(t *testing.T) {
+	existing := `{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cmux codex-hook stop && my-notifier"
+          }
+        ]
+      }
+    ]
+  }
+}`
+	updated, err := buildCodexHooksContent(existing)
+	if err != nil {
+		t.Fatalf("build hooks content: %v", err)
+	}
+	if !strings.Contains(updated, "cmux codex-hook stop && my-notifier") {
+		t.Fatalf("expected user-managed hook to be preserved, got %q", updated)
+	}
+}
+
+func TestBuildConfigWithCodexHooksRemoteTouchesOnlyFeaturesSection(t *testing.T) {
+	content := strings.Join([]string{
+		"[model]",
+		`codex_hooks = false`,
+		"",
+		"[features]",
+		`other = true`,
+		"",
+	}, "\n")
+	updated := buildConfigWithCodexHooksRemote(content)
+	if !strings.Contains(updated, "[model]\ncodex_hooks = false") {
+		t.Fatalf("expected non-features codex_hooks to stay unchanged, got %q", updated)
+	}
+	if !strings.Contains(updated, "[features]\ncodex_hooks = true\nother = true") {
+		t.Fatalf("expected features section to gain codex_hooks, got %q", updated)
+	}
+}
+
+func TestBuildConfigWithoutCodexHooksRemoteTouchesOnlyFeaturesSection(t *testing.T) {
+	content := strings.Join([]string{
+		"[model]",
+		`codex_hooks = false`,
+		"",
+		"[features]",
+		`codex_hooks = true`,
+		`other = true`,
+		"",
+	}, "\n")
+	updated := buildConfigWithoutCodexHooksRemote(content)
+	if !strings.Contains(updated, "[model]\ncodex_hooks = false") {
+		t.Fatalf("expected non-features codex_hooks to stay unchanged, got %q", updated)
+	}
+	if strings.Contains(updated, "[features]\ncodex_hooks = true") {
+		t.Fatalf("expected features codex_hooks to be removed, got %q", updated)
+	}
+}
+
+func TestCodexHookSessionStoreLoadRejectsCorruptJSON(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "codex-hook-sessions.json")
+	if err := os.WriteFile(statePath, []byte("{oops"), 0o600); err != nil {
+		t.Fatalf("write corrupt state: %v", err)
+	}
+	store := &codexHookSessionStore{statePath: statePath}
+	if _, err := store.load(); err == nil {
+		t.Fatal("expected corrupt state to return an error")
 	}
 }
 

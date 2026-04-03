@@ -3217,6 +3217,21 @@ final class WorkspaceRemoteSessionController {
     private let configuration: WorkspaceRemoteConfiguration
     private let controllerID: UUID
 
+    private static let requiredCodexHooksCapability = "cli.codex.hooks"
+
+    private var requiresCodexHooksCapability: Bool {
+        guard let relayPort = configuration.relayPort, relayPort > 0,
+              let relayID = configuration.relayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayID.isEmpty,
+              let relayToken = configuration.relayToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !relayToken.isEmpty,
+              let localSocketPath = configuration.localSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !localSocketPath.isEmpty else {
+            return false
+        }
+        return true
+    }
+
     private var isStopping = false
     private var proxyLease: WorkspaceRemoteProxyBroker.Lease?
     private var proxyEndpoint: BrowserProxyEndpoint?
@@ -3352,9 +3367,15 @@ final class WorkspaceRemoteSessionController {
         publishDaemonStatus(.bootstrapping, detail: bootstrapDetail)
         do {
             let hello = try bootstrapDaemonLocked()
-            guard hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) else {
+            if let missingCapability = firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) {
                 throw NSError(domain: "cmux.remote.daemon", code: 43, userInfo: [
-                    NSLocalizedDescriptionKey: "remote daemon missing required capability \(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability)",
+                    NSLocalizedDescriptionKey: String(
+                        format: String(
+                            localized: "workspace.remoteDaemon.missingRequiredCapability",
+                            defaultValue: "Remote daemon missing required capability %@"
+                        ),
+                        missingCapability
+                    ),
                 ])
             }
             daemonReady = true
@@ -3992,7 +4013,7 @@ final class WorkspaceRemoteSessionController {
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
             hello = try helloRemoteDaemonLocked(remotePath: remotePath)
         }
-        if hadExistingBinary, !hello.capabilities.contains(WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability) {
+        if hadExistingBinary, firstMissingRequiredRemoteDaemonCapability(in: hello.capabilities) != nil {
             debugLog("remote.bootstrap.capabilityMissing remotePath=\(remotePath) capabilities=\(hello.capabilities.joined(separator: ","))")
             let localBinary = try buildLocalDaemonBinary(goOS: platform.goOS, goArch: platform.goArch, version: version)
             try uploadRemoteDaemonBinaryLocked(localBinary: localBinary, remotePath: remotePath)
@@ -4596,6 +4617,17 @@ final class WorkspaceRemoteSessionController {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    private func firstMissingRequiredRemoteDaemonCapability(in capabilities: [String]) -> String? {
+        var requiredCapabilities = [WorkspaceRemoteDaemonRPCClient.requiredProxyStreamCapability]
+        if requiresCodexHooksCapability {
+            requiredCapabilities.append(Self.requiredCodexHooksCapability)
+        }
+        for capability in requiredCapabilities where !capabilities.contains(capability) {
+            return capability
+        }
+        return nil
+    }
+
     static func remoteCLIWrapperScript() -> String {
         """
         #!/usr/bin/env bash
@@ -4657,6 +4689,7 @@ final class WorkspaceRemoteSessionController {
         CMUXRELAYAUTH
         chmod 600 "$HOME/.cmux/relay/\(relayPort).auth"
         printf '%s' '127.0.0.1:\(relayPort)' > "$HOME/.cmux/socket_addr"
+        CMUX_SOCKET_PATH='127.0.0.1:\(relayPort)' "$HOME/.cmux/bin/cmux" codex install-hooks --yes >/dev/null 2>&1 || true
         """
     }
 

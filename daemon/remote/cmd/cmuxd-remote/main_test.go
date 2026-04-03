@@ -159,14 +159,20 @@ func TestRunStdioHelloAndPing(t *testing.T) {
 		t.Fatalf("hello should return capabilities: %v", firstResult)
 	}
 	var sawPushCapability bool
+	var sawCodexHooksCapability bool
 	for _, capability := range capabilities {
 		if capability == "proxy.stream.push" {
 			sawPushCapability = true
-			break
+		}
+		if capability == "cli.codex.hooks" {
+			sawCodexHooksCapability = true
 		}
 	}
 	if !sawPushCapability {
 		t.Fatalf("hello should advertise proxy.stream.push: %v", firstResult)
+	}
+	if !sawCodexHooksCapability {
+		t.Fatalf("hello should advertise cli.codex.hooks: %v", firstResult)
 	}
 
 	var second map[string]any
