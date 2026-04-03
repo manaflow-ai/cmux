@@ -9867,6 +9867,464 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
     }
 }
 
+enum SidebarWorkspaceFilterFacet: String, CaseIterable, Hashable {
+    case pinned
+    case unread
+    case remote
+    case dirty
+    case pullRequests
+    case ports
+    case errors
+
+    var title: String {
+        switch self {
+        case .pinned:
+            return String(localized: "sidebar.filter.facet.pinned", defaultValue: "Pinned")
+        case .unread:
+            return String(localized: "sidebar.filter.facet.unread", defaultValue: "Unread")
+        case .remote:
+            return String(localized: "sidebar.filter.facet.remote", defaultValue: "Remote")
+        case .dirty:
+            return String(localized: "sidebar.filter.facet.dirty", defaultValue: "Dirty")
+        case .pullRequests:
+            return String(localized: "sidebar.filter.facet.pullRequests", defaultValue: "PRs")
+        case .ports:
+            return String(localized: "sidebar.filter.facet.ports", defaultValue: "Ports")
+        case .errors:
+            return String(localized: "sidebar.filter.facet.errors", defaultValue: "Errors")
+        }
+    }
+}
+
+enum SidebarWorkspaceRecentWindow: String, CaseIterable, Hashable {
+    case fifteenMinutes
+    case oneHour
+    case oneDay
+
+    var interval: TimeInterval {
+        switch self {
+        case .fifteenMinutes: return 15 * 60
+        case .oneHour: return 60 * 60
+        case .oneDay: return 24 * 60 * 60
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .fifteenMinutes:
+            return String(localized: "sidebar.filter.recent.15m", defaultValue: "15m")
+        case .oneHour:
+            return String(localized: "sidebar.filter.recent.1h", defaultValue: "1h")
+        case .oneDay:
+            return String(localized: "sidebar.filter.recent.24h", defaultValue: "24h")
+        }
+    }
+}
+
+struct SidebarWorkspaceFilterState: Equatable {
+    var query = ""
+    var facets: Set<SidebarWorkspaceFilterFacet> = []
+    var recentWindow: SidebarWorkspaceRecentWindow?
+
+    var hasActiveFilters: Bool {
+        !CommandPaletteFuzzyMatcher.preparedQuery(query).isEmpty
+            || !facets.isEmpty
+            || recentWindow != nil
+    }
+
+    mutating func toggle(_ facet: SidebarWorkspaceFilterFacet) {
+        if facets.contains(facet) {
+            facets.remove(facet)
+        } else {
+            facets.insert(facet)
+        }
+    }
+
+    mutating func clear() {
+        query = ""
+        facets.removeAll()
+        recentWindow = nil
+    }
+}
+
+struct SidebarWorkspaceFilterSnapshot: Equatable {
+    let id: UUID
+    let rank: Int
+    let title: String
+    let metadata: CommandPaletteSwitcherSearchMetadata
+    let isPinned: Bool
+    let unreadCount: Int
+    let latestNotificationText: String?
+    let latestNotificationDate: Date?
+    let isRemote: Bool
+    let remoteTarget: String?
+    let remoteState: WorkspaceRemoteConnectionState
+    let remoteDetail: String?
+    let pullRequests: [SidebarPullRequestState]
+    let listeningPorts: [Int]
+    let isDirty: Bool
+    let hasErrors: Bool
+    let latestActivityAt: Date?
+    let statusValues: [String]
+    let metadataTexts: [String]
+    let logMessages: [String]
+}
+
+enum SidebarWorkspaceFilterEngine {
+    @MainActor
+    static func snapshot(
+        for workspace: Workspace,
+        rank: Int,
+        notificationStore: TerminalNotificationStore
+    ) -> SidebarWorkspaceFilterSnapshot {
+        let orderedPanelIds = workspace.sidebarOrderedPanelIds()
+        let statusEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+        let metadataBlocks = workspace.sidebarMetadataBlocksInDisplayOrder()
+        let latestNotification = notificationStore.latestNotification(forTabId: workspace.id)
+        let latestNotificationText: String? = {
+            guard let latestNotification else { return nil }
+            let text = latestNotification.body.isEmpty ? latestNotification.title : latestNotification.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }()
+        let latestActivityCandidates =
+            statusEntries.map(\.timestamp)
+            + metadataBlocks.map(\.timestamp)
+            + workspace.logEntries.map(\.timestamp)
+            + [latestNotification?.createdAt, workspace.remoteLastHeartbeatAt].compactMap { $0 }
+
+        let pullRequests = workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: orderedPanelIds)
+        let isDirty = workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).contains { $0.isDirty }
+        let hasErrors =
+            workspace.remoteConnectionState == .error
+            || statusEntries.contains { $0.key.localizedCaseInsensitiveContains("error") }
+            || workspace.logEntries.contains { $0.level == .error }
+
+        return SidebarWorkspaceFilterSnapshot(
+            id: workspace.id,
+            rank: rank,
+            title: workspace.title,
+            metadata: CommandPaletteSwitcherSearchMetadata(
+                directories: workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: orderedPanelIds),
+                branches: workspace.sidebarGitBranchesInDisplayOrder(orderedPanelIds: orderedPanelIds).map(\.branch),
+                ports: workspace.listeningPorts
+            ),
+            isPinned: workspace.isPinned,
+            unreadCount: notificationStore.unreadCount(forTabId: workspace.id),
+            latestNotificationText: latestNotificationText,
+            latestNotificationDate: latestNotification?.createdAt,
+            isRemote: workspace.isRemoteWorkspace,
+            remoteTarget: workspace.remoteDisplayTarget,
+            remoteState: workspace.remoteConnectionState,
+            remoteDetail: workspace.remoteConnectionDetail,
+            pullRequests: pullRequests,
+            listeningPorts: workspace.listeningPorts,
+            isDirty: isDirty,
+            hasErrors: hasErrors,
+            latestActivityAt: latestActivityCandidates.max(),
+            statusValues: statusEntries.map(\.value),
+            metadataTexts: metadataBlocks.map(\.markdown),
+            logMessages: workspace.logEntries.suffix(5).map(\.message)
+        )
+    }
+
+    static func visibleWorkspaceIDs(
+        snapshots: [SidebarWorkspaceFilterSnapshot],
+        state: SidebarWorkspaceFilterState,
+        now: Date = Date()
+    ) -> [UUID] {
+        snapshots
+            .filter { matches($0, state: state, now: now) }
+            .sorted { $0.rank < $1.rank }
+            .map(\.id)
+    }
+
+    static func matches(
+        _ snapshot: SidebarWorkspaceFilterSnapshot,
+        state: SidebarWorkspaceFilterState,
+        now: Date = Date()
+    ) -> Bool {
+        matchesFacets(snapshot, state: state, now: now) && matchesQuery(snapshot, query: state.query)
+    }
+
+    static func matchesQuery(_ snapshot: SidebarWorkspaceFilterSnapshot, query: String) -> Bool {
+        let prepared = CommandPaletteFuzzyMatcher.preparedQuery(query)
+        guard !prepared.isEmpty else { return true }
+        return CommandPaletteFuzzyMatcher.score(
+            preparedQuery: prepared,
+            normalizedCandidates: searchableTexts(for: snapshot).map(CommandPaletteFuzzyMatcher.normalizeForSearch)
+        ) != nil
+    }
+
+    static func matchesFacets(
+        _ snapshot: SidebarWorkspaceFilterSnapshot,
+        state: SidebarWorkspaceFilterState,
+        now: Date = Date()
+    ) -> Bool {
+        for facet in state.facets {
+            switch facet {
+            case .pinned where !snapshot.isPinned:
+                return false
+            case .unread where snapshot.unreadCount == 0:
+                return false
+            case .remote where !snapshot.isRemote:
+                return false
+            case .dirty where !snapshot.isDirty:
+                return false
+            case .pullRequests where snapshot.pullRequests.isEmpty:
+                return false
+            case .ports where snapshot.listeningPorts.isEmpty:
+                return false
+            case .errors where !snapshot.hasErrors:
+                return false
+            default:
+                break
+            }
+        }
+
+        if let recentWindow = state.recentWindow {
+            guard let latestActivityAt = snapshot.latestActivityAt else { return false }
+            if now.timeIntervalSince(latestActivityAt) > recentWindow.interval {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    static func searchableTexts(for snapshot: SidebarWorkspaceFilterSnapshot) -> [String] {
+        var baseKeywords: [String] = [snapshot.title]
+        baseKeywords.append(contentsOf: snapshot.statusValues)
+        baseKeywords.append(contentsOf: snapshot.metadataTexts)
+        baseKeywords.append(contentsOf: snapshot.logMessages)
+        if let latestNotificationText = snapshot.latestNotificationText {
+            baseKeywords.append(latestNotificationText)
+        }
+        if let remoteTarget = snapshot.remoteTarget?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !remoteTarget.isEmpty {
+            baseKeywords.append(remoteTarget)
+        }
+        if let remoteDetail = snapshot.remoteDetail?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !remoteDetail.isEmpty {
+            baseKeywords.append(remoteDetail)
+        }
+
+        if snapshot.isPinned {
+            baseKeywords.append(contentsOf: ["pinned", "pin"])
+        }
+        if snapshot.unreadCount > 0 {
+            baseKeywords.append(contentsOf: ["unread", "notification", "notifications", "inbox"])
+        }
+        if snapshot.isRemote {
+            baseKeywords.append(contentsOf: ["remote", "ssh", snapshot.remoteState.rawValue])
+        }
+        if snapshot.isDirty {
+            baseKeywords.append(contentsOf: ["dirty", "modified", "changes"])
+        }
+        if !snapshot.pullRequests.isEmpty {
+            baseKeywords.append(contentsOf: ["pr", "prs", "pull request", "pull requests"])
+        }
+        if !snapshot.listeningPorts.isEmpty {
+            baseKeywords.append(contentsOf: ["port", "ports"])
+        }
+        if snapshot.hasErrors {
+            baseKeywords.append(contentsOf: ["error", "errors", "failed", "failure"])
+        }
+        if snapshot.latestActivityAt != nil {
+            baseKeywords.append(contentsOf: ["recent", "activity", "active"])
+        }
+
+        for pullRequest in snapshot.pullRequests {
+            baseKeywords.append(contentsOf: [
+                pullRequest.label,
+                String(pullRequest.number),
+                "pr \(pullRequest.number)",
+                pullRequest.status.rawValue
+            ])
+            if let checks = pullRequest.checks {
+                baseKeywords.append(checks.rawValue)
+                if checks == .fail {
+                    baseKeywords.append(contentsOf: ["failing", "failed"])
+                }
+            }
+        }
+
+        return CommandPaletteSwitcherSearchIndexer.keywords(
+            baseKeywords: baseKeywords,
+            metadata: snapshot.metadata,
+            detail: .workspace
+        )
+    }
+}
+
+private struct SidebarWorkspaceFilterChip: View {
+    let title: String
+    let onRemove: () -> Void
+    let accent: Bool
+
+    var body: some View {
+        Button(action: onRemove) {
+            HStack(spacing: 5) {
+                Text(title)
+                    .lineLimit(1)
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+            }
+            .font(.system(size: 10, weight: .medium))
+            .foregroundColor(accent ? .white : .primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(accent ? cmuxAccentColor() : Color.primary.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SidebarWorkspaceFilterBar: View {
+    @Binding var filterState: SidebarWorkspaceFilterState
+
+    private var isMenuHighlighted: Bool {
+        !filterState.facets.isEmpty || filterState.recentWindow != nil
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+
+                    TextField(
+                        "",
+                        text: $filterState.query,
+                        prompt: Text(String(localized: "sidebar.filter.placeholder", defaultValue: "Filter workspaces"))
+                    )
+                    .textFieldStyle(.plain)
+
+                    if filterState.hasActiveFilters {
+                        Button {
+                            filterState.clear()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary.opacity(0.85))
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(String(localized: "sidebar.filter.clear", defaultValue: "Clear Filters"))
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                )
+
+                Menu {
+                    ForEach(SidebarWorkspaceFilterFacet.allCases, id: \.self) { facet in
+                        Toggle(isOn: Binding(
+                            get: { filterState.facets.contains(facet) },
+                            set: { _ in filterState.toggle(facet) }
+                        )) {
+                            Text(facet.title)
+                        }
+                    }
+
+                    Divider()
+
+                    Menu(String(localized: "sidebar.filter.recent", defaultValue: "Activity")) {
+                        Button(String(localized: "sidebar.filter.recent.any", defaultValue: "Any Time")) {
+                            filterState.recentWindow = nil
+                        }
+                        ForEach(SidebarWorkspaceRecentWindow.allCases, id: \.self) { window in
+                            Button {
+                                filterState.recentWindow = window
+                            } label: {
+                                if filterState.recentWindow == window {
+                                    Label(window.title, systemImage: "checkmark")
+                                } else {
+                                    Text(window.title)
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Button(String(localized: "sidebar.filter.clear", defaultValue: "Clear Filters")) {
+                        filterState.clear()
+                    }
+                    .disabled(!filterState.hasActiveFilters)
+                } label: {
+                    Image(systemName: isMenuHighlighted ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(isMenuHighlighted ? cmuxAccentColor() : .secondary)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .safeHelp(String(localized: "sidebar.filter.menu", defaultValue: "Workspace Filters"))
+            }
+
+            if !filterState.facets.isEmpty || filterState.recentWindow != nil {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(SidebarWorkspaceFilterFacet.allCases, id: \.self) { facet in
+                            if filterState.facets.contains(facet) {
+                                SidebarWorkspaceFilterChip(
+                                    title: facet.title,
+                                    onRemove: { filterState.toggle(facet) },
+                                    accent: true
+                                )
+                            }
+                        }
+                        if let recentWindow = filterState.recentWindow {
+                            SidebarWorkspaceFilterChip(
+                                title: recentWindow.title,
+                                onRemove: { filterState.recentWindow = nil },
+                                accent: false
+                            )
+                        }
+                    }
+                    .padding(.trailing, 4)
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+    }
+}
+
+private struct SidebarWorkspaceFilterEmptyState: View {
+    @Binding var filterState: SidebarWorkspaceFilterState
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Text(String(localized: "sidebar.filter.noResults", defaultValue: "No matching workspaces"))
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.secondary)
+
+            Button(String(localized: "sidebar.filter.clear", defaultValue: "Clear Filters")) {
+                filterState.clear()
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundColor(cmuxAccentColor())
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 12)
+    }
+}
+
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
@@ -9881,6 +10339,7 @@ struct VerticalTabsSidebar: View {
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
+    @State private var workspaceFilterState = SidebarWorkspaceFilterState()
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
     @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey)
@@ -9916,6 +10375,19 @@ struct VerticalTabsSidebar: View {
 
     var body: some View {
         let tabs = tabManager.tabs
+        let filterSnapshots = tabs.enumerated().map { index, workspace in
+            SidebarWorkspaceFilterEngine.snapshot(
+                for: workspace,
+                rank: index,
+                notificationStore: notificationStore
+            )
+        }
+        let visibleWorkspaceIDs = SidebarWorkspaceFilterEngine.visibleWorkspaceIDs(
+            snapshots: filterSnapshots,
+            state: workspaceFilterState
+        )
+        let visibleWorkspaceIDSet = Set(visibleWorkspaceIDs)
+        let filteredTabs = tabs.filter { visibleWorkspaceIDSet.contains($0.id) }
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -9940,63 +10412,69 @@ struct VerticalTabsSidebar: View {
                         Spacer()
                             .frame(height: trafficLightPadding)
 
-                        LazyVStack(spacing: tabRowSpacing) {
-                            ForEach(tabs, id: \.id) { tab in
-                                let index = tabIndexById[tab.id] ?? 0
-                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedContextTargetIds
-                                    : [tab.id]
-                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedRemoteContextMenuWorkspaceIds
-                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
-                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsConnecting
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
-                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsDisconnected
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
-                                    canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-                                    settings: tabItemSettings
-                                )
-                                .equatable()
+                        SidebarWorkspaceFilterBar(filterState: $workspaceFilterState)
+
+                        if filteredTabs.isEmpty, workspaceFilterState.hasActiveFilters {
+                            SidebarWorkspaceFilterEmptyState(filterState: $workspaceFilterState)
+                        } else {
+                            LazyVStack(spacing: tabRowSpacing) {
+                                ForEach(filteredTabs, id: \.id) { tab in
+                                    let index = tabIndexById[tab.id] ?? 0
+                                    let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+                                    let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                        ? selectedContextTargetIds
+                                        : [tab.id]
+                                    let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+                                        ? selectedRemoteContextMenuWorkspaceIds
+                                        : (tab.isRemoteWorkspace ? [tab.id] : [])
+                                    let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+                                        ? allSelectedRemoteContextMenuTargetsConnecting
+                                        : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+                                    let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+                                        ? allSelectedRemoteContextMenuTargetsDisconnected
+                                        : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+                                    TabItemView(
+                                        tabManager: tabManager,
+                                        notificationStore: notificationStore,
+                                        tab: tab,
+                                        index: index,
+                                        isActive: tabManager.selectedTabId == tab.id,
+                                        workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                                            at: index,
+                                            workspaceCount: workspaceCount
+                                        ),
+                                        workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                        canCloseWorkspace: canCloseWorkspace,
+                                        accessibilityWorkspaceCount: workspaceCount,
+                                        unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+                                        latestNotificationText: {
+                                            guard showsSidebarNotificationMessage,
+                                                  let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                                                return nil
+                                            }
+                                            let text = notification.body.isEmpty ? notification.title : notification.body
+                                            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                            return trimmed.isEmpty ? nil : trimmed
+                                        }(),
+                                        rowSpacing: tabRowSpacing,
+                                        setSelectionToTabs: { selection = .tabs },
+                                        selectedTabIds: $selectedTabIds,
+                                        lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+                                        showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+                                        dragAutoScrollController: dragAutoScrollController,
+                                        draggedTabId: $draggedTabId,
+                                        dropIndicator: $dropIndicator,
+                                        contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+                                        remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+                                        allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+                                        allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+                                        settings: tabItemSettings
+                                    )
+                                    .equatable()
+                                }
                             }
+                            .padding(.vertical, 8)
                         }
-                        .padding(.vertical, 8)
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,

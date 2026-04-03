@@ -315,6 +315,173 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
     }
 }
 
+final class SidebarWorkspaceFilterEngineTests: XCTestCase {
+    func testQueryMatchesBranchDirectoryAndPortMetadata() {
+        let snapshot = SidebarWorkspaceFilterSnapshot(
+            id: UUID(),
+            rank: 0,
+            title: "Agent Workspace",
+            metadata: CommandPaletteSwitcherSearchMetadata(
+                directories: ["/tmp/cmux/worktrees/issue-2515-sidebar-filter"],
+                branches: ["feat/sidebar-filter"],
+                ports: [4317]
+            ),
+            isPinned: false,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestNotificationDate: nil,
+            isRemote: false,
+            remoteTarget: nil,
+            remoteState: .disconnected,
+            remoteDetail: nil,
+            pullRequests: [],
+            listeningPorts: [4317],
+            isDirty: false,
+            hasErrors: false,
+            latestActivityAt: nil,
+            statusValues: [],
+            metadataTexts: [],
+            logMessages: []
+        )
+
+        XCTAssertTrue(
+            SidebarWorkspaceFilterEngine.matchesQuery(snapshot, query: "sidebar-filter")
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceFilterEngine.matchesQuery(snapshot, query: "feat/sidebar-filter")
+        )
+        XCTAssertTrue(
+            SidebarWorkspaceFilterEngine.matchesQuery(snapshot, query: "4317")
+        )
+    }
+
+    func testFacetFilteringRequiresAllSelectedFacets() {
+        let matching = SidebarWorkspaceFilterSnapshot(
+            id: UUID(),
+            rank: 0,
+            title: "Remote Dirty PR",
+            metadata: CommandPaletteSwitcherSearchMetadata(),
+            isPinned: true,
+            unreadCount: 3,
+            latestNotificationText: "Build failed",
+            latestNotificationDate: Date(),
+            isRemote: true,
+            remoteTarget: "devbox",
+            remoteState: .connected,
+            remoteDetail: nil,
+            pullRequests: [
+                SidebarPullRequestState(
+                    number: 2515,
+                    label: "PR",
+                    url: URL(string: "https://example.com/pr/2515")!,
+                    status: .open,
+                    branch: "feat/sidebar-filter",
+                    checks: .fail
+                )
+            ],
+            listeningPorts: [3000],
+            isDirty: true,
+            hasErrors: true,
+            latestActivityAt: Date(),
+            statusValues: [],
+            metadataTexts: [],
+            logMessages: ["Remote daemon error"]
+        )
+        let nonMatching = SidebarWorkspaceFilterSnapshot(
+            id: UUID(),
+            rank: 1,
+            title: "Local Clean",
+            metadata: CommandPaletteSwitcherSearchMetadata(),
+            isPinned: true,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestNotificationDate: nil,
+            isRemote: false,
+            remoteTarget: nil,
+            remoteState: .disconnected,
+            remoteDetail: nil,
+            pullRequests: [],
+            listeningPorts: [],
+            isDirty: false,
+            hasErrors: false,
+            latestActivityAt: nil,
+            statusValues: [],
+            metadataTexts: [],
+            logMessages: []
+        )
+        let state = SidebarWorkspaceFilterState(
+            query: "",
+            facets: [.pinned, .remote, .pullRequests, .errors],
+            recentWindow: nil
+        )
+
+        XCTAssertTrue(SidebarWorkspaceFilterEngine.matches(matching, state: state))
+        XCTAssertFalse(SidebarWorkspaceFilterEngine.matches(nonMatching, state: state))
+    }
+
+    func testRecentWindowFiltersOutStaleActivity() {
+        let now = Date()
+        let recent = SidebarWorkspaceFilterSnapshot(
+            id: UUID(),
+            rank: 0,
+            title: "Recent",
+            metadata: CommandPaletteSwitcherSearchMetadata(),
+            isPinned: false,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestNotificationDate: nil,
+            isRemote: false,
+            remoteTarget: nil,
+            remoteState: .disconnected,
+            remoteDetail: nil,
+            pullRequests: [],
+            listeningPorts: [],
+            isDirty: false,
+            hasErrors: false,
+            latestActivityAt: now.addingTimeInterval(-5 * 60),
+            statusValues: [],
+            metadataTexts: [],
+            logMessages: []
+        )
+        let stale = SidebarWorkspaceFilterSnapshot(
+            id: UUID(),
+            rank: 1,
+            title: "Stale",
+            metadata: CommandPaletteSwitcherSearchMetadata(),
+            isPinned: false,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            latestNotificationDate: nil,
+            isRemote: false,
+            remoteTarget: nil,
+            remoteState: .disconnected,
+            remoteDetail: nil,
+            pullRequests: [],
+            listeningPorts: [],
+            isDirty: false,
+            hasErrors: false,
+            latestActivityAt: now.addingTimeInterval(-(2 * 60 * 60)),
+            statusValues: [],
+            metadataTexts: [],
+            logMessages: []
+        )
+        let state = SidebarWorkspaceFilterState(
+            query: "",
+            facets: [],
+            recentWindow: .fifteenMinutes
+        )
+
+        XCTAssertEqual(
+            SidebarWorkspaceFilterEngine.visibleWorkspaceIDs(
+                snapshots: [recent, stale],
+                state: state,
+                now: now
+            ),
+            [recent.id]
+        )
+    }
+}
+
 @MainActor
 final class CommandPaletteRequestRoutingTests: XCTestCase {
     private func makeWindow() -> NSWindow {
