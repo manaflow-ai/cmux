@@ -171,6 +171,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleFullScreen.defaultsKey) private var toggleFullScreenShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     private var browserToolbarAccessorySpacing: Int {
@@ -695,6 +696,10 @@ struct cmuxApp: App {
                     }
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.toggleFullScreen", defaultValue: "Toggle Full Screen"), shortcut: toggleFullScreenMenuShortcut) {
+                    NotificationCenter.default.post(name: .toggleNonNativeFullScreen, object: nil)
+                }
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.nextSurface", defaultValue: "Next Surface"), shortcut: nextSurfaceMenuShortcut) {
@@ -978,6 +983,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
             fallback: KeyboardShortcutSettings.Action.closeWorkspace.defaultShortcut
+        )
+    }
+
+    private var toggleFullScreenMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleFullScreenShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleFullScreen.defaultShortcut
         )
     }
 
