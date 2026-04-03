@@ -1147,11 +1147,10 @@ class GhosttyApp {
             return GhosttyApp.shared.handleAction(target: target, action: action)
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
+            guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
+                  let requestSurface = callbackContext.runtimeSurface else { return false }
 
             DispatchQueue.main.async {
-                guard let requestSurface = callbackContext.runtimeSurface else { return }
-
                 func completeClipboardRequest(with text: String) {
                     let finish = {
                         guard callbackContext.runtimeSurface == requestSurface else { return }
@@ -1253,6 +1252,7 @@ class GhosttyApp {
                     )
                 }
             }
+            return true
         }
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
@@ -3756,6 +3756,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
+            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
@@ -4907,11 +4910,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
         // or other layout churn. Only defer terminal resizes while an actual drag event
         // is in flight; otherwise pre-existing panes can stay stuck at their old size.
+        // Interactive geometry resize already has an explicit fast path for sidebar and
+        // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+            return false
+        }
         guard hasTabDragPasteboardTypes() else { return false }
         return isDragResizeEvent(NSApp.currentEvent?.type)
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
+        if inLiveResize || window?.inLiveResize == true {
+            return nil
+        }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
     }
 
@@ -6052,12 +6063,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        #if DEBUG
+                        _ = sendTimedGhosttyKey(
+                            surface,
+                            keyEvent,
+                            path: "terminal.keyDown.accumulatedGhosttySend",
+                            event: event,
+                            extra: "textBytes=\(text.utf8.count)"
+                        )
+                        #else
+                        _ = sendGhosttyKey(surface, keyEvent)
+                        #endif
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.accumulatedGhosttySend",
+                        path: "terminal.keyDown.accumulatedGhosttySend.total",
                         startedAt: sendTimingStart,
                         event: event,
                         extra: "textBytes=\(text.utf8.count)"
@@ -6109,8 +6130,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     event: translationEvent,
                     markedTextBefore: markedTextBefore
                 )
+            let suppressComposingFallbackText = keyEvent.composing
             if let text = textForKeyEvent(translationEvent) {
-                if shouldSendText(text), !suppressShiftSpaceFallbackText {
+                if shouldSendText(text),
+                   !suppressShiftSpaceFallbackText,
+                   !suppressComposingFallbackText {
                     shouldRefreshAfterTextInput = true
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
@@ -6118,12 +6142,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        #if DEBUG
+                        _ = sendTimedGhosttyKey(
+                            surface,
+                            keyEvent,
+                            path: "terminal.keyDown.ghosttySend",
+                            event: event,
+                            extra: "textBytes=\(text.utf8.count)"
+                        )
+                        #else
+                        _ = sendGhosttyKey(surface, keyEvent)
+                        #endif
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.ghosttySend",
+                        path: "terminal.keyDown.ghosttySend.total",
                         startedAt: sendTimingStart,
                         event: event,
                         extra: "textBytes=\(text.utf8.count)"
@@ -9200,6 +9234,12 @@ final class GhosttySurfaceScrollView: NSView {
               matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
 #if DEBUG
             dlog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
+#endif
+            return
+        }
+        if AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) == true {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=commandPaletteVisible")
 #endif
             return
         }

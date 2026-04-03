@@ -53123,6 +53123,57 @@
         }
       }
     },
+    "settings.automation.claudeCode.customPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Binary Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claudeバイナリパス"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeCode.customPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. /usr/local/bin/claude"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: /usr/local/bin/claude"
+          }
+        }
+      }
+    },
+    "settings.automation.claudeCode.customPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom path to the claude binary. Leave empty to use PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claudeバイナリのカスタムパス。空欄の場合はPATHを使用します。"
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode.note": {
       "extractionState": "manual",
       "localizations": {
@@ -86657,6 +86708,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekmeyi Yeniden Adlandır"
+          }
+        }
+      }
+    },
+    "shortcut.editWorkspaceDescription.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Workspace Description"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を編集"
+          }
+        }
+      }
+    },
+    "menu.view.editWorkspaceDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Workspace Description…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を編集…"
+          }
+        }
+      }
+    },
+    "command.editWorkspaceDescription.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Workspace Description…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を編集…"
+          }
+        }
+      }
+    },
+    "command.clearWorkspaceDescription.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Workspace Description"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を消去"
+          }
+        }
+      }
+    },
+    "commandPalette.description.workspacePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace description"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明"
+          }
+        }
+      }
+    },
+    "commandPalette.description.workspaceInputHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press Enter to save. Press Shift-Enter for a new line, or Escape to cancel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter で保存します。Shift-Enter で改行、Escape でキャンセルします。"
+          }
+        }
+      }
+    },
+    "contextMenu.editWorkspaceDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit Workspace Description…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を編集…"
+          }
+        }
+      }
+    },
+    "contextMenu.clearWorkspaceDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Workspace Description"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明を消去"
           }
         }
       }

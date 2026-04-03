@@ -169,6 +169,7 @@ struct cmuxApp: App {
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.editWorkspaceDescription.defaultsKey) private var editWorkspaceDescriptionShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.openFolder.defaultsKey) private var openFolderShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.closeWorkspace.defaultsKey) private var closeWorkspaceShortcutData = Data()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -776,6 +777,10 @@ struct cmuxApp: App {
                     _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: editWorkspaceDescriptionMenuShortcut) {
+                    _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+                }
+
                 Divider()
 
                 splitCommandButton(title: String(localized: "menu.view.splitRight", defaultValue: "Split Right"), shortcut: splitRightMenuShortcut) {
@@ -974,6 +979,13 @@ struct cmuxApp: App {
         )
     }
 
+    private var editWorkspaceDescriptionMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: editWorkspaceDescriptionShortcutData,
+            fallback: KeyboardShortcutSettings.Action.editWorkspaceDescription.defaultShortcut
+        )
+    }
+
     private var closeWorkspaceMenuShortcut: StoredShortcut {
         decodeShortcut(
             from: closeWorkspaceShortcutData,
@@ -1135,6 +1147,11 @@ struct cmuxApp: App {
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+            _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
         }
         .disabled(workspace == nil)
 
@@ -3921,12 +3938,19 @@ enum CommandPaletteSwitcherSearchSettings {
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
+    static let customClaudePathKey = "claudeCodeCustomClaudePath"
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
             return defaultHooksEnabled
         }
         return defaults.bool(forKey: hooksEnabledKey)
+    }
+
+    static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
+        let value = defaults.string(forKey: customClaudePathKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -4006,6 +4030,8 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
+    private var customClaudePath = ""
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -5384,6 +5410,20 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsCardRow(
+                            String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
+                            subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
+                                text: $customClaudePath
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -5945,6 +5985,7 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
+        customClaudePath = ""
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue

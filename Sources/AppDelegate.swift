@@ -1646,6 +1646,15 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
     return nil
 }
 
+func shouldRouteCommandPaletteSelectionNavigation(
+    delta: Int?,
+    isInteractive: Bool,
+    usesInlineTextHandling: Bool
+) -> Bool {
+    guard delta != nil, isInteractive else { return false }
+    return !usesInlineTextHandling
+}
+
 func shouldConsumeShortcutWhileCommandPaletteVisible(
     isCommandPaletteVisible: Bool,
     normalizedFlags: NSEvent.ModifierFlags,
@@ -1691,21 +1700,31 @@ func shouldConsumeShortcutWhileCommandPaletteVisible(
 
 func shouldSubmitCommandPaletteWithReturn(
     keyCode: UInt16,
-    flags: NSEvent.ModifierFlags
+    flags: NSEvent.ModifierFlags,
+    mode: String
 ) -> Bool {
     guard keyCode == 36 || keyCode == 76 else { return false }
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
-    return normalizedFlags == [] || normalizedFlags == [.shift]
+    if normalizedFlags.isEmpty {
+        return true
+    }
+    if normalizedFlags == [.shift] {
+        return mode != "workspace_description_input"
+    }
+    return false
 }
 
 func commandPaletteFieldEditorHasMarkedText(in window: NSWindow) -> Bool {
-    guard let editor = window.firstResponder as? NSTextView,
-          editor.isFieldEditor else {
-        return false
+    if let editor = window.firstResponder as? NSTextView {
+        return editor.hasMarkedText()
     }
-    return editor.hasMarkedText()
+    if let textField = window.firstResponder as? NSTextField,
+       let editor = textField.currentEditor() as? NSTextView {
+        return editor.hasMarkedText()
+    }
+    return false
 }
 
 func shouldHandleCommandPaletteShortcutEvent(
@@ -4703,6 +4722,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func requestCommandPaletteEditWorkspaceDescription(
+        preferredWindow: NSWindow? = nil,
+        source: String = "api.commandPaletteEditWorkspaceDescription"
+    ) {
+        postCommandPaletteRequest(
+            name: .commandPaletteEditWorkspaceDescriptionRequested,
+            preferredWindow: preferredWindow,
+            source: source,
+            markPending: true
+        )
+    }
+
     private func clearCommandPalettePendingOpen(for window: NSWindow?) {
         guard let window,
               let windowId = mainWindowId(for: window) else { return }
@@ -4867,6 +4898,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func isCommandPaletteVisible(for window: NSWindow) -> Bool {
         guard let windowId = mainWindowId(for: window) else { return false }
         return commandPaletteVisibilityByWindowId[windowId] ?? false
+    }
+
+    func isCommandPaletteEffectivelyVisible(for window: NSWindow) -> Bool {
+        isCommandPaletteEffectivelyVisible(in: window)
     }
 
     func shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
@@ -5332,6 +5367,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return isCommandPaletteOverlayPresented(in: window)
         }
         return isCommandPaletteResponder(responder)
+    }
+
+    private func isCommandPaletteMultilineTextResponderActive(in window: NSWindow) -> Bool {
+        guard let textView = window.firstResponder as? NSTextView,
+              !textView.isFieldEditor else {
+            return false
+        }
+        return isCommandPaletteResponder(textView)
     }
 
     private func commandPaletteMarkedTextInput(in window: NSWindow) -> NSTextView? {
@@ -9486,6 +9529,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             commandPaletteInteractiveInTargetWindow
             || commandPalettePendingOpenInTargetWindow
 
+#if DEBUG
+        if event.keyCode == 36 || event.keyCode == 76 {
+            dlog(
+                "shortcut.return.raw " +
+                "interactive=\(commandPaletteInteractiveInTargetWindow ? 1 : 0) " +
+                "effective=\(commandPaletteEffectiveInTargetWindow ? 1 : 0) " +
+                "target={\(debugWindowToken(commandPaletteTargetWindow))} " +
+                "shortcutWindow={\(debugWindowToken(commandPaletteShortcutWindow))} " +
+                "responderTarget=\(commandPaletteResponderActiveInTargetWindow ? 1 : 0) " +
+                "overlayTarget=\(commandPaletteOverlayVisibleInTargetWindow ? 1 : 0) " +
+                "pendingTarget=\(commandPalettePendingOpenInTargetWindow ? 1 : 0) " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+        }
+#endif
+
         if normalizedFlags.isEmpty, event.keyCode == 53 {
             let activePaletteWindow = activeCommandPaletteWindow()
             let escapePaletteWindow: NSWindow? = {
@@ -9568,12 +9627,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         }
 
-        if let delta = commandPaletteSelectionDeltaForKeyboardNavigation(
+        let paletteUsesInlineTextHandling = commandPaletteShortcutWindow.map {
+            isCommandPaletteMultilineTextResponderActive(in: $0)
+        } ?? false
+
+        let paletteSelectionDelta = commandPaletteSelectionDeltaForKeyboardNavigation(
             flags: event.modifierFlags,
             chars: chars,
             keyCode: event.keyCode
+        )
+
+        if shouldRouteCommandPaletteSelectionNavigation(
+            delta: paletteSelectionDelta,
+            isInteractive: commandPaletteInteractiveInTargetWindow,
+            usesInlineTextHandling: paletteUsesInlineTextHandling
         ),
-           commandPaletteInteractiveInTargetWindow,
+           let delta = paletteSelectionDelta,
            let paletteWindow = commandPaletteShortcutWindow {
             NotificationCenter.default.post(
                 name: .commandPaletteMoveSelection,
@@ -9586,6 +9655,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if commandPaletteInteractiveInTargetWindow,
            let paletteWindow = commandPaletteShortcutWindow {
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
+            let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
+            let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
             if normalizedFlags.isEmpty, event.keyCode == 53 {
                 if paletteFieldEditorHasMarkedText {
                     return false
@@ -9594,10 +9665,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return true
             }
 
-            if shouldSubmitCommandPaletteWithReturn(
+            let shouldSubmitPalette = shouldSubmitCommandPaletteWithReturn(
                 keyCode: event.keyCode,
-                flags: event.modifierFlags
-            ) {
+                flags: event.modifierFlags,
+                mode: paletteSnapshot.mode
+            )
+#if DEBUG
+            if event.keyCode == 36 || event.keyCode == 76 {
+                dlog(
+                    "shortcut.palette.return target={\(debugWindowToken(paletteWindow))} " +
+                    "mode=\(paletteSnapshot.mode) " +
+                    "inline=\(paletteUsesInlineReturnHandling ? 1 : 0) " +
+                    "submit=\(shouldSubmitPalette ? 1 : 0) " +
+                    "marked=\(paletteFieldEditorHasMarkedText ? 1 : 0) " +
+                    "\(debugShortcutRouteSnapshot(event: event))"
+                )
+            }
+#endif
+            if paletteUsesInlineReturnHandling,
+               event.keyCode == 36 || event.keyCode == 76 {
+                return false
+            }
+            if shouldSubmitPalette {
                 if paletteFieldEditorHasMarkedText {
                     return false
                 }
@@ -9902,6 +9991,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .renameWorkspace)) {
             return requestRenameWorkspaceViaCommandPalette(
+                preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)) {
+#if DEBUG
+            dlog(
+                "shortcut.editWorkspaceDescription matched target={\(debugWindowToken(commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow))} " +
+                "\(debugShortcutRouteSnapshot(event: event))"
+            )
+#endif
+            return requestEditWorkspaceDescriptionViaCommandPalette(
                 preferredWindow: commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             )
         }
@@ -10875,6 +10976,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         requestCommandPaletteRenameWorkspace(
             preferredWindow: targetWindow,
             source: "shortcut.renameWorkspace"
+        )
+        return true
+    }
+
+    @discardableResult
+    func requestEditWorkspaceDescriptionViaCommandPalette(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+#if DEBUG
+        dlog(
+            "shortcut.editWorkspaceDescription request target={\(debugWindowToken(targetWindow))} " +
+            "fr=\(targetWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        )
+#endif
+        requestCommandPaletteEditWorkspaceDescription(
+            preferredWindow: targetWindow,
+            source: "shortcut.editWorkspaceDescription"
         )
         return true
     }

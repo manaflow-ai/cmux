@@ -212,6 +212,28 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceCustomDescriptionTests: XCTestCase {
+    func testSetCustomDescriptionPreservesMeaningfulLeadingAndTrailingWhitespace() {
+        let workspace = Workspace()
+        let description = "  line one\n\nline two\n\n"
+
+        workspace.setCustomDescription(description)
+
+        XCTAssertEqual(workspace.customDescription, description)
+        XCTAssertTrue(workspace.hasCustomDescription)
+    }
+
+    func testSetCustomDescriptionClearsWhitespaceOnlyDescriptions() {
+        let workspace = Workspace()
+
+        workspace.setCustomDescription(" \n\t \n")
+
+        XCTAssertNil(workspace.customDescription)
+        XCTAssertFalse(workspace.hasCustomDescription)
+    }
+}
+
 
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
