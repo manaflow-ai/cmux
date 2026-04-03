@@ -827,8 +827,8 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  list-meta                 List sidebar metadata blocks")
 	fmt.Fprintln(os.Stderr, "  set-agent-pid             Associate a PID with a status key")
 	fmt.Fprintln(os.Stderr, "  clear-agent-pid           Remove PID association from a status key")
-	fmt.Fprintln(os.Stderr, "  report-git-branch         Report git branch info for a surface")
-	fmt.Fprintln(os.Stderr, "  clear-git-branch          Clear git branch info for a surface")
+	fmt.Fprintln(os.Stderr, "  report-git-branch         Report git branch info (surface optional)")
+	fmt.Fprintln(os.Stderr, "  clear-git-branch          Clear git branch info (surface optional)")
 	fmt.Fprintln(os.Stderr, "  sidebar-state             Get full sidebar state")
 	fmt.Fprintln(os.Stderr, "  reset-sidebar             Reset all sidebar state")
 }

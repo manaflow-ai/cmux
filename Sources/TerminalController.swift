@@ -2171,7 +2171,7 @@ class TerminalController {
         case "sidebar.clear_status":
             return v2Result(id: id, self.v2SidebarClearStatus(params: params))
         case "sidebar.list_status":
-            return v2Ok(id: id, result: self.v2SidebarListStatus(params: params))
+            return v2Result(id: id, self.v2SidebarListStatus(params: params))
         case "sidebar.set_progress":
             return v2Result(id: id, self.v2SidebarSetProgress(params: params))
         case "sidebar.clear_progress":
@@ -2181,13 +2181,13 @@ class TerminalController {
         case "sidebar.clear_log":
             return v2Result(id: id, self.v2SidebarClearLog(params: params))
         case "sidebar.list_log":
-            return v2Ok(id: id, result: self.v2SidebarListLog(params: params))
+            return v2Result(id: id, self.v2SidebarListLog(params: params))
         case "sidebar.set_meta":
             return v2Result(id: id, self.v2SidebarSetMeta(params: params))
         case "sidebar.clear_meta":
             return v2Result(id: id, self.v2SidebarClearMeta(params: params))
         case "sidebar.list_meta":
-            return v2Ok(id: id, result: self.v2SidebarListMeta(params: params))
+            return v2Result(id: id, self.v2SidebarListMeta(params: params))
         case "sidebar.set_agent_pid":
             return v2Result(id: id, self.v2SidebarSetAgentPid(params: params))
         case "sidebar.clear_agent_pid":
@@ -2197,7 +2197,7 @@ class TerminalController {
         case "sidebar.clear_git_branch":
             return v2Result(id: id, self.v2SidebarClearGitBranch(params: params))
         case "sidebar.state":
-            return v2Ok(id: id, result: self.v2SidebarState(params: params))
+            return v2Result(id: id, self.v2SidebarState(params: params))
         case "sidebar.reset":
             return v2Result(id: id, self.v2SidebarReset(params: params))
 
@@ -6688,6 +6688,12 @@ class TerminalController {
 
     // MARK: - V2 Sidebar Methods
 
+    // NOTE: These methods use v2MainSync to mutate workspace state on the main thread,
+    // matching the existing V1 handler behavior. For high-frequency paths (set_status,
+    // set_progress, log), this serializes socket I/O with UI updates. This is acceptable
+    // for current usage patterns but could be optimized with async dispatch if telemetry
+    // shows main-thread contention from sidebar updates.
+
     private func v2SidebarSetStatus(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6713,11 +6719,15 @@ class TerminalController {
         }
         let priority = max(-9999, min(9999, v2Int(params, "priority") ?? 0))
         let formatRaw = v2String(params, "format") ?? SidebarMetadataFormat.plain.rawValue
-        guard let format = SidebarMetadataFormat(rawValue: formatRaw) else {
+        let normalizedFormat: String = {
+            let lower = formatRaw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return lower == "md" ? SidebarMetadataFormat.markdown.rawValue : lower
+        }()
+        guard let format = SidebarMetadataFormat(rawValue: normalizedFormat) else {
             return .err(code: "invalid_params", message: "Invalid format '\(formatRaw)' — use: plain, markdown", data: nil)
         }
         let pidValue: pid_t? = {
-            if let p = v2Int(params, "pid"), p > 0 { return pid_t(p) }
+            if let p = v2Int(params, "pid"), p > 0, p <= Int(Int32.max) { return pid_t(p) }
             return nil
         }()
 
@@ -6782,15 +6792,18 @@ class TerminalController {
         return result
     }
 
-    private func v2SidebarListStatus(params: [String: Any]) -> [String: Any] {
+    private func v2SidebarListStatus(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return ["entries": []]
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let isoFormatter = ISO8601DateFormatter()
-        var entries: [[String: Any]] = []
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to list status", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
-            entries = ws.sidebarStatusEntriesInDisplayOrder().map { entry in
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let entries: [[String: Any]] = ws.sidebarStatusEntriesInDisplayOrder().map { entry in
                 [
                     "key": entry.key,
                     "value": entry.value,
@@ -6802,8 +6815,9 @@ class TerminalController {
                     "timestamp": isoFormatter.string(from: entry.timestamp)
                 ]
             }
+            result = .ok(["entries": entries])
         }
-        return ["entries": entries]
+        return result
     }
 
     private func v2SidebarSetProgress(params: [String: Any]) -> V2CallResult {
@@ -6905,22 +6919,25 @@ class TerminalController {
         return result
     }
 
-    private func v2SidebarListLog(params: [String: Any]) -> [String: Any] {
+    private func v2SidebarListLog(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return ["entries": []]
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let limit = v2Int(params, "limit")
         let isoFormatter = ISO8601DateFormatter()
-        var entries: [[String: Any]] = []
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to list log", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
             let logSlice: [SidebarLogEntry]
             if let limit {
-                logSlice = Array(ws.logEntries.suffix(limit))
+                logSlice = Array(ws.logEntries.suffix(max(0, limit)))
             } else {
                 logSlice = ws.logEntries
             }
-            entries = logSlice.map { entry in
+            let entries: [[String: Any]] = logSlice.map { entry in
                 [
                     "message": entry.message,
                     "level": entry.level.rawValue,
@@ -6928,8 +6945,9 @@ class TerminalController {
                     "timestamp": isoFormatter.string(from: entry.timestamp)
                 ]
             }
+            result = .ok(["entries": entries])
         }
-        return ["entries": entries]
+        return result
     }
 
     private func v2SidebarSetMeta(params: [String: Any]) -> V2CallResult {
@@ -6939,8 +6957,18 @@ class TerminalController {
         guard let key = v2String(params, "key") else {
             return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
         }
-        guard let markdown = v2String(params, "markdown") else {
-            return .err(code: "invalid_params", message: "Missing or empty 'markdown'", data: nil)
+        // Use raw extraction — v2String trims whitespace which breaks markdown formatting.
+        // Normalize escape sequences (\\n → newline, \\t → tab) and CRLF → LF, matching V1 behavior.
+        guard let rawMarkdown = params["markdown"] as? String else {
+            return .err(code: "invalid_params", message: "Missing 'markdown'", data: nil)
+        }
+        let markdown = rawMarkdown
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\t", with: "\t")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        guard !markdown.isEmpty else {
+            return .err(code: "invalid_params", message: "Empty 'markdown'", data: nil)
         }
         let priority = max(-9999, min(9999, v2Int(params, "priority") ?? 0))
 
@@ -6990,15 +7018,18 @@ class TerminalController {
         return result
     }
 
-    private func v2SidebarListMeta(params: [String: Any]) -> [String: Any] {
+    private func v2SidebarListMeta(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return ["blocks": []]
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let isoFormatter = ISO8601DateFormatter()
-        var blocks: [[String: Any]] = []
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to list metadata", data: nil)
         v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
-            blocks = ws.sidebarMetadataBlocksInDisplayOrder().map { block in
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let blocks: [[String: Any]] = ws.sidebarMetadataBlocksInDisplayOrder().map { block in
                 [
                     "key": block.key,
                     "markdown": block.markdown,
@@ -7006,8 +7037,9 @@ class TerminalController {
                     "timestamp": isoFormatter.string(from: block.timestamp)
                 ]
             }
+            result = .ok(["blocks": blocks])
         }
-        return ["blocks": blocks]
+        return result
     }
 
     private func v2SidebarSetAgentPid(params: [String: Any]) -> V2CallResult {
@@ -7017,7 +7049,7 @@ class TerminalController {
         guard let key = v2String(params, "key") else {
             return .err(code: "invalid_params", message: "Missing or empty 'key'", data: nil)
         }
-        guard let pid = v2Int(params, "pid"), pid > 0 else {
+        guard let pid = v2Int(params, "pid"), pid > 0, pid <= Int(Int32.max) else {
             return .err(code: "invalid_params", message: "Missing or invalid 'pid' — must be > 0", data: nil)
         }
 
@@ -7109,15 +7141,15 @@ class TerminalController {
         return result
     }
 
-    private func v2SidebarState(params: [String: Any]) -> [String: Any] {
+    private func v2SidebarState(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
-            return ["error": "TabManager not available"]
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let isoFormatter = ISO8601DateFormatter()
-        var state: [String: Any] = [:]
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to get sidebar state", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                state = ["error": "Workspace not found"]
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
             // Status entries
@@ -7181,7 +7213,7 @@ class TerminalController {
             for (key, pid) in ws.agentPIDs {
                 agentPids[key] = Int(pid)
             }
-            state = [
+            let state: [String: Any] = [
                 "workspace_id": ws.id.uuidString,
                 "status_entries": statusEntries,
                 "progress": progressDict,
@@ -7191,8 +7223,9 @@ class TerminalController {
                 "metadata_blocks": metadataBlocks,
                 "agent_pids": agentPids
             ]
+            result = .ok(state)
         }
-        return state
+        return result
     }
 
     private func v2SidebarReset(params: [String: Any]) -> V2CallResult {
