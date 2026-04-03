@@ -2185,6 +2185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
+    /// Persistent storage for non-native fullscreen controllers, keyed by window ObjectIdentifier.
+    private var nonNativeFullscreens: [ObjectIdentifier: NonNativeFullscreen] = [:]
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
@@ -2518,6 +2520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         NSWindow.allowsAutomaticWindowTabbing = false
         disableNativeTabbingShortcut()
+        disableNativeFullScreenShortcut()
         ensureApplicationIcon()
         if !isRunningUnderXCTest {
             configureUserNotifications()
@@ -9680,7 +9683,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let targetWindow = mainWindowForShortcutEvent(event) else {
                 return false
             }
-            targetWindow.toggleFullScreen(nil)
+            // Use non-native fullscreen if configured; otherwise fall back to native.
+            let config = GhosttyConfig.load()
+            if let style = config.macosNonNativeFullscreen.fullscreenStyle {
+                nonNativeFullscreen(for: targetWindow, style: style).toggle()
+                NotificationCenter.default.post(
+                    name: .toggleNonNativeFullScreen,
+                    object: targetWindow
+                )
+            } else {
+                targetWindow.toggleFullScreen(nil)
+            }
             return true
         }
 
@@ -9767,6 +9780,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Primary UI shortcuts
         if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleSidebar)) {
             _ = toggleSidebarInActiveMainWindow()
+            return true
+        }
+
+        if matchShortcut(event: event, shortcut: KeyboardShortcutSettings.shortcut(for: .toggleFullScreen)) {
+            NotificationCenter.default.post(name: .toggleNonNativeFullScreen, object: nil)
             return true
         }
 
@@ -11265,9 +11283,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         center.delegate = self
     }
 
+    /// Returns (or lazily creates) the NonNativeFullscreen controller for a window.
+    func nonNativeFullscreen(for window: NSWindow, style: NonNativeFullscreen.Style) -> NonNativeFullscreen {
+        let key = ObjectIdentifier(window)
+        if let existing = nonNativeFullscreens[key] {
+            return existing
+        }
+        let controller = NonNativeFullscreen(window: window, style: style)
+        nonNativeFullscreens[key] = controller
+        // Clean up when the window closes.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.nonNativeFullscreens.removeValue(forKey: key)
+        }
+        return controller
+    }
+
     private func disableNativeTabbingShortcut() {
         guard let menu = NSApp.mainMenu else { return }
         disableMenuItemShortcut(in: menu, action: #selector(NSWindow.toggleTabBar(_:)))
+    }
+
+    private func disableNativeFullScreenShortcut() {
+        guard let menu = NSApp.mainMenu else { return }
+        disableMenuItemShortcut(in: menu, action: #selector(NSWindow.toggleFullScreen(_:)))
     }
 
     private func disableMenuItemShortcut(in menu: NSMenu, action: Selector) {

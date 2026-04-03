@@ -3088,6 +3088,29 @@ struct ContentView: View {
             }
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .toggleNonNativeFullScreen)) { notification in
+            // AppDelegate already toggled the NonNativeFullscreen controller and posted this
+            // notification with the target window as the object. We only need to sync UI state.
+            let targetWindow = notification.object as? NSWindow
+            guard let window = targetWindow ?? observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+            // Only react to events that concern this view's window.
+            if let targetWindow, targetWindow !== observedWindow { return }
+            let config = GhosttyConfig.load()
+            if let style = config.macosNonNativeFullscreen.fullscreenStyle {
+                let controller = AppDelegate.shared?.nonNativeFullscreen(for: window, style: style)
+                let nowFullScreen = controller?.isFullScreen ?? false
+                isFullScreen = nowFullScreen
+                setTitlebarControlsHidden(nowFullScreen, in: window)
+                if nowFullScreen {
+                    AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+                } else {
+                    AppDelegate.shared?.fullscreenControlsViewModel = nil
+                }
+                syncTrafficLightInset()
+                applyWindowTransparencyState(to: window)
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
             guard let window = notification.object as? NSWindow,
                   window === observedWindow else { return }
@@ -6201,21 +6224,8 @@ struct ContentView: View {
             }
             let config = GhosttyConfig.load()
             if let style = config.macosNonNativeFullscreen.fullscreenStyle {
-                if nonNativeFullscreen == nil {
-                    nonNativeFullscreen = NonNativeFullscreen(window: window, style: style)
-                }
-                nonNativeFullscreen?.toggle()
-                let nowFullScreen = nonNativeFullscreen?.isFullScreen ?? false
-                isFullScreen = nowFullScreen
-                setTitlebarControlsHidden(nowFullScreen, in: window)
-                if nowFullScreen {
-                    AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
-                } else {
-                    AppDelegate.shared?.fullscreenControlsViewModel = nil
-                }
-                syncTrafficLightInset()
-                // Re-apply transparency state after non-native fullscreen toggle
-                applyWindowTransparencyState(to: window)
+                AppDelegate.shared?.nonNativeFullscreen(for: window, style: style).toggle()
+                NotificationCenter.default.post(name: .toggleNonNativeFullScreen, object: window)
             } else {
                 window.toggleFullScreen(nil)
             }
