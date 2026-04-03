@@ -662,6 +662,55 @@ enum SessionRestoreCommandSettings {
         "shred",
     ]
 
+    /// Substrings that block a command if found anywhere (for sensitive args)
+    /// These patterns catch credentials/tokens that shouldn't be persisted to session JSON
+    private static let denylistContains = [
+        // API keys and tokens
+        "--api-key=",
+        "--api-key ",
+        "--apikey=",
+        "--apikey ",
+        "--token=",
+        "--token ",
+        "--access-token=",
+        "--access-token ",
+        "--auth-token=",
+        "--auth-token ",
+        "--bearer=",
+        "--bearer ",
+        "--secret=",
+        "--secret ",
+        "--client-secret=",
+        "--client-secret ",
+        // Passwords
+        "--password=",
+        "--password ",
+        "--passwd=",
+        "--passwd ",
+        "-p ",  // Common short flag for password (mysql, etc.)
+        "-P ",  // Alternative password flag
+        // AWS credentials
+        "--aws-access-key-id=",
+        "--aws-secret-access-key=",
+        "AWS_ACCESS_KEY_ID=",
+        "AWS_SECRET_ACCESS_KEY=",
+        // SSH/auth
+        "--private-key=",
+        "--private-key ",
+        "--ssh-key=",
+        "--ssh-key ",
+        // Database connection strings (often contain passwords)
+        "mongodb://",
+        "postgresql://",
+        "mysql://",
+        "redis://",
+        // Generic sensitive patterns
+        "--credentials=",
+        "--credentials ",
+        "--auth=",
+        "--auth ",
+    ]
+
     /// Check if a command matches the allowlist.
     /// - Exact match: "opencode" matches only "opencode"
     /// - Prefix match: "opencode *" matches "opencode", "opencode --flag", etc.
@@ -690,6 +739,16 @@ enum SessionRestoreCommandSettings {
         }
     }
 
+    /// Normalize and validate a restore command in one step.
+    /// Returns the trimmed command if allowed, nil otherwise.
+    /// Use this helper to avoid duplicating trim + allowlist check logic.
+    static func validatedRestoreCommand(_ command: String?) -> String? {
+        guard let command, !command.isEmpty else { return nil }
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isCommandAllowed(trimmed) else { return nil }
+        return trimmed
+    }
+
     /// Check if command matches the hardcoded denylist (case-insensitive for safety)
     private static func isCommandDenied(_ command: String) -> Bool {
         let lowercased = command.lowercased()
@@ -702,6 +761,13 @@ enum SessionRestoreCommandSettings {
         // Check prefix matches
         for prefix in denylistPrefixes {
             if lowercased.hasPrefix(prefix.lowercased()) {
+                return true
+            }
+        }
+
+        // Check substring matches (for sensitive args anywhere in command)
+        for substring in denylistContains {
+            if lowercased.contains(substring.lowercased()) {
                 return true
             }
         }

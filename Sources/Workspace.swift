@@ -674,19 +674,12 @@ extension Workspace {
             // 3. Otherwise, check if detectedCommand is in the allowlist
             let commandToRestore: String? = {
                 guard SessionRestoreCommandSettings.isEnabled() else { return nil }
-                if let explicit = snapshot.terminal?.restoreCommand,
-                   !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Validate explicit commands against allowlist to prevent injection
-                    // from tampered session JSON files
-                    let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return SessionRestoreCommandSettings.isCommandAllowed(trimmed) ? trimmed : nil
+                // Explicit restoreCommand takes priority (validated for security)
+                if let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
+                    return validated
                 }
-                guard let detected = snapshot.terminal?.detectedCommand,
-                      !detected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return nil
-                }
-                // Only auto-restore if the detected command is in the allowlist
-                return SessionRestoreCommandSettings.isCommandAllowed(detected) ? detected : nil
+                // Fall back to detected command if allowed
+                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
             }()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
@@ -699,12 +692,8 @@ extension Workspace {
             }
             // Persist explicit restoreCommand if allowed and not remote-backed
             if remoteTerminalStartupCommand() == nil,
-               let restoreCommand = snapshot.terminal?.restoreCommand,
-               !restoreCommand.isEmpty {
-                let trimmed = restoreCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-                if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
-                    setPanelRestoreCommand(panelId: terminalPanel.id, command: trimmed)
-                }
+               let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
+                setPanelRestoreCommand(panelId: terminalPanel.id, command: validated)
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
@@ -7202,12 +7191,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Only terminal panels support restore commands. Blocked commands are rejected.
     func setPanelRestoreCommand(panelId: UUID, command: String?) {
         guard panels[panelId] is TerminalPanel else { return }
-        let trimmed = command?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty, SessionRestoreCommandSettings.isCommandAllowed(trimmed) else {
+        guard let validated = SessionRestoreCommandSettings.validatedRestoreCommand(command) else {
             panelRestoreCommands.removeValue(forKey: panelId)
             return
         }
-        panelRestoreCommands[panelId] = trimmed
+        panelRestoreCommands[panelId] = validated
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {

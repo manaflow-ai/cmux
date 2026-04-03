@@ -3736,7 +3736,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        // Refresh foreground process cache. Only block for quit saves; autosaves use last cached values.
+        // Refresh foreground process cache before building snapshot.
+        // - Quit saves: block with timeout to get fresh data (user expects accurate state)
+        // - Autosaves: fire-and-forget refresh for next save; current save uses last cached values
+        //   (intentional one-save lag to avoid blocking UI during periodic autosaves)
         if isTerminatingApp {
             refreshForegroundProcessCacheSync()
         } else {

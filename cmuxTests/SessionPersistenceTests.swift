@@ -1120,6 +1120,40 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 // MARK: - Session Restore Command Settings Tests
 
 final class SessionRestoreCommandSettingsTests: XCTestCase {
+    // MARK: - Enabled Toggle Tests
+
+    func testDisabledSettingBlocksAllCommands() {
+        let defaults = UserDefaults(suiteName: "SessionRestoreCommandSettingsTests")!
+        defaults.removePersistentDomain(forName: "SessionRestoreCommandSettingsTests")
+
+        // Explicitly disable restore commands
+        defaults.set(false, forKey: SessionRestoreCommandSettings.enabledKey)
+
+        // Even allowlisted commands should be blocked when disabled
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode", defaults: defaults))
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("npm run dev", defaults: defaults))
+    }
+
+    func testEnabledByDefaultWhenKeyNotSet() {
+        let defaults = UserDefaults(suiteName: "SessionRestoreCommandSettingsTests")!
+        defaults.removePersistentDomain(forName: "SessionRestoreCommandSettingsTests")
+
+        // Key not set should default to enabled (allowing allowlisted commands)
+        // Note: uses default allowlist which includes opencode *
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", defaults: defaults))
+    }
+
+    func testExplicitlyEnabledAllowsCommands() {
+        let defaults = UserDefaults(suiteName: "SessionRestoreCommandSettingsTests")!
+        defaults.removePersistentDomain(forName: "SessionRestoreCommandSettingsTests")
+
+        // Explicitly enable restore commands
+        defaults.set(true, forKey: SessionRestoreCommandSettings.enabledKey)
+
+        // Should work with default allowlist
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode", defaults: defaults))
+    }
+
     // MARK: - Pattern Matching Tests
 
     func testExactMatchPatternMatchesOnlyExactCommand() {
@@ -1338,6 +1372,43 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
             "launchctl bootout system/com.apple.foobar",
             "launchctl remove com.apple.foobar",
         ], allowlist: "launchctl *")
+    }
+
+    func testDenylistBlocksSensitiveCredentials() {
+        // Commands with tokens/credentials anywhere should be blocked to prevent
+        // persisting secrets to session JSON
+        let allowlist = "opencode *\nnpm *\nmysql *\naws *"
+        assertAllBlocked([
+            // API keys and tokens
+            "opencode --api-key=sk-1234567890",
+            "opencode --token=abc123",
+            "npm run dev --access-token=xyz",
+            "mycli --bearer=eyJhbGc...",
+            "mycli --secret=supersecret",
+            // Passwords
+            "mysql -u root -p password123",
+            "mycli --password=secret",
+            "psql --passwd=dbpass",
+            // AWS credentials
+            "aws --aws-access-key-id=AKIA...",
+            "aws --aws-secret-access-key=secret",
+            "AWS_ACCESS_KEY_ID=AKIA... aws s3 ls",
+            // Database connection strings
+            "mycli mongodb://user:pass@host/db",
+            "mycli postgresql://user:pass@host/db",
+            "mycli mysql://user:pass@host/db",
+            // Generic sensitive patterns
+            "mycli --credentials=path/to/creds",
+            "mycli --auth=bearer-token",
+        ], allowlist: allowlist)
+    }
+
+    func testDenylistAllowsCommandsWithoutSensitiveArgs() {
+        // Commands that look similar but don't have actual credentials should be allowed
+        let allowlist = "opencode *\nmysql *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --model gpt-4", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mysql -u root mydb", rawAllowlist: allowlist))
     }
 
     func testDenylistAllowsSafeCommands() {
