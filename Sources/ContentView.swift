@@ -2490,7 +2490,7 @@ struct ContentView: View {
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                if isNonNativeFullScreen || (isFullScreen && !sidebarState.isVisible) {
+                if isFullScreen && !sidebarState.isVisible {
                     fullscreenControls
                 }
 
@@ -8909,7 +8909,7 @@ struct VerticalTabsSidebar: View {
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
-                    if isMinimalMode {
+                    if isMinimalMode || isNonNativeFullScreen {
                         HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
                             .padding(.leading, hiddenTitlebarControlsLeadingInset)
                             .padding(.top, 2)
