@@ -10721,7 +10721,7 @@ struct CMUXCLI {
             // Check if user has a config we symlinked, read from source (new name first, fall back to legacy)
             let userOmoConfig = userDir.appendingPathComponent("oh-my-openagent.json")
             let legacyOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
-            let userConfigData = try? Data(contentsOf: userOmoConfig) ?? Data(contentsOf: legacyOmoConfig)
+            let userConfigData = (try? Data(contentsOf: userOmoConfig)) ?? (try? Data(contentsOf: legacyOmoConfig))
             if let data = userConfigData,
                let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 omoConfig = existing
