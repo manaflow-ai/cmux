@@ -11,13 +11,16 @@ extension Notification.Name {
 /// screen while keeping it as a regular window. This preserves
 /// `background-opacity` transparency since the desktop remains behind the window.
 ///
-/// Modeled after Ghostty's `Fullscreen.swift` implementation.
+/// Unlike Ghostty's implementation which removes `.titled` from the styleMask,
+/// cmux keeps `.titled` intact because it overlays SwiftUI controls (workspace +
+/// button, notification bell, etc.) on the titlebar area. Removing `.titled`
+/// breaks the AppKit hit-test chain and makes those controls unresponsive.
 final class NonNativeFullscreen {
 
     // MARK: - Types
 
     enum Style {
-        /// Standard non-native fullscreen: fills entire screen, auto-hides menu bar and dock.
+        /// Standard non-native fullscreen: fills visible screen area.
         case nonNative
         /// Non-native fullscreen but keeps the menu bar visible.
         case visibleMenu
@@ -44,12 +47,6 @@ final class NonNativeFullscreen {
 
     private struct SavedState {
         let frame: NSRect
-        let styleMask: NSWindow.StyleMask
-        let titlebarAccessoryViewControllers: [NSTitlebarAccessoryViewController]
-        let toolbar: NSToolbar?
-        let toolbarStyle: NSWindow.ToolbarStyle
-        let hasDock: Bool
-        let hideMenu: Bool
     }
 
     // MARK: - State
@@ -90,88 +87,34 @@ final class NonNativeFullscreen {
 
         guard let screen = window.screen ?? NSScreen.main else { return }
 
-        // Determine whether to hide dock and menu
-        let hasDock = Self.screenHasDock(screen)
-        let hideMenu = style.hideMenu
-
         // Save state for restoration
-        let accessories: [NSTitlebarAccessoryViewController] = window.styleMask.contains(.titled)
-            ? window.titlebarAccessoryViewControllers
-            : []
-        savedState = SavedState(
-            frame: window.frame,
-            styleMask: window.styleMask,
-            titlebarAccessoryViewControllers: accessories,
-            toolbar: window.toolbar,
-            toolbarStyle: window.toolbarStyle,
-            hasDock: hasDock,
-            hideMenu: hideMenu
-        )
+        savedState = SavedState(frame: window.frame)
 
-        let firstResponder = window.firstResponder
-
-        // Hide dock (must be done before hiding menu)
-        if hasDock {
+        // Auto-hide dock if visible
+        if style.hideMenu {
+            NSApp.presentationOptions.insert(.autoHideMenuBar)
+        }
+        if Self.screenHasDock(screen) {
             NSApp.presentationOptions.insert(.autoHideDock)
         }
 
-        // Hide menu bar
-        if hideMenu {
-            NSApp.presentationOptions.insert(.autoHideMenuBar)
-        }
-
-        // Remove titled style so content fills the full frame
-        window.styleMask.remove(.titled)
-        window.styleMask.remove(.resizable)
-
-        window.makeKeyAndOrderFront(nil)
-
-        // Set frame async so style changes take effect first
-        DispatchQueue.main.async { [self] in
-            window.setFrame(self.fullscreenFrame(for: screen), display: true)
-            if let firstResponder {
-                window.makeFirstResponder(firstResponder)
-            }
-        }
+        // Keep .titled so cmux's SwiftUI titlebar controls remain functional.
+        // titlebarAppearsTransparent is already set, so the titlebar blends
+        // with content seamlessly.
+        window.setFrame(fullscreenFrame(for: screen), display: true, animate: true)
     }
 
     func exit() {
         guard let window, let saved = savedState else { return }
 
-        let firstResponder = window.firstResponder
+        // Restore presentation options
+        NSApp.presentationOptions.remove(.autoHideMenuBar)
+        NSApp.presentationOptions.remove(.autoHideDock)
 
-        // Unhide dock
-        if saved.hasDock {
-            NSApp.presentationOptions.remove(.autoHideDock)
-        }
-
-        // Unhide menu bar
-        if saved.hideMenu {
-            NSApp.presentationOptions.remove(.autoHideMenuBar)
-        }
-
-        // Restore window state
-        window.styleMask = saved.styleMask
-        window.setFrame(saved.frame, display: true)
-
-        // Restore titlebar accessories (removed when .titled was stripped)
-        for controller in saved.titlebarAccessoryViewControllers {
-            if window.titlebarAccessoryViewControllers.firstIndex(of: controller) == nil {
-                window.addTitlebarAccessoryViewController(controller)
-            }
-        }
-
-        // Restore toolbar
-        window.toolbar = saved.toolbar
-        window.toolbarStyle = saved.toolbarStyle
-
-        if let firstResponder {
-            window.makeFirstResponder(firstResponder)
-        }
+        // Restore frame
+        window.setFrame(saved.frame, display: true, animate: true)
 
         savedState = nil
-
-        window.makeKeyAndOrderFront(nil)
     }
 
     func toggle() {
@@ -191,14 +134,15 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
-        var frame = screen.frame
+        // Use visibleFrame as the base — it excludes menu bar and dock.
+        // presentationOptions handles auto-hiding them on hover.
+        var frame = screen.visibleFrame
 
-        if !style.hideMenu {
-            // Subtract menu bar height since we're still showing it
-            frame.size.height -= NSApp.mainMenu?.menuBarHeight ?? 0
-        } else if style.paddedNotch {
-            // Avoid the notch area
-            frame.size.height -= screen.safeAreaInsets.top
+        if style.paddedNotch {
+            let safeTop = screen.safeAreaInsets.top
+            if safeTop > 0 {
+                frame.size.height -= safeTop
+            }
         }
 
         return frame
