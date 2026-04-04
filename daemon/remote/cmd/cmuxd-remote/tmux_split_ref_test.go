@@ -282,10 +282,12 @@ func TestTmuxSplitWindowWithoutSurfaceEnv(t *testing.T) {
 	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
 	origSurface := os.Getenv("CMUX_SURFACE_ID")
 	origPane := os.Getenv("TMUX_PANE")
+	origCmuxPane := os.Getenv("CMUX_PANE_ID")
 	os.Setenv("HOME", t.TempDir())
 	os.Unsetenv("CMUX_WORKSPACE_ID")
 	os.Unsetenv("CMUX_SURFACE_ID")
 	os.Unsetenv("TMUX_PANE")
+	os.Unsetenv("CMUX_PANE_ID")
 	defer func() {
 		os.Setenv("HOME", origHome)
 		if origWorkspace != "" {
@@ -303,9 +305,14 @@ func TestTmuxSplitWindowWithoutSurfaceEnv(t *testing.T) {
 		} else {
 			os.Unsetenv("TMUX_PANE")
 		}
+		if origCmuxPane != "" {
+			os.Setenv("CMUX_PANE_ID", origCmuxPane)
+		} else {
+			os.Unsetenv("CMUX_PANE_ID")
+		}
 	}()
 
-	sockPath := startMockTmuxCompatSocketWithFocusFallback(t)
+	sockPath := startMockTmuxCompatSocketSurfaceResolveFails(t)
 	rc := &rpcContext{socketPath: sockPath}
 
 	output := captureStdout(t, func() {
@@ -417,10 +424,12 @@ func TestTmuxSplitWindowFallsBackWhenSurfaceResolveFails(t *testing.T) {
 	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
 	origSurface := os.Getenv("CMUX_SURFACE_ID")
 	origPane := os.Getenv("TMUX_PANE")
+	origCmuxPane := os.Getenv("CMUX_PANE_ID")
 	os.Setenv("HOME", t.TempDir())
 	os.Unsetenv("CMUX_WORKSPACE_ID")
 	os.Unsetenv("CMUX_SURFACE_ID")
 	os.Unsetenv("TMUX_PANE")
+	os.Unsetenv("CMUX_PANE_ID")
 	defer func() {
 		os.Setenv("HOME", origHome)
 		if origWorkspace != "" {
@@ -437,6 +446,11 @@ func TestTmuxSplitWindowFallsBackWhenSurfaceResolveFails(t *testing.T) {
 			os.Setenv("TMUX_PANE", origPane)
 		} else {
 			os.Unsetenv("TMUX_PANE")
+		}
+		if origCmuxPane != "" {
+			os.Setenv("CMUX_PANE_ID", origCmuxPane)
+		} else {
+			os.Unsetenv("CMUX_PANE_ID")
 		}
 	}()
 
