@@ -347,6 +347,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
         case id
         case processTitle
         case customTitle
+        case customDescription
         case customColor
         case isPinned
         case currentDirectory
@@ -363,6 +364,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
         id: UUID,
         processTitle: String,
         customTitle: String?,
+        customDescription: String?,
         customColor: String?,
         isPinned: Bool,
         currentDirectory: String,
@@ -377,6 +379,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
         self.id = id
         self.processTitle = processTitle
         self.customTitle = customTitle
+        self.customDescription = customDescription
         self.customColor = customColor
         self.isPinned = isPinned
         self.currentDirectory = currentDirectory
@@ -394,6 +397,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         processTitle = try container.decode(String.self, forKey: .processTitle)
         customTitle = try container.decodeIfPresent(String.self, forKey: .customTitle)
+        customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
         customColor = try container.decodeIfPresent(String.self, forKey: .customColor)
         isPinned = try container.decode(Bool.self, forKey: .isPinned)
         currentDirectory = try container.decode(String.self, forKey: .currentDirectory)
