@@ -1040,6 +1040,26 @@ class TerminalController {
             workspace.surfaceListeningPorts[panelId] = ports.isEmpty ? nil : ports
             workspace.recomputeListeningPorts()
         }
+        PortScanner.shared.onAgentPortsUpdated = { [weak self] workspaceId, ports in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+            if workspace.agentListeningPorts != ports {
+                workspace.agentListeningPorts = ports
+                workspace.recomputeListeningPorts()
+            }
+        }
+        PortScanner.shared.agentPIDsProvider = { [weak self] workspaceIds in
+            guard let self, let tabManager = self.tabManager else { return [:] }
+            var pidsByWorkspace: [UUID: Set<Int>] = [:]
+            for workspaceId in workspaceIds {
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { continue }
+                let pids = Set(workspace.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+                if !pids.isEmpty {
+                    pidsByWorkspace[workspaceId] = pids
+                }
+            }
+            return pidsByWorkspace
+        }
 
         // Accept connections in background thread
         Thread.detachNewThread { [weak self] in
@@ -14562,6 +14582,7 @@ class TerminalController {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
                     tab.agentPIDs[key] = pidValue
+                    self.refreshTrackedAgentPorts(for: tab)
                 }
                 return
             }
@@ -14577,6 +14598,7 @@ class TerminalController {
             )
             if let pidValue {
                 tab.agentPIDs[key] = pidValue
+                self.refreshTrackedAgentPorts(for: tab)
             }
         }
         return "OK"
@@ -14597,7 +14619,9 @@ class TerminalController {
             if tab.statusEntries.removeValue(forKey: key) == nil {
                 result = "OK (key not found)"
             }
-            tab.agentPIDs.removeValue(forKey: key)
+            if tab.agentPIDs.removeValue(forKey: key) != nil {
+                self.refreshTrackedAgentPorts(for: tab)
+            }
         }
         return result
     }
@@ -14618,6 +14642,7 @@ class TerminalController {
         DispatchQueue.main.async { [weak self] in
             guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
             tab.agentPIDs[key] = pid
+            self.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
     }
@@ -14637,8 +14662,14 @@ class TerminalController {
         DispatchQueue.main.async { [weak self] in
             guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
             tab.agentPIDs.removeValue(forKey: key)
+            self.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
+    }
+
+    private func refreshTrackedAgentPorts(for tab: Workspace) {
+        let agentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+        PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: agentPIDs)
     }
 
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {

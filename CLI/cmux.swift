@@ -514,6 +514,13 @@ private final class ClaudeHookSessionStore {
     }
 }
 
+private let codexHookWrapperProcessNames: Set<String> = [
+    "sh",
+    "bash",
+    "zsh",
+    "env"
+]
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -13280,12 +13287,21 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            let agentPIDKey = codexAgentPIDKey(sessionId: parsedInput.sessionId)
+            let codexPid = inferredCodexAgentPID()
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    cwd: parsedInput.cwd
+                    cwd: parsedInput.cwd,
+                    pid: codexPid
+                )
+            }
+            if let codexPid {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(agentPIDKey) \(codexPid) --tab=\(workspaceId)",
+                    client: client
                 )
             }
             print("{}")
@@ -13298,6 +13314,23 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let agentPIDKey = codexAgentPIDKey(sessionId: parsedInput.sessionId ?? mappedSession?.sessionId)
+            let codexPid = mappedSession?.pid ?? inferredCodexAgentPID()
+            if let sessionId = parsedInput.sessionId, let mappedSession {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: mappedSession.surfaceId,
+                    cwd: parsedInput.cwd ?? mappedSession.cwd,
+                    pid: codexPid
+                )
+            }
+            if let codexPid {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(agentPIDKey) \(codexPid) --tab=\(workspaceId)",
+                    client: client
+                )
+            }
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             try setCodexStatus(
                 client: client,
@@ -13323,11 +13356,13 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     client: client
                 )
+                let agentPIDKey = codexAgentPIDKey(sessionId: parsedInput.sessionId ?? mappedSession?.sessionId)
 
                 // Build completion notification from Codex stop payload
                 let lastMessage = parsedInput.object?["last_assistant_message"] as? String
                     ?? parsedInput.object?["lastAssistantMessage"] as? String
                 let cwd = parsedInput.cwd ?? mappedSession?.cwd
+                let codexPid = mappedSession?.pid ?? inferredCodexAgentPID()
                 let projectName: String? = {
                     guard let cwd, !cwd.isEmpty else { return nil }
                     return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -13339,8 +13374,15 @@ struct CMUXCLI {
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
                         cwd: cwd,
+                        pid: codexPid,
                         lastSubtitle: "Completed",
                         lastBody: lastMessage.map { truncate($0, maxLength: 200) }
+                    )
+                }
+                if let codexPid {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(agentPIDKey) \(codexPid) --tab=\(workspaceId)",
+                        client: client
                     )
                 }
 
@@ -13390,6 +13432,67 @@ struct CMUXCLI {
     ) throws {
         let cmd = "set_status codex \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)"
         _ = try client.send(command: cmd)
+    }
+
+    private func codexAgentPIDKey(sessionId: String?) -> String {
+        guard let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty else {
+            return "codex"
+        }
+        return "codex.\(sessionId)"
+    }
+
+    private func inferredCodexAgentPID() -> Int? {
+        var candidate = getppid()
+        var remainingWrapperSkips = 8
+
+        while candidate > 1, remainingWrapperSkips > 0 {
+            guard let processName = processName(for: candidate) else { break }
+            if !codexHookWrapperProcessNames.contains(processName) {
+                break
+            }
+            let next = parentPID(of: candidate)
+            guard next > 1, next != candidate else { break }
+            candidate = next
+            remainingWrapperSkips -= 1
+        }
+
+        return candidate > 1 ? Int(candidate) : nil
+    }
+
+    private func parentPID(of pid: pid_t) -> pid_t {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else {
+            return -1
+        }
+        return info.kp_eproc.e_ppid
+    }
+
+    private func processName(for pid: pid_t) -> String? {
+        let process = Process()
+        let stdout = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", String(pid), "-o", "comm="]
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !output.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: output).lastPathComponent.lowercased()
     }
 
     private func versionSummary() -> String {
