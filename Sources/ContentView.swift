@@ -1584,7 +1584,6 @@ struct ContentView: View {
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
-    @State private var isNonNativeFullScreen: Bool = false
     @State private var nonNativeFullscreen: NonNativeFullscreen?
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
@@ -8901,7 +8900,7 @@ struct VerticalTabsSidebar: View {
                         .background(TitlebarDoubleClickMonitorView())
                 }
                 .overlay(alignment: .topLeading) {
-                    if isMinimalMode || isNonNativeFullScreen {
+                    if isMinimalMode {
                         HiddenTitlebarSidebarControlsView(notificationStore: notificationStore)
                             .padding(.leading, hiddenTitlebarControlsLeadingInset)
                             .padding(.top, 2)
