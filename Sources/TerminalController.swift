@@ -15168,45 +15168,70 @@ class TerminalController {
             ports.append(port)
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        // Resolve and validate on the main queue synchronously so the socket client still receives
+        // concrete ERROR lines for bad targets. Apply the mutation asynchronously so handler threads
+        // are not stuck in `main.sync` for the full update when the main queue is slow (CLAUDE.md).
+        var validationError: String?
+        var workspaceId: UUID?
+        var surfaceId: UUID?
+
+        DispatchQueue.main.sync { [weak self] in
+            guard let self else {
+                validationError = "ERROR: TabManager not available"
+                return
+            }
+            guard let tab = self.resolveTabForReport(args) else {
+                validationError = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
 
             let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
 
             let panelArg = parsed.options["panel"] ?? parsed.options["surface"]
-            let surfaceId: UUID
+            let resolvedSurfaceId: UUID
             if let panelArg {
                 if panelArg.isEmpty {
-                    result = "ERROR: Missing panel id — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
+                    validationError = "ERROR: Missing panel id — usage: report_ports <port1> [port2...] [--tab=X] [--panel=Y]"
                     return
                 }
                 guard let parsedId = UUID(uuidString: panelArg) else {
-                    result = "ERROR: Invalid panel id '\(panelArg)'"
+                    validationError = "ERROR: Invalid panel id '\(panelArg)'"
                     return
                 }
-                surfaceId = parsedId
+                resolvedSurfaceId = parsedId
             } else {
                 guard let focused = tab.focusedPanelId else {
-                    result = "ERROR: Missing panel id (no focused surface)"
+                    validationError = "ERROR: Missing panel id (no focused surface)"
                     return
                 }
-                surfaceId = focused
+                resolvedSurfaceId = focused
             }
 
-            guard validSurfaceIds.contains(surfaceId) else {
-                result = "ERROR: Panel not found '\(surfaceId.uuidString)'"
+            guard validSurfaceIds.contains(resolvedSurfaceId) else {
+                validationError = "ERROR: Panel not found '\(resolvedSurfaceId.uuidString)'"
                 return
             }
 
-            tab.surfaceListeningPorts[surfaceId] = ports
+            workspaceId = tab.id
+            surfaceId = resolvedSurfaceId
+        }
+
+        if let validationError { return validationError }
+        guard let workspaceId, let surfaceId else {
+            return parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+        }
+
+        let portsCopy = ports
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let tab = self.tabForSidebarMutation(id: workspaceId) else { return }
+            let validSurfaceIds = Set(tab.panels.keys)
+            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+            guard validSurfaceIds.contains(surfaceId) else { return }
+            tab.surfaceListeningPorts[surfaceId] = portsCopy
             tab.recomputeListeningPorts()
         }
-        return result
+        return "OK"
     }
 
     private func reportPwd(_ args: String) -> String {
