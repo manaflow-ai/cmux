@@ -1068,6 +1068,122 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
     }
 }
 
+enum WorkspaceRemoteSSHBatchCommandBuilder {
+    private static let batchSSHControlOptionKeys: Set<String> = [
+        "controlmaster",
+        "controlpersist",
+    ]
+
+    static func daemonTransportArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String
+    ) -> [String] {
+        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(shellSingleQuoted(script))"
+        return ["-T"]
+            + batchArguments(configuration: configuration)
+            + ["-o", "RequestTTY=no", configuration.destination, command]
+    }
+
+    static func reverseRelayControlMasterArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        controlCommand: String,
+        forwardSpec: String
+    ) -> [String]? {
+        guard let controlPath = sshOptionValue(named: "ControlPath", in: configuration.sshOptions)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return nil
+        }
+
+        var args = batchArguments(configuration: configuration)
+        args += ["-O", controlCommand, "-R", forwardSpec, configuration.destination]
+        return args
+    }
+
+    private static func batchArguments(configuration: WorkspaceRemoteConfiguration) -> [String] {
+        let effectiveSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        var args: [String] = [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+        ]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        args += ["-o", "BatchMode=yes"]
+        // Batch helpers may reuse an existing ControlPath, but must not negotiate a new master.
+        args += ["-o", "ControlMaster=no"]
+        if let port = configuration.port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        for option in effectiveSSHOptions {
+            args += ["-o", option]
+        }
+        return args
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            if sshOptionKey(option) == loweredKey {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+    }
+
+    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
+        normalizedSSHOptions(options).filter { option in
+            guard let key = sshOptionKey(option) else { return false }
+            return !batchSSHControlOptionKeys.contains(key)
+        }
+    }
+
+    private static func sshOptionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in normalizedSSHOptions(options) {
+            let parts = option.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func sshOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
     static let requiredProxyStreamCapability = "proxy.stream.push"
@@ -1513,87 +1629,10 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
-        // Use non-login sh so remote ~/.profile noise does not interfere with daemon transport startup.
-        let command = "sh -c \(shellSingleQuoted(script))"
-        return ["-T", "-S", "none"]
-            + sshCommonArguments(configuration: configuration, batchMode: true)
-            + ["-o", "RequestTTY=no", configuration.destination, command]
-    }
-
-    private static let batchSSHControlOptionKeys: Set<String> = [
-        "controlmaster",
-        "controlpersist",
-    ]
-
-    private static func sshCommonArguments(configuration: WorkspaceRemoteConfiguration, batchMode: Bool) -> [String] {
-        let effectiveSSHOptions: [String] = {
-            if batchMode {
-                return backgroundSSHOptions(configuration.sshOptions)
-            }
-            return normalizedSSHOptions(configuration.sshOptions)
-        }()
-        var args: [String] = [
-            "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
-        ]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
-            args += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        if batchMode {
-            args += ["-o", "BatchMode=yes"]
-            // Batch helpers should reuse an existing ControlPath if one was configured,
-            // but must never try to negotiate a new master connection.
-            args += ["-o", "ControlMaster=no"]
-        }
-        if let port = configuration.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-i", identityFile]
-        }
-        for option in effectiveSSHOptions {
-            args += ["-o", option]
-        }
-        return args
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let token = sshOptionKey(option)
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
-        normalizedSSHOptions(options).filter { option in
-            guard let key = sshOptionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private static func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
+            configuration: configuration,
+            remotePath: remotePath
+        )
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -3313,6 +3352,7 @@ final class WorkspaceRemoteSessionController {
     private var daemonBootstrapVersion: String?
     private var daemonRemotePath: String?
     private var reverseRelayProcess: Process?
+    private var reverseRelayControlMasterForwardSpec: String?
     private var cliRelayServer: WorkspaceRemoteCLIRelayServer?
     private var remotePortScanTTYNames: [UUID: String] = [:]
     private var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
@@ -3556,6 +3596,7 @@ final class WorkspaceRemoteSessionController {
             return
         }
         guard reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
 
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
@@ -3572,6 +3613,31 @@ final class WorkspaceRemoteSessionController {
                 destination: configuration.destination,
                 relayPort: relayPort
             )
+            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
+
+            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec) {
+                cliRelayServer = relayServer
+                reverseRelayStderrBuffer = ""
+                do {
+                    try installRemoteRelayMetadataLocked(
+                        remotePath: remotePath,
+                        relayPort: relayPort,
+                        relayID: relayID,
+                        relayToken: relayToken
+                    )
+                } catch {
+                    debugLog("remote.relay.metadata.error \(error.localizedDescription)")
+                    stopReverseRelayLocked()
+                    scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+                    return
+                }
+                recordHeartbeatActivityLocked()
+                debugLog(
+                    "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
+                    "target=\(configuration.displayTarget) controlMaster=1"
+                )
+                return
+            }
 
             let process = Process()
             let stderrPipe = Pipe()
@@ -3627,7 +3693,7 @@ final class WorkspaceRemoteSessionController {
             recordHeartbeatActivityLocked()
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget)"
+                "target=\(configuration.displayTarget) controlMaster=0"
             )
         } catch {
             debugLog(
@@ -3697,6 +3763,7 @@ final class WorkspaceRemoteSessionController {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
+        stopReverseRelayViaControlMasterLocked()
         reverseRelayStderrPipe = nil
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
@@ -3936,9 +4003,8 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // `-o ControlPath=none` is not enough on macOS OpenSSH, the client can still
-        // attach to an existing master and exit immediately with its status.
-        // `-S none` forces a standalone transport for the reverse relay.
+        // Fallback standalone transport when dynamic forwarding through an existing
+        // control master is unavailable.
         var args: [String] = ["-N", "-T", "-S", "none"]
         args += sshCommonArguments(batchMode: true)
         args += [
@@ -3948,6 +4014,44 @@ final class WorkspaceRemoteSessionController {
             configuration.destination,
         ]
         return args
+    }
+
+    private func startReverseRelayViaControlMasterLocked(forwardSpec: String) -> Bool {
+        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
+            configuration: configuration,
+            controlCommand: "forward",
+            forwardSpec: forwardSpec
+        ) else {
+            return false
+        }
+
+        do {
+            let result = try sshExec(arguments: arguments, timeout: 6)
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog("remote.relay.controlmaster.forwardFailed \(detail) \(debugConfigSummary())")
+                return false
+            }
+            reverseRelayControlMasterForwardSpec = forwardSpec
+            return true
+        } catch {
+            debugLog("remote.relay.controlmaster.forwardFailed \(error.localizedDescription) \(debugConfigSummary())")
+            return false
+        }
+    }
+
+    private func stopReverseRelayViaControlMasterLocked() {
+        guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
+        reverseRelayControlMasterForwardSpec = nil
+        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
+            configuration: configuration,
+            controlCommand: "cancel",
+            forwardSpec: forwardSpec
+        ) else {
+            return
+        }
+        _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
     private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
