@@ -134,9 +134,12 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
-        // Use visibleFrame as the base — it excludes menu bar and dock.
-        // presentationOptions handles auto-hiding them on hover.
-        var frame = screen.visibleFrame
+        // Use the full screen frame since presentationOptions auto-hides
+        // menu bar and dock. Subtract menu bar height because .titled is
+        // still active and macOS won't let the window extend above it.
+        var frame = screen.frame
+        let menuBarHeight = NSApp.mainMenu?.menuBarHeight ?? 0
+        frame.size.height -= menuBarHeight
 
         if style.paddedNotch {
             let safeTop = screen.safeAreaInsets.top
