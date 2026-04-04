@@ -12899,7 +12899,7 @@ private struct TabItemView: View, Equatable {
                                     status: pullRequest.status,
                                     color: pullRequestForegroundColor
                                 )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                Text("\(pullRequest.label) #\(String(pullRequest.number))")
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -12911,7 +12911,7 @@ private struct TabItemView: View, Equatable {
                             .foregroundColor(pullRequestForegroundColor)
                         }
                         .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(String(pullRequest.number))"))
                     }
                 }
             }
@@ -12923,11 +12923,11 @@ private struct TabItemView: View, Equatable {
                         Button(action: {
                             openPortLink(port)
                         }) {
-                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(port)"))
+                            Text(String(localized: "sidebar.port.label", defaultValue: ":\(String(port))"))
                                 .underline()
                         }
                         .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(port)"))
+                        .safeHelp(String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost:\(String(port))"))
                     }
                     Spacer(minLength: 0)
                 }
