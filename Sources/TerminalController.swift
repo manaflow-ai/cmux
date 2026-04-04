@@ -3826,6 +3826,8 @@ class TerminalController {
         }
         let relayID = v2RawString(params, "relay_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let localSocketPath = v2RawString(params, "local_socket_path")
         let terminalStartupCommand = v2RawString(params, "terminal_startup_command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3870,7 +3872,8 @@ class TerminalController {
                 relayID: relayID?.isEmpty == true ? nil : relayID,
                 relayToken: relayToken?.isEmpty == true ? nil : relayToken,
                 localSocketPath: localSocketPath,
-                terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand
+                terminalStartupCommand: terminalStartupCommand?.isEmpty == true ? nil : terminalStartupCommand,
+                foregroundAuthToken: foregroundAuthToken?.isEmpty == true ? nil : foregroundAuthToken
             )
             workspace.configureRemoteConnection(config, autoConnect: autoConnect)
 
@@ -3981,6 +3984,8 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
         }
 
+        let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         var result: V2CallResult = .err(code: "not_found", message: "Workspace not found", data: [
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
@@ -3993,7 +3998,7 @@ class TerminalController {
                 return
             }
 
-            workspace.notifyRemoteForegroundAuthenticationReady()
+            workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
             let windowId = v2ResolveWindowId(tabManager: owner)
             result = .ok([
                 "window_id": v2OrNull(windowId?.uuidString),

@@ -1156,9 +1156,12 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
     private static func sshOptionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
         for option in normalizedSSHOptions(options) {
-            let parts = option.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2,
-                  parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey else {
+            let parts = option.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
                 continue
             }
             let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5248,12 +5251,16 @@ final class WorkspaceRemoteSessionController {
     }
 
     static func parsePathHelperPaths(_ output: String) -> [String] {
-        guard let pathRange = output.range(of: "PATH=\"") else { return [] }
-        let suffix = output[pathRange.upperBound...]
-        guard let closingQuote = suffix.firstIndex(of: "\"") else { return [] }
-        return suffix[..<closingQuote]
-            .split(separator: ":")
-            .map(String.init)
+        for fragment in output.split(whereSeparator: { $0 == "\n" || $0 == ";" }) {
+            let trimmed = fragment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("PATH=\"") else { continue }
+            let suffix = trimmed.dropFirst("PATH=\"".count)
+            guard let closingQuote = suffix.firstIndex(of: "\"") else { return [] }
+            return suffix[..<closingQuote]
+                .split(separator: ":")
+                .map(String.init)
+        }
+        return []
     }
 
     private static func pathHelperShellOutput() -> String {
@@ -5961,6 +5968,33 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let relayToken: String?
     let localSocketPath: String?
     let terminalStartupCommand: String?
+    let foregroundAuthToken: String?
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
+        localProxyPort: Int?,
+        relayPort: Int?,
+        relayID: String?,
+        relayToken: String?,
+        localSocketPath: String?,
+        terminalStartupCommand: String?,
+        foregroundAuthToken: String? = nil
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.sshOptions = sshOptions
+        self.localProxyPort = localProxyPort
+        self.relayPort = relayPort
+        self.relayID = relayID
+        self.relayToken = relayToken
+        self.localSocketPath = localSocketPath
+        self.terminalStartupCommand = terminalStartupCommand
+        self.foregroundAuthToken = foregroundAuthToken
+    }
 
     var displayTarget: String {
         guard let port else { return destination }
@@ -6561,7 +6595,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
-    private var pendingRemoteForegroundAuthConnect = false
+    private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -8071,8 +8105,11 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
 
-        let shouldAutoConnect = autoConnect || pendingRemoteForegroundAuthConnect
-        pendingRemoteForegroundAuthConnect = false
+        let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
+        let shouldAutoConnect =
+            autoConnect
+            || (foregroundAuthToken != nil && foregroundAuthToken == pendingRemoteForegroundAuthToken)
+        pendingRemoteForegroundAuthToken = nil
         guard shouldAutoConnect else {
             remoteConnectionState = .disconnected
             applyBrowserRemoteWorkspaceStatusToPanels()
@@ -8098,12 +8135,28 @@ final class Workspace: Identifiable, ObservableObject {
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
-    func notifyRemoteForegroundAuthenticationReady() {
-        guard remoteConfiguration != nil else {
-            pendingRemoteForegroundAuthConnect = true
+    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
+        guard let token else { return nil }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
+        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
             return
         }
-        pendingRemoteForegroundAuthConnect = false
+
+        guard let remoteConfiguration else {
+            pendingRemoteForegroundAuthToken = foregroundAuthToken
+            return
+        }
+
+        guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
+            return
+        }
+
+        pendingRemoteForegroundAuthToken = nil
+        guard remoteConnectionState == .disconnected else { return }
         reconnectRemoteConnection()
     }
 
@@ -8118,7 +8171,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
         previousController?.stop()
-        pendingRemoteForegroundAuthConnect = false
+        pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
