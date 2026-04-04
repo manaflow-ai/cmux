@@ -109,22 +109,16 @@ final class NonNativeFullscreen {
         window.styleMask.remove(.titled)
         window.styleMask.remove(.resizable)
 
-        // Force SwiftUI's NSHostingView to recalculate its layout for the
-        // new contentLayoutRect after .titled removal. Without this, the
-        // coordinate mapping between AppKit and SwiftUI is stale and all
-        // hit testing (sidebar clicks, buttons, etc.) breaks.
-        if let contentView = window.contentView {
-            contentView.frame = window.contentRect(forFrameRect: window.frame)
-            contentView.needsLayout = true
-            contentView.layoutSubtreeIfNeeded()
-        }
-
-        // Expand to fill screen. Dispatch async so styleMask/layout changes settle.
+        // Expand to fill screen. Dispatch async so styleMask changes settle.
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window, self.isFullScreen else { return }
-            window.setFrame(self.fullscreenFrame(for: screen), display: true)
-            // Re-layout again after frame change
+            let targetFrame = self.fullscreenFrame(for: screen)
+            window.setFrame(targetFrame, display: true)
+
+            // Force SwiftUI's NSHostingView to recalculate layout for the
+            // new contentLayoutRect after .titled removal and frame change.
             if let contentView = window.contentView {
+                contentView.frame = window.contentRect(forFrameRect: targetFrame)
                 contentView.needsLayout = true
                 contentView.layoutSubtreeIfNeeded()
             }
