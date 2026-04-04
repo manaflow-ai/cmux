@@ -49,6 +49,16 @@ class TerminalController {
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
+    /// Bounded queue for socket client handlers. Limits concurrent handler threads
+    /// to prevent unbounded thread accumulation when the main thread is stalled.
+    private nonisolated let clientQueue = DispatchQueue(
+        label: "com.cmuxterm.socket-clients",
+        qos: .utility,
+        attributes: .concurrent
+    )
+    /// Maximum concurrent socket handler operations. Limits memory growth from
+    /// blocked handlers when the main queue is temporarily unresponsive.
+    private nonisolated let clientConcurrencyLimit = DispatchSemaphore(value: 64)
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
     private let myPid = getpid()
@@ -1512,9 +1522,22 @@ class TerminalController {
             // the time a new thread starts the peer may already be gone.
             let peerPid = getPeerPid(clientSocket)
 
-            // Handle client in new thread
-            Thread.detachNewThread { [weak self] in
-                self?.handleClient(clientSocket, peerPid: peerPid)
+            // Handle client on bounded queue to prevent unbounded thread growth
+            // when the main thread is temporarily unresponsive.
+            clientQueue.async { [weak self] in
+                guard let self else {
+                    close(clientSocket)
+                    return
+                }
+                guard self.clientConcurrencyLimit.wait(timeout: .now() + 30) == .success else {
+                    // All handler slots full — reject this connection to apply backpressure.
+                    let msg = "ERROR: Server busy\n"
+                    msg.withCString { ptr in _ = write(clientSocket, ptr, strlen(ptr)) }
+                    close(clientSocket)
+                    return
+                }
+                defer { self.clientConcurrencyLimit.signal() }
+                self.handleClient(clientSocket, peerPid: peerPid)
             }
         }
     }
