@@ -2601,115 +2601,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, workspace %2$@ of %3$lld"
+            "value": "%1$@, workspace %2$lld of %3$lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@、ワークスペース %3$lld中%2$@"
+            "value": "%1$@、ワークスペース %3$lld中%2$lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@，工作区 %2$@ / %3$lld"
+            "value": "%1$@，工作区 %2$lld / %3$lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@，工作區 %2$@ / %3$lld"
+            "value": "%1$@，工作區 %2$lld / %3$lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, 작업 공간 %2$@ / %3$lld"
+            "value": "%1$@, 작업 공간 %2$lld / %3$lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, Arbeitsbereich %2$@ von %3$lld"
+            "value": "%1$@, Arbeitsbereich %2$lld von %3$lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, espacio de trabajo %2$@ de %3$lld"
+            "value": "%1$@, espacio de trabajo %2$lld de %3$lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, espace de travail %2$@ sur %3$lld"
+            "value": "%1$@, espace de travail %2$lld sur %3$lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, area di lavoro %2$@ di %3$lld"
+            "value": "%1$@, area di lavoro %2$lld di %3$lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, arbejdsområde %2$@ af %3$lld"
+            "value": "%1$@, arbejdsområde %2$lld af %3$lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, przestrzeń robocza %2$@ z %3$lld"
+            "value": "%1$@, przestrzeń robocza %2$lld z %3$lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, рабочее пространство %2$@ из %3$lld"
+            "value": "%1$@, рабочее пространство %2$lld из %3$lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, radni prostor %2$@ od %3$lld"
+            "value": "%1$@, radni prostor %2$lld od %3$lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@، مساحة العمل %2$@ من %3$lld"
+            "value": "%1$@، مساحة العمل %2$lld من %3$lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, arbeidsområde %2$@ av %3$lld"
+            "value": "%1$@, arbeidsområde %2$lld av %3$lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, área de trabalho %2$@ de %3$lld"
+            "value": "%1$@, área de trabalho %2$lld de %3$lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, เวิร์กสเปซที่ %2$@ จาก %3$lld"
+            "value": "%1$@, เวิร์กสเปซที่ %2$lld จาก %3$lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, çalışma alanı %3$lld/%2$@"
+            "value": "%1$@, çalışma alanı %3$lld/%2$lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, робоча область %2$@ з %3$lld"
+            "value": "%1$@, робоча область %2$lld з %3$lld"
           }
         }
       }
