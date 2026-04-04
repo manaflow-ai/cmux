@@ -53,7 +53,12 @@ private extension NSWindow {
                     .boolValue ?? false
             guard isActive else { return false }
             guard (NSEvent.pressedMouseButtons & 1) != 0 else {
-                browserPortalHasInteractiveSplitDividerDrag = false
+                objc_setAssociatedObject(
+                    self,
+                    &cmuxWindowInteractiveSplitDividerDragKey,
+                    NSNumber(value: false),
+                    .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+                )
                 return false
             }
             return true

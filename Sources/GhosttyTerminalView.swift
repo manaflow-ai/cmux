@@ -201,7 +201,7 @@ enum GhosttyPasteboardHelper {
     private static func hasPasteableContents(in pasteboard: NSPasteboard) -> Bool {
         let types = pasteboard.types ?? []
         if types.contains(.fileURL) || types.contains(.html) || types.contains(.rtf) || types.contains(.rtfd) {
-            return true
+            return
         }
         if types.contains(where: isPlainTextType) {
             return true
