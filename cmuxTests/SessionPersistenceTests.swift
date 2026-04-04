@@ -1900,19 +1900,28 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
                      "validatedRestoreCommand should reject multi-line injection")
     }
 
-    // MARK: - Shell Quoting Edge Cases
+    // MARK: - Allowlist Matching with Special Characters
 
-    func testShellQuotingSpecialCharacters() {
-        // Commands with special shell characters in args should be properly quoted
-        // This tests that shellQuoteIfNeeded handles edge cases
+    func testAllowlistMatchesCommandsWithSpecialCharactersInArgs() {
+        // Verify that allowlist pattern matching works correctly when commands
+        // contain shell metacharacters, quotes, or spaces in their arguments.
+        // Note: This tests allowlist matching, NOT shellQuoteIfNeeded() which is
+        // used internally by SessionForegroundProcessDetector.commandLineString().
         let allowlist = "myapp *"
 
-        // Commands with spaces in args (would need quoting)
+        // Commands with spaces in args (pre-quoted by user or detected process)
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp 'file with spaces.txt'", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp \"quoted arg\"", rawAllowlist: allowlist))
 
         // Commands with shell metacharacters (should still match if allowlisted)
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp --pattern='*.txt'", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp --regex=[a-z]+", rawAllowlist: allowlist))
+    }
+
+    func testAllowlistMatchesCommandsWithTabSeparator() {
+        // Verify that tab characters work as argument separators (nit fix)
+        let allowlist = "opencode *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode\t--flag", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode\t--continue\t--model sonnet", rawAllowlist: allowlist))
     }
 }

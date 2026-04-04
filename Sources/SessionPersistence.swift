@@ -566,7 +566,8 @@ enum SessionRestoreCommandSettings {
     /// Dangerous executables blocked anywhere in a command (word-boundary aware).
     /// Matches: "sudo rm", "cd /tmp && sudo", "/usr/bin/sudo", "$(curl ...)", etc.
     /// Does NOT match: "sudoku", "rm-old-files" (no word boundary).
-    private static let dangerousExecutables = [
+    /// Uses Set for O(1) lookup.
+    private static let dangerousExecutables: Set<String> = [
         // Privilege escalation
         "sudo", "doas", "su", "pkexec", "runas",
         // Destructive file operations
@@ -810,11 +811,15 @@ enum SessionRestoreCommandSettings {
             : commandBasename
 
         // Prefix match: "opencode *" matches "opencode", "/usr/bin/opencode --flag", etc.
+        // Also handles tab as argument separator for robustness
         if trimmedPattern.hasSuffix(" *") {
             let prefix = String(trimmedPattern.dropLast(2))
             // Match against both full path command and basename-only version
-            return command == prefix || command.hasPrefix(prefix + " ") ||
-                   commandWithBasename == prefix || commandWithBasename.hasPrefix(prefix + " ")
+            // Check for space or tab as argument separator
+            return command == prefix ||
+                   command.hasPrefix(prefix + " ") || command.hasPrefix(prefix + "\t") ||
+                   commandWithBasename == prefix ||
+                   commandWithBasename.hasPrefix(prefix + " ") || commandWithBasename.hasPrefix(prefix + "\t")
         }
 
         // Exact match (also check basename version)
@@ -832,7 +837,7 @@ final class SessionForegroundProcessCache {
 
     private let queue = DispatchQueue(label: "com.cmux.foreground-process-cache", qos: .utility)
     private var cache: [String: String] = [:]  // ttyName -> commandLine
-    private let lock = NSLock()
+    private var unfairLock = os_unfair_lock()
 
     private init() {}
 
@@ -850,9 +855,9 @@ final class SessionForegroundProcessCache {
                     }
                 }
             }
-            lock.lock()
+            os_unfair_lock_lock(&unfairLock)
             cache = newCache
-            lock.unlock()
+            os_unfair_lock_unlock(&unfairLock)
         }
     }
 
@@ -871,9 +876,9 @@ final class SessionForegroundProcessCache {
                     }
                 }
             }
-            lock.lock()
+            os_unfair_lock_lock(&unfairLock)
             cache = newCache
-            lock.unlock()
+            os_unfair_lock_unlock(&unfairLock)
             semaphore.signal()
         }
         // Wait with timeout; if exceeded, we use whatever was in cache before
@@ -882,16 +887,16 @@ final class SessionForegroundProcessCache {
 
     /// Get cached command line for a TTY. Safe to call from main thread.
     func cachedCommandLine(forTTY ttyName: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
+        os_unfair_lock_lock(&unfairLock)
+        defer { os_unfair_lock_unlock(&unfairLock) }
         return cache[ttyName]
     }
 
     /// Clear the cache (e.g., on app termination).
     func clear() {
-        lock.lock()
+        os_unfair_lock_lock(&unfairLock)
         cache.removeAll()
-        lock.unlock()
+        os_unfair_lock_unlock(&unfairLock)
     }
 }
 
