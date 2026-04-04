@@ -6295,7 +6295,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.isMovable = false
+        // isMovable must be true so macOS can natively migrate windows
+        // between displays on connect/disconnect. The WindowDragHandleView
+        // handles user-initiated drag-to-move via performDrag.
+        // isMovableByWindowBackground=false above prevents background
+        // clicks from moving the window (which would break tab reordering).
+        window.isMovable = true
         let restoredFrame = resolvedWindowFrame(from: sessionWindowSnapshot)
         if let restoredFrame {
             window.setFrame(restoredFrame, display: false)

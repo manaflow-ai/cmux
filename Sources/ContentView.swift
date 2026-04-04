@@ -3425,7 +3425,8 @@ struct ContentView: View {
             // isMovableByWindowBackground=true breaks tab reordering, and
             // isMovable=true blocks clicks on sidebar buttons in minimal mode.
             window.isMovableByWindowBackground = false
-            window.isMovable = false
+            // isMovable stays true (default) for native display migration.
+            // window.isMovable = false
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications
