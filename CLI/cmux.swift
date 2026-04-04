@@ -2117,6 +2117,12 @@ struct CMUXCLI {
         case "refresh-surfaces":
             let response = try sendV1Command("refresh_surfaces", client: client)
             print(response)
+        case "reload-config":
+            if let unexpected = commandArgs.first {
+                throw CLIError(message: "reload-config does not accept arguments. Unexpected argument '\(unexpected)'")
+            }
+            let response = try sendV1Command("reload_config", client: client)
+            print(response)
 
         case "surface-health":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
@@ -7069,6 +7075,16 @@ struct CMUXCLI {
             Usage: cmux refresh-surfaces
 
             Refresh surface snapshots for the focused workspace.
+            """
+        case "reload-config":
+            return """
+            Usage: cmux reload-config
+
+            Run the same configuration reload as the Reload Configuration shortcut.
+            This reloads Ghostty config, re-reads ~/.config/cmux/settings.json, and refreshes terminals.
+
+            Example:
+              cmux reload-config
             """
         case "surface-health":
             return """
@@ -13791,6 +13807,7 @@ struct CMUXCLI {
           rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
           drag-surface-to-split --surface <id|ref> <left|right|up|down>
           refresh-surfaces
+          reload-config
           surface-health [--workspace <id|ref>]
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
           list-panels [--workspace <id|ref>]

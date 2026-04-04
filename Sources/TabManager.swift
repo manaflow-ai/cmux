@@ -239,13 +239,14 @@ struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
 
-    var id: String { "\(name)-\(hex)" }
+    var id: String { name }
 }
 
 enum WorkspaceTabColorSettings {
-    static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
-    static let customColorsKey = "workspaceTabColor.customColors"
-    static let maxCustomColors = 24
+    static let paletteKey = "workspaceTabColor.colors"
+
+    private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    private static let legacyCustomColorsKey = "workspaceTabColor.customColors"
 
     private static let originalPRPalette: [WorkspaceTabColorEntry] = [
         WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
@@ -271,93 +272,88 @@ enum WorkspaceTabColorSettings {
     }
 
     static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        defaultPaletteWithOverrides(defaults: defaults) + customColorEntries(defaults: defaults)
-    }
-
-    static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let palette = defaultPalette
-        let overrides = defaultOverrideMap(defaults: defaults)
-        return palette.map { entry in
-            WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
+        let paletteMap = effectivePaletteMap(defaults: defaults)
+        let builtInOrder = defaultPalette.compactMap { entry -> WorkspaceTabColorEntry? in
+            guard let hex = paletteMap[entry.name] else { return nil }
+            return WorkspaceTabColorEntry(name: entry.name, hex: hex)
         }
+        let builtInNames = Set(defaultPalette.map(\.name))
+        let customEntries = paletteMap
+            .filter { !builtInNames.contains($0.key) }
+            .sorted { lhs, rhs in
+                lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
+            }
+            .map { WorkspaceTabColorEntry(name: $0.key, hex: $0.value) }
+        return builtInOrder + customEntries
     }
 
-    static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
-        let palette = defaultPalette
-        guard let entry = palette.first(where: { $0.name == name }) else {
-            return palette.first?.hex ?? "#1565C0"
-        }
-        return defaultOverrideMap(defaults: defaults)[name] ?? entry.hex
+    static func customPaletteEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        let builtInNames = Set(defaultPalette.map(\.name))
+        return palette(defaults: defaults).filter { !builtInNames.contains($0.name) }
     }
 
-    static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
-        let palette = defaultPalette
-        guard let entry = palette.first(where: { $0.name == name }),
-              let normalized = normalizedHex(hex) else { return }
+    static func defaultColorHex(named name: String) -> String? {
+        defaultPalette.first(where: { $0.name == name })?.hex
+    }
 
-        var overrides = defaultOverrideMap(defaults: defaults)
-        if normalized == entry.hex {
-            overrides.removeValue(forKey: name)
+    static func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
+        effectivePaletteMap(defaults: defaults)[name]
+    }
+
+    static func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+        guard let normalizedName = normalizedColorName(name),
+              let normalizedHex = normalizedHex(hex) else { return }
+
+        var palette = editablePaletteMap(defaults: defaults)
+        palette[normalizedName] = normalizedHex
+        persistPaletteMap(palette, defaults: defaults)
+    }
+
+    static func removeColor(named name: String, defaults: UserDefaults = .standard) {
+        guard let normalizedName = normalizedColorName(name) else { return }
+        var palette = editablePaletteMap(defaults: defaults)
+        palette.removeValue(forKey: normalizedName)
+        persistPaletteMap(palette, defaults: defaults)
+    }
+
+    static func persistPaletteMap(_ rawPalette: [String: String], defaults: UserDefaults = .standard) {
+        let normalizedPalette = normalizedPaletteMap(rawPalette)
+        if normalizedPalette == defaultPaletteMap {
+            defaults.removeObject(forKey: paletteKey)
         } else {
-            overrides[name] = normalized
+            defaults.set(normalizedPalette, forKey: paletteKey)
         }
-        saveDefaultOverrideMap(overrides, defaults: defaults)
+        defaults.removeObject(forKey: legacyDefaultOverridesKey)
+        defaults.removeObject(forKey: legacyCustomColorsKey)
     }
 
-    static func customColors(defaults: UserDefaults = .standard) -> [String] {
-        guard let raw = defaults.array(forKey: customColorsKey) as? [String] else { return [] }
-        var result: [String] = []
-        var seen: Set<String> = []
-        for value in raw {
-            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
-            result.append(normalized)
-            if result.count >= maxCustomColors { break }
+    static func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
         }
-        return result
+        return legacyPaletteMap(defaults: defaults)
     }
 
-    static func customColorEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        customColors(defaults: defaults).enumerated().map { index, hex in
-            WorkspaceTabColorEntry(name: "Custom \(index + 1)", hex: hex)
-        }
+    static func resolvedPaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
+        effectivePaletteMap(defaults: defaults)
     }
 
-    @discardableResult
     static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
         guard let normalized = normalizedHex(hex) else { return nil }
-        var colors = customColors(defaults: defaults)
-        colors.removeAll { $0 == normalized }
-        colors.insert(normalized, at: 0)
-        setCustomColors(colors, defaults: defaults)
+        var palette = editablePaletteMap(defaults: defaults)
+        if palette.contains(where: { $0.value == normalized }) {
+            return normalized
+        }
+
+        palette[nextCustomColorName(existingNames: Set(palette.keys))] = normalized
+        persistPaletteMap(palette, defaults: defaults)
         return normalized
     }
 
-    static func removeCustomColor(_ hex: String, defaults: UserDefaults = .standard) {
-        guard let normalized = normalizedHex(hex) else { return }
-        var colors = customColors(defaults: defaults)
-        colors.removeAll { $0 == normalized }
-        setCustomColors(colors, defaults: defaults)
-    }
-
-    static func setCustomColors(_ hexes: [String], defaults: UserDefaults = .standard) {
-        var normalizedColors: [String] = []
-        var seen: Set<String> = []
-        for value in hexes {
-            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
-            normalizedColors.append(normalized)
-            if normalizedColors.count >= maxCustomColors { break }
-        }
-
-        if normalizedColors.isEmpty {
-            defaults.removeObject(forKey: customColorsKey)
-        } else {
-            defaults.set(normalizedColors, forKey: customColorsKey)
-        }
-    }
-
     static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: defaultOverridesKey)
-        defaults.removeObject(forKey: customColorsKey)
+        defaults.removeObject(forKey: paletteKey)
+        defaults.removeObject(forKey: legacyDefaultOverridesKey)
+        defaults.removeObject(forKey: legacyCustomColorsKey)
     }
 
     static func normalizedHex(_ raw: String) -> String? {
@@ -396,23 +392,95 @@ enum WorkspaceTabColorSettings {
         return baseColor
     }
 
-    private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
-        guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
-        let validNames = Set(defaultPalette.map(\.name))
+    private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
+        }
+        if let legacy = legacyPaletteMap(defaults: defaults) {
+            return legacy
+        }
+        return defaultPaletteMap
+    }
+
+    private static func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
+        }
+        if let legacy = legacyPaletteMap(defaults: defaults) {
+            return legacy
+        }
+        return defaultPaletteMap
+    }
+
+    private static func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
+        guard let raw = defaults.dictionary(forKey: paletteKey) as? [String: String] else { return nil }
+        return normalizedPaletteMap(raw)
+    }
+
+    private static func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
+        let hasLegacyOverrides = defaults.object(forKey: legacyDefaultOverridesKey) != nil
+        let hasLegacyCustomColors = defaults.object(forKey: legacyCustomColorsKey) != nil
+        guard hasLegacyOverrides || hasLegacyCustomColors else { return nil }
+
+        var palette = defaultPaletteMap
+
+        if let rawOverrides = defaults.dictionary(forKey: legacyDefaultOverridesKey) as? [String: String] {
+            let validNames = Set(defaultPalette.map(\.name))
+            for (name, hex) in rawOverrides {
+                guard validNames.contains(name),
+                      let normalized = normalizedHex(hex) else { continue }
+                palette[name] = normalized
+            }
+        }
+
+        if let rawCustomColors = defaults.array(forKey: legacyCustomColorsKey) as? [String] {
+            var index = 1
+            var seenCustomHexes: Set<String> = []
+            for rawHex in rawCustomColors {
+                guard let normalized = normalizedHex(rawHex),
+                      seenCustomHexes.insert(normalized).inserted else { continue }
+                let name = nextCustomColorName(
+                    existingNames: Set(palette.keys),
+                    startingAt: index
+                )
+                palette[name] = normalized
+                index += 1
+            }
+        }
+
+        return palette
+    }
+
+    private static func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
         var normalized: [String: String] = [:]
-        for (name, hex) in raw {
-            guard validNames.contains(name),
-                  let normalizedHex = normalizedHex(hex) else { continue }
-            normalized[name] = normalizedHex
+        for (rawName, rawHex) in rawPalette {
+            guard let name = normalizedColorName(rawName),
+                  let hex = normalizedHex(rawHex) else { continue }
+            normalized[name] = hex
         }
         return normalized
     }
 
-    private static func saveDefaultOverrideMap(_ map: [String: String], defaults: UserDefaults) {
-        if map.isEmpty {
-            defaults.removeObject(forKey: defaultOverridesKey)
-        } else {
-            defaults.set(map, forKey: defaultOverridesKey)
+    private static var defaultPaletteMap: [String: String] {
+        Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
+    }
+
+    private static func normalizedColorName(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func nextCustomColorName(
+        existingNames: Set<String>,
+        startingAt initialIndex: Int = 1
+    ) -> String {
+        var index = max(1, initialIndex)
+        while true {
+            let candidate = "Custom \(index)"
+            if !existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
+                return candidate
+            }
+            index += 1
         }
     }
 
@@ -2699,8 +2767,9 @@ class TabManager: ObservableObject {
         UITestRecorder.incrementInt("closePanelInvocations")
 #endif
         guard let selectedId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedId }),
-              let focusedPanelId = tab.focusedPanelId else { return }
+              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
+        reconcileFocusedPanelFromFirstResponderForKeyboard()
+        guard let focusedPanelId = shortcutCloseTargetPanelId(in: tab) else { return }
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
@@ -3015,6 +3084,28 @@ class TabManager: ObservableObject {
             "panelsAfterCall=\(tab.panels.count)"
         )
 #endif
+    }
+
+    private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        if workspace.panels.count == 1 {
+            return workspace.panels.keys.first
+        }
+
+        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        if let candidatePane,
+           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
+                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+           workspace.panels[panelId] != nil {
+            return panelId
+        }
+
+        return nil
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {

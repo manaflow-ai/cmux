@@ -6,6 +6,7 @@ import Foundation
 /// Global config (~/.config/cmux/cmux.json) is always trusted.
 final class CmuxDirectoryTrust {
     static let shared = CmuxDirectoryTrust()
+    static let didChangeNotification = Notification.Name("cmux.directoryTrustDidChange")
 
     private let storePath: String
     private var trustedPaths: Set<String>
@@ -108,5 +109,6 @@ final class CmuxDirectoryTrust {
         let sorted = trustedPaths.sorted()
         guard let data = try? JSONEncoder().encode(sorted) else { return }
         FileManager.default.createFile(atPath: storePath, contents: data)
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: nil)
     }
 }

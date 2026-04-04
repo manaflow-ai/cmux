@@ -2017,7 +2017,14 @@ class GhosttyApp {
         }
     }
 
-    func reloadConfiguration(soft: Bool = false, source: String = "unspecified") {
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String = "unspecified",
+        reloadSettingsFromFile: Bool = true
+    ) {
+        if reloadSettingsFromFile {
+            KeyboardShortcutSettings.settingsFileStore.reload()
+        }
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -2088,7 +2095,10 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
-        reloadConfiguration(source: "appearanceSync:\(source)")
+        reloadConfiguration(
+            source: "appearanceSync:\(source)",
+            reloadSettingsFromFile: false
+        )
     }
 
     func openConfigurationInTextEdit() {
