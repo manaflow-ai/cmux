@@ -1149,7 +1149,7 @@ class GhosttyApp {
         }
         runtimeConfig.read_clipboard_cb = { userdata, location, state in
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
-                  let requestSurface = callbackContext.runtimeSurface else { return false }
+                  let requestSurface = callbackContext.runtimeSurface else { return }
 
             DispatchQueue.main.async {
                 func completeClipboardRequest(with text: String) {
