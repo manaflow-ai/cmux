@@ -11284,6 +11284,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Returns (or lazily creates) the NonNativeFullscreen controller for a window.
+    /// Returns the existing non-native fullscreen controller for a window, if any.
+    /// Does not create a new one. Used by hit-test code that needs a fast check.
+    func existingNonNativeFullscreen(for window: NSWindow) -> NonNativeFullscreen? {
+        nonNativeFullscreens[ObjectIdentifier(window)]
+    }
+
     func nonNativeFullscreen(for window: NSWindow, style: NonNativeFullscreen.Style) -> NonNativeFullscreen {
         let key = ObjectIdentifier(window)
         if let existing = nonNativeFullscreens[key] {

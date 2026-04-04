@@ -395,6 +395,13 @@ struct WindowDragHandleView: NSViewRepresentable {
         override var mouseDownCanMoveWindow: Bool { false }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
+            // In non-native fullscreen, the window can't be dragged, so
+            // pass all events through to the SwiftUI controls underneath.
+            if let window, let controller = AppDelegate.shared?.existingNonNativeFullscreen(for: window),
+               controller.isFullScreen {
+                return nil
+            }
+
             let currentEvent = NSApp.currentEvent
             // Fast bail-out: only claim hits for left-mouse-down events.
             // For mouseMoved / mouseEntered / etc., return nil immediately
