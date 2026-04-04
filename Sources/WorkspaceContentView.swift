@@ -3,6 +3,15 @@ import Foundation
 import AppKit
 import Bonsplit
 
+func visibleTabIdForPaneSelection(
+    selectedTabId: TabID?,
+    tabsInPane: [Bonsplit.Tab]
+) -> TabID? {
+    // Bonsplit can transiently clear selectedTab during pane reparenting/reorganization.
+    // Fall back to the first tab so visible panes don't flash blank while selection settles.
+    selectedTabId ?? tabsInPane.first?.id
+}
+
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
     case surface
     case bonsplitPane
@@ -283,7 +292,10 @@ struct WorkspaceContentView: View {
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
                 let isFocused = isWorkspaceInputActive && workspace.focusedPanelId == panel.id
-                let isSelectedInPane = workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
+                let isSelectedInPane = visibleTabIdForPaneSelection(
+                    selectedTabId: workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
+                    tabsInPane: workspace.bonsplitController.tabs(inPane: paneId)
+                ) == tab.id
                 let isVisibleInUI = Self.panelVisibleInUI(
                     isWorkspaceVisible: isWorkspaceVisible,
                     isSelectedInPane: isSelectedInPane,
