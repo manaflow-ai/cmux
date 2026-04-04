@@ -5615,16 +5615,16 @@ struct SettingsView: View {
                             subtitle: String(localized: "settings.shortcuts.chords.subtitle", defaultValue: "Add tmux-style multi-step shortcuts in settings.json, for example [\"ctrl+b\", \"c\"].")
                         ) {
                             HStack(spacing: 8) {
+                                Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
+                                    .font(.caption)
+                                    .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
+
                                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open settings.json")) {
                                     openCmuxSettingsFileInTextEdit()
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
                                 .accessibilityIdentifier("SettingsKeyboardShortcutsOpenSettingsFileButton")
-
-                                Link(String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"), destination: shortcutChordsDocsURL)
-                                    .font(.caption)
-                                    .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
                             }
                         }
 
