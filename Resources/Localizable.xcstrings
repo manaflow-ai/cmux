@@ -2601,115 +2601,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, workspace %2$lld of %3$lld"
+            "value": "%1$@, workspace %2$@ of %3$lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@、ワークスペース %3$lld中%2$lld"
+            "value": "%1$@、ワークスペース %3$lld中%2$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@，工作区 %2$lld / %3$lld"
+            "value": "%1$@，工作区 %2$@ / %3$lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@，工作區 %2$lld / %3$lld"
+            "value": "%1$@，工作區 %2$@ / %3$lld"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, 작업 공간 %2$lld / %3$lld"
+            "value": "%1$@, 작업 공간 %2$@ / %3$lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, Arbeitsbereich %2$lld von %3$lld"
+            "value": "%1$@, Arbeitsbereich %2$@ von %3$lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, espacio de trabajo %2$lld de %3$lld"
+            "value": "%1$@, espacio de trabajo %2$@ de %3$lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, espace de travail %2$lld sur %3$lld"
+            "value": "%1$@, espace de travail %2$@ sur %3$lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, area di lavoro %2$lld di %3$lld"
+            "value": "%1$@, area di lavoro %2$@ di %3$lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, arbejdsområde %2$lld af %3$lld"
+            "value": "%1$@, arbejdsområde %2$@ af %3$lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, przestrzeń robocza %2$lld z %3$lld"
+            "value": "%1$@, przestrzeń robocza %2$@ z %3$lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, рабочее пространство %2$lld из %3$lld"
+            "value": "%1$@, рабочее пространство %2$@ из %3$lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, radni prostor %2$lld od %3$lld"
+            "value": "%1$@, radni prostor %2$@ od %3$lld"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@، مساحة العمل %2$lld من %3$lld"
+            "value": "%1$@، مساحة العمل %2$@ من %3$lld"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, arbeidsområde %2$lld av %3$lld"
+            "value": "%1$@, arbeidsområde %2$@ av %3$lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, área de trabalho %2$lld de %3$lld"
+            "value": "%1$@, área de trabalho %2$@ de %3$lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, เวิร์กสเปซที่ %2$lld จาก %3$lld"
+            "value": "%1$@, เวิร์กสเปซที่ %2$@ จาก %3$lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, çalışma alanı %3$lld/%2$lld"
+            "value": "%1$@, çalışma alanı %3$lld/%2$@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, робоча область %2$lld з %3$lld"
+            "value": "%1$@, робоча область %2$@ з %3$lld"
           }
         }
       }
@@ -70270,19 +70270,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": ":%lld"
+            "value": ":%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": ":%lld"
+            "value": ":%@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": ":%lld"
+            "value": ":%@"
           }
         }
       }
@@ -70293,19 +70293,36 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open localhost:%lld"
+            "value": "Open localhost:%@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "localhost:%lldを開く"
+            "value": "localhost:%@を開く"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрити localhost:%lld"
+            "value": "Відкрити localhost:%@"
+          }
+        }
+      }
+    },
+    "sidebar.pullRequest.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ #%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ #%2$@"
           }
         }
       }
@@ -70316,115 +70333,115 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open %1$@ #%2$lld"
+            "value": "Open %1$@ #%2$@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ #%2$lldを開く"
+            "value": "%1$@ #%2$@を開く"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开 %1$@ #%2$lld"
+            "value": "打开 %1$@ #%2$@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟 %1$@ #%2$lld"
+            "value": "開啟 %1$@ #%2$@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ #%2$lld 열기"
+            "value": "%1$@ #%2$@ 열기"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ #%2$lld öffnen"
+            "value": "%1$@ #%2$@ öffnen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir %1$@ #%2$lld"
+            "value": "Abrir %1$@ #%2$@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir %1$@ #%2$lld"
+            "value": "Ouvrir %1$@ #%2$@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri %1$@ #%2$lld"
+            "value": "Apri %1$@ #%2$@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn %1$@ #%2$lld"
+            "value": "Åbn %1$@ #%2$@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz %1$@ #%2$lld"
+            "value": "Otwórz %1$@ #%2$@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть %1$@ #%2$lld"
+            "value": "Открыть %1$@ #%2$@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvori %1$@ #%2$lld"
+            "value": "Otvori %1$@ #%2$@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح %1$@ #%2$lld"
+            "value": "فتح %1$@ #%2$@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne %1$@ #%2$lld"
+            "value": "Åpne %1$@ #%2$@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir %1$@ #%2$lld"
+            "value": "Abrir %1$@ #%2$@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิด %1$@ #%2$lld"
+            "value": "เปิด %1$@ #%2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ #%2$lld Aç"
+            "value": "%1$@ #%2$@ Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрити %1$@ #%2$lld"
+            "value": "Відкрити %1$@ #%2$@"
           }
         }
       }

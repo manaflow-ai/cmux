@@ -12899,7 +12899,7 @@ private struct TabItemView: View, Equatable {
                                     status: pullRequest.status,
                                     color: pullRequestForegroundColor
                                 )
-                                Text("\(pullRequest.label) #\(String(pullRequest.number))")
+                                Text(String(localized: "sidebar.pullRequest.label", defaultValue: "\(pullRequest.label) #\(String(pullRequest.number))"))
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
