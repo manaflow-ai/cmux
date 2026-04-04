@@ -1584,6 +1584,7 @@ struct ContentView: View {
     @State private var lastSidebarSelectionIndex: Int? = nil
     @State private var titlebarText: String = ""
     @State private var isFullScreen: Bool = false
+    @State private var isNonNativeFullScreen: Bool = false
     @State private var nonNativeFullscreen: NonNativeFullscreen?
     @State private var observedWindow: NSWindow?
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
@@ -2489,7 +2490,7 @@ struct ContentView: View {
                 .allowsHitTesting(false)
 
             HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
+                if isNonNativeFullScreen || (isFullScreen && !sidebarState.isVisible) {
                     fullscreenControls
                 }
 
@@ -3100,6 +3101,7 @@ struct ContentView: View {
                 let controller = AppDelegate.shared?.nonNativeFullscreen(for: window, style: style)
                 let nowFullScreen = controller?.isFullScreen ?? false
                 isFullScreen = nowFullScreen
+                isNonNativeFullScreen = nowFullScreen
                 // .titled is removed in non-native fullscreen, so NSTitlebarAccessoryViewControllers
                 // are inactive. fullscreenControls (SwiftUI view) takes over when isFullScreen is true.
                 setTitlebarControlsHidden(nowFullScreen, in: window)
