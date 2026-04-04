@@ -101,7 +101,18 @@ final class NonNativeFullscreen {
         // Keep .titled so cmux's SwiftUI titlebar controls remain functional.
         // titlebarAppearsTransparent is already set, so the titlebar blends
         // with content seamlessly.
+        //
+        // presentationOptions take a run-loop cycle to update visibleFrame,
+        // so set the frame after a short delay to pick up the freed space.
         window.setFrame(fullscreenFrame(for: screen), display: true, animate: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, let window = self.window, self.isFullScreen else { return }
+            guard let currentScreen = window.screen ?? NSScreen.main else { return }
+            let target = self.fullscreenFrame(for: currentScreen)
+            if window.frame != target {
+                window.setFrame(target, display: true)
+            }
+        }
     }
 
     func exit() {
@@ -134,12 +145,11 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
-        // Use the full screen frame since presentationOptions auto-hides
-        // menu bar and dock. Subtract menu bar height because .titled is
-        // still active and macOS won't let the window extend above it.
-        var frame = screen.frame
-        let menuBarHeight = NSApp.mainMenu?.menuBarHeight ?? 0
-        frame.size.height -= menuBarHeight
+        // After presentationOptions auto-hides menu bar and dock,
+        // visibleFrame reflects the usable area. With .titled still
+        // active, the window is constrained below the menu bar, so
+        // visibleFrame is the correct target.
+        var frame = screen.visibleFrame
 
         if style.paddedNotch {
             let safeTop = screen.safeAreaInsets.top
