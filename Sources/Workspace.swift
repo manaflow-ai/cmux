@@ -5095,10 +5095,91 @@ final class WorkspaceRemoteSessionController {
         return regex.firstMatch(in: command, options: [], range: range) != nil
     }
 
+    static func executableSearchPaths(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        pathHelperOutput: String? = nil
+    ) -> [String] {
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        func appendSearchPath(_ rawPath: String?) {
+            guard let rawPath else { return }
+            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            guard seen.insert(trimmed).inserted else { return }
+            ordered.append(trimmed)
+        }
+
+        if let path = environment["PATH"] {
+            for component in path.split(separator: ":") {
+                appendSearchPath(String(component))
+            }
+        }
+
+        if let home = environment["HOME"], !home.isEmpty {
+            appendSearchPath((home as NSString).appendingPathComponent(".local/bin"))
+            appendSearchPath((home as NSString).appendingPathComponent("go/bin"))
+            appendSearchPath((home as NSString).appendingPathComponent("bin"))
+        }
+
+        let helperOutput = pathHelperOutput ?? pathHelperShellOutput()
+        for component in parsePathHelperPaths(helperOutput) {
+            appendSearchPath(component)
+        }
+
+        for component in [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ] {
+            appendSearchPath(component)
+        }
+
+        return ordered
+    }
+
+    static func parsePathHelperPaths(_ output: String) -> [String] {
+        guard let pathRange = output.range(of: "PATH=\"") else { return [] }
+        let suffix = output[pathRange.upperBound...]
+        guard let closingQuote = suffix.firstIndex(of: "\"") else { return [] }
+        return suffix[..<closingQuote]
+            .split(separator: ":")
+            .map(String.init)
+    }
+
+    private static func pathHelperShellOutput() -> String {
+        let executable = "/usr/libexec/path_helper"
+        guard FileManager.default.isExecutableFile(atPath: executable) else { return "" }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["-s"]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            return ""
+        }
+
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return "" }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     private static func which(_ executable: String) -> String? {
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for component in path.split(separator: ":") {
-            let candidate = String(component) + "/" + executable
+        for component in executableSearchPaths() {
+            let candidate = (component as NSString).appendingPathComponent(executable)
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }

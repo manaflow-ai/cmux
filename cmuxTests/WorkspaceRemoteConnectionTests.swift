@@ -1,9 +1,9 @@
 import XCTest
 
-#if canImport(cmux)
-@testable import cmux
-#elseif canImport(cmux_DEV)
+#if canImport(cmux_DEV)
 @testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
 #endif
 
 final class WorkspaceRemoteConnectionTests: XCTestCase {
@@ -226,6 +226,46 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(detail, "remote port forwarding failed for listen port 64009")
+    }
+
+    func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
+        let paths = WorkspaceRemoteSessionController.executableSearchPaths(
+            environment: [
+                "HOME": "/Users/tester",
+                "PATH": "/usr/bin:/bin",
+            ],
+            pathHelperOutput: "PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin\"; export PATH;\n"
+        )
+
+        XCTAssertEqual(
+            paths,
+            [
+                "/usr/bin",
+                "/bin",
+                "/Users/tester/.local/bin",
+                "/Users/tester/go/bin",
+                "/Users/tester/bin",
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/sbin",
+                "/usr/sbin",
+                "/sbin",
+            ]
+        )
+    }
+
+    func testParsePathHelperPathsExtractsPathEntries() {
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.parsePathHelperPaths(
+                "PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin\"; export PATH;\n"
+            ),
+            [
+                "/opt/homebrew/bin",
+                "/usr/local/bin",
+                "/usr/bin",
+            ]
+        )
     }
 
     @MainActor
