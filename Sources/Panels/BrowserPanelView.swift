@@ -590,10 +590,15 @@ struct BrowserPanelView: View {
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
-            if browserThemeModeRaw != normalizedMode.rawValue {
-                browserThemeModeRaw = normalizedMode.rawValue
-            }
             panel.setBrowserThemeMode(normalizedMode)
+            // Defer the normalization write to the next run loop turn so we do not write to the
+            // observed @AppStorage key during the same attribute-graph update that triggered
+            // onChange (can re-enter SwiftUI updates and spin the main thread).
+            if browserThemeModeRaw != normalizedMode.rawValue {
+                DispatchQueue.main.async {
+                    browserThemeModeRaw = normalizedMode.rawValue
+                }
+            }
         }
         .onChange(of: colorScheme) { _ in
             refreshBrowserChromeStyle()
