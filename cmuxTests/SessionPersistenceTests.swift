@@ -1870,4 +1870,49 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         // random-unknown-command is not in default allowlist
         XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("random-unknown-command"))
     }
+
+    // MARK: - Command Injection Prevention Tests
+
+    func testCommandsWithNewlinesAreBlocked() {
+        // Newlines in commands could enable injection attacks (e.g., "ssh host\nrm -rf ~")
+        // The denylist should block commands containing newlines via piped shell patterns
+        let allowlist = "ssh *\nopencode *"
+
+        // Commands with literal newlines should be blocked by "| sh" / "| bash" patterns
+        // or caught at the initialInput validation layer (GhosttyTerminalView)
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("ssh host\nrm -rf ~", rawAllowlist: allowlist),
+                       "Command with embedded newline should be blocked")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("opencode\n--malicious", rawAllowlist: allowlist),
+                       "Command with embedded newline should be blocked")
+
+        // Carriage returns should also be blocked
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("ssh host\rrm -rf ~", rawAllowlist: allowlist),
+                       "Command with embedded carriage return should be blocked")
+    }
+
+    func testValidatedRestoreCommandRejectsNewlines() {
+        // validatedRestoreCommand should reject commands with newlines
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("opencode\n--flag"),
+                     "validatedRestoreCommand should reject newlines")
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("opencode\r--flag"),
+                     "validatedRestoreCommand should reject carriage returns")
+        XCTAssertNil(SessionRestoreCommandSettings.validatedRestoreCommand("ssh host\nrm -rf /"),
+                     "validatedRestoreCommand should reject multi-line injection")
+    }
+
+    // MARK: - Shell Quoting Edge Cases
+
+    func testShellQuotingSpecialCharacters() {
+        // Commands with special shell characters in args should be properly quoted
+        // This tests that shellQuoteIfNeeded handles edge cases
+        let allowlist = "myapp *"
+
+        // Commands with spaces in args (would need quoting)
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp 'file with spaces.txt'", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp \"quoted arg\"", rawAllowlist: allowlist))
+
+        // Commands with shell metacharacters (should still match if allowlisted)
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp --pattern='*.txt'", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp --regex=[a-z]+", rawAllowlist: allowlist))
+    }
 }

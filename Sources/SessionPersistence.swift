@@ -655,6 +655,9 @@ enum SessionRestoreCommandSettings {
         // History replay
         "history | sh", "history | bash", "history | zsh",
         "fc -s",
+        // Command injection via embedded newlines/carriage returns
+        // Defense-in-depth: also blocked at initialInput validation layer
+        "\n", "\r",
         // Fork bomb
         ":(){ :|:& };:",
         // Disk write targets
