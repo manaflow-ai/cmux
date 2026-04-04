@@ -173,6 +173,287 @@ func TestTmuxSplitWindowCanonicalizesCallerSurfaceRefs(t *testing.T) {
 	}
 }
 
+// startMockTmuxCompatSocketWithFocusFallback creates a mock that accepts
+// surface.split with either the known surface UUID or an empty surface_id,
+// mimicking the real server's focused-surface fallback.
+func startMockTmuxCompatSocketWithFocusFallback(t *testing.T) string {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				var req map[string]any
+				if err := json.Unmarshal(line, &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+
+				method, _ := req["method"].(string)
+				resp := map[string]any{
+					"id": req["id"],
+					"ok": true,
+				}
+
+				switch method {
+				case "workspace.list":
+					resp["result"] = map[string]any{
+						"workspaces": []map[string]any{{
+							"id":    "11111111-1111-4111-8111-111111111111",
+							"ref":   "workspace:1",
+							"index": 1,
+							"title": "demo",
+						}},
+					}
+				case "workspace.current":
+					resp["result"] = map[string]any{
+						"workspace_id":  "11111111-1111-4111-8111-111111111111",
+						"workspace_ref": "workspace:1",
+					}
+				case "surface.list":
+					resp["result"] = map[string]any{"surfaces": []map[string]any{{
+						"id":      "44444444-4444-4444-8444-444444444444",
+						"ref":     "surface:1",
+						"focused": true,
+						"pane_id": "33333333-3333-4333-8333-333333333333",
+						"title":   "leader",
+					}}}
+				case "surface.current":
+					resp["result"] = map[string]any{
+						"workspace_id":  "11111111-1111-4111-8111-111111111111",
+						"pane_id":       "33333333-3333-4333-8333-333333333333",
+						"surface_id":    "44444444-4444-4444-8444-444444444444",
+					}
+				case "pane.list":
+					resp["result"] = map[string]any{"panes": []map[string]any{{
+						"id":    "33333333-3333-4333-8333-333333333333",
+						"ref":   "pane:1",
+						"index": 1,
+					}}}
+				case "surface.split":
+					// Accept the known surface UUID or empty (server fallback)
+					resp["result"] = map[string]any{
+						"surface_id": "77777777-7777-4777-8777-777777777777",
+						"pane_id":    "66666666-6666-4666-8666-666666666666",
+					}
+				case "workspace.equalize_splits":
+					resp["result"] = map[string]any{"ok": true}
+				case "pane.surfaces":
+					resp["result"] = map[string]any{"surfaces": []map[string]any{{
+						"id":       "44444444-4444-4444-8444-444444444444",
+						"selected": true,
+					}}}
+				default:
+					resp["ok"] = false
+					resp["error"] = map[string]any{
+						"code":    "unsupported",
+						"message": method,
+					}
+				}
+
+				payload, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(payload, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath
+}
+
+func TestTmuxSplitWindowWithoutSurfaceEnv(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
+	origSurface := os.Getenv("CMUX_SURFACE_ID")
+	origPane := os.Getenv("TMUX_PANE")
+	os.Setenv("HOME", t.TempDir())
+	os.Unsetenv("CMUX_WORKSPACE_ID")
+	os.Unsetenv("CMUX_SURFACE_ID")
+	os.Unsetenv("TMUX_PANE")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origWorkspace != "" {
+			os.Setenv("CMUX_WORKSPACE_ID", origWorkspace)
+		} else {
+			os.Unsetenv("CMUX_WORKSPACE_ID")
+		}
+		if origSurface != "" {
+			os.Setenv("CMUX_SURFACE_ID", origSurface)
+		} else {
+			os.Unsetenv("CMUX_SURFACE_ID")
+		}
+		if origPane != "" {
+			os.Setenv("TMUX_PANE", origPane)
+		} else {
+			os.Unsetenv("TMUX_PANE")
+		}
+	}()
+
+	sockPath := startMockTmuxCompatSocketWithFocusFallback(t)
+	rc := &rpcContext{socketPath: sockPath}
+
+	output := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-h", "-P", "-F", "#{pane_id}"}); err != nil {
+			t.Fatalf("split-window without env vars: %v", err)
+		}
+	})
+
+	if got := output; got != "%66666666-6666-4666-8666-666666666666\n" {
+		t.Fatalf("stdout = %q, want %%66666666-6666-4666-8666-666666666666", got)
+	}
+}
+
+// startMockTmuxCompatSocketSurfaceResolveFails creates a mock where
+// surface.current returns no surface_id (simulating the scenario where
+// surface resolution fails on the client side but surface.split still
+// works because the server falls back to its focused surface).
+func startMockTmuxCompatSocketSurfaceResolveFails(t *testing.T) string {
+	t.Helper()
+	sockPath := makeShortUnixSocketPath(t)
+
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				reader := bufio.NewReader(conn)
+				line, err := reader.ReadBytes('\n')
+				if err != nil {
+					return
+				}
+
+				var req map[string]any
+				if err := json.Unmarshal(line, &req); err != nil {
+					_, _ = conn.Write([]byte(`{"ok":false,"error":{"code":"parse","message":"bad json"}}` + "\n"))
+					return
+				}
+
+				method, _ := req["method"].(string)
+				resp := map[string]any{
+					"id": req["id"],
+					"ok": true,
+				}
+
+				switch method {
+				case "workspace.list":
+					resp["result"] = map[string]any{
+						"workspaces": []map[string]any{{
+							"id":    "11111111-1111-4111-8111-111111111111",
+							"ref":   "workspace:1",
+							"index": 1,
+							"title": "demo",
+						}},
+					}
+				case "workspace.current":
+					resp["result"] = map[string]any{
+						"workspace_id":  "11111111-1111-4111-8111-111111111111",
+						"workspace_ref": "workspace:1",
+					}
+				case "surface.current":
+					// Return no surface_id — simulates transient server state
+					// where the focused surface is not yet available to the
+					// current endpoint but surface.split can still use it.
+					resp["result"] = map[string]any{
+						"workspace_id": "11111111-1111-4111-8111-111111111111",
+					}
+				case "surface.list":
+					// Return empty surfaces — surface resolution will fail
+					resp["result"] = map[string]any{"surfaces": []map[string]any{}}
+				case "pane.list":
+					resp["result"] = map[string]any{"panes": []map[string]any{}}
+				case "surface.split":
+					// Server accepts split with any/empty surface_id and uses
+					// its internal focused surface (like the real server does).
+					resp["result"] = map[string]any{
+						"surface_id": "77777777-7777-4777-8777-777777777777",
+						"pane_id":    "66666666-6666-4666-8666-666666666666",
+					}
+				case "workspace.equalize_splits":
+					resp["result"] = map[string]any{"ok": true}
+				default:
+					resp["ok"] = false
+					resp["error"] = map[string]any{
+						"code":    "unsupported",
+						"message": method,
+					}
+				}
+
+				payload, _ := json.Marshal(resp)
+				_, _ = conn.Write(append(payload, '\n'))
+			}(conn)
+		}
+	}()
+
+	return sockPath
+}
+
+func TestTmuxSplitWindowFallsBackWhenSurfaceResolveFails(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
+	origSurface := os.Getenv("CMUX_SURFACE_ID")
+	origPane := os.Getenv("TMUX_PANE")
+	os.Setenv("HOME", t.TempDir())
+	os.Unsetenv("CMUX_WORKSPACE_ID")
+	os.Unsetenv("CMUX_SURFACE_ID")
+	os.Unsetenv("TMUX_PANE")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origWorkspace != "" {
+			os.Setenv("CMUX_WORKSPACE_ID", origWorkspace)
+		} else {
+			os.Unsetenv("CMUX_WORKSPACE_ID")
+		}
+		if origSurface != "" {
+			os.Setenv("CMUX_SURFACE_ID", origSurface)
+		} else {
+			os.Unsetenv("CMUX_SURFACE_ID")
+		}
+		if origPane != "" {
+			os.Setenv("TMUX_PANE", origPane)
+		} else {
+			os.Unsetenv("TMUX_PANE")
+		}
+	}()
+
+	sockPath := startMockTmuxCompatSocketSurfaceResolveFails(t)
+	rc := &rpcContext{socketPath: sockPath}
+
+	output := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-h", "-P", "-F", "#{pane_id}"}); err != nil {
+			t.Fatalf("split-window should fall back when surface resolution fails: %v", err)
+		}
+	})
+
+	if got := output; got != "%66666666-6666-4666-8666-666666666666\n" {
+		t.Fatalf("stdout = %q, want %%66666666-6666-4666-8666-666666666666", got)
+	}
+}
+
 func TestTmuxSplitWindowIgnoresStaleUUIDColumnSurface(t *testing.T) {
 	origHome := os.Getenv("HOME")
 	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
