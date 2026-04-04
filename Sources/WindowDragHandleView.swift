@@ -394,7 +394,12 @@ struct WindowDragHandleView: NSViewRepresentable {
     private final class DraggableView: NSView {
         override var mouseDownCanMoveWindow: Bool { false }
 
+        /// Set during the mouseDown forwarding check so the nested
+        /// contentView.hitTest skips this view and finds the real target.
+        private static var isResolvingForwardTarget = false
+
         override func hitTest(_ point: NSPoint) -> NSView? {
+            if Self.isResolvingForwardTarget { return nil }
             let currentEvent = NSApp.currentEvent
             // Fast bail-out: only claim hits for left-mouse-down events.
             // For mouseMoved / mouseEntered / etc., return nil immediately
@@ -441,6 +446,25 @@ struct WindowDragHandleView: NSViewRepresentable {
                 dlog("titlebar.dragHandle.mouseDownIgnored reason=suppressed")
                 #endif
                 return
+            }
+
+            // The sibling walk in hitTest can miss views nested inside SwiftUI
+            // hosting containers. Before starting a window drag, do a full
+            // window-level hit test to check if an interactive view (e.g. the
+            // folder icon) is the real target. If so, forward the event.
+            if let window, let contentView = window.contentView {
+                let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+                Self.isResolvingForwardTarget = true
+                let realTarget = contentView.hitTest(pointInContent)
+                Self.isResolvingForwardTarget = false
+                if let realTarget,
+                   !windowDragHandleShouldTreatTopHitAsPassiveHost(realTarget) {
+                    #if DEBUG
+                    dlog("titlebar.dragHandle.mouseDown forwarding to \(type(of: realTarget))")
+                    #endif
+                    realTarget.mouseDown(with: event)
+                    return
+                }
             }
 
             if let window {
