@@ -10456,7 +10456,7 @@ struct CMUXCLI {
 
         // Keep the shadow package isolated from stale/yanked pins in the user's
         // opencode package.json. bun will update this manifest with the resolved
-        // oh-my-opencode version when installation succeeds.
+        // oh-my-openagent version when installation succeeds.
         let packageManifest: [String: Any] = [
             "dependencies": [
                 Self.omoPluginName: "latest"
@@ -10600,7 +10600,7 @@ struct CMUXCLI {
         return "4096"
     }
 
-    /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
+    /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
     private func omoEnsurePlugin() throws {
@@ -10625,6 +10625,8 @@ struct CMUXCLI {
         }
 
         var plugins = (config["plugin"] as? [String]) ?? []
+        // Remove legacy oh-my-opencode entries to avoid duplicate plugin registration
+        plugins.removeAll { $0 == "oh-my-opencode" || $0.hasPrefix("oh-my-opencode@") }
         let alreadyPresent = plugins.contains {
             $0 == Self.omoPluginName || $0.hasPrefix("\(Self.omoPluginName)@")
         }
@@ -10650,8 +10652,8 @@ struct CMUXCLI {
             try? fm.removeItem(at: shadowBunLockURL)
         }
 
-        // Copy oh-my-opencode plugin config (jsonc) if the user has one
-        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+        // Copy oh-my-openagent plugin config if the user has one
+        for filename in ["oh-my-openagent.json", "oh-my-openagent.jsonc"] {
             let userFile = userDir.appendingPathComponent(filename)
             let shadowFile = shadowDir.appendingPathComponent(filename)
             if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
@@ -10664,7 +10666,7 @@ struct CMUXCLI {
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
             if let bunPath = resolveExecutableInPath("bun") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                FileHandle.standardError.write("Installing oh-my-openagent plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
@@ -10672,7 +10674,7 @@ struct CMUXCLI {
                     currentDirectoryURL: installDir
                 )
                 if firstAttemptStatus != 0 {
-                    FileHandle.standardError.write("Retrying oh-my-opencode install with a clean shadow package state...\n".data(using: .utf8)!)
+                    FileHandle.standardError.write("Retrying oh-my-openagent install with a clean shadow package state...\n".data(using: .utf8)!)
                     try? fm.removeItem(at: shadowBunLockURL)
                     try? fm.removeItem(at: shadowNodeModules)
                     try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
@@ -10682,36 +10684,36 @@ struct CMUXCLI {
                         currentDirectoryURL: installDir
                     )
                     if retryStatus != 0 {
-                        throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                        throw CLIError(message: "Failed to install oh-my-openagent. Try manually: npm install -g oh-my-openagent")
                     }
                 }
             } else if let npmPath = resolveExecutableInPath("npm") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                FileHandle.standardError.write("Installing oh-my-openagent plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
                     currentDirectoryURL: installDir
                 )
                 if status != 0 {
-                    throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                    throw CLIError(message: "Failed to install oh-my-openagent. Try manually: npm install -g oh-my-openagent")
                 }
             } else {
-                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-openagent manually: bunx oh-my-openagent install")
             }
-            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+            FileHandle.standardError.write("oh-my-openagent plugin installed\n".data(using: .utf8)!)
         }
 
-        // Ensure tmux mode is enabled in oh-my-opencode config.
+        // Ensure tmux mode is enabled in oh-my-openagent config.
         // Without this, the TmuxSessionManager won't spawn visual panes even though
         // $TMUX is set (tmux.enabled defaults to false).
-        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
+        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-openagent.json")
         var omoConfig: [String: Any]
         if let data = try? Data(contentsOf: omoConfigURL),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             omoConfig = existing
         } else {
             // Check if user has a config we symlinked, read from source
-            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
+            let userOmoConfig = userDir.appendingPathComponent("oh-my-openagent.json")
             if let data = try? Data(contentsOf: userOmoConfig),
                let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 omoConfig = existing
@@ -10809,7 +10811,7 @@ struct CMUXCLI {
             }
         }
 
-        // Ensure oh-my-opencode plugin is registered and installed
+        // Ensure oh-my-openagent plugin is registered and installed
         try omoEnsurePlugin()
 
         let shimDirectory = try createOMOShimDirectory()

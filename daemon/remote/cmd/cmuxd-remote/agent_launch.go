@@ -86,7 +86,7 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 		return 1
 	}
 
-	// Ensure oh-my-opencode plugin is set up
+	// Ensure oh-my-openagent plugin is set up
 	if err := omoEnsurePlugin(originalPath); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
 		return 1
@@ -422,7 +422,7 @@ func omoShadowConfigDir() string {
 }
 
 // omoEnsurePlugin creates a shadow config directory that layers the
-// oh-my-opencode plugin on top of the user's opencode config, installs
+// oh-my-openagent plugin on top of the user's opencode config, installs
 // the plugin if needed, and sets OPENCODE_CONFIG_DIR.
 func omoEnsurePlugin(searchPath string) error {
 	userDir := omoUserConfigDir()
@@ -445,7 +445,7 @@ func omoEnsurePlugin(searchPath string) error {
 		config = map[string]any{}
 	}
 
-	// Add oh-my-opencode to the plugins list
+	// Add oh-my-openagent to the plugins list
 	var plugins []string
 	if raw, ok := config["plugin"].([]any); ok {
 		for _, p := range raw {
@@ -454,6 +454,14 @@ func omoEnsurePlugin(searchPath string) error {
 			}
 		}
 	}
+	// Remove legacy oh-my-opencode entries to avoid duplicate plugin registration
+	var cleaned []string
+	for _, p := range plugins {
+		if p != "oh-my-opencode" && !strings.HasPrefix(p, "oh-my-opencode@") {
+			cleaned = append(cleaned, p)
+		}
+	}
+	plugins = cleaned
 	alreadyPresent := false
 	for _, p := range plugins {
 		if p == omoPluginName || strings.HasPrefix(p, omoPluginName+"@") {
@@ -494,8 +502,8 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Symlink oh-my-opencode config files
-	for _, filename := range []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"} {
+	// Symlink oh-my-openagent config files
+	for _, filename := range []string{"oh-my-openagent.json", "oh-my-openagent.jsonc"} {
 		userFile := filepath.Join(userDir, filename)
 		shadowFile := filepath.Join(shadowDir, filename)
 		if fileExists(userFile) && !fileExists(shadowFile) {
@@ -516,10 +524,10 @@ func omoEnsurePlugin(searchPath string) error {
 		bunPath := findExecutableInPath("bun", searchPath, "")
 		npmPath := findExecutableInPath("npm", searchPath, "")
 		if bunPath == "" && npmPath == "" {
-			return fmt.Errorf("neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+			return fmt.Errorf("neither bun nor npm found in PATH. Install oh-my-openagent manually: bunx oh-my-openagent install")
 		}
 
-		fmt.Fprintf(os.Stderr, "Installing oh-my-opencode plugin...\n")
+		fmt.Fprintf(os.Stderr, "Installing oh-my-openagent plugin...\n")
 		var cmd *exec.Cmd
 		if bunPath != "" {
 			cmd = exec.Command(bunPath, "add", omoPluginName)
@@ -530,9 +538,9 @@ func omoEnsurePlugin(searchPath string) error {
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("failed to install oh-my-opencode: %v\nTry manually: npm install -g oh-my-opencode", err)
+			return fmt.Errorf("failed to install oh-my-openagent: %v\nTry manually: npm install -g oh-my-openagent", err)
 		}
-		fmt.Fprintf(os.Stderr, "oh-my-opencode plugin installed\n")
+		fmt.Fprintf(os.Stderr, "oh-my-openagent plugin installed\n")
 
 		// Re-create symlink if we installed into user dir
 		if installDir == userDir && !fileExists(shadowNodeModules) {
@@ -540,15 +548,15 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Configure oh-my-opencode.json with tmux settings
-	omoConfigPath := filepath.Join(shadowDir, "oh-my-opencode.json")
+	// Configure oh-my-openagent.json with tmux settings
+	omoConfigPath := filepath.Join(shadowDir, "oh-my-openagent.json")
 	var omoConfig map[string]any
 	if data, err := os.ReadFile(omoConfigPath); err == nil {
 		json.Unmarshal(data, &omoConfig)
 	}
 	if omoConfig == nil {
 		// Check if user had one we symlinked
-		userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
+		userOmoConfig := filepath.Join(userDir, "oh-my-openagent.json")
 		if data, err := os.ReadFile(userOmoConfig); err == nil {
 			json.Unmarshal(data, &omoConfig)
 			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
