@@ -9929,7 +9929,9 @@ struct VerticalTabsSidebar: View {
                         Spacer()
                             .frame(height: trafficLightPadding)
 
-                        LazyVStack(spacing: tabRowSpacing) {
+                        // Workspaces are bounded, so prefer a non-lazy stack here.
+                        // LazyVStack + drag-state invalidations can recurse through layout.
+                        VStack(spacing: tabRowSpacing) {
                             ForEach(tabs, id: \.id) { tab in
                                 let index = tabIndexById[tab.id] ?? 0
                                 let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
@@ -9986,6 +9988,7 @@ struct VerticalTabsSidebar: View {
                             }
                         }
                         .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         SidebarEmptyArea(
                             rowSpacing: tabRowSpacing,
@@ -14246,12 +14249,12 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     }
 }
 
-enum SidebarDropEdge {
+enum SidebarDropEdge: Equatable {
     case top
     case bottom
 }
 
-struct SidebarDropIndicator {
+struct SidebarDropIndicator: Equatable {
     let tabId: UUID?
     let edge: SidebarDropEdge
 }
@@ -14790,7 +14793,7 @@ private struct SidebarTabDropDelegate: DropDelegate {
     private func updateDropIndicator(for info: DropInfo) {
         let tabIds = tabManager.tabs.map(\.id)
         let pinnedTabIds = Set(tabManager.tabs.filter(\.isPinned).map(\.id))
-        dropIndicator = SidebarDropPlanner.indicator(
+        let nextIndicator = SidebarDropPlanner.indicator(
             draggedTabId: draggedTabId,
             targetTabId: targetTabId,
             tabIds: tabIds,
@@ -14798,6 +14801,8 @@ private struct SidebarTabDropDelegate: DropDelegate {
             pointerY: targetTabId == nil ? nil : info.location.y,
             targetHeight: targetRowHeight
         )
+        guard dropIndicator != nextIndicator else { return }
+        dropIndicator = nextIndicator
     }
 
     private func syncSidebarSelection(preferredSelectedTabId: UUID? = nil) {
