@@ -857,6 +857,7 @@ class TabManager: ObservableObject {
     )
     private var workspaceGitProbeGenerationByKey: [WorkspaceGitProbeKey: UUID] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
+    private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -1060,16 +1061,38 @@ class TabManager: ObservableObject {
         )
     }
 
+    func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspaceGitProbeGenerationByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
     private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
         in workspace: Workspace,
         activeProbeKeys: Set<WorkspaceGitProbeKey>
     ) -> Set<UUID> {
         var candidatePanelIds = Set(workspace.panelGitBranches.keys)
         candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
+        // Only keep background polling panels whose current directory has already
+        // proven to yield sidebar git metadata. Initial multi-attempt probes handle
+        // startup races; this avoids polling non-repo directories forever.
+        candidatePanelIds.formUnion(
+            workspace.panels.keys.compactMap { panelId in
+                guard let currentDirectory = gitProbeDirectory(for: workspace, panelId: panelId) else {
+                    return nil
+                }
+                let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                guard workspaceGitTrackedDirectoryByKey[probeKey] == currentDirectory else {
+                    return nil
+                }
+                return panelId
+            }
+        )
 
         if candidatePanelIds.isEmpty,
            let focusedPanelId = workspace.focusedPanelId,
-           workspace.gitBranch != nil || workspace.pullRequest != nil {
+           (workspace.gitBranch != nil || workspace.pullRequest != nil),
+           gitProbeDirectory(for: workspace, panelId: focusedPanelId) != nil {
             candidatePanelIds.insert(focusedPanelId)
         }
 
@@ -1108,9 +1131,29 @@ class TabManager: ObservableObject {
     }
 
     private func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
+        // Match the sidebar directory fallback chain so hidden/background panels can
+        // still probe git metadata before OSC 7 has reported a live cwd.
         let rawDirectory = workspace.panelDirectories[panelId]
+            ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
             ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
         return rawDirectory.flatMap(normalizedWorkingDirectory)
+    }
+
+    func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String = "initial"
+    ) {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+              !workspace.isRemoteWorkspace else {
+            return
+        }
+        scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason,
+            delays: Self.initialWorkspaceGitProbeDelays
+        )
     }
 
     private func scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -1360,12 +1403,10 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
-            if let explicitWorkingDirectory,
-               let terminalPanel = newWorkspace.focusedTerminalPanel {
-                scheduleInitialWorkspaceGitMetadataRefresh(
+            if let terminalPanel = newWorkspace.focusedTerminalPanel {
+                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
-                    panelId: terminalPanel.id,
-                    directory: explicitWorkingDirectory
+                    panelId: terminalPanel.id
                 )
             }
             if eagerLoadTerminal {
@@ -1462,20 +1503,6 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func scheduleInitialWorkspaceGitMetadataRefresh(
-        workspaceId: UUID,
-        panelId: UUID,
-        directory: String
-    ) {
-        scheduleWorkspaceGitMetadataRefresh(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            directory: directory,
-            delays: Self.initialWorkspaceGitProbeDelays,
-            reason: "initial"
-        )
-    }
-
     private func scheduleWorkspaceGitMetadataRefresh(
         workspaceId: UUID,
         panelId: UUID,
@@ -1540,6 +1567,9 @@ class TabManager: ObservableObject {
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
+        workspaceGitTrackedDirectoryByKey = workspaceGitTrackedDirectoryByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
     }
 
     private func applyWorkspaceGitMetadataSnapshot(
@@ -1583,6 +1613,17 @@ class TabManager: ObservableObject {
         }
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
+
+        let resolvedPullRequest: SidebarPullRequestState? = {
+            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
+            return pullRequest
+        }()
+        let resolvedSidebarMetadata = snapshot.branch != nil || resolvedPullRequest != nil
+        if resolvedSidebarMetadata {
+            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
+        } else if workspaceGitTrackedDirectoryByKey[probeKey] != expectedDirectory {
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+        }
 
         let nextBranch = snapshot.branch
         if let nextBranch {
@@ -2645,6 +2686,10 @@ class TabManager: ObservableObject {
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
         guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }
         tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: isDirty)
+        if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
+            let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+            workspaceGitTrackedDirectoryByKey[probeKey] = directory
+        }
         scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: tabId,
             panelId: surfaceId,
@@ -5659,6 +5704,7 @@ extension TabManager {
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
+        workspaceGitTrackedDirectoryByKey.removeAll()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
@@ -5724,13 +5770,9 @@ extension TabManager {
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
-                guard let directory = gitProbeDirectory(for: workspace, panelId: terminalPanel.id) else {
-                    continue
-                }
-                scheduleInitialWorkspaceGitMetadataRefresh(
+                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
-                    panelId: terminalPanel.id,
-                    directory: directory
+                    panelId: terminalPanel.id
                 )
             }
         }
