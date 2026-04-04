@@ -407,9 +407,9 @@ func configureAgentEnvironment(cfg agentConfig) {
 	}
 }
 
-// --- oh-my-opencode plugin setup ---
+// --- oh-my-openagent plugin setup ---
 
-const omoPluginName = "oh-my-opencode"
+const omoPluginName = "oh-my-openagent"
 
 func omoUserConfigDir() string {
 	home, _ := os.UserHomeDir()

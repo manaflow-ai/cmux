@@ -10414,7 +10414,7 @@ struct CMUXCLI {
         }
     }
 
-    private static let omoPluginName = "oh-my-opencode"
+    private static let omoPluginName = "oh-my-openagent"
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
