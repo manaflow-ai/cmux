@@ -780,15 +780,25 @@ struct cmuxApp: App {
                     if selectWorkspaceByNumberShortcut.hasChord {
                         Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                             let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
+                            let orderedWorkspaceIds = manager.orderedSidebarWorkspaceIds()
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                                forDigit: number,
+                                workspaceCount: orderedWorkspaceIds.count
+                            ), targetIndex < orderedWorkspaceIds.count,
+                               let workspace = manager.tabs.first(where: { $0.id == orderedWorkspaceIds[targetIndex] }) {
+                                manager.selectWorkspace(workspace)
                             }
                         }
                     } else {
                         Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
                             let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
+                            let orderedWorkspaceIds = manager.orderedSidebarWorkspaceIds()
+                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(
+                                forDigit: number,
+                                workspaceCount: orderedWorkspaceIds.count
+                            ), targetIndex < orderedWorkspaceIds.count,
+                               let workspace = manager.tabs.first(where: { $0.id == orderedWorkspaceIds[targetIndex] }) {
+                                manager.selectWorkspace(workspace)
                             }
                         }
                         .keyboardShortcut(

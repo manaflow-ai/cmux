@@ -293,6 +293,7 @@ extension Workspace {
         }
 
         return SessionWorkspaceSnapshot(
+            id: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
@@ -6825,14 +6826,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
-        title: String = "Terminal",
+        id: UUID = UUID(),
+        title: String = String(localized: "workspace.defaultTitle", defaultValue: "Terminal"),
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         configTemplate: CmuxSurfaceConfigTemplate? = nil,
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
-        self.id = UUID()
+        self.id = id
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title

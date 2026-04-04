@@ -135,6 +135,38 @@ private func postNotificationsPopoverVisibilityDidChange(isShown: Bool) {
     )
 }
 
+@MainActor
+func presentProjectGroupRenamePrompt(tabManager: TabManager, groupId: UUID) {
+    guard let group = tabManager.groups.first(where: { $0.id == groupId }) else { return }
+    let alert = NSAlert()
+    alert.messageText = String(localized: "alert.renameGroup.title", defaultValue: "Rename Project Group")
+    alert.informativeText = String(localized: "alert.renameGroup.message", defaultValue: "Enter a name for this project group.")
+    let input = NSTextField(string: group.name)
+    input.placeholderString = String(localized: "alert.renameGroup.placeholder", defaultValue: "Project name")
+    input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+    alert.accessoryView = input
+    alert.addButton(withTitle: String(localized: "alert.renameGroup.rename", defaultValue: "Rename"))
+    alert.addButton(withTitle: String(localized: "alert.renameGroup.cancel", defaultValue: "Cancel"))
+    let alertWindow = alert.window
+    alertWindow.initialFirstResponder = input
+    DispatchQueue.main.async {
+        alertWindow.makeFirstResponder(input)
+        input.selectText(nil)
+    }
+    let response = alert.runModal()
+    guard response == .alertFirstButtonReturn else { return }
+    let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    tabManager.setGroupName(groupId: groupId, name: trimmed)
+}
+
+@MainActor
+func createAndPromptNewProjectGroup(tabManager: TabManager) {
+    let group = tabManager.createGroup(name: String(localized: "projectGroup.defaultName", defaultValue: "New Project"))
+    tabManager.selectedGroupId = group.id
+    presentProjectGroupRenamePrompt(tabManager: tabManager, groupId: group.id)
+}
+
 struct NotificationsAnchorView: NSViewRepresentable {
     let onResolve: (NSView) -> Void
 
@@ -255,7 +287,9 @@ struct TitlebarControlsView: View {
     @ObservedObject var viewModel: TitlebarControlsViewModel
     let onToggleSidebar: () -> Void
     let onToggleNotifications: () -> Void
-    let onNewTab: () -> Void
+    let selectedGroupIdProvider: () -> UUID?
+    let onNewTab: (UUID?) -> Void
+    let onNewProjectGroup: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
@@ -264,6 +298,7 @@ struct TitlebarControlsView: View {
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var isNotificationsPopoverShown = false
+    @State private var isCreateMenuPresented = false
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
@@ -302,7 +337,7 @@ struct TitlebarControlsView: View {
         if visibilityMode == .alwaysVisible {
             return true
         }
-        return isHoveringControls || isNotificationsPopoverShown || shouldShowTitlebarShortcutHints
+        return isHoveringControls || isNotificationsPopoverShown || isCreateMenuPresented || shouldShowTitlebarShortcutHints
     }
 
     var body: some View {
@@ -400,13 +435,34 @@ struct TitlebarControlsView: View {
                 #if DEBUG
                 dlog("titlebar.newTab")
                 #endif
-                onNewTab()
+                isCreateMenuPresented.toggle()
             }) {
                 iconLabel(systemName: "plus", config: config)
             }
+            .popover(isPresented: $isCreateMenuPresented, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    createMenuButton(
+                        title: String(localized: "titlebar.createMenu.newTab", defaultValue: "New Tab"),
+                        systemImage: "plus"
+                    ) {
+                        isCreateMenuPresented = false
+                        onNewTab(selectedGroupIdProvider())
+                    }
+
+                    createMenuButton(
+                        title: String(localized: "titlebar.createMenu.newProjectFolder", defaultValue: "New Project Folder"),
+                        systemImage: "folder.badge.plus"
+                    ) {
+                        isCreateMenuPresented = false
+                        onNewProjectGroup()
+                    }
+                }
+                .padding(10)
+                .frame(minWidth: 180, alignment: .leading)
+            }
             .accessibilityIdentifier("titlebarControl.newTab")
-            .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
+            .accessibilityLabel(String(localized: "titlebar.createMenu.accessibilityLabel", defaultValue: "Create"))
+            .safeHelp(String(localized: "titlebar.createMenu.tooltip", defaultValue: "Open create menu"))
         }
 
         let paddedContent = content.padding(config.groupPadding)
@@ -430,6 +486,27 @@ struct TitlebarControlsView: View {
                     titlebarShortcutHintOverlay(items: hintLayoutItems, config: config)
                 }
         }
+    }
+
+    private func createMenuButton(
+        title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 14, alignment: .center)
+                Text(title)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func titlebarHintLayoutItems(config: TitlebarControlsStyleConfig) -> [TitlebarHintLayoutItem] {
@@ -565,7 +642,19 @@ struct HiddenTitlebarSidebarControlsView: View {
                     anchorView: viewModel.notificationsAnchorView
                 )
             },
-            onNewTab: { _ = AppDelegate.shared?.tabManager?.addTab() },
+            selectedGroupIdProvider: { AppDelegate.shared?.tabManager?.selectedGroupId },
+            onNewTab: { targetGroupId in
+                guard let tabManager = AppDelegate.shared?.tabManager else { return }
+                if let targetGroupId {
+                    _ = tabManager.addWorkspace(placementOverride: .end, targetGroupId: targetGroupId)
+                } else {
+                    _ = tabManager.addTab()
+                }
+            },
+            onNewProjectGroup: {
+                guard let tabManager = AppDelegate.shared?.tabManager else { return }
+                createAndPromptNewProjectGroup(tabManager: tabManager)
+            },
             visibilityMode: .onHover
         )
         .frame(width: hostWidth, height: hostHeight, alignment: .leading)
@@ -789,7 +878,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         self.notificationStore = notificationStore
         let toggleSidebar = { _ = AppDelegate.shared?.sidebarState?.toggle() }
         let toggleNotifications: () -> Void = { _ = AppDelegate.shared?.toggleNotificationsPopover(animated: true) }
-        let newTab = { _ = AppDelegate.shared?.tabManager?.addTab() }
+        let selectedGroupIdProvider = { AppDelegate.shared?.tabManager?.selectedGroupId }
+        let newTab: (UUID?) -> Void = { targetGroupId in
+            guard let tabManager = AppDelegate.shared?.tabManager else { return }
+            if let targetGroupId {
+                _ = tabManager.addWorkspace(placementOverride: .end, targetGroupId: targetGroupId)
+            } else {
+                _ = tabManager.addTab()
+            }
+        }
+        let newProjectGroup: () -> Void = {
+            guard let tabManager = AppDelegate.shared?.tabManager else { return }
+            createAndPromptNewProjectGroup(tabManager: tabManager)
+        }
 
         hostingView = NonDraggableHostingView(
             rootView: TitlebarControlsView(
@@ -797,7 +898,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                 viewModel: viewModel,
                 onToggleSidebar: toggleSidebar,
                 onToggleNotifications: toggleNotifications,
+                selectedGroupIdProvider: selectedGroupIdProvider,
                 onNewTab: newTab,
+                onNewProjectGroup: newProjectGroup,
                 visibilityMode: .alwaysVisible
             )
         )
