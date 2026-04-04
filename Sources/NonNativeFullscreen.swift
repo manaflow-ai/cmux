@@ -106,16 +106,28 @@ final class NonNativeFullscreen {
         }
 
         // Remove .titled so the window can cover the full screen.
-        // cmux's titlebar controls (+ button, bell, etc.) switch to
-        // fullscreenControls — a SwiftUI view in the content area that
-        // activates when isFullScreen is true.
         window.styleMask.remove(.titled)
         window.styleMask.remove(.resizable)
 
-        // Expand to fill screen. Dispatch async so styleMask changes settle.
+        // Force SwiftUI's NSHostingView to recalculate its layout for the
+        // new contentLayoutRect after .titled removal. Without this, the
+        // coordinate mapping between AppKit and SwiftUI is stale and all
+        // hit testing (sidebar clicks, buttons, etc.) breaks.
+        if let contentView = window.contentView {
+            contentView.frame = window.contentRect(forFrameRect: window.frame)
+            contentView.needsLayout = true
+            contentView.layoutSubtreeIfNeeded()
+        }
+
+        // Expand to fill screen. Dispatch async so styleMask/layout changes settle.
         DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window, self.isFullScreen else { return }
             window.setFrame(self.fullscreenFrame(for: screen), display: true)
+            // Re-layout again after frame change
+            if let contentView = window.contentView {
+                contentView.needsLayout = true
+                contentView.layoutSubtreeIfNeeded()
+            }
             if let firstResponder {
                 window.makeFirstResponder(firstResponder)
             }
@@ -134,6 +146,13 @@ final class NonNativeFullscreen {
         // Restore styleMask and frame
         window.styleMask = saved.styleMask
         window.setFrame(saved.frame, display: true, animate: true)
+
+        // Force layout recalculation after restoring .titled
+        if let contentView = window.contentView {
+            contentView.frame = window.contentRect(forFrameRect: window.frame)
+            contentView.needsLayout = true
+            contentView.layoutSubtreeIfNeeded()
+        }
 
         savedState = nil
 
