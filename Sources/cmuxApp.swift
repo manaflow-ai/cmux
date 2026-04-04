@@ -745,6 +745,10 @@ struct cmuxApp: App {
                     _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
                 }
 
+                splitCommandButton(title: String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…"), shortcut: menuShortcut(for: .editWorkspaceDescription)) {
+                    _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
+                }
+
                 splitCommandButton(title: String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen"), shortcut: menuShortcut(for: .toggleFullScreen)) {
                     guard let targetWindow = NSApp.keyWindow ?? NSApp.mainWindow else { return }
                     targetWindow.toggleFullScreen(nil)
@@ -1000,6 +1004,11 @@ struct cmuxApp: App {
 
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
+        }
+        .disabled(workspace == nil)
+
+        Button(String(localized: "menu.view.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
+            _ = AppDelegate.shared?.requestEditWorkspaceDescriptionViaCommandPalette()
         }
         .disabled(workspace == nil)
 

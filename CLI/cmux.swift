@@ -840,6 +840,16 @@ private enum CLISocketPathResolver {
 }
 
 final class SocketClient {
+    private struct RelayEndpoint {
+        let host: String
+        let port: UInt16
+    }
+
+    private struct RelayCredentials {
+        let relayID: String
+        let relayToken: Data
+    }
+
     private let path: String
     private var socketFD: Int32 = -1
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -862,6 +872,18 @@ final class SocketClient {
         path
     }
 
+    private var relayEndpoint: RelayEndpoint? {
+        Self.parseRelayEndpoint(path)
+    }
+
+    private static func trimmedEnvValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
     func connect() throws {
         if socketFD >= 0 { return }
         try connectOnce()
@@ -875,7 +897,17 @@ final class SocketClient {
     }
 
     func send(command: String) throws -> String {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        let shouldCloseAfterSend = relayEndpoint != nil
+        defer {
+            if shouldCloseAfterSend {
+                close()
+            }
+        }
+
         let payload = command + "\n"
         try payload.withCString { ptr in
             let sent = Darwin.write(socketFD, ptr, strlen(ptr))
@@ -925,6 +957,11 @@ final class SocketClient {
     }
 
     private func connectOnce() throws {
+        if let relayEndpoint {
+            try connectToRelay(endpoint: relayEndpoint)
+            return
+        }
+
         // Verify socket is owned by the current user to prevent fake-socket attacks.
         var st = stat()
         guard stat(path, &st) == 0 else {
@@ -969,6 +1006,206 @@ final class SocketClient {
         )
     }
 
+    private static func parseRelayEndpoint(_ raw: String) -> RelayEndpoint? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.hasPrefix("/") else {
+            return nil
+        }
+        let components = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard components.count == 2,
+              let port = UInt16(components[1]),
+              port > 0 else {
+            return nil
+        }
+        let host = String(components[0]).lowercased()
+        guard host == "127.0.0.1" || host == "localhost" else {
+            return nil
+        }
+        return RelayEndpoint(host: host == "localhost" ? "127.0.0.1" : host, port: port)
+    }
+
+    private static func relayCredentials(for endpoint: RelayEndpoint) throws -> RelayCredentials {
+        let environment = ProcessInfo.processInfo.environment
+        if let relayID = trimmedEnvValue(environment["CMUX_RELAY_ID"]),
+           let relayTokenHex = trimmedEnvValue(environment["CMUX_RELAY_TOKEN"]),
+           let relayToken = hexData(from: relayTokenHex) {
+            return RelayCredentials(relayID: relayID, relayToken: relayToken)
+        }
+
+        let authURL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent(".cmux/relay/\(endpoint.port).auth", isDirectory: false)
+        guard let authData = try? Data(contentsOf: authURL),
+              let authObject = try? JSONSerialization.jsonObject(with: authData) as? [String: Any],
+              let relayID = trimmedEnvValue(authObject["relay_id"] as? String),
+              let relayTokenHex = trimmedEnvValue(authObject["relay_token"] as? String),
+              let relayToken = hexData(from: relayTokenHex) else {
+            throw CLIError(message: "Missing relay auth metadata for \(endpoint.host):\(endpoint.port)")
+        }
+
+        return RelayCredentials(relayID: relayID, relayToken: relayToken)
+    }
+
+    private static func hexData(from string: String) -> Data? {
+        let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty,
+              normalized.count.isMultiple(of: 2) else {
+            return nil
+        }
+
+        var data = Data(capacity: normalized.count / 2)
+        var cursor = normalized.startIndex
+        while cursor < normalized.endIndex {
+            let next = normalized.index(cursor, offsetBy: 2)
+            guard let byte = UInt8(normalized[cursor..<next], radix: 16) else {
+                return nil
+            }
+            data.append(byte)
+            cursor = next
+        }
+        return data
+    }
+
+    private static func hexString(from data: Data) -> String {
+        data.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func connectToRelay(endpoint: RelayEndpoint) throws {
+        let credentials = try Self.relayCredentials(for: endpoint)
+
+        socketFD = socket(AF_INET, SOCK_STREAM, 0)
+        guard socketFD >= 0 else {
+            throw CLIError(message: "Failed to create relay socket")
+        }
+
+        var timeout = timeval(
+            tv_sec: Int(Self.responseTimeoutSeconds.rounded(.down)),
+            tv_usec: __darwin_suseconds_t((Self.responseTimeoutSeconds - floor(Self.responseTimeoutSeconds)) * 1_000_000)
+        )
+        withUnsafePointer(to: &timeout) { pointer in
+            _ = setsockopt(socketFD, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            _ = setsockopt(socketFD, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+        }
+
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.stride)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = endpoint.port.bigEndian
+        let parsedAddress = withUnsafeMutablePointer(to: &address.sin_addr) { pointer in
+            endpoint.host.withCString { hostPointer in
+                inet_pton(AF_INET, hostPointer, pointer)
+            }
+        }
+        guard parsedAddress == 1 else {
+            close()
+            throw CLIError(message: "Invalid relay endpoint \(endpoint.host):\(endpoint.port)")
+        }
+
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.connect(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_in>.stride))
+            }
+        }
+        if result != 0 {
+            let connectErrno = errno
+            close()
+            throw CLIError(
+                message: "Failed to connect to relay at \(endpoint.host):\(endpoint.port) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
+            )
+        }
+
+        do {
+            try authenticateRelay(credentials: credentials)
+        } catch {
+            close()
+            throw error
+        }
+    }
+
+    private func authenticateRelay(credentials: RelayCredentials) throws {
+        let challengeLine = try readLine()
+        guard let challengeData = challengeLine.data(using: .utf8),
+              let challenge = try JSONSerialization.jsonObject(with: challengeData) as? [String: Any],
+              (challenge["protocol"] as? String) == "cmux-relay-auth",
+              let version = challenge["version"] as? Int,
+              let relayID = challenge["relay_id"] as? String,
+              relayID == credentials.relayID,
+              let nonce = challenge["nonce"] as? String,
+              !nonce.isEmpty else {
+            throw CLIError(message: "Invalid relay authentication challenge")
+        }
+
+        let authMessage = Data("relay_id=\(relayID)\nnonce=\(nonce)\nversion=\(version)".utf8)
+        let key = SymmetricKey(data: credentials.relayToken)
+        let mac = Data(HMAC<SHA256>.authenticationCode(for: authMessage, using: key))
+        let authPayload = try JSONSerialization.data(withJSONObject: [
+            "relay_id": relayID,
+            "mac": Self.hexString(from: mac),
+        ])
+        try writeAll(authPayload + Data([0x0A]))
+
+        let authResponseLine = try readLine()
+        guard let authResponseData = authResponseLine.data(using: .utf8),
+              let authResponse = try JSONSerialization.jsonObject(with: authResponseData) as? [String: Any],
+              (authResponse["ok"] as? Bool) == true else {
+            throw CLIError(message: "Relay authentication failed")
+        }
+    }
+
+    private func writeAll(_ data: Data) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return
+            }
+            var offset = 0
+            while offset < data.count {
+                let written = Darwin.write(socketFD, baseAddress.advanced(by: offset), data.count - offset)
+                if written < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    throw CLIError(message: "Failed to write to relay socket")
+                }
+                offset += written
+            }
+        }
+    }
+
+    private func readLine(maxBytes: Int = 16 * 1024) throws -> String {
+        var data = Data()
+
+        while data.count < maxBytes {
+            try configureReceiveTimeout(Self.responseTimeoutSeconds)
+
+            var byte: UInt8 = 0
+            let count = Darwin.read(socketFD, &byte, 1)
+            if count < 0 {
+                if errno == EINTR {
+                    continue
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Relay command timed out")
+                }
+                throw CLIError(message: "Relay socket read error")
+            }
+            if count == 0 {
+                break
+            }
+            if byte == 0x0A {
+                break
+            }
+            data.append(byte)
+        }
+
+        guard !data.isEmpty else {
+            throw CLIError(message: "Unexpected EOF from relay")
+        }
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: "Invalid UTF-8 relay response")
+        }
+        return line.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func configureReceiveTimeout(_ timeout: TimeInterval) throws {
         var interval = timeval(
             tv_sec: Int(timeout.rounded(.down)),
@@ -991,6 +1228,9 @@ final class SocketClient {
     static func waitForConnectableSocket(path: String, timeout: TimeInterval) throws -> SocketClient {
         let client = SocketClient(path: path)
         if (try? client.connect()) != nil {
+            if client.relayEndpoint != nil {
+                client.close()
+            }
             return client
         }
 
@@ -1544,6 +1784,16 @@ struct CMUXCLI {
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
 
+        case "rpc":
+            guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !method.isEmpty else {
+                throw CLIError(message: "Usage: cmux rpc <method> [json-params]")
+            }
+            let params = try parseRPCParams(Array(commandArgs.dropFirst()))
+            let response = try client.sendV2(method: method, params: params)
+            let output: Any = idFormatArg == nil ? response : formatIDs(response, mode: idFormat)
+            print(jsonString(output))
+
         case "identify":
             var params: [String: Any] = [:]
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
@@ -1694,9 +1944,10 @@ struct CMUXCLI {
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-            let (nameOpt, remaining) = parseOption(rem1, name: "--name")
+            let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+            let (descriptionOpt, remaining) = parseOption(rem2, name: "--description")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --command <text>, --cwd <path>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>")
             }
             var params: [String: Any] = [:]
             if let cwdOpt {
@@ -1705,6 +1956,9 @@ struct CMUXCLI {
             }
             if let nameOpt {
                 params["title"] = nameOpt
+            }
+            if let descriptionOpt {
+                params["description"] = descriptionOpt
             }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
@@ -2022,11 +2276,14 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
         case "current-workspace":
-            let response = try sendV1Command("current_workspace", client: client)
+            let response = try client.sendV2(method: "workspace.current")
             if jsonOutput {
-                print(jsonString(["workspace_id": response]))
+                print(jsonString(formatIDs(response, mode: idFormat)))
             } else {
-                print(response)
+                let handle = formatHandle(response, kind: "workspace", idFormat: idFormat)
+                    ?? (response["workspace_id"] as? String)
+                    ?? ""
+                print(handle)
             }
 
         case "read-screen":
@@ -3389,8 +3646,9 @@ struct CMUXCLI {
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
+        let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
 
-        var positional = rem3
+        var positional = rem4
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -3409,7 +3667,8 @@ struct CMUXCLI {
         let workspaceArg = workspaceOpt ?? (windowOverride == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceId = try normalizeWorkspaceHandle(workspaceArg, client: client, allowCurrent: true)
 
-        let inferredPositional = positional.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        let inferredPositionalRaw = positional.joined(separator: " ")
+        let inferredPositional = inferredPositionalRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (titleOpt ?? (action == "rename" && !inferredPositional.isEmpty ? inferredPositional : nil))?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if action == "rename", (title?.isEmpty ?? true) {
@@ -3423,6 +3682,13 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
         }
 
+        let description = (
+            descriptionOpt ?? (action == "set_description" && !inferredPositional.isEmpty ? inferredPositionalRaw : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_description", (description?.isEmpty ?? true) {
+            throw CLIError(message: "workspace-action set-description requires --description <text> (or trailing text)")
+        }
+
         var params: [String: Any] = ["action": action]
         if let workspaceId {
             params["workspace_id"] = workspaceId
@@ -3432,6 +3698,9 @@ struct CMUXCLI {
         }
         if let color, !color.isEmpty {
             params["color"] = color
+        }
+        if let description, !description.isEmpty {
+            params["description"] = description
         }
 
         let payload = try client.sendV2(method: "workspace.action", params: params)
@@ -3926,7 +4195,10 @@ struct CMUXCLI {
         if options.extraArguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
                 let remoteCommand = sshPercentEscapedRemoteCommand(
-                    encodedRemoteBootstrapCommand(trimmedRemoteBootstrap)
+                    encodedRemoteBootstrapCommand(
+                        trimmedRemoteBootstrap,
+                        remoteRelayPort: options.remoteRelayPort
+                    )
                 )
                 parts += ["-o", "RemoteCommand=\(remoteCommand)"]
             }
@@ -3965,11 +4237,13 @@ struct CMUXCLI {
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
         let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
-        let remoteCommandBase64Placeholder = "__CMUX_REMOTE_BOOTSTRAP_B64_RUNTIME__"
         let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
-            runtimeEncodedRemoteBootstrapCommandShell(
-                base64Placeholder: remoteCommandBase64Placeholder
+            stagedRemoteBootstrapCommandShell(
+                remoteRelayPort: options.remoteRelayPort
             )
+        )
+        let remoteBootstrapInstallCommand = "/bin/sh -c " + shellQuote(
+            remoteBootstrapInstallShell(remoteRelayPort: options.remoteRelayPort)
         )
         var lines: [String] = [
             "cmux_workspace_id=\"${CMUX_WORKSPACE_ID:-}\"",
@@ -3977,9 +4251,11 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "cmux_remote_bootstrap_b64_runtime=\"$(printf '%s' \"$cmux_remote_bootstrap\" | base64 | tr -d '\\n')\"",
+            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
+            "  exit 1",
+            "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
-            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s|\(remoteCommandBase64Placeholder)|$cmux_remote_bootstrap_b64_runtime|g\")\"",
+            "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
         ]
 
         var sshInvocation = "command \(sshPrefix) -o \"RemoteCommand=$cmux_remote_command\""
@@ -3991,8 +4267,31 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-    private func runtimeEncodedRemoteBootstrapCommandShell(base64Placeholder: String) -> String {
-        return [
+    private func stagedRemoteBootstrapCommandShell(
+        remoteRelayPort: Int
+    ) -> String {
+        var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: true)
+        lines.append("/bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"")
+        return lines.joined(separator: "\n")
+    }
+
+    private func remoteBootstrapInstallShell(remoteRelayPort: Int) -> String {
+        [
+            "set -eu",
+            "umask 077",
+            "cmux_bootstrap_path=\"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"",
+            "mkdir -p \"$HOME/.cmux/relay\"",
+            "cat > \"$cmux_bootstrap_path\"",
+            "chmod 700 \"$cmux_bootstrap_path\" >/dev/null 2>&1 || true",
+        ].joined(separator: "\n")
+    }
+
+    private func runtimeEncodedRemoteBootstrapCommandShell(
+        base64Placeholder: String,
+        remoteRelayPort: Int
+    ) -> String {
+        var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: false)
+        lines += [
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
             "(printf %s '\(base64Placeholder)' | base64 -d 2>/dev/null || printf %s '\(base64Placeholder)' | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
@@ -4000,7 +4299,45 @@ struct CMUXCLI {
             "cmux_status=$?",
             "rm -f \"$cmux_tmp\"",
             "exit $cmux_status",
-        ].joined(separator: "; ")
+        ]
+        return lines.joined(separator: "\n")
+    }
+
+    private func remoteBootstrapTTYCaptureLines(
+        remoteRelayPort: Int,
+        includeRelayRPC: Bool
+    ) -> [String] {
+        guard remoteRelayPort > 0 else { return [] }
+
+        var lines: [String] = [
+            "cmux_bootstrap_tty=\"$(tty 2>/dev/null || true)\"",
+            "cmux_bootstrap_tty=\"${cmux_bootstrap_tty##*/}\"",
+            "if [ -n \"$cmux_bootstrap_tty\" ] && [ \"$cmux_bootstrap_tty\" != \"not a tty\" ]; then",
+            "  mkdir -p \"$HOME/.cmux/relay\" >/dev/null 2>&1 || true",
+            "  printf '%s' \"$cmux_bootstrap_tty\" > \"$HOME/.cmux/relay/\(remoteRelayPort).tty\" 2>/dev/null || true",
+            "  export CMUX_BOOTSTRAP_TTY=\"$cmux_bootstrap_tty\"",
+        ]
+
+        if includeRelayRPC {
+            lines += [
+                "  cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
+                "  if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+                "  if [ -n \"$cmux_relay_cli\" ]; then",
+                "    cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "    cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"reason\":\"command\"}'",
+                "    if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
+                "      cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
+                "    fi",
+                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" CMUX_SOCKET=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+                "    CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" CMUX_SOCKET=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
+                "    unset cmux_relay_cli cmux_relay_report_tty cmux_relay_ports_kick",
+                "  fi",
+            ]
+        }
+
+        lines.append("fi")
+        return lines
     }
 
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
@@ -4018,41 +4355,72 @@ struct CMUXCLI {
     ) -> String {
         let remoteTerminalLines = interactiveRemoteTerminalSetupLines(terminfoSource: terminfoSource)
         let remoteEnvExportLines = interactiveRemoteShellExportLines(shellFeatures: shellFeatures)
+        let shellStateDir = shellStateDirForRemoteRelayPort(remoteRelayPort)
         let remoteCallerExportLines = [
             "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_WORKSPACE_ID='__CMUX_WORKSPACE_ID__'; fi",
-            "if [ -n '__CMUX_SURFACE_ID__' ]; then export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; fi",
+            "if [ -n '__CMUX_WORKSPACE_ID__' ]; then export CMUX_TAB_ID='__CMUX_WORKSPACE_ID__'; fi",
+            "if [ -n '__CMUX_SURFACE_ID__' ]; then export CMUX_SURFACE_ID='__CMUX_SURFACE_ID__'; export CMUX_PANEL_ID='__CMUX_SURFACE_ID__'; fi",
         ]
         let relaySocket = remoteRelayPort > 0 ? "127.0.0.1:\(remoteRelayPort)" : nil
-        let shellStateDir = "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
-        var commonShellLines = remoteTerminalLines
-        commonShellLines.append(contentsOf: remoteEnvExportLines)
-        commonShellLines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
+        var commonShellExportLines = remoteTerminalLines
+        commonShellExportLines.append(contentsOf: remoteEnvExportLines)
+        commonShellExportLines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
+        commonShellExportLines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
+        commonShellExportLines.append("export CMUX_SHELL_INTEGRATION_DIR=\"\(shellStateDir)\"")
         if let relaySocket {
-            commonShellLines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
+            commonShellExportLines.append("export CMUX_SOCKET_PATH=\(relaySocket)")
+            commonShellExportLines.append("export CMUX_SOCKET=\(relaySocket)")
         }
-        commonShellLines.append(contentsOf: remoteCallerExportLines)
-        commonShellLines.append(contentsOf: [
+        commonShellExportLines.append(contentsOf: remoteCallerExportLines)
+        commonShellExportLines.append(contentsOf: [
             "hash -r >/dev/null 2>&1 || true",
             "rehash >/dev/null 2>&1 || true",
         ])
+        var zshShellLines = commonShellExportLines
+        zshShellLines.append(
+            #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh"; fi"#
+        )
+        var bashShellLines = commonShellExportLines
+        bashShellLines.append(
+            #"if [ "${CMUX_SHELL_INTEGRATION:-1}" != "0" ] && [ -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash" ]; then . "${CMUX_SHELL_INTEGRATION_DIR}/cmux-bash-integration.bash"; fi"#
+        )
         let zshBootstrap = RemoteRelayZshBootstrap(shellStateDir: shellStateDir)
         let zshEnvLines = zshBootstrap.zshEnvLines
         let zshProfileLines = zshBootstrap.zshProfileLines
-        let zshRCLines = zshBootstrap.zshRCLines(commonShellLines: commonShellLines)
+        let zshRCLines = zshBootstrap.zshRCLines(commonShellLines: zshShellLines)
         let zshLoginLines = zshBootstrap.zshLoginLines
+        let bundledZshIntegration = bundledShellIntegrationScript(named: "cmux-zsh-integration.zsh")
+        let bundledBashIntegration = bundledShellIntegrationScript(named: "cmux-bash-integration.bash")
         let bashRCLines = [
             "if [ -f \"$HOME/.bash_profile\" ]; then . \"$HOME/.bash_profile\"; elif [ -f \"$HOME/.bash_login\" ]; then . \"$HOME/.bash_login\"; elif [ -f \"$HOME/.profile\" ]; then . \"$HOME/.profile\"; fi",
             "[ -f \"$HOME/.bashrc\" ] && . \"$HOME/.bashrc\"",
-        ] + commonShellLines
+        ] + bashShellLines
         let relayWarmupLines = interactiveRemoteRelayWarmupLines(remoteRelayPort: remoteRelayPort)
 
         var outerLines: [String] = [
+            "mkdir -p \"$HOME/.cmux/relay\"",
+            "cmux_shell_dir=\"\(shellStateDir)\"",
+            "mkdir -p \"$cmux_shell_dir\"",
+        ]
+        if let bundledZshIntegration {
+            outerLines += [
+                "cat > \"$cmux_shell_dir/cmux-zsh-integration.zsh\" <<'CMUXCMUXZSH'",
+                bundledZshIntegration,
+                "CMUXCMUXZSH",
+            ]
+        }
+        if let bundledBashIntegration {
+            outerLines += [
+                "cat > \"$cmux_shell_dir/cmux-bash-integration.bash\" <<'CMUXCMUXBASH'",
+                bundledBashIntegration,
+                "CMUXCMUXBASH",
+            ]
+        }
+        outerLines.append(contentsOf: commonShellExportLines)
+        outerLines += [
             "CMUX_LOGIN_SHELL=\"${SHELL:-/bin/zsh}\"",
             "case \"${CMUX_LOGIN_SHELL##*/}\" in",
             "  zsh)",
-            "    mkdir -p \"$HOME/.cmux/relay\"",
-            "    cmux_shell_dir=\"\(shellStateDir)\"",
-            "    mkdir -p \"$cmux_shell_dir\"",
             "    cat > \"$cmux_shell_dir/.zshenv\" <<'CMUXZSHENV'",
         ]
         outerLines.append(contentsOf: zshEnvLines)
@@ -4082,9 +4450,6 @@ struct CMUXCLI {
             "    exec \"$CMUX_LOGIN_SHELL\" -il",
             "    ;;",
             "  bash)",
-            "    mkdir -p \"$HOME/.cmux/relay\"",
-            "    cmux_shell_dir=\"\(shellStateDir)\"",
-            "    mkdir -p \"$cmux_shell_dir\"",
             "    cat > \"$cmux_shell_dir/.bashrc\" <<'CMUXBASHRC'",
         ]
         outerLines.append(contentsOf: bashRCLines)
@@ -4098,7 +4463,7 @@ struct CMUXCLI {
             "    ;;",
             "  *)",
         ]
-        outerLines.append(contentsOf: commonShellLines)
+        outerLines.append(contentsOf: commonShellExportLines)
         outerLines.append(contentsOf: relayWarmupLines)
         outerLines += [
             "exec \"$CMUX_LOGIN_SHELL\" -i",
@@ -4107,6 +4472,64 @@ struct CMUXCLI {
         ]
 
         return outerLines.joined(separator: "\n")
+    }
+
+    private func shellStateDirForRemoteRelayPort(_ remoteRelayPort: Int) -> String {
+        "$HOME/.cmux/relay/\(max(remoteRelayPort, 0)).shell"
+    }
+
+    private func bundledShellIntegrationScript(named fileName: String) -> String? {
+        let fileManager = FileManager.default
+        var candidates: [URL] = []
+
+        if let executableURL = resolvedExecutableURL() {
+            var current = executableURL.deletingLastPathComponent().standardizedFileURL
+            while true {
+                if current.lastPathComponent == "Contents" {
+                    candidates.append(
+                        current
+                            .appendingPathComponent("Resources", isDirectory: true)
+                            .appendingPathComponent("shell-integration", isDirectory: true)
+                            .appendingPathComponent(fileName, isDirectory: false)
+                    )
+                }
+
+                let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+                if fileManager.fileExists(atPath: projectMarker.path) {
+                    candidates.append(
+                        current
+                            .appendingPathComponent("Resources", isDirectory: true)
+                            .appendingPathComponent("shell-integration", isDirectory: true)
+                            .appendingPathComponent(fileName, isDirectory: false)
+                    )
+                    break
+                }
+
+                guard let parent = parentSearchURL(for: current) else {
+                    break
+                }
+                current = parent
+            }
+        }
+
+        if let resourceURL = Bundle.main.resourceURL {
+            candidates.append(
+                resourceURL
+                    .appendingPathComponent("shell-integration", isDirectory: true)
+                    .appendingPathComponent(fileName, isDirectory: false)
+            )
+        }
+
+        for url in candidates {
+            guard fileManager.fileExists(atPath: url.path),
+                  let data = try? Data(contentsOf: url),
+                  let contents = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            return contents
+        }
+
+        return nil
     }
 
     func buildInteractiveRemoteShellCommand(
@@ -4170,8 +4593,31 @@ struct CMUXCLI {
     }
 
     private func interactiveRemoteRelayWarmupLines(remoteRelayPort: Int) -> [String] {
-        guard remoteRelayPort > 0 else { return [] }
-        return []
+        guard remoteRelayPort > 0 else {
+            return []
+        }
+        return [
+            "cmux_relay_cli=\"${CMUX_BUNDLED_CLI_PATH:-$HOME/.cmux/bin/cmux}\"",
+            "if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "cmux_relay_tty=\"${CMUX_BOOTSTRAP_TTY:-}\"",
+            "if [ -z \"$cmux_relay_tty\" ]; then cmux_relay_tty=\"$(tty 2>/dev/null || true)\"; fi",
+            "cmux_relay_tty=\"${cmux_relay_tty##*/}\"",
+            "if [ -n \"$cmux_relay_tty\" ] && [ \"$cmux_relay_tty\" != \"not a tty\" ]; then",
+            "  mkdir -p \"$HOME/.cmux/relay\" >/dev/null 2>&1 || true",
+            "  printf '%s' \"$cmux_relay_tty\" > \"$HOME/.cmux/relay/\(remoteRelayPort).tty\" 2>/dev/null || true",
+            "fi",
+            "if [ -n \"$cmux_relay_cli\" ] && [ -n \"$CMUX_WORKSPACE_ID\" ] && [ -n \"$cmux_relay_tty\" ] && [ \"$cmux_relay_tty\" != \"not a tty\" ]; then",
+            "  cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
+            "  cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "  if [ -n \"$CMUX_SURFACE_ID\" ]; then",
+            "    cmux_relay_report_tty=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"tty_name\\\":\\\"$cmux_relay_tty\\\"}\"",
+            "    cmux_relay_ports_kick=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"surface_id\\\":\\\"$CMUX_SURFACE_ID\\\",\\\"reason\\\":\\\"command\\\"}\"",
+            "  fi",
+            "  \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
+            "  \"$cmux_relay_cli\" rpc surface.ports_kick \"$cmux_relay_ports_kick\" >/dev/null 2>&1 || true",
+            "fi",
+            "unset CMUX_BOOTSTRAP_TTY cmux_relay_cli cmux_relay_tty cmux_relay_report_tty cmux_relay_ports_kick",
+        ]
     }
 
     private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
@@ -4261,10 +4707,14 @@ struct CMUXCLI {
         return merged.joined(separator: ",")
     }
 
-    func encodedRemoteBootstrapCommand(_ remoteBootstrapScript: String) -> String {
+    func encodedRemoteBootstrapCommand(
+        _ remoteBootstrapScript: String,
+        remoteRelayPort: Int
+    ) -> String {
         let encodedScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
         let encodedLiteral = shellQuote(encodedScript)
-        return [
+        var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: false)
+        lines += [
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-bootstrap.XXXXXX\") || exit 1",
             "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || { rm -f \"$cmux_tmp\"; exit 1; }",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
@@ -4272,7 +4722,8 @@ struct CMUXCLI {
             "cmux_status=$?",
             "rm -f \"$cmux_tmp\"",
             "exit $cmux_status",
-        ].joined(separator: "; ")
+        ]
+        return lines.joined(separator: "\n")
     }
 
     func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
@@ -6076,6 +6527,13 @@ struct CMUXCLI {
 
             Print server capabilities as JSON.
             """
+        case "rpc":
+            return """
+            Usage: cmux rpc <method> [json-params]
+
+            Call a raw v2 method with an optional JSON object for params.
+            Example: cmux rpc surface.report_tty '{"workspace_id":"...","surface_id":"...","tty_name":"ttys001"}'
+            """
         case "help":
             return """
             Usage: cmux help
@@ -6332,6 +6790,7 @@ struct CMUXCLI {
             Actions:
               pin | unpin
               rename | clear-name
+              set-description | clear-description
               move-up | move-down | move-top
               close-others | close-above | close-below
               mark-read | mark-unread
@@ -6342,6 +6801,7 @@ struct CMUXCLI {
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --description <text>         Description for set-description
 
             Named colors:
               Red, Crimson, Orange, Amber, Olive, Green, Teal, Aqua,
@@ -6354,6 +6814,8 @@ struct CMUXCLI {
               cmux workspace-action --action set-color --color blue
               cmux workspace-action --action set-color --color "#C0392B"
               cmux workspace-action set-color Amber
+              cmux workspace-action --action set-description --description "Ship checklist"
+              cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
             """
         case "tab-action":
@@ -6408,18 +6870,20 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--cwd <path>] [--command <text>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
 
             Create a new workspace in the current window.
 
             Flags:
-              --name <title>    Set a custom name for the new workspace
-              --cwd <path>      Set the working directory for the new workspace
+              --name <title>     Set a custom name for the new workspace
+              --description <text> Set a custom description for the new workspace
+              --cwd <path>       Set the working directory for the new workspace
               --command <text>   Send text+Enter to the new workspace after creation
 
             Example:
               cmux new-workspace
               cmux new-workspace --name "Build Server"
+              cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
             """
@@ -8747,6 +9211,25 @@ struct CMUXCLI {
             return "{}"
         }
         return output
+    }
+
+    private func parseRPCParams(_ args: [String]) throws -> [String: Any] {
+        guard !args.isEmpty else { return [:] }
+        let raw = args.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return [:] }
+        guard let data = raw.data(using: .utf8) else {
+            throw CLIError(message: "rpc params must be valid UTF-8 JSON")
+        }
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            throw CLIError(message: "rpc params must be valid JSON: \(error.localizedDescription)")
+        }
+        guard let params = object as? [String: Any] else {
+            throw CLIError(message: "rpc params must be a JSON object")
+        }
+        return params
     }
 
     private struct TmuxParsedArguments {
@@ -13296,6 +13779,7 @@ struct CMUXCLI {
           ping
           version
           capabilities
+          rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
           list-windows
           current-window
@@ -13304,9 +13788,9 @@ struct CMUXCLI {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
-          new-workspace [--name <title>] [--cwd <path>] [--command <text>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

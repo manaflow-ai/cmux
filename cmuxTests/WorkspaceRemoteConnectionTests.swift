@@ -119,11 +119,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64008.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64008.daemon_path")
+        let ttyURL = relayDir.appendingPathComponent("64008.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64008".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "ttys001".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
         let result = runProcess(
@@ -142,6 +144,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
     func testRemoteRelayMetadataCleanupScriptPreservesDifferentSocketAddr() {
@@ -151,11 +154,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let socketAddrURL = home.appendingPathComponent(".cmux/socket_addr")
         let authURL = relayDir.appendingPathComponent("64009.auth")
         let daemonPathURL = relayDir.appendingPathComponent("64009.daemon_path")
+        let ttyURL = relayDir.appendingPathComponent("64009.tty")
 
         XCTAssertNoThrow(try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true))
         XCTAssertNoThrow(try "127.0.0.1:64010".write(to: socketAddrURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "auth".write(to: authURL, atomically: true, encoding: .utf8))
         XCTAssertNoThrow(try "daemon".write(to: daemonPathURL, atomically: true, encoding: .utf8))
+        XCTAssertNoThrow(try "ttys002".write(to: ttyURL, atomically: true, encoding: .utf8))
         defer { try? fileManager.removeItem(at: home) }
 
         let result = runProcess(
@@ -174,6 +179,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: socketAddrURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
@@ -1597,6 +1603,164 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
         XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(selectParams["window_id"] as? String, windowID)
+    }
+
+    @MainActor
+    func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshboot")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let workspaceRef = "workspace:8"
+        let windowID = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.v2Response(
+                    id: "unknown",
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected payload"]
+                )
+            }
+
+            switch method {
+            case "workspace.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "window_id": windowID,
+                    ]
+                )
+            case "workspace.rename":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            case "workspace.remote.configure":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "remote": [
+                            "enabled": true,
+                            "state": "connecting",
+                        ],
+                    ]
+                )
+            case "workspace.select":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh",
+                "--name", "SSH Workspace",
+                "--port", "2222",
+                "--identity", "/Users/test/.ssh/id_ed25519",
+                "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
+                "--ssh-option", "StrictHostKeyChecking=accept-new",
+                "cmux-macmini",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let requests = try state.commands.map { line -> [String: Any] in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        let createParams = try XCTUnwrap(requests.first?["params"] as? [String: Any])
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+
+        let fileManager = FileManager.default
+        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("cmux-ssh-bootstrap-\(UUID().uuidString)")
+        let fakeBin = tempRoot.appendingPathComponent("bin")
+        let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
+        let fakeSSH = fakeBin.appendingPathComponent("ssh")
+
+        try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempRoot) }
+
+        let fakeSSHScript = """
+        #!/bin/sh
+        python3 - "$CMUX_FAKE_SSH_LOG" "$@" <<'PY'
+        import json
+        import sys
+
+        with open(sys.argv[1], "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(sys.argv[2:]) + "\\n")
+        PY
+        cat >/dev/null
+        exit 0
+        """
+        try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        var startupEnvironment = ProcessInfo.processInfo.environment
+        startupEnvironment["HOME"] = tempRoot.path
+        startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
+        startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
+        startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let startupResult = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", initialCommand],
+            environment: startupEnvironment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
+        XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
+
+        let logLines = try String(contentsOf: fakeSSHLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertGreaterThanOrEqual(logLines.count, 2)
+
+        let firstInvocationData = try XCTUnwrap(logLines.first?.data(using: .utf8))
+        let firstInvocation = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
+        )
+        let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
+        let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
+
+        XCTAssertEqual(
+            remoteCommandArgs.count,
+            1,
+            "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
+        )
+        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -lc"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
+        XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
+        XCTAssertFalse(remoteCommandArgs.contains("sh"))
+        XCTAssertFalse(remoteCommandArgs.contains("-c"))
     }
 
     @MainActor
