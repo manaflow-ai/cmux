@@ -49,16 +49,20 @@ class TerminalController {
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
     private var clientHandlers: [Int32: Thread] = [:]
-    /// Bounded queue for socket client handlers. Limits concurrent handler threads
-    /// to prevent unbounded thread accumulation when the main thread is stalled.
+    /// Dispatches accepted socket connections onto GCD instead of one `NSThread` per client.
+    /// This queue is **concurrent**: many `async` blocks may be waiting; the semaphore below caps
+    /// how many run `handleClient` at once (so a connection flood still queues work, but avoids
+    /// unbounded thread creation when handlers stall on the main actor).
     private nonisolated let clientQueue = DispatchQueue(
         label: "com.cmuxterm.socket-clients",
         qos: .utility,
         attributes: .concurrent
     )
-    /// Maximum concurrent socket handler operations. Limits memory growth from
-    /// blocked handlers when the main queue is temporarily unresponsive.
+    /// Max concurrent `handleClient` executions (tunable). Chosen as a generous ceiling for normal
+    /// CLI/automation parallelism while bounding worst-case thread/memory growth.
     private nonisolated let clientConcurrencyLimit = DispatchSemaphore(value: 64)
+    /// How long a connection waits for a handler slot before we reject with "Server busy".
+    private nonisolated let clientHandlerSlotWait: DispatchTimeInterval = .seconds(30)
     private var tabManager: TabManager?
     private var accessMode: SocketControlMode = .cmuxOnly
     private let myPid = getpid()
@@ -1529,7 +1533,7 @@ class TerminalController {
                     close(clientSocket)
                     return
                 }
-                guard self.clientConcurrencyLimit.wait(timeout: .now() + 30) == .success else {
+                guard self.clientConcurrencyLimit.wait(timeout: .now() + self.clientHandlerSlotWait) == .success else {
                     // All handler slots full — reject this connection to apply backpressure.
                     let msg = "ERROR: Server busy\n"
                     msg.withCString { ptr in _ = write(clientSocket, ptr, strlen(ptr)) }
