@@ -1385,6 +1385,40 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
         ], allowlist: dangerousAllowlist)
     }
 
+    func testDenylistTakesPrecedenceOverAllowlist() {
+        // Verify the security model: denylist is checked FIRST, allowlist SECOND
+        // A command must pass denylist AND match allowlist to be allowed
+
+        // Case 1: Command matches allowlist but is blocked by denylist -> BLOCKED
+        let allowlist = "opencode *\ncurl *\nsudo *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("opencode --continue", rawAllowlist: allowlist),
+                      "Safe allowlisted command should be allowed")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("curl http://example.com", rawAllowlist: allowlist),
+                       "curl is in denylist (dangerous executable) even though allowlisted")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("sudo echo hello", rawAllowlist: allowlist),
+                       "sudo is in denylist even though allowlisted")
+
+        // Case 2: Command passes denylist but not in allowlist -> BLOCKED
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("vim file.txt", rawAllowlist: allowlist),
+                       "Safe command not in allowlist should be blocked")
+
+        // Case 3: Command with denylist substring even if base command is safe
+        let allowlist2 = "myapp *"
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("myapp --config file.json", rawAllowlist: allowlist2),
+                      "Safe command with safe args should be allowed")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("myapp --password=secret", rawAllowlist: allowlist2),
+                       "Allowlisted command with --password= arg is blocked by denylist")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("myapp --token=abc123", rawAllowlist: allowlist2),
+                       "Allowlisted command with --token= arg is blocked by denylist")
+
+        // Case 4: Chained commands where one part is dangerous
+        let allowlist3 = "echo *\ncd *"
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("echo hello && rm -rf /", rawAllowlist: allowlist3),
+                       "Chained command with dangerous part is blocked")
+        XCTAssertFalse(SessionRestoreCommandSettings.isCommandAllowed("cd /tmp; sudo reboot", rawAllowlist: allowlist3),
+                       "Semicolon-chained command with dangerous part is blocked")
+    }
+
     func testDenylistIsCaseInsensitive() {
         // Denylist runs before allowlist, so these are blocked regardless of allowlist content
         assertAllBlocked([
