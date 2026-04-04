@@ -4676,8 +4676,9 @@ struct CMUXCLI {
             parts += ["-o", option]
         }
         if let localCommand, !localCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let escapedLocalCommand = localCommand.replacingOccurrences(of: "%", with: "%%")
             parts += ["-o", "PermitLocalCommand=yes"]
-            parts += ["-o", "LocalCommand=\(localCommand)"]
+            parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
         return parts
     }
@@ -5047,7 +5048,7 @@ struct CMUXCLI {
             "\"$cmux_reconnect_cli\" --socket \"$cmux_reconnect_socket\" rpc workspace.remote.foreground_auth_ready \"$cmux_reconnect_payload\" >/dev/null 2>&1 || true;",
             "unset cmux_reconnect_payload;",
             "fi;",
-            "fi",
+            "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
         ].joined(separator: " ")
     }

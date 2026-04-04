@@ -2183,9 +2183,28 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let firstInvocation = try XCTUnwrap(
             JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
         )
+        let localCommandArgument = try XCTUnwrap(
+            firstInvocation.first(where: { $0.hasPrefix("LocalCommand=") })
+        )
+        let localCommand = String(localCommandArgument.dropFirst("LocalCommand=".count))
         XCTAssertTrue(
             firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
             "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
+        )
+        XCTAssertTrue(
+            localCommand.contains("%%s\\n"),
+            "Expected LocalCommand to percent-escape literal percent signs for OpenSSH, saw \(localCommand)"
+        )
+        let localCommandSyntaxCheck = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-n", "-c", localCommand],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        XCTAssertEqual(
+            localCommandSyntaxCheck.status,
+            0,
+            "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
         )
         let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
         let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
