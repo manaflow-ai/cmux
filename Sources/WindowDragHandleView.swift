@@ -431,6 +431,26 @@ struct WindowDragHandleView: NSViewRepresentable {
             )
             #endif
 
+            // The sibling walk in hitTest can miss views nested inside SwiftUI
+            // hosting containers. Before starting a window drag (or handling a
+            // titlebar double-click), do a full window-level hit test to check
+            // if an interactive view (e.g. the folder icon) is the real target.
+            // If so, forward the event — including double-clicks.
+            if let window, let contentView = window.contentView {
+                let pointInContent = contentView.convert(event.locationInWindow, from: nil)
+                Self.isResolvingForwardTarget = true
+                let realTarget = contentView.hitTest(pointInContent)
+                Self.isResolvingForwardTarget = false
+                if let realTarget,
+                   !windowDragHandleShouldTreatTopHitAsPassiveHost(realTarget) {
+                    #if DEBUG
+                    dlog("titlebar.dragHandle.mouseDown forwarding to \(type(of: realTarget))")
+                    #endif
+                    realTarget.mouseDown(with: event)
+                    return
+                }
+            }
+
             if event.clickCount >= 2 {
                 let action = performStandardTitlebarDoubleClick(window: window)
                 #if DEBUG
@@ -446,25 +466,6 @@ struct WindowDragHandleView: NSViewRepresentable {
                 dlog("titlebar.dragHandle.mouseDownIgnored reason=suppressed")
                 #endif
                 return
-            }
-
-            // The sibling walk in hitTest can miss views nested inside SwiftUI
-            // hosting containers. Before starting a window drag, do a full
-            // window-level hit test to check if an interactive view (e.g. the
-            // folder icon) is the real target. If so, forward the event.
-            if let window, let contentView = window.contentView {
-                let pointInContent = contentView.convert(event.locationInWindow, from: nil)
-                Self.isResolvingForwardTarget = true
-                let realTarget = contentView.hitTest(pointInContent)
-                Self.isResolvingForwardTarget = false
-                if let realTarget,
-                   !windowDragHandleShouldTreatTopHitAsPassiveHost(realTarget) {
-                    #if DEBUG
-                    dlog("titlebar.dragHandle.mouseDown forwarding to \(type(of: realTarget))")
-                    #endif
-                    realTarget.mouseDown(with: event)
-                    return
-                }
             }
 
             if let window {
