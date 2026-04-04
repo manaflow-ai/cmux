@@ -3942,6 +3942,10 @@ struct CMUXCLI {
             "source=\(terminfoSource == nil ? 0 : 1)"
         )
         let shellFeaturesValue = scopedGhosttyShellFeaturesValue()
+        let remoteSSHOptions = effectiveSSHOptions(
+            sshOptions.sshOptions,
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         let remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
             ? buildInteractiveRemoteShellScript(
@@ -3954,6 +3958,22 @@ struct CMUXCLI {
             sshOptions,
             remoteBootstrapScript: remoteTerminalBootstrapScript
         )
+        let deferredRemoteReconnectToken = UUID().uuidString.lowercased()
+        let deferredRemoteReconnectCommand = deferredRemoteReconnectLocalCommand(
+            in: remoteSSHOptions,
+            localCLIPath: resolvedExecutableURL()?.path,
+            foregroundAuthToken: deferredRemoteReconnectToken
+        )
+        let configuredForegroundAuthToken = deferredRemoteReconnectCommand == nil ? nil : deferredRemoteReconnectToken
+        let startupInitialSSHCommand = buildSSHCommandText(
+            sshOptions,
+            localCommand: deferredRemoteReconnectCommand
+        )
+        let startupRemoteTerminalSSHCommand = buildSSHCommandText(
+            sshOptions,
+            remoteBootstrapScript: remoteTerminalBootstrapScript,
+            localCommand: deferredRemoteReconnectCommand
+        )
         let initialSSHStartupCommand: String
         let remoteTerminalSSHStartupCommand: String
         if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
@@ -3961,27 +3981,23 @@ struct CMUXCLI {
                 options: sshOptions,
                 remoteBootstrapScript: remoteTerminalBootstrapScript,
                 shellFeatures: shellFeaturesValue,
-                remoteRelayPort: sshOptions.remoteRelayPort
+                remoteRelayPort: sshOptions.remoteRelayPort,
+                localCommand: deferredRemoteReconnectCommand
             )
             initialSSHStartupCommand = bootstrapSSHStartupCommand
             remoteTerminalSSHStartupCommand = bootstrapSSHStartupCommand
         } else {
             initialSSHStartupCommand = try buildSSHStartupCommand(
-                sshCommand: initialSSHCommand,
+                sshCommand: startupInitialSSHCommand,
                 shellFeatures: "",
                 remoteRelayPort: sshOptions.remoteRelayPort
             )
             remoteTerminalSSHStartupCommand = try buildSSHStartupCommand(
-                sshCommand: remoteTerminalSSHCommand,
+                sshCommand: startupRemoteTerminalSSHCommand,
                 shellFeatures: shellFeaturesValue,
                 remoteRelayPort: sshOptions.remoteRelayPort
             )
         }
-        let remoteSSHOptions = effectiveSSHOptions(
-            sshOptions.sshOptions,
-            remoteRelayPort: sshOptions.remoteRelayPort
-        )
-
         cliDebugLog(
             "cli.ssh.start target=\(sshOptions.destination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
             "relayPort=\(sshOptions.remoteRelayPort) localSocket=\(sshOptions.localSocketPath) " +
@@ -4022,8 +4038,11 @@ struct CMUXCLI {
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
                 "destination": sshOptions.destination,
-                "auto_connect": true,
+                "auto_connect": deferredRemoteReconnectCommand == nil,
             ]
+            if let configuredForegroundAuthToken {
+                configureParams["foreground_auth_token"] = configuredForegroundAuthToken
+            }
             if let port = sshOptions.port {
                 configureParams["port"] = port
             }
@@ -4045,6 +4064,7 @@ struct CMUXCLI {
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +
                 "target=\(sshOptions.destination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
+                "deferredReconnect=\(deferredRemoteReconnectCommand == nil ? 0 : 1) " +
                 "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
             )
             let configureStartedAt = Date()
@@ -4193,9 +4213,10 @@ struct CMUXCLI {
 
     func buildSSHCommandText(
         _ options: SSHCommandOptions,
-        remoteBootstrapScript: String? = nil
+        remoteBootstrapScript: String? = nil,
+        localCommand: String? = nil
     ) -> String {
-        var parts = baseSSHArguments(options)
+        var parts = baseSSHArguments(options, localCommand: localCommand)
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -4224,11 +4245,13 @@ struct CMUXCLI {
         options: SSHCommandOptions,
         remoteBootstrapScript: String,
         shellFeatures: String,
-        remoteRelayPort: Int
+        remoteRelayPort: Int,
+        localCommand: String? = nil
     ) throws -> String {
         let commandSnippet = buildSSHBootstrapCommandSnippet(
             options: options,
-            remoteBootstrapScript: remoteBootstrapScript
+            remoteBootstrapScript: remoteBootstrapScript,
+            localCommand: localCommand
         )
         return try buildSSHStartupCommand(
             sshCommand: commandSnippet,
@@ -4240,10 +4263,12 @@ struct CMUXCLI {
 
     private func buildSSHBootstrapCommandSnippet(
         options: SSHCommandOptions,
-        remoteBootstrapScript: String
+        remoteBootstrapScript: String,
+        localCommand: String? = nil
     ) -> String {
         let encodedBootstrapScript = Data(remoteBootstrapScript.utf8).base64EncodedString()
-        let sshPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
+        let installSSHPrefix = baseSSHArguments(options, localCommand: localCommand).map(shellQuote).joined(separator: " ")
+        let sessionSSHPrefix = baseSSHArguments(options).map(shellQuote).joined(separator: " ")
         let remoteCommandTemplate = sshPercentEscapedRemoteCommand(
             stagedRemoteBootstrapCommandShell(
                 remoteRelayPort: options.remoteRelayPort
@@ -4258,14 +4283,14 @@ struct CMUXCLI {
             "cmux_remote_bootstrap_b64=\(shellQuote(encodedBootstrapScript))",
             "cmux_remote_bootstrap=\"$(printf %s \"$cmux_remote_bootstrap_b64\" | base64 -d 2>/dev/null || printf %s \"$cmux_remote_bootstrap_b64\" | base64 -D 2>/dev/null)\"",
             "cmux_remote_bootstrap=\"$(printf '%s' \"$cmux_remote_bootstrap\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
-            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(sshPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
+            "if ! printf '%s' \"$cmux_remote_bootstrap\" | command \(installSSHPrefix) -T \(shellQuote(options.destination)) \(shellQuote(remoteBootstrapInstallCommand)); then",
             "  exit 1",
             "fi",
             "cmux_remote_command_template=\(shellQuote(remoteCommandTemplate))",
             "cmux_remote_command=\"$(printf '%s' \"$cmux_remote_command_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g\")\"",
         ]
 
-        var sshInvocation = "command \(sshPrefix) -o \"RemoteCommand=$cmux_remote_command\""
+        var sshInvocation = "command \(sessionSSHPrefix) -o \"RemoteCommand=$cmux_remote_command\""
         if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
             sshInvocation += " -tt"
         }
@@ -4627,7 +4652,7 @@ struct CMUXCLI {
         ]
     }
 
-    private func baseSSHArguments(_ options: SSHCommandOptions) -> [String] {
+    private func baseSSHArguments(_ options: SSHCommandOptions, localCommand: String? = nil) -> [String] {
         let effectiveSSHOptions = effectiveSSHOptions(
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
@@ -4656,6 +4681,11 @@ struct CMUXCLI {
         }
         for option in effectiveSSHOptions {
             parts += ["-o", option]
+        }
+        if let localCommand, !localCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let escapedLocalCommand = localCommand.replacingOccurrences(of: "%", with: "%%")
+            parts += ["-o", "PermitLocalCommand=yes"]
+            parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
         return parts
     }
@@ -5002,6 +5032,58 @@ struct CMUXCLI {
         return false
     }
 
+    private func deferredRemoteReconnectLocalCommand(
+        in options: [String],
+        localCLIPath: String?,
+        foregroundAuthToken: String
+    ) -> String? {
+        guard shouldDeferRemoteReconnect(in: options) else { return nil }
+        let preferredCLIPath = localCLIPath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let escapedForegroundAuthToken = foregroundAuthToken
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return [
+            preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
+            "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
+            "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
+            "if [ ! -x \"$cmux_reconnect_cli\" ]; then cmux_reconnect_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
+            "if [ -n \"${CMUX_WORKSPACE_ID:-}\" ]; then",
+            "if [ -z \"$cmux_reconnect_socket\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux socket not found' >&2;",
+            "elif [ -z \"$cmux_reconnect_cli\" ] || [ ! -x \"$cmux_reconnect_cli\" ]; then printf '%s\\n' 'cmux: deferred SSH reconnect skipped, local cmux CLI not found' >&2;",
+            "else",
+            "cmux_reconnect_payload=\"{\\\"workspace_id\\\":\\\"$CMUX_WORKSPACE_ID\\\",\\\"foreground_auth_token\\\":\\\"\(escapedForegroundAuthToken)\\\"}\";",
+            "\"$cmux_reconnect_cli\" --socket \"$cmux_reconnect_socket\" rpc workspace.remote.foreground_auth_ready \"$cmux_reconnect_payload\" >/dev/null 2>&1 || true;",
+            "unset cmux_reconnect_payload;",
+            "fi;",
+            "fi;",
+            "unset cmux_reconnect_socket cmux_reconnect_cli;",
+        ].joined(separator: " ")
+    }
+
+    private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
+        guard !hasSSHOptionKey(options, key: "LocalCommand"),
+              !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
+            return false
+        }
+
+        guard let controlPath = sshOptionValue(named: "ControlPath", in: options)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return false
+        }
+
+        let controlMaster = sshOptionValue(named: "ControlMaster", in: options)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? "auto"
+        switch controlMaster {
+        case "no", "false", "off":
+            return false
+        default:
+            return true
+        }
+    }
+
     private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
         if let remoteRelayPort, remoteRelayPort > 0 {
             return "/tmp/cmux-ssh-\(getuid())-\(remoteRelayPort)-%C"
@@ -5035,10 +5117,16 @@ struct CMUXCLI {
         for option in options {
             let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            if parts.count == 2,
-               parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == loweredKey {
-                return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = trimmed.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            if parts.count == 2, parts[0].lowercased() == loweredKey {
+                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
             }
         }
         return nil
