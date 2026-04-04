@@ -3100,9 +3100,14 @@ struct ContentView: View {
                 let controller = AppDelegate.shared?.nonNativeFullscreen(for: window, style: style)
                 let nowFullScreen = controller?.isFullScreen ?? false
                 isFullScreen = nowFullScreen
-                // Non-native fullscreen keeps .titled intact, so titlebar controls
-                // (+ button, notification bell, etc.) remain functional. No need to
-                // hide them — only native fullscreen hides titlebar controls.
+                // .titled is removed in non-native fullscreen, so NSTitlebarAccessoryViewControllers
+                // are inactive. fullscreenControls (SwiftUI view) takes over when isFullScreen is true.
+                setTitlebarControlsHidden(nowFullScreen, in: window)
+                if nowFullScreen {
+                    AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+                } else {
+                    AppDelegate.shared?.fullscreenControlsViewModel = nil
+                }
                 syncTrafficLightInset()
                 applyWindowTransparencyState(to: window)
             }

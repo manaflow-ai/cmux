@@ -11,16 +11,17 @@ extension Notification.Name {
 /// screen while keeping it as a regular window. This preserves
 /// `background-opacity` transparency since the desktop remains behind the window.
 ///
-/// Unlike Ghostty's implementation which removes `.titled` from the styleMask,
-/// cmux keeps `.titled` intact because it overlays SwiftUI controls (workspace +
-/// button, notification bell, etc.) on the titlebar area. Removing `.titled`
-/// breaks the AppKit hit-test chain and makes those controls unresponsive.
+/// When entering non-native fullscreen, `.titled` is removed from the styleMask
+/// so the window can cover the full screen including the menu bar area. cmux's
+/// titlebar controls (+ button, notification bell, etc.) are provided by
+/// `fullscreenControls` — a SwiftUI view that appears in the content area when
+/// `isFullScreen` is true, so they remain functional without NSTitlebarAccessoryViewControllers.
 final class NonNativeFullscreen {
 
     // MARK: - Types
 
     enum Style {
-        /// Standard non-native fullscreen: fills visible screen area.
+        /// Standard non-native fullscreen: fills entire screen, auto-hides menu bar and dock.
         case nonNative
         /// Non-native fullscreen but keeps the menu bar visible.
         case visibleMenu
@@ -47,6 +48,7 @@ final class NonNativeFullscreen {
 
     private struct SavedState {
         let frame: NSRect
+        let styleMask: NSWindow.StyleMask
     }
 
     // MARK: - State
@@ -88,29 +90,34 @@ final class NonNativeFullscreen {
         guard let screen = window.screen ?? NSScreen.main else { return }
 
         // Save state for restoration
-        savedState = SavedState(frame: window.frame)
+        savedState = SavedState(
+            frame: window.frame,
+            styleMask: window.styleMask
+        )
 
-        // Auto-hide dock if visible
-        if style.hideMenu {
-            NSApp.presentationOptions.insert(.autoHideMenuBar)
-        }
+        let firstResponder = window.firstResponder
+
+        // Auto-hide dock and menu bar
         if Self.screenHasDock(screen) {
             NSApp.presentationOptions.insert(.autoHideDock)
         }
+        if style.hideMenu {
+            NSApp.presentationOptions.insert(.autoHideMenuBar)
+        }
 
-        // Keep .titled so cmux's SwiftUI titlebar controls remain functional.
-        // titlebarAppearsTransparent is already set, so the titlebar blends
-        // with content seamlessly.
-        //
-        // presentationOptions take a run-loop cycle to update visibleFrame,
-        // so set the frame after a short delay to pick up the freed space.
-        window.setFrame(fullscreenFrame(for: screen), display: true, animate: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        // Remove .titled so the window can cover the full screen.
+        // cmux's titlebar controls (+ button, bell, etc.) switch to
+        // fullscreenControls — a SwiftUI view in the content area that
+        // activates when isFullScreen is true.
+        window.styleMask.remove(.titled)
+        window.styleMask.remove(.resizable)
+
+        // Expand to fill screen. Dispatch async so styleMask changes settle.
+        DispatchQueue.main.async { [weak self] in
             guard let self, let window = self.window, self.isFullScreen else { return }
-            guard let currentScreen = window.screen ?? NSScreen.main else { return }
-            let target = self.fullscreenFrame(for: currentScreen)
-            if window.frame != target {
-                window.setFrame(target, display: true)
+            window.setFrame(self.fullscreenFrame(for: screen), display: true)
+            if let firstResponder {
+                window.makeFirstResponder(firstResponder)
             }
         }
     }
@@ -118,14 +125,21 @@ final class NonNativeFullscreen {
     func exit() {
         guard let window, let saved = savedState else { return }
 
+        let firstResponder = window.firstResponder
+
         // Restore presentation options
         NSApp.presentationOptions.remove(.autoHideMenuBar)
         NSApp.presentationOptions.remove(.autoHideDock)
 
-        // Restore frame
+        // Restore styleMask and frame
+        window.styleMask = saved.styleMask
         window.setFrame(saved.frame, display: true, animate: true)
 
         savedState = nil
+
+        if let firstResponder {
+            window.makeFirstResponder(firstResponder)
+        }
     }
 
     func toggle() {
@@ -145,13 +159,14 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
-        // After presentationOptions auto-hides menu bar and dock,
-        // visibleFrame reflects the usable area. With .titled still
-        // active, the window is constrained below the menu bar, so
-        // visibleFrame is the correct target.
-        var frame = screen.visibleFrame
+        var frame = screen.frame
 
-        if style.paddedNotch {
+        if !style.hideMenu {
+            // Subtract menu bar height since we're keeping it visible
+            let menuBarHeight = NSApp.mainMenu?.menuBarHeight ?? 0
+            frame.size.height -= menuBarHeight
+        } else if style.paddedNotch {
+            // Avoid the notch area
             let safeTop = screen.safeAreaInsets.top
             if safeTop > 0 {
                 frame.size.height -= safeTop
@@ -162,12 +177,10 @@ final class NonNativeFullscreen {
     }
 
     private static func screenHasDock(_ screen: NSScreen) -> Bool {
-        // If the dock auto-hides, we don't need to hide it.
         if let dockAutohide = UserDefaults.standard.persistentDomain(forName: "com.apple.dock")?["autohide"] as? Bool {
             if dockAutohide { return false }
         }
 
-        // Check if visible frame is smaller than full frame (accounting for menu/notch)
         if screen.visibleFrame.width < screen.frame.width {
             return true
         }
