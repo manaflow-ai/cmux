@@ -2197,19 +2197,10 @@ final class WindowBrowserPortal: NSObject {
         installedReferenceView?.layoutSubtreeIfNeeded()
         hostView.superview?.layoutSubtreeIfNeeded()
         hostView.layoutSubtreeIfNeeded()
+        // `synchronizeWebView` already performs the necessary frame/bounds invalidation
+        // when portal geometry actually changes. Avoid a second unconditional redraw pass
+        // here, which stalls divider drags/window resizes without improving correctness.
         synchronizeAllWebViews(excluding: nil, source: "externalGeometry")
-
-        for entry in entriesByWebViewId.values {
-            guard let webView = entry.webView,
-                  let containerView = entry.containerView,
-                  !containerView.isHidden else { continue }
-            guard webView.superview === containerView else { continue }
-            invalidateHostedWebViewGeometry(
-                webView,
-                in: containerView,
-                reason: "externalGeometry"
-            )
-        }
     }
 
     @discardableResult
@@ -2477,14 +2468,14 @@ final class WindowBrowserPortal: NSObject {
         return created
     }
 
-    private func runHostedWebViewRefreshPass(
+    private func prepareHostedWebViewRefreshPass(
         _ webView: WKWebView,
         in containerView: WindowBrowserSlotView,
         reason: String,
         phase: String,
         reattachRenderingState: Bool
-    ) {
-        guard !containerView.isHidden else { return }
+    ) -> Bool {
+        guard !containerView.isHidden else { return false }
         guard !containerView.isHostedInspectorDividerDragActive else {
 #if DEBUG
             dlog(
@@ -2493,7 +2484,7 @@ final class WindowBrowserPortal: NSObject {
                 "drag=1 reattach=\(reattachRenderingState ? 1 : 0)"
             )
 #endif
-            return
+            return false
         }
 
         containerView.needsLayout = true
@@ -2511,6 +2502,25 @@ final class WindowBrowserPortal: NSObject {
         webView.needsLayout = true
         webView.needsDisplay = true
         webView.setNeedsDisplay(webView.bounds)
+        return true
+    }
+
+    private func runHostedWebViewRefreshPass(
+        _ webView: WKWebView,
+        in containerView: WindowBrowserSlotView,
+        reason: String,
+        phase: String,
+        reattachRenderingState: Bool
+    ) {
+        guard prepareHostedWebViewRefreshPass(
+            webView,
+            in: containerView,
+            reason: reason,
+            phase: phase,
+            reattachRenderingState: reattachRenderingState
+        ) else {
+            return
+        }
 
         containerView.layoutSubtreeIfNeeded()
         if let scrollView = webView.enclosingScrollView {
@@ -2556,13 +2566,33 @@ final class WindowBrowserPortal: NSObject {
         in containerView: WindowBrowserSlotView,
         reason: String
     ) {
-        runHostedWebViewRefreshPass(
+        guard prepareHostedWebViewRefreshPass(
             webView,
             in: containerView,
             reason: reason,
             phase: "geometry",
             reattachRenderingState: false
+        ) else {
+            return
+        }
+
+        // Plain frame/bounds changes should not force a synchronous WebKit/window redraw.
+        // Let AppKit coalesce the actual paint while still nudging the hosted hierarchy to
+        // reconcile its scroll/content layout immediately.
+        containerView.layoutSubtreeIfNeeded()
+        if let scrollView = webView.enclosingScrollView {
+            scrollView.layoutSubtreeIfNeeded()
+            scrollView.contentView.layoutSubtreeIfNeeded()
+        }
+        webView.layoutSubtreeIfNeeded()
+#if DEBUG
+        dlog(
+            "browser.portal.invalidate " +
+            "web=\(browserPortalDebugToken(webView)) " +
+            "container=\(browserPortalDebugToken(containerView)) reason=\(reason) " +
+            "phase=geometry frame=\(browserPortalDebugFrame(containerView.frame))"
         )
+#endif
     }
 
     private func refreshHostedWebViewPresentation(
