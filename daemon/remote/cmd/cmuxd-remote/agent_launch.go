@@ -502,12 +502,20 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Symlink oh-my-openagent config files
-	for _, filename := range []string{"oh-my-openagent.json", "oh-my-openagent.jsonc"} {
-		userFile := filepath.Join(userDir, filename)
-		shadowFile := filepath.Join(shadowDir, filename)
-		if fileExists(userFile) && !fileExists(shadowFile) {
+	// Symlink oh-my-openagent config files (fall back to legacy oh-my-opencode name)
+	for _, ext := range []string{"json", "jsonc"} {
+		newName := "oh-my-openagent." + ext
+		legacyName := "oh-my-opencode." + ext
+		shadowFile := filepath.Join(shadowDir, newName)
+		if fileExists(shadowFile) {
+			continue
+		}
+		userFile := filepath.Join(userDir, newName)
+		legacyFile := filepath.Join(userDir, legacyName)
+		if fileExists(userFile) {
 			os.Symlink(userFile, shadowFile)
+		} else if fileExists(legacyFile) {
+			os.Symlink(legacyFile, shadowFile)
 		}
 	}
 
@@ -555,11 +563,15 @@ func omoEnsurePlugin(searchPath string) error {
 		json.Unmarshal(data, &omoConfig)
 	}
 	if omoConfig == nil {
-		// Check if user had one we symlinked
+		// Check if user had one we symlinked (new name first, fall back to legacy)
 		userOmoConfig := filepath.Join(userDir, "oh-my-openagent.json")
+		legacyOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
 		if data, err := os.ReadFile(userOmoConfig); err == nil {
 			json.Unmarshal(data, &omoConfig)
-			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
+			os.Remove(omoConfigPath)
+		} else if data, err := os.ReadFile(legacyOmoConfig); err == nil {
+			json.Unmarshal(data, &omoConfig)
+			os.Remove(omoConfigPath)
 		}
 	}
 	if omoConfig == nil {

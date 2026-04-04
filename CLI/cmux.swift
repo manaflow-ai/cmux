@@ -10652,12 +10652,18 @@ struct CMUXCLI {
             try? fm.removeItem(at: shadowBunLockURL)
         }
 
-        // Copy oh-my-openagent plugin config if the user has one
-        for filename in ["oh-my-openagent.json", "oh-my-openagent.jsonc"] {
-            let userFile = userDir.appendingPathComponent(filename)
-            let shadowFile = shadowDir.appendingPathComponent(filename)
-            if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
+        // Copy oh-my-openagent plugin config if the user has one (fall back to legacy oh-my-opencode name)
+        for ext in ["json", "jsonc"] {
+            let newName = "oh-my-openagent.\(ext)"
+            let legacyName = "oh-my-opencode.\(ext)"
+            let shadowFile = shadowDir.appendingPathComponent(newName)
+            guard !fm.fileExists(atPath: shadowFile.path) else { continue }
+            let userFile = userDir.appendingPathComponent(newName)
+            let legacyFile = userDir.appendingPathComponent(legacyName)
+            if fm.fileExists(atPath: userFile.path) {
                 try fm.createSymbolicLink(at: shadowFile, withDestinationURL: userFile)
+            } else if fm.fileExists(atPath: legacyFile.path) {
+                try fm.createSymbolicLink(at: shadowFile, withDestinationURL: legacyFile)
             }
         }
 
@@ -10712,9 +10718,11 @@ struct CMUXCLI {
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             omoConfig = existing
         } else {
-            // Check if user has a config we symlinked, read from source
+            // Check if user has a config we symlinked, read from source (new name first, fall back to legacy)
             let userOmoConfig = userDir.appendingPathComponent("oh-my-openagent.json")
-            if let data = try? Data(contentsOf: userOmoConfig),
+            let legacyOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
+            let userConfigData = try? Data(contentsOf: userOmoConfig) ?? Data(contentsOf: legacyOmoConfig)
+            if let data = userConfigData,
                let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 omoConfig = existing
                 // Remove the symlink so we can write our own copy
