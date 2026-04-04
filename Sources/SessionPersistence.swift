@@ -1040,22 +1040,25 @@ enum SessionForegroundProcessDetector {
         }
 
         // Extract argv strings by finding null-separated byte runs and decoding as UTF-8
-        // Count all arguments (even non-UTF8 ones) to avoid scanning past argv into env vars
+        // IMPORTANT: Count ALL arguments including empty strings to avoid scanning past argv
+        // into environment variables. An empty argv entry (two consecutive nulls) must still
+        // be counted toward argc.
         var args: [String] = []
         var argCount = 0
         var start = offset
         for i in offset...buffer.count {
             let byte: UInt8 = i < buffer.count ? buffer[i] : 0
             if byte == 0 {
+                // Always count this as an argument, even if empty or non-UTF8
+                argCount += 1
                 if i > start {
                     let slice = Array(buffer[start..<i])
-                    // Always count this as an argument, even if UTF-8 decoding fails
-                    argCount += 1
                     if let s = String(bytes: slice, encoding: .utf8) {
                         args.append(s)
                     }
-                    if argCount >= Int(argc) { break }
                 }
+                // Empty strings (i == start) are counted but not added to args
+                if argCount >= Int(argc) { break }
                 start = i + 1
             }
         }

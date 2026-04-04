@@ -90,7 +90,8 @@ final class TerminalPanel: Panel, ObservableObject {
     ///
     /// - Parameters:
     ///   - initialCommand: Replaces the shell with this command (exits when done)
-    ///   - initialInput: Types this into the shell after it starts (for session restore)
+    ///   - initialInput: Types this into the shell after it starts (for session restore).
+    ///     Must not contain newlines or carriage returns (blocked as command injection vectors).
     convenience init(
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,

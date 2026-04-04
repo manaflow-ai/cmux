@@ -3187,9 +3187,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
         // Reject initialInput containing newlines to prevent command injection (e.g., "ssh host\nrm -rf ~")
-        let trimmedInput = initialInput?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let input = trimmedInput, !input.isEmpty, !input.contains("\n"), !input.contains("\r") {
-            self.initialInput = input
+        // Check for newlines on RAW string before trimming to catch "\ncmd" or "cmd\r"
+        if let rawInput = initialInput,
+           !rawInput.contains("\n"),
+           !rawInput.contains("\r") {
+            let trimmed = rawInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.initialInput = trimmed.isEmpty ? nil : trimmed
         } else {
             self.initialInput = nil
         }
@@ -3925,11 +3928,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             // Fallback to config's initial input, but normalize it consistently
             // (the constructor already rejects newlines in initialInput; apply same check here)
+            // Check for newlines on raw string before trimming for consistency
             if let baseInput = baseConfig.initialInput,
-               !baseInput.isEmpty,
                !baseInput.contains("\n"),
                !baseInput.contains("\r") {
-                return baseInput
+                let trimmed = baseInput.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
             }
             return nil
         }()

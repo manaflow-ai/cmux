@@ -247,14 +247,21 @@ extension Workspace {
         )
     }
 
+    /// Check if a panel is remote-backed for session snapshot purposes.
+    /// Includes active remote terminals, transferred remotes, and child-exited remotes.
+    private func isRemoteBackedForSessionSnapshot(_ panelId: UUID) -> Bool {
+        activeRemoteTerminalSurfaceIds.contains(panelId) ||
+        transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
+        pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
+    }
+
     /// Returns all TTY names for local terminal panels in this workspace.
     /// Used to refresh the foreground process cache before snapshotting.
     /// Skips remote-backed terminals (their TTYs won't be used in snapshot).
     func allTerminalTTYNames() -> [String] {
         panels.compactMap { panelId, panel in
             guard panel is TerminalPanel,
-                  !activeRemoteTerminalSurfaceIds.contains(panelId),
-                  transferredRemoteCleanupConfigurationsByPanelId[panelId] == nil else {
+                  !isRemoteBackedForSessionSnapshot(panelId) else {
                 return nil
             }
             return surfaceTTYNames[panelId]
@@ -475,9 +482,7 @@ extension Workspace {
                 allowFallbackScrollback: shouldPersistScrollback
             )
             // Skip restore/detection metadata for remote-backed terminals
-            let isRemoteBackedTerminal =
-                activeRemoteTerminalSurfaceIds.contains(panelId) ||
-                transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil
+            let isRemoteBackedTerminal = isRemoteBackedForSessionSnapshot(panelId)
             // Read cached foreground command (cache is refreshed before snapshot)
             let detectedCommand: String? = {
                 guard !isRemoteBackedTerminal,
@@ -9569,10 +9574,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
         }
-        // Don't restore command for remote-backed terminals (their commands ran on remote server)
-        if !detached.isRemoteTerminal, let restoreCommand = detached.restoreCommand {
-            setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
-        }
+        // Note: restoreCommand is handled after remoteCleanupConfiguration check below
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
         } else {
@@ -9632,6 +9634,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        // Don't restore command for remote-backed terminals (their commands ran on remote server)
+        // Check both isRemoteTerminal AND remoteCleanupConfiguration to catch transferred remotes
+        let isRemoteBackedDetachedSurface =
+            detached.isRemoteTerminal || detached.remoteCleanupConfiguration != nil
+        if !isRemoteBackedDetachedSurface, let restoreCommand = detached.restoreCommand {
+            setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
         }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
