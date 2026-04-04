@@ -11,11 +11,11 @@ extension Notification.Name {
 /// screen while keeping it as a regular window. This preserves
 /// `background-opacity` transparency since the desktop remains behind the window.
 ///
-/// When entering non-native fullscreen, `.titled` is removed from the styleMask
-/// so the window can cover the full screen including the menu bar area. cmux's
-/// titlebar controls (+ button, notification bell, etc.) are provided by
-/// `fullscreenControls` — a SwiftUI view that appears in the content area when
-/// `isFullScreen` is true, so they remain functional without NSTitlebarAccessoryViewControllers.
+/// cmux keeps `.titled` in the styleMask (removing it breaks SwiftUI's
+/// NSHostingView coordinate mapping). With `.fullSizeContentView` already set
+/// and `titlebarAppearsTransparent = true`, the content extends behind the
+/// invisible titlebar, so setting the frame to `screen.frame` should give
+/// effectively full-screen coverage.
 final class NonNativeFullscreen {
 
     // MARK: - Types
@@ -48,7 +48,6 @@ final class NonNativeFullscreen {
 
     private struct SavedState {
         let frame: NSRect
-        let styleMask: NSWindow.StyleMask
     }
 
     // MARK: - State
@@ -90,14 +89,9 @@ final class NonNativeFullscreen {
         guard let screen = window.screen ?? NSScreen.main else { return }
 
         // Save state for restoration
-        savedState = SavedState(
-            frame: window.frame,
-            styleMask: window.styleMask
-        )
+        savedState = SavedState(frame: window.frame)
 
-        let firstResponder = window.firstResponder
-
-        // Auto-hide dock and menu bar
+        // Auto-hide dock and menu bar via presentationOptions.
         if Self.screenHasDock(screen) {
             NSApp.presentationOptions.insert(.autoHideDock)
         }
@@ -105,54 +99,24 @@ final class NonNativeFullscreen {
             NSApp.presentationOptions.insert(.autoHideMenuBar)
         }
 
-        // Remove .titled so the window can cover the full screen.
-        window.styleMask.remove(.titled)
-        window.styleMask.remove(.resizable)
-
-        // Expand to fill screen. Dispatch async so styleMask changes settle.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window, self.isFullScreen else { return }
-            let targetFrame = self.fullscreenFrame(for: screen)
-            window.setFrame(targetFrame, display: true)
-
-            // Force SwiftUI's NSHostingView to recalculate layout for the
-            // new contentLayoutRect after .titled removal and frame change.
-            if let contentView = window.contentView {
-                contentView.frame = window.contentRect(forFrameRect: targetFrame)
-                contentView.needsLayout = true
-                contentView.layoutSubtreeIfNeeded()
-            }
-            if let firstResponder {
-                window.makeFirstResponder(firstResponder)
-            }
-        }
+        // Keep .titled — removing it breaks SwiftUI hit testing entirely.
+        // With .fullSizeContentView + titlebarAppearsTransparent (both already
+        // set by cmux), content extends behind the transparent titlebar.
+        // Set frame to screen.frame so the window covers the full display.
+        window.setFrame(fullscreenFrame(for: screen), display: true, animate: true)
     }
 
     func exit() {
         guard let window, let saved = savedState else { return }
 
-        let firstResponder = window.firstResponder
-
         // Restore presentation options
         NSApp.presentationOptions.remove(.autoHideMenuBar)
         NSApp.presentationOptions.remove(.autoHideDock)
 
-        // Restore styleMask and frame
-        window.styleMask = saved.styleMask
+        // Restore frame
         window.setFrame(saved.frame, display: true, animate: true)
 
-        // Force layout recalculation after restoring .titled
-        if let contentView = window.contentView {
-            contentView.frame = window.contentRect(forFrameRect: window.frame)
-            contentView.needsLayout = true
-            contentView.layoutSubtreeIfNeeded()
-        }
-
         savedState = nil
-
-        if let firstResponder {
-            window.makeFirstResponder(firstResponder)
-        }
     }
 
     func toggle() {
@@ -172,14 +136,15 @@ final class NonNativeFullscreen {
     // MARK: - Private
 
     private func fullscreenFrame(for screen: NSScreen) -> NSRect {
+        // Use screen.frame to cover the full display area.
+        // .titled is kept but titlebar is transparent, so content fills visually.
+        // presentationOptions auto-hides menu bar and dock.
         var frame = screen.frame
 
         if !style.hideMenu {
-            // Subtract menu bar height since we're keeping it visible
             let menuBarHeight = NSApp.mainMenu?.menuBarHeight ?? 0
             frame.size.height -= menuBarHeight
         } else if style.paddedNotch {
-            // Avoid the notch area
             let safeTop = screen.safeAreaInsets.top
             if safeTop > 0 {
                 frame.size.height -= safeTop
