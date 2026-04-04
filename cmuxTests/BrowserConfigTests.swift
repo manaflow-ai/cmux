@@ -1213,6 +1213,15 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.control)
     }
+
+    func testDefaultShortcutForToggleReactGrabAvoidsFindPreviousCollision() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
+        XCTAssertEqual(shortcut.key, "g")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
 }
 
 

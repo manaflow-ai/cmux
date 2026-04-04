@@ -4450,8 +4450,8 @@ class TerminalController {
                     return
                 }
                 let colorInput = colorRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                // Resolve named colors from effective palette (includes user overrides, excludes custom entries)
-                let effectivePalette = WorkspaceTabColorSettings.defaultPaletteWithOverrides()
+                // Resolve named colors from the effective palette, including file-defined additions.
+                let effectivePalette = WorkspaceTabColorSettings.palette()
                 let hex: String
                 if let entry = effectivePalette.first(where: {
                     $0.name.caseInsensitiveCompare(colorInput) == .orderedSame
@@ -5716,15 +5716,14 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a terminal", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            guard let surface = waitForTerminalSurface(terminalPanel, waitUpTo: 2.0) else {
-                result = .err(code: "internal_error", message: "Surface not ready", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-            guard sendNamedKey(surface, keyName: key) else {
+            let surfaceWasReady = terminalPanel.surface.surface != nil
+            guard terminalPanel.surface.sendNamedKey(key) else {
                 result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
                 return
             }
-            terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            if surfaceWasReady {
+                terminalPanel.surface.forceRefresh(reason: "terminalController.v2SurfaceSendKey")
+            }
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -11369,7 +11368,7 @@ class TerminalController {
           focus_pane <pane-id|index>      - Focus a pane
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
-          reload_config [soft]            - Reload Ghostty config and refresh terminals
+          reload_config                   - Reload Ghostty config, cmux settings, and refresh terminals
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
@@ -13583,154 +13582,6 @@ class TerminalController {
         }
     }
 
-    private func keycodeForLetter(_ letter: Character) -> UInt32? {
-        switch String(letter).lowercased() {
-        case "a": return UInt32(kVK_ANSI_A)
-        case "b": return UInt32(kVK_ANSI_B)
-        case "c": return UInt32(kVK_ANSI_C)
-        case "d": return UInt32(kVK_ANSI_D)
-        case "e": return UInt32(kVK_ANSI_E)
-        case "f": return UInt32(kVK_ANSI_F)
-        case "g": return UInt32(kVK_ANSI_G)
-        case "h": return UInt32(kVK_ANSI_H)
-        case "i": return UInt32(kVK_ANSI_I)
-        case "j": return UInt32(kVK_ANSI_J)
-        case "k": return UInt32(kVK_ANSI_K)
-        case "l": return UInt32(kVK_ANSI_L)
-        case "m": return UInt32(kVK_ANSI_M)
-        case "n": return UInt32(kVK_ANSI_N)
-        case "o": return UInt32(kVK_ANSI_O)
-        case "p": return UInt32(kVK_ANSI_P)
-        case "q": return UInt32(kVK_ANSI_Q)
-        case "r": return UInt32(kVK_ANSI_R)
-        case "s": return UInt32(kVK_ANSI_S)
-        case "t": return UInt32(kVK_ANSI_T)
-        case "u": return UInt32(kVK_ANSI_U)
-        case "v": return UInt32(kVK_ANSI_V)
-        case "w": return UInt32(kVK_ANSI_W)
-        case "x": return UInt32(kVK_ANSI_X)
-        case "y": return UInt32(kVK_ANSI_Y)
-        case "z": return UInt32(kVK_ANSI_Z)
-        default: return nil
-        }
-    }
-
-    private func keycodeForNamedKey(_ name: String) -> UInt32? {
-        switch name {
-        case "enter", "return": return UInt32(kVK_Return)
-        case "tab": return UInt32(kVK_Tab)
-        case "escape", "esc": return UInt32(kVK_Escape)
-        case "backspace": return UInt32(kVK_Delete)
-        case "delete": return UInt32(kVK_ForwardDelete)
-        case "space": return UInt32(kVK_Space)
-        case "up": return UInt32(kVK_UpArrow)
-        case "down": return UInt32(kVK_DownArrow)
-        case "left": return UInt32(kVK_LeftArrow)
-        case "right": return UInt32(kVK_RightArrow)
-        case "\\": return UInt32(kVK_ANSI_Backslash)
-        default: return nil
-        }
-    }
-
-    private func sendNamedKey(_ surface: ghostty_surface_t, keyName: String) -> Bool {
-        switch keyName.lowercased() {
-        case "ctrl-c", "ctrl+c", "sigint":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_C), mods: GHOSTTY_MODS_CTRL)
-            return true
-        case "ctrl-d", "ctrl+d", "eof":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_D), mods: GHOSTTY_MODS_CTRL)
-            return true
-        case "ctrl-z", "ctrl+z", "sigtstp":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_Z), mods: GHOSTTY_MODS_CTRL)
-            return true
-        case "ctrl-\\", "ctrl+\\", "sigquit":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ANSI_Backslash), mods: GHOSTTY_MODS_CTRL)
-            return true
-        case "enter", "return":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Return))
-            return true
-        case "tab":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab))
-            return true
-        case "escape", "esc":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Escape))
-            return true
-        case "backspace":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Delete))
-            return true
-        case "up", "arrow_up", "arrowup":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_UpArrow))
-            return true
-        case "down", "arrow_down", "arrowdown":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_DownArrow))
-            return true
-        case "left", "arrow_left", "arrowleft":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_LeftArrow))
-            return true
-        case "right", "arrow_right", "arrowright":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_RightArrow))
-            return true
-        case "shift+tab", "shift-tab", "backtab":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Tab), mods: GHOSTTY_MODS_SHIFT)
-            return true
-        case "home":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_Home))
-            return true
-        case "end":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_End))
-            return true
-        case "delete", "del", "forward_delete":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_ForwardDelete))
-            return true
-        case "pageup", "page_up":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageUp))
-            return true
-        case "pagedown", "page_down":
-            sendKeyEvent(surface: surface, keycode: UInt32(kVK_PageDown))
-            return true
-        default:
-            // Parse modifier+key combinations (e.g. "ctrl+enter", "shift+tab",
-            // "ctrl+shift+a") or standalone named keys (e.g. "space", "up").
-            // Separators: '+' or '-'.
-            let parts = keyName.lowercased().split(separator: "+").flatMap { $0.split(separator: "-") }.map(String.init).filter { !$0.isEmpty }
-            guard let baseKey = parts.last else { return false }
-
-            // Single named key without modifiers (e.g. "space", "up", "delete")
-            if parts.count == 1 {
-                if let keycode = keycodeForNamedKey(baseKey) {
-                    sendKeyEvent(surface: surface, keycode: keycode)
-                    return true
-                }
-                if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
-                    sendKeyEvent(surface: surface, keycode: keycode)
-                    return true
-                }
-                return false
-            }
-
-            var mods = GHOSTTY_MODS_NONE
-            for mod in parts.dropLast() {
-                switch mod {
-                case "ctrl", "control": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_CTRL.rawValue)
-                case "shift": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
-                case "alt", "opt", "option": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_ALT.rawValue)
-                case "cmd", "command", "super": mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
-                default: return false
-                }
-            }
-
-            if let keycode = keycodeForNamedKey(baseKey) {
-                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
-                return true
-            }
-            if baseKey.count == 1, let char = baseKey.first, let keycode = keycodeForLetter(char) {
-                sendKeyEvent(surface: surface, keycode: keycode, mods: mods)
-                return true
-            }
-            return false
-        }
-    }
-
     private func sendInput(_ text: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
@@ -13932,16 +13783,7 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
-            success = sendNamedKey(surface, keyName: keyName)
+            success = terminalPanel.surface.sendNamedKey(keyName)
         }
         if let error { return error }
         return success ? "OK" : "ERROR: Unknown key '\(keyName)'"
@@ -13958,15 +13800,11 @@ class TerminalController {
         var success = false
         var error: String?
         DispatchQueue.main.sync {
-            guard resolveTerminalPanel(from: target, tabManager: tabManager) != nil else {
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
                 error = "ERROR: Surface not found"
                 return
             }
-            guard let surface = resolveTerminalSurface(from: target, tabManager: tabManager, waitUpTo: 2.0) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-            success = sendNamedKey(surface, keyName: keyName)
+            success = terminalPanel.surface.sendNamedKey(keyName)
         }
 
         if let error { return error }
@@ -15720,20 +15558,14 @@ class TerminalController {
 
     private func reloadConfig(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let soft: Bool
-        switch trimmed {
-        case "", "full":
-            soft = false
-        case "soft":
-            soft = true
-        default:
-            return "ERROR: Usage: reload_config [soft]"
+        guard trimmed.isEmpty else {
+            return "ERROR: Usage: reload_config"
         }
 
         v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(soft: soft, source: "socket.reload_config")
+            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
         }
-        return soft ? "OK Reloaded config (soft)" : "OK Reloaded config"
+        return "OK Reloaded config"
     }
 
     private func refreshSurfaces() -> String {

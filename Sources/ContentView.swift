@@ -9879,12 +9879,11 @@ struct VerticalTabsSidebar: View {
     @StateObject private var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore()
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var draggedTabId: UUID?
     @State private var dropIndicator: SidebarDropIndicator?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-    @AppStorage(KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultsKey)
-    private var selectWorkspaceByNumberShortcutData = Data()
 
     /// Space at top of sidebar for traffic light buttons
     private let trafficLightPadding: CGFloat = 28
@@ -9900,18 +9899,8 @@ struct VerticalTabsSidebar: View {
     }
 
     private var workspaceNumberShortcut: StoredShortcut {
-        decodeShortcut(
-            from: selectWorkspaceByNumberShortcutData,
-            fallback: KeyboardShortcutSettings.Action.selectWorkspaceByNumber.defaultShortcut
-        )
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
     var body: some View {
@@ -9966,7 +9955,7 @@ struct VerticalTabsSidebar: View {
                                         at: index,
                                         workspaceCount: workspaceCount
                                     ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.modifierDisplayString,
+                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
                                     canCloseWorkspace: canCloseWorkspace,
                                     accessibilityWorkspaceCount: workspaceCount,
                                     unreadCount: notificationStore.unreadCount(forTabId: tab.id),
@@ -10115,9 +10104,11 @@ enum ShortcutHintModifierPolicy {
         for modifierFlags: NSEvent.ModifierFlags,
         defaults: UserDefaults = .standard
     ) -> Bool {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
+        guard !shortcut.hasChord else { return false }
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard normalized == KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber).modifierFlags else {
+        guard normalized == [.command] else {
             return false
         }
         return ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults)
@@ -11714,17 +11705,15 @@ private struct SidebarHelpMenuButton: View {
     private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
     private let buttonSize: CGFloat = 22
     private let iconSize: CGFloat = 11
-    @AppStorage(KeyboardShortcutSettings.Action.sendFeedback.defaultsKey) private var sendFeedbackShortcutData = Data()
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     let onSendFeedback: () -> Void
 
     @State private var isPopoverPresented = false
 
     private var sendFeedbackShortcutHint: String {
-        decodeShortcut(
-            from: sendFeedbackShortcutData,
-            fallback: KeyboardShortcutSettings.Action.sendFeedback.defaultShortcut
-        ).displayString
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .sendFeedback).displayString
     }
 
     var body: some View {
@@ -11935,13 +11924,6 @@ private struct SidebarHelpMenuButton: View {
         }
     }
 
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
-    }
 }
 
 private struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable {
@@ -13895,7 +13877,7 @@ private struct TabItemView: View, Equatable {
         alert.messageText = String(localized: "alert.customColor.title", defaultValue: "Custom Workspace Color")
         alert.informativeText = String(localized: "alert.customColor.message", defaultValue: "Enter a hex color in the format #RRGGBB.")
 
-        let seed = tab.customColor ?? WorkspaceTabColorSettings.customColors().first ?? ""
+        let seed = tab.customColor ?? WorkspaceTabColorSettings.customPaletteEntries().first?.hex ?? ""
         let input = NSTextField(string: seed)
         input.placeholderString = "#1565C0"
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)

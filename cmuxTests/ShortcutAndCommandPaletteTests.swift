@@ -627,6 +627,26 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutIsCustomized() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
     func testShortcutHintUsesIntentionalHoldDelay() {
         XCTAssertEqual(ShortcutHintModifierPolicy.intentionalHoldDelay, 0.30, accuracy: 0.001)
     }
