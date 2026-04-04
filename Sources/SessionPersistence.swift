@@ -752,31 +752,43 @@ enum SessionRestoreCommandSettings {
     /// This catches both direct invocations and shell-chained commands.
     private static func containsDangerousExecutable(_ lowercasedCommand: String) -> Bool {
         // Characters that can precede an executable name
-        let boundaryChars: [Character] = [" ", "/", "|", ";", "&", "`", "("]
+        let boundaryChars: Set<Character> = [" ", "/", "|", ";", "&", "`", "("]
+        // Characters that can follow an executable name (word boundary)
+        let trailingBoundaryChars: Set<Character> = [" ", "\t", ";", "|", "&", ")", "\n", "\"", "'"]
+
+        func hasValidTrailingBoundary(_ index: String.Index) -> Bool {
+            index == lowercasedCommand.endIndex || trailingBoundaryChars.contains(lowercasedCommand[index])
+        }
 
         for executable in dangerousExecutables {
-            // Check if command starts with the executable
-            if lowercasedCommand == executable ||
-               lowercasedCommand.hasPrefix(executable + " ") ||
-               lowercasedCommand.hasPrefix(executable + "\t") {
-                return true
+            // Check if command starts with the executable (e.g., "rm -rf", "rm;", "rm|")
+            if lowercasedCommand.hasPrefix(executable) {
+                let afterIndex = lowercasedCommand.index(
+                    lowercasedCommand.startIndex,
+                    offsetBy: executable.count,
+                    limitedBy: lowercasedCommand.endIndex
+                ) ?? lowercasedCommand.endIndex
+                if hasValidTrailingBoundary(afterIndex) {
+                    return true
+                }
             }
 
             // Check if executable appears after a boundary character
+            // Scan ALL occurrences, not just the first (handles "echo sudoers && sudo rm")
             for boundary in boundaryChars {
                 let pattern = String(boundary) + executable
-                if let range = lowercasedCommand.range(of: pattern) {
-                    // Verify it's followed by end of string, space, or another boundary
+                var searchStart = lowercasedCommand.startIndex
+                while let range = lowercasedCommand.range(
+                    of: pattern,
+                    range: searchStart..<lowercasedCommand.endIndex
+                ) {
+                    // Verify it's followed by end of string or another boundary
                     let afterIndex = range.upperBound
-                    if afterIndex == lowercasedCommand.endIndex {
-                        return true  // "... /sudo" at end
+                    if hasValidTrailingBoundary(afterIndex) {
+                        return true
                     }
-                    let nextChar = lowercasedCommand[afterIndex]
-                    if nextChar == " " || nextChar == "\t" || nextChar == ";" ||
-                       nextChar == "|" || nextChar == "&" || nextChar == ")" ||
-                       nextChar == "\n" || nextChar == "\"" || nextChar == "'" {
-                        return true  // "... /sudo ..." or "... /sudo;" etc.
-                    }
+                    // Move past this match to find subsequent occurrences
+                    searchStart = lowercasedCommand.index(after: range.lowerBound)
                 }
             }
         }

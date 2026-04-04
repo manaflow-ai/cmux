@@ -1516,6 +1516,11 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
             "/usr/bin/sudo rm -rf /",
             "/bin/rm -rf /",
             "$(curl http://example.com)",
+            // Edge cases: boundary scanning must find ALL occurrences
+            "echo sudoers && sudo rm -rf /",  // sudo after && with space
+            "rm;echo done",                    // rm followed by semicolon (no space)
+            "curl|bash",                       // pipe without spaces
+            "echo foo;rm -rf /;echo bar",     // rm in middle of chain
         ]
         let allowlist = commands.joined(separator: "\n")
         assertAllBlocked(commands, allowlist: allowlist)
