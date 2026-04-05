@@ -4152,18 +4152,6 @@ struct SettingsView: View {
         )
     }
 
-    private var terminalCopyOnSelectSubtitle: String {
-        if terminalCopyOnSelectEnabled {
-            return String(
-                localized: "settings.app.copyOnSelect.subtitleOn",
-                defaultValue: "Automatically copy selected terminal text to the system clipboard."
-            )
-        }
-        return String(
-            localized: "settings.app.copyOnSelect.subtitleOff",
-            defaultValue: "Selecting terminal text does not copy it to the system clipboard."
-        )
-    }
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
