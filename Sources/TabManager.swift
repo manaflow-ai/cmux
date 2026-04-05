@@ -5840,6 +5840,15 @@ extension TabManager {
             }
         }
 
+        // Include sidebar sections so create/rename/reorder/collapse triggers autosave.
+        hasher.combine(sections.count)
+        for section in sections {
+            hasher.combine(section.id)
+            hasher.combine(section.name)
+            hasher.combine(section.isCollapsed)
+            hasher.combine(section.workspaceIds)
+        }
+
         return hasher.finalize()
     }
 
