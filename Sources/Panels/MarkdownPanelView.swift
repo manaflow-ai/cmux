@@ -357,14 +357,19 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
             // Content-only change: update in-place via JS to preserve scroll position
             // and avoid WKWebView dropping rapid loadHTMLString calls.
             let escaped = Self.escapeForJS(content)
+            let markdownContent = content
             webView.evaluateJavaScript(
                 "document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);"
             ) { _, error in
                 if error != nil {
-                    // JS evaluation failed (e.g., page not yet loaded); reset cache
-                    // so the next updateNSView retries.
-                    context.coordinator.lastContent = nil
-                    context.coordinator.lastIsDark = nil
+                    // JS evaluation failed (e.g., page not yet loaded); fall back to
+                    // a full HTML reload to guarantee the content is rendered.
+                    context.coordinator.lastContent = markdownContent
+                    context.coordinator.lastIsDark = isDark
+                    DispatchQueue.main.async {
+                        let html = Self.wrapInHTML(markdown: markdownContent, isDark: isDark)
+                        webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
+                    }
                 }
             }
         }
