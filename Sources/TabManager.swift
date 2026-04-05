@@ -758,7 +758,13 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
-    @Published var sections: [SidebarSection] = []
+    @Published var sections: [SidebarSection] = [] {
+        didSet { rebindSectionObservers() }
+    }
+    /// Bumped when any section's internal state changes (collapse, membership, name).
+    /// Views that read `sidebarLayout` also read this to ensure re-evaluation.
+    @Published private(set) var sectionRevision: UInt64 = 0
+    private var sectionObserverCancellables: [AnyCancellable] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2677,6 +2683,25 @@ class TabManager: ObservableObject {
 
     // MARK: - Sidebar Sections
 
+    /// Subscribe to every section's `objectWillChange` so that any property
+    /// mutation (collapse, membership, name) bumps `sectionRevision` and
+    /// triggers a SwiftUI re-render of the sidebar layout.
+    private func rebindSectionObservers() {
+        sectionObserverCancellables.removeAll()
+        for section in sections {
+            section.objectWillChange
+                .receive(on: RunLoop.main)
+                .sink { [weak self] _ in
+                    self?.sectionRevision &+= 1
+                }
+                .store(in: &sectionObserverCancellables)
+        }
+    }
+
+    private func notifySectionChange() {
+        sectionRevision &+= 1
+    }
+
     @discardableResult
     func createSection(name: String) -> SidebarSection {
         let section = SidebarSection(name: name)
@@ -2687,6 +2712,7 @@ class TabManager: ObservableObject {
     func renameSection(sectionId: UUID, name: String) {
         guard let section = sections.first(where: { $0.id == sectionId }) else { return }
         section.name = name
+        notifySectionChange()
     }
 
     func deleteSection(sectionId: UUID) {
@@ -2708,12 +2734,14 @@ class TabManager: ObservableObject {
         }
         guard let section = sections.first(where: { $0.id == sectionId }) else { return }
         section.addWorkspace(tabId, at: atIndex)
+        notifySectionChange()
     }
 
     func removeWorkspaceFromSection(tabId: UUID) {
         for section in sections {
             section.removeWorkspace(tabId)
         }
+        notifySectionChange()
     }
 
     func sectionForWorkspace(_ tabId: UUID) -> SidebarSection? {
@@ -2721,6 +2749,9 @@ class TabManager: ObservableObject {
     }
 
     var sidebarLayout: SidebarLayout {
+        // Read sectionRevision to establish a SwiftUI dependency so the
+        // layout is recomputed whenever any section property changes.
+        let _ = sectionRevision
         let tabById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let pinnedWorkspaces = tabs.filter { $0.isPinned }
 
@@ -2749,6 +2780,7 @@ class TabManager: ObservableObject {
         for section in sections {
             section.removeWorkspace(workspaceId)
         }
+        notifySectionChange()
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)

@@ -9991,6 +9991,8 @@ struct VerticalTabsSidebar: View {
 
     var body: some View {
         let tabs = tabManager.tabs
+        // Read sectionRevision to trigger re-render when any section changes.
+        let _ = tabManager.sectionRevision
         let layout = tabManager.sidebarLayout
         let allOrdered = layout.allWorkspacesInOrder
         let workspaceCount = tabs.count
@@ -12303,6 +12305,7 @@ private struct SidebarSectionHeaderView: View {
     let workspaceCount: Int
     @State private var isEditing = false
     @State private var editedName = ""
+    @FocusState private var isTextFieldFocused: Bool
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -12315,16 +12318,29 @@ private struct SidebarSectionHeaderView: View {
                 .frame(width: 12, height: 12)
 
             if isEditing {
-                TextField("", text: $editedName, onCommit: {
-                    let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !trimmed.isEmpty {
-                        tabManager.renameSection(sectionId: section.id, name: trimmed)
+                TextField("", text: $editedName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        commitRename()
                     }
-                    isEditing = false
-                })
-                .textFieldStyle(.plain)
-                .font(.system(size: 11, weight: .semibold))
-                .onExitCommand { isEditing = false }
+                    .onExitCommand {
+                        isEditing = false
+                        isTextFieldFocused = false
+                    }
+                    .onAppear {
+                        // Delay focus slightly so the TextField is mounted first
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            isTextFieldFocused = true
+                        }
+                    }
+                    .onChange(of: isTextFieldFocused) { focused in
+                        // Commit when focus leaves the field
+                        if !focused && isEditing {
+                            commitRename()
+                        }
+                    }
             } else {
                 Text(section.name)
                     .font(.system(size: 11, weight: .semibold))
@@ -12344,14 +12360,17 @@ private struct SidebarSectionHeaderView: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .onTapGesture {
-            section.isCollapsed.toggle()
+            guard !isEditing else { return }
+            section.toggleCollapsed()
+            tabManager.objectWillChange.send()
         }
         .contextMenu {
             Button(section.isCollapsed
                 ? String(localized: "contextMenu.expandSection", defaultValue: "Expand Section")
                 : String(localized: "contextMenu.collapseSection", defaultValue: "Collapse Section")
             ) {
-                section.isCollapsed.toggle()
+                section.toggleCollapsed()
+                tabManager.objectWillChange.send()
             }
 
             Button(String(localized: "contextMenu.renameSection", defaultValue: "Rename Section…")) {
@@ -12399,6 +12418,15 @@ private struct SidebarSectionHeaderView: View {
             }
             return true
         }
+    }
+
+    private func commitRename() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            tabManager.renameSection(sectionId: section.id, name: trimmed)
+        }
+        isEditing = false
+        isTextFieldFocused = false
     }
 }
 
