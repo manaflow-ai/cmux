@@ -364,8 +364,11 @@ struct MarkdownWebViewRepresentable: NSViewRepresentable {
                 if error != nil {
                     // JS evaluation failed (e.g., page not yet loaded); fall back to
                     // a full HTML reload to guarantee the content is rendered.
-                    context.coordinator.lastContent = markdownContent
-                    context.coordinator.lastIsDark = isDark
+                    // Guard against stale callbacks: if a newer updateNSView has already
+                    // advanced the coordinator, skip this reload to avoid overwriting
+                    // newer content.
+                    guard context.coordinator.lastContent == markdownContent,
+                          context.coordinator.lastIsDark == isDark else { return }
                     DispatchQueue.main.async {
                         let html = Self.wrapInHTML(markdown: markdownContent, isDark: isDark)
                         webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
