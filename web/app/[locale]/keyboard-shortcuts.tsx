@@ -1,112 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { shortcutCategories, type LocalizedText, type Shortcut } from "../../data/cmux-shortcuts";
 
-type Shortcut = {
-  id: string;
-  combos: string[][];
-  note?: string;
-};
-
-type ShortcutCategory = {
-  id: string;
-  titleKey: string;
-  blurbKey?: string;
-  shortcuts: Shortcut[];
-};
-
-const CATEGORIES: ShortcutCategory[] = [
-  {
-    id: "workspaces",
-    titleKey: "workspaces",
-    blurbKey: "workspacesBlurb",
-    shortcuts: [
-      { id: "ws-new", combos: [["⌘", "N"]] },
-      { id: "ws-prev", combos: [["⌃", "⌘", "["]] },
-      { id: "ws-next", combos: [["⌃", "⌘", "]"]] },
-      { id: "ws-jump-1-8", combos: [["⌘", "1–8"]] },
-      { id: "ws-jump-last", combos: [["⌘", "9"]] },
-      { id: "ws-close", combos: [["⌘", "⇧", "W"]] },
-      { id: "ws-rename", combos: [["⌘", "⇧", "R"]] },
-    ],
-  },
-  {
-    id: "surfaces",
-    titleKey: "surfaces",
-    blurbKey: "surfacesBlurb",
-    shortcuts: [
-      { id: "sf-new", combos: [["⌘", "T"]] },
-      { id: "sf-prev-1", combos: [["⌘", "⇧", "["]] },
-      { id: "sf-prev-2", combos: [["⌃", "⇧", "Tab"]] },
-      { id: "sf-jump-1-8", combos: [["⌃", "1–8"]] },
-      { id: "sf-jump-last", combos: [["⌃", "9"]] },
-      { id: "sf-close", combos: [["⌘", "W"]] },
-    ],
-  },
-  {
-    id: "split-panes",
-    titleKey: "splitPanes",
-    shortcuts: [
-      { id: "sp-right", combos: [["⌘", "D"]] },
-      { id: "sp-down", combos: [["⌘", "⇧", "D"]] },
-      { id: "sp-focus", combos: [["⌥", "⌘", "←/→/↑/↓"]] },
-      { id: "sp-browser-right", combos: [["⌥", "⌘", "D"]] },
-      { id: "sp-browser-down", combos: [["⌥", "⌘", "⇧", "D"]] },
-    ],
-  },
-  {
-    id: "browser",
-    titleKey: "browser",
-    shortcuts: [
-      { id: "br-open", combos: [["⌘", "⇧", "L"]] },
-      { id: "br-addr", combos: [["⌘", "L"]] },
-      { id: "br-forward", combos: [["⌘", "]"]] },
-      { id: "br-reload", combos: [["⌘", "R"]] },
-      { id: "br-devtools", combos: [["⌥", "⌘", "I"]] },
-    ],
-  },
-  {
-    id: "notifications",
-    titleKey: "notifications",
-    shortcuts: [
-      { id: "nt-panel", combos: [["⌘", "⇧", "I"]] },
-      { id: "nt-latest", combos: [["⌘", "⇧", "U"]] },
-      { id: "nt-flash", combos: [["⌘", "⇧", "L"]] },
-    ],
-  },
-  {
-    id: "find",
-    titleKey: "find",
-    shortcuts: [
-      { id: "fd-find", combos: [["⌘", "F"]] },
-      { id: "fd-next-prev", combos: [["⌘", "G"], ["⌘", "⇧", "G"]] },
-      { id: "fd-hide", combos: [["⌘", "⇧", "F"]] },
-      { id: "fd-selection", combos: [["⌘", "E"]] },
-    ],
-  },
-  {
-    id: "terminal",
-    titleKey: "terminal",
-    shortcuts: [
-      { id: "tm-clear", combos: [["⌘", "K"]] },
-      { id: "tm-copy", combos: [["⌘", "C"]] },
-      { id: "tm-paste", combos: [["⌘", "V"]] },
-      { id: "tm-font", combos: [["⌘", "+"], ["⌘", "-"]] },
-      { id: "tm-reset", combos: [["⌘", "0"]] },
-    ],
-  },
-  {
-    id: "window",
-    titleKey: "window",
-    shortcuts: [
-      { id: "wn-new", combos: [["⌘", "⇧", "N"]] },
-      { id: "wn-settings", combos: [["⌘", ","]] },
-      { id: "wn-reload", combos: [["⌘", "⇧", "R"]] },
-      { id: "wn-quit", combos: [["⌘", "Q"]] },
-    ],
-  },
-];
+function localizedText(text: LocalizedText, locale: string) {
+  return locale.startsWith("ja") ? text.ja : text.en;
+}
 
 function normalize(s: string) {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -123,7 +23,7 @@ function KeyCombo({ combo }: { combo: string[] }) {
         <span key={`${k}-${idx}`} className="inline-flex items-center">
           <kbd>{k}</kbd>
           {idx < combo.length - 1 && (
-            <span className="text-muted/30 text-[10px] mx-[3px] select-none font-mono">
+            <span className="text-muted/30 mx-[3px] select-none font-mono text-[10px]">
               +
             </span>
           )}
@@ -133,27 +33,21 @@ function KeyCombo({ combo }: { combo: string[] }) {
   );
 }
 
-function ShortcutRow({ shortcut, description, note }: { shortcut: Shortcut; description: string; note?: string }) {
+function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string }) {
+  const description = localizedText(shortcut.description, locale);
+  const note = shortcut.note ? localizedText(shortcut.note, locale) : undefined;
+
   return (
-    <div className="flex items-center justify-between gap-4 py-[11px] px-4 hover:bg-foreground/[0.025] transition-colors">
+    <div className="flex items-center justify-between gap-4 px-4 py-[11px] transition-colors hover:bg-foreground/[0.025]">
       <div className="min-w-0">
-        <span className="text-[14px] text-foreground/90">
-          {description}
-        </span>
-        {note && (
-          <span className="text-[12px] text-muted/50 ml-2">
-            {note}
-          </span>
-        )}
+        <span className="text-[14px] text-foreground/90">{description}</span>
+        {note && <span className="ml-2 text-[12px] text-muted/50">{note}</span>}
       </div>
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex shrink-0 items-center gap-3">
         {shortcut.combos.map((combo, idx) => (
-          <span
-            key={`${shortcut.id}-combo-${idx}`}
-            className="inline-flex items-center"
-          >
+          <span key={`${shortcut.id}-combo-${idx}`} className="inline-flex items-center">
             {idx > 0 && (
-              <span className="text-muted/30 text-[11px] select-none mr-3 font-mono">
+              <span className="mr-3 select-none font-mono text-[11px] text-muted/30">
                 /
               </span>
             )}
@@ -167,27 +61,28 @@ function ShortcutRow({ shortcut, description, note }: { shortcut: Shortcut; desc
 
 export function KeyboardShortcuts() {
   const [query, setQuery] = useState("");
+  const locale = useLocale();
   const t = useTranslations("docs.keyboardShortcuts");
 
   const trimmedQuery = query.trim();
 
   const filtered = useMemo(() => {
     const q = normalize(query);
-    if (!q) return CATEGORIES;
-    return CATEGORIES.map((cat) => ({
+    if (!q) return shortcutCategories;
+    return shortcutCategories.map((cat) => ({
       ...cat,
-      shortcuts: cat.shortcuts.filter((s) => {
+      shortcuts: cat.shortcuts.filter((shortcut) => {
         const catTitle = t(`cat.${cat.titleKey}`);
-        const desc = t(`sc.${s.id}`);
-        const combos = s.combos.map(comboToText).join(" ");
-        return normalize(`${catTitle} ${combos} ${desc} ${s.note ?? ""}`).includes(q);
+        const description = localizedText(shortcut.description, locale);
+        const note = shortcut.note ? localizedText(shortcut.note, locale) : "";
+        const combos = shortcut.combos.map(comboToText).join(" ");
+        return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),
     })).filter((cat) => cat.shortcuts.length > 0);
-  }, [query, t]);
+  }, [locale, query, t]);
 
   return (
-    <div className="mt-2 mb-12">
-      {/* Search */}
+    <div className="mb-12 mt-2">
       <div className="relative mb-8">
         <div className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted/40">
           <svg
@@ -208,24 +103,23 @@ export function KeyboardShortcuts() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t("searchPlaceholder")}
-          className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-border bg-transparent text-[13px] placeholder:text-muted/40 focus:outline-none focus:border-foreground/20 transition-colors"
+          className="w-full rounded-lg border border-border bg-transparent py-1.5 pl-9 pr-3 text-[13px] transition-colors placeholder:text-muted/40 focus:border-foreground/20 focus:outline-none"
           aria-label={t("searchLabel")}
         />
       </div>
 
-      {/* Category jump links */}
       {!trimmedQuery && (
-        <nav className="flex flex-wrap items-center gap-y-2 mb-10">
-          {CATEGORIES.map((cat, idx) => (
+        <nav className="mb-10 flex flex-wrap items-center gap-y-2">
+          {shortcutCategories.map((cat, idx) => (
             <span key={cat.id} className="inline-flex items-center">
               <a
                 href={`#${cat.id}`}
-                className="text-[13px] text-muted hover:text-foreground transition-colors"
+                className="text-[13px] text-muted transition-colors hover:text-foreground"
               >
                 {t(`cat.${cat.titleKey}`)}
               </a>
-              {idx < CATEGORIES.length - 1 && (
-                <span className="text-border mx-2.5 text-[10px] select-none">
+              {idx < shortcutCategories.length - 1 && (
+                <span className="mx-2.5 select-none text-[10px] text-border">
                   ·
                 </span>
               )}
@@ -234,13 +128,10 @@ export function KeyboardShortcuts() {
         </nav>
       )}
 
-      {/* Content */}
       {filtered.length === 0 ? (
         <div className="py-16 text-center">
           <p className="text-[14px] text-muted/70">{t("noResults")}</p>
-          <p className="text-[13px] text-muted/40 mt-1.5">
-            {t("noResultsHint")}
-          </p>
+          <p className="mt-1.5 text-[13px] text-muted/40">{t("noResultsHint")}</p>
         </div>
       ) : (
         <div className="space-y-10">
@@ -251,13 +142,13 @@ export function KeyboardShortcuts() {
                   {t(`cat.${cat.titleKey}`)}
                 </div>
                 {cat.blurbKey && (
-                  <p className="text-[13px] text-muted/50 mt-1">{t(`cat.${cat.blurbKey}`)}</p>
+                  <p className="mt-1 text-[13px] text-muted/50">{t(`cat.${cat.blurbKey}`)}</p>
                 )}
               </div>
-              <div className="rounded-xl border border-border overflow-hidden">
+              <div className="overflow-hidden rounded-xl border border-border">
                 <div className="divide-y divide-border/60">
-                  {cat.shortcuts.map((s) => (
-                    <ShortcutRow key={s.id} shortcut={s} description={t(`sc.${s.id}`)} />
+                  {cat.shortcuts.map((shortcut) => (
+                    <ShortcutRow key={shortcut.id} shortcut={shortcut} locale={locale} />
                   ))}
                 </div>
               </div>

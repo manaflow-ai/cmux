@@ -239,13 +239,14 @@ struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
 
-    var id: String { "\(name)-\(hex)" }
+    var id: String { name }
 }
 
 enum WorkspaceTabColorSettings {
-    static let defaultOverridesKey = "workspaceTabColor.defaultOverrides"
-    static let customColorsKey = "workspaceTabColor.customColors"
-    static let maxCustomColors = 24
+    static let paletteKey = "workspaceTabColor.colors"
+
+    private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
+    private static let legacyCustomColorsKey = "workspaceTabColor.customColors"
 
     private static let originalPRPalette: [WorkspaceTabColorEntry] = [
         WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
@@ -271,93 +272,88 @@ enum WorkspaceTabColorSettings {
     }
 
     static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        defaultPaletteWithOverrides(defaults: defaults) + customColorEntries(defaults: defaults)
-    }
-
-    static func defaultPaletteWithOverrides(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let palette = defaultPalette
-        let overrides = defaultOverrideMap(defaults: defaults)
-        return palette.map { entry in
-            WorkspaceTabColorEntry(name: entry.name, hex: overrides[entry.name] ?? entry.hex)
+        let paletteMap = effectivePaletteMap(defaults: defaults)
+        let builtInOrder = defaultPalette.compactMap { entry -> WorkspaceTabColorEntry? in
+            guard let hex = paletteMap[entry.name] else { return nil }
+            return WorkspaceTabColorEntry(name: entry.name, hex: hex)
         }
+        let builtInNames = Set(defaultPalette.map(\.name))
+        let customEntries = paletteMap
+            .filter { !builtInNames.contains($0.key) }
+            .sorted { lhs, rhs in
+                lhs.key.localizedStandardCompare(rhs.key) == .orderedAscending
+            }
+            .map { WorkspaceTabColorEntry(name: $0.key, hex: $0.value) }
+        return builtInOrder + customEntries
     }
 
-    static func defaultColorHex(named name: String, defaults: UserDefaults = .standard) -> String {
-        let palette = defaultPalette
-        guard let entry = palette.first(where: { $0.name == name }) else {
-            return palette.first?.hex ?? "#1565C0"
-        }
-        return defaultOverrideMap(defaults: defaults)[name] ?? entry.hex
+    static func customPaletteEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
+        let builtInNames = Set(defaultPalette.map(\.name))
+        return palette(defaults: defaults).filter { !builtInNames.contains($0.name) }
     }
 
-    static func setDefaultColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
-        let palette = defaultPalette
-        guard let entry = palette.first(where: { $0.name == name }),
-              let normalized = normalizedHex(hex) else { return }
+    static func defaultColorHex(named name: String) -> String? {
+        defaultPalette.first(where: { $0.name == name })?.hex
+    }
 
-        var overrides = defaultOverrideMap(defaults: defaults)
-        if normalized == entry.hex {
-            overrides.removeValue(forKey: name)
+    static func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
+        effectivePaletteMap(defaults: defaults)[name]
+    }
+
+    static func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
+        guard let normalizedName = normalizedColorName(name),
+              let normalizedHex = normalizedHex(hex) else { return }
+
+        var palette = editablePaletteMap(defaults: defaults)
+        palette[normalizedName] = normalizedHex
+        persistPaletteMap(palette, defaults: defaults)
+    }
+
+    static func removeColor(named name: String, defaults: UserDefaults = .standard) {
+        guard let normalizedName = normalizedColorName(name) else { return }
+        var palette = editablePaletteMap(defaults: defaults)
+        palette.removeValue(forKey: normalizedName)
+        persistPaletteMap(palette, defaults: defaults)
+    }
+
+    static func persistPaletteMap(_ rawPalette: [String: String], defaults: UserDefaults = .standard) {
+        let normalizedPalette = normalizedPaletteMap(rawPalette)
+        if normalizedPalette == defaultPaletteMap {
+            defaults.removeObject(forKey: paletteKey)
         } else {
-            overrides[name] = normalized
+            defaults.set(normalizedPalette, forKey: paletteKey)
         }
-        saveDefaultOverrideMap(overrides, defaults: defaults)
+        defaults.removeObject(forKey: legacyDefaultOverridesKey)
+        defaults.removeObject(forKey: legacyCustomColorsKey)
     }
 
-    static func customColors(defaults: UserDefaults = .standard) -> [String] {
-        guard let raw = defaults.array(forKey: customColorsKey) as? [String] else { return [] }
-        var result: [String] = []
-        var seen: Set<String> = []
-        for value in raw {
-            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
-            result.append(normalized)
-            if result.count >= maxCustomColors { break }
+    static func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
         }
-        return result
+        return legacyPaletteMap(defaults: defaults)
     }
 
-    static func customColorEntries(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        customColors(defaults: defaults).enumerated().map { index, hex in
-            WorkspaceTabColorEntry(name: "Custom \(index + 1)", hex: hex)
-        }
+    static func resolvedPaletteMap(defaults: UserDefaults = .standard) -> [String: String] {
+        effectivePaletteMap(defaults: defaults)
     }
 
-    @discardableResult
     static func addCustomColor(_ hex: String, defaults: UserDefaults = .standard) -> String? {
         guard let normalized = normalizedHex(hex) else { return nil }
-        var colors = customColors(defaults: defaults)
-        colors.removeAll { $0 == normalized }
-        colors.insert(normalized, at: 0)
-        setCustomColors(colors, defaults: defaults)
+        var palette = editablePaletteMap(defaults: defaults)
+        if palette.contains(where: { $0.value == normalized }) {
+            return normalized
+        }
+
+        palette[nextCustomColorName(existingNames: Set(palette.keys))] = normalized
+        persistPaletteMap(palette, defaults: defaults)
         return normalized
     }
 
-    static func removeCustomColor(_ hex: String, defaults: UserDefaults = .standard) {
-        guard let normalized = normalizedHex(hex) else { return }
-        var colors = customColors(defaults: defaults)
-        colors.removeAll { $0 == normalized }
-        setCustomColors(colors, defaults: defaults)
-    }
-
-    static func setCustomColors(_ hexes: [String], defaults: UserDefaults = .standard) {
-        var normalizedColors: [String] = []
-        var seen: Set<String> = []
-        for value in hexes {
-            guard let normalized = normalizedHex(value), seen.insert(normalized).inserted else { continue }
-            normalizedColors.append(normalized)
-            if normalizedColors.count >= maxCustomColors { break }
-        }
-
-        if normalizedColors.isEmpty {
-            defaults.removeObject(forKey: customColorsKey)
-        } else {
-            defaults.set(normalizedColors, forKey: customColorsKey)
-        }
-    }
-
     static func reset(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: defaultOverridesKey)
-        defaults.removeObject(forKey: customColorsKey)
+        defaults.removeObject(forKey: paletteKey)
+        defaults.removeObject(forKey: legacyDefaultOverridesKey)
+        defaults.removeObject(forKey: legacyCustomColorsKey)
     }
 
     static func normalizedHex(_ raw: String) -> String? {
@@ -396,23 +392,95 @@ enum WorkspaceTabColorSettings {
         return baseColor
     }
 
-    private static func defaultOverrideMap(defaults: UserDefaults) -> [String: String] {
-        guard let raw = defaults.dictionary(forKey: defaultOverridesKey) as? [String: String] else { return [:] }
-        let validNames = Set(defaultPalette.map(\.name))
+    private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
+        }
+        if let legacy = legacyPaletteMap(defaults: defaults) {
+            return legacy
+        }
+        return defaultPaletteMap
+    }
+
+    private static func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
+        if let stored = storedPaletteMap(defaults: defaults) {
+            return stored
+        }
+        if let legacy = legacyPaletteMap(defaults: defaults) {
+            return legacy
+        }
+        return defaultPaletteMap
+    }
+
+    private static func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
+        guard let raw = defaults.dictionary(forKey: paletteKey) as? [String: String] else { return nil }
+        return normalizedPaletteMap(raw)
+    }
+
+    private static func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
+        let hasLegacyOverrides = defaults.object(forKey: legacyDefaultOverridesKey) != nil
+        let hasLegacyCustomColors = defaults.object(forKey: legacyCustomColorsKey) != nil
+        guard hasLegacyOverrides || hasLegacyCustomColors else { return nil }
+
+        var palette = defaultPaletteMap
+
+        if let rawOverrides = defaults.dictionary(forKey: legacyDefaultOverridesKey) as? [String: String] {
+            let validNames = Set(defaultPalette.map(\.name))
+            for (name, hex) in rawOverrides {
+                guard validNames.contains(name),
+                      let normalized = normalizedHex(hex) else { continue }
+                palette[name] = normalized
+            }
+        }
+
+        if let rawCustomColors = defaults.array(forKey: legacyCustomColorsKey) as? [String] {
+            var index = 1
+            var seenCustomHexes: Set<String> = []
+            for rawHex in rawCustomColors {
+                guard let normalized = normalizedHex(rawHex),
+                      seenCustomHexes.insert(normalized).inserted else { continue }
+                let name = nextCustomColorName(
+                    existingNames: Set(palette.keys),
+                    startingAt: index
+                )
+                palette[name] = normalized
+                index += 1
+            }
+        }
+
+        return palette
+    }
+
+    private static func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
         var normalized: [String: String] = [:]
-        for (name, hex) in raw {
-            guard validNames.contains(name),
-                  let normalizedHex = normalizedHex(hex) else { continue }
-            normalized[name] = normalizedHex
+        for (rawName, rawHex) in rawPalette {
+            guard let name = normalizedColorName(rawName),
+                  let hex = normalizedHex(rawHex) else { continue }
+            normalized[name] = hex
         }
         return normalized
     }
 
-    private static func saveDefaultOverrideMap(_ map: [String: String], defaults: UserDefaults) {
-        if map.isEmpty {
-            defaults.removeObject(forKey: defaultOverridesKey)
-        } else {
-            defaults.set(map, forKey: defaultOverridesKey)
+    private static var defaultPaletteMap: [String: String] {
+        Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
+    }
+
+    private static func normalizedColorName(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func nextCustomColorName(
+        existingNames: Set<String>,
+        startingAt initialIndex: Int = 1
+    ) -> String {
+        var index = max(1, initialIndex)
+        while true {
+            let candidate = "Custom \(index)"
+            if !existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
+                return candidate
+            }
+            index += 1
         }
     }
 
@@ -789,6 +857,7 @@ class TabManager: ObservableObject {
     )
     private var workspaceGitProbeGenerationByKey: [WorkspaceGitProbeKey: UUID] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
+    private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
 
     // Recent tab history for back/forward navigation (like browser history)
     private var tabHistory: [UUID] = []
@@ -992,16 +1061,38 @@ class TabManager: ObservableObject {
         )
     }
 
+    func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
+        let probeKeys = Set(workspaceGitProbeGenerationByKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
+        return Set(probeKeys.map(\.panelId))
+    }
+
     private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
         in workspace: Workspace,
         activeProbeKeys: Set<WorkspaceGitProbeKey>
     ) -> Set<UUID> {
         var candidatePanelIds = Set(workspace.panelGitBranches.keys)
         candidatePanelIds.formUnion(workspace.panelPullRequests.keys)
+        // Only keep background polling panels whose current directory has already
+        // proven to yield sidebar git metadata. Initial multi-attempt probes handle
+        // startup races; this avoids polling non-repo directories forever.
+        candidatePanelIds.formUnion(
+            workspace.panels.keys.compactMap { panelId in
+                guard let currentDirectory = gitProbeDirectory(for: workspace, panelId: panelId) else {
+                    return nil
+                }
+                let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                guard workspaceGitTrackedDirectoryByKey[probeKey] == currentDirectory else {
+                    return nil
+                }
+                return panelId
+            }
+        )
 
         if candidatePanelIds.isEmpty,
            let focusedPanelId = workspace.focusedPanelId,
-           workspace.gitBranch != nil || workspace.pullRequest != nil {
+           (workspace.gitBranch != nil || workspace.pullRequest != nil),
+           gitProbeDirectory(for: workspace, panelId: focusedPanelId) != nil {
             candidatePanelIds.insert(focusedPanelId)
         }
 
@@ -1032,6 +1123,8 @@ class TabManager: ObservableObject {
                     tab.statusEntries.removeValue(forKey: key)
                     tab.agentPIDs.removeValue(forKey: key)
                 }
+                let remainingAgentPIDs = Set(tab.agentPIDs.values.compactMap { $0 > 0 ? Int($0) : nil })
+                PortScanner.shared.refreshAgentPorts(workspaceId: tab.id, agentPIDs: remainingAgentPIDs)
                 // Also clear stale notifications (e.g. "Doing well, thanks!")
                 // left behind when Claude was killed without SessionEnd firing.
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id)
@@ -1040,9 +1133,29 @@ class TabManager: ObservableObject {
     }
 
     private func gitProbeDirectory(for workspace: Workspace, panelId: UUID) -> String? {
+        // Match the sidebar directory fallback chain so hidden/background panels can
+        // still probe git metadata before OSC 7 has reported a live cwd.
         let rawDirectory = workspace.panelDirectories[panelId]
+            ?? workspace.terminalPanel(for: panelId)?.requestedWorkingDirectory
             ?? (workspace.focusedPanelId == panelId ? workspace.currentDirectory : nil)
         return rawDirectory.flatMap(normalizedWorkingDirectory)
+    }
+
+    func scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String = "initial"
+    ) {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+              !workspace.isRemoteWorkspace else {
+            return
+        }
+        scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason,
+            delays: Self.initialWorkspaceGitProbeDelays
+        )
     }
 
     private func scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -1292,12 +1405,10 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
-            if let explicitWorkingDirectory,
-               let terminalPanel = newWorkspace.focusedTerminalPanel {
-                scheduleInitialWorkspaceGitMetadataRefresh(
+            if let terminalPanel = newWorkspace.focusedTerminalPanel {
+                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
-                    panelId: terminalPanel.id,
-                    directory: explicitWorkingDirectory
+                    panelId: terminalPanel.id
                 )
             }
             if eagerLoadTerminal {
@@ -1394,20 +1505,6 @@ class TabManager: ObservableObject {
         }
     }
 
-    private func scheduleInitialWorkspaceGitMetadataRefresh(
-        workspaceId: UUID,
-        panelId: UUID,
-        directory: String
-    ) {
-        scheduleWorkspaceGitMetadataRefresh(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            directory: directory,
-            delays: Self.initialWorkspaceGitProbeDelays,
-            reason: "initial"
-        )
-    }
-
     private func scheduleWorkspaceGitMetadataRefresh(
         workspaceId: UUID,
         panelId: UUID,
@@ -1472,6 +1569,9 @@ class TabManager: ObservableObject {
         for key in keys {
             clearWorkspaceGitProbe(key)
         }
+        workspaceGitTrackedDirectoryByKey = workspaceGitTrackedDirectoryByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
     }
 
     private func applyWorkspaceGitMetadataSnapshot(
@@ -1515,6 +1615,17 @@ class TabManager: ObservableObject {
         }
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
+
+        let resolvedPullRequest: SidebarPullRequestState? = {
+            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
+            return pullRequest
+        }()
+        let resolvedSidebarMetadata = snapshot.branch != nil || resolvedPullRequest != nil
+        if resolvedSidebarMetadata {
+            workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
+        } else if workspaceGitTrackedDirectoryByKey[probeKey] != expectedDirectory {
+            workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+        }
 
         let nextBranch = snapshot.branch
         if let nextBranch {
@@ -2506,6 +2617,15 @@ class TabManager: ObservableObject {
         setCustomTitle(tabId: tabId, title: nil)
     }
 
+    func setCustomDescription(tabId: UUID, description: String?) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
+        tabs[index].setCustomDescription(description)
+    }
+
+    func clearCustomDescription(tabId: UUID) {
+        setCustomDescription(tabId: tabId, description: nil)
+    }
+
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
@@ -2568,6 +2688,10 @@ class TabManager: ObservableObject {
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
         guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }
         tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: isDirty)
+        if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
+            let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+            workspaceGitTrackedDirectoryByKey[probeKey] = directory
+        }
         scheduleWorkspaceGitMetadataRefreshIfPossible(
             workspaceId: tabId,
             panelId: surfaceId,
@@ -2690,8 +2814,9 @@ class TabManager: ObservableObject {
         UITestRecorder.incrementInt("closePanelInvocations")
 #endif
         guard let selectedId = selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedId }),
-              let focusedPanelId = tab.focusedPanelId else { return }
+              let tab = tabs.first(where: { $0.id == selectedId }) else { return }
+        reconcileFocusedPanelFromFirstResponderForKeyboard()
+        guard let focusedPanelId = shortcutCloseTargetPanelId(in: tab) else { return }
         closePanelWithConfirmation(tab: tab, panelId: focusedPanelId)
     }
 
@@ -3006,6 +3131,28 @@ class TabManager: ObservableObject {
             "panelsAfterCall=\(tab.panels.count)"
         )
 #endif
+    }
+
+    private func shortcutCloseTargetPanelId(in workspace: Workspace) -> UUID? {
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.panels[focusedPanelId] != nil {
+            return focusedPanelId
+        }
+
+        if workspace.panels.count == 1 {
+            return workspace.panels.keys.first
+        }
+
+        let candidatePane = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first
+        if let candidatePane,
+           let selectedTabId = workspace.bonsplitController.selectedTab(inPane: candidatePane)?.id
+                ?? workspace.bonsplitController.tabs(inPane: candidatePane).first?.id,
+           let panelId = workspace.panelIdFromSurfaceId(selectedTabId),
+           workspace.panels[panelId] != nil {
+            return panelId
+        }
+
+        return nil
     }
 
     func closePanelWithConfirmation(tabId: UUID, surfaceId: UUID) {
@@ -5492,6 +5639,7 @@ extension TabManager {
             hasher.combine(workspace.focusedPanelId)
             hasher.combine(workspace.currentDirectory)
             hasher.combine(workspace.customTitle ?? "")
+            hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
             hasher.combine(workspace.panels.count)
@@ -5558,6 +5706,7 @@ extension TabManager {
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
+        workspaceGitTrackedDirectoryByKey.removeAll()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
@@ -5623,13 +5772,9 @@ extension TabManager {
         for workspace in newTabs {
             let terminalPanels = workspace.panels.values.compactMap { $0 as? TerminalPanel }
             for terminalPanel in terminalPanels {
-                guard let directory = gitProbeDirectory(for: workspace, panelId: terminalPanel.id) else {
-                    continue
-                }
-                scheduleInitialWorkspaceGitMetadataRefresh(
+                scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
-                    panelId: terminalPanel.id,
-                    directory: directory
+                    panelId: terminalPanel.id
                 )
             }
         }
@@ -5703,6 +5848,7 @@ extension Notification.Name {
     static let commandPaletteDismissRequested = Notification.Name("cmux.commandPaletteDismissRequested")
     static let commandPaletteRenameTabRequested = Notification.Name("cmux.commandPaletteRenameTabRequested")
     static let commandPaletteRenameWorkspaceRequested = Notification.Name("cmux.commandPaletteRenameWorkspaceRequested")
+    static let commandPaletteEditWorkspaceDescriptionRequested = Notification.Name("cmux.commandPaletteEditWorkspaceDescriptionRequested")
     static let commandPaletteMoveSelection = Notification.Name("cmux.commandPaletteMoveSelection")
     static let commandPaletteRenameInputInteractionRequested = Notification.Name("cmux.commandPaletteRenameInputInteractionRequested")
     static let commandPaletteRenameInputDeleteBackwardRequested = Notification.Name("cmux.commandPaletteRenameInputDeleteBackwardRequested")

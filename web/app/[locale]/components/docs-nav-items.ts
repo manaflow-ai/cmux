@@ -20,6 +20,7 @@ export const navItems: NavEntry[] = [
   { titleKey: "apiReference", href: "/docs/api" },
   { titleKey: "browserAutomation", href: "/docs/browser-automation" },
   { titleKey: "notifications", href: "/docs/notifications" },
+  { titleKey: "ssh", href: "/docs/ssh" },
   {
     sectionKey: "agentIntegrations",
     children: [

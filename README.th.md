@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="แท็บแนวตั้งและแผงแบ่ง" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> สร้างเวิร์กสเปซสำหรับเครื่องรีโมต แผงเบราว์เซอร์จะเชื่อมต่อผ่านเครือข่ายรีโมตเพื่อให้ localhost ใช้งานได้ทันที ลากรูปภาพเข้าสู่เซสชันรีโมตเพื่ออัปโหลดผ่าน scp
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> รันโหมด teammate ของ Claude Code ด้วยคำสั่งเดียว สมาชิกทีมจะปรากฏเป็นแผงแบ่งแบบ native พร้อมข้อมูลเมตาในแถบด้านข้างและการแจ้งเตือน ไม่ต้องใช้ tmux
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **นำเข้าเบราว์เซอร์** — นำเข้าคุกกี้ ประวัติ และเซสชันจาก Chrome, Firefox, Arc และเบราว์เซอร์อื่นกว่า 20 ตัว เพื่อให้แผงเบราว์เซอร์เริ่มต้นพร้อมการยืนยันตัวตน
+- **คำสั่งที่กำหนดเอง** — กำหนดการทำงานเฉพาะโปรเจกต์ใน [`cmux.json`](https://cmux.com/docs/custom-commands) ที่เรียกใช้ได้จากพาเลตคำสั่ง
 - **เขียนสคริปต์ได้** — CLI และ socket API สำหรับสร้างเวิร์กสเปซ แบ่งแผง ส่งการกดแป้นพิมพ์ และควบคุมเบราว์เซอร์อัตโนมัติ
 - **แอป macOS ดั้งเดิม** — สร้างด้วย Swift และ AppKit ไม่ใช่ Electron เริ่มต้นเร็ว ใช้หน่วยความจำน้อย
 - **เข้ากันได้กับ Ghostty** — อ่านการตั้งค่าที่มีอยู่ของคุณจาก `~/.config/ghostty/config` สำหรับธีม ฟอนต์ และสี
