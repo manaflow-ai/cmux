@@ -97,6 +97,12 @@ struct CmuxConfigExecutor {
                 current.setCustomColor(color)
             }
             if let layout = wsDef.layout {
+                // Close all panels except the focused one so applyCustomLayout
+                // starts from a single pane and doesn't stack on existing splits.
+                let keep = current.focusedPanelId
+                for panelId in current.panels.keys where panelId != keep {
+                    current.closePanel(panelId, force: true)
+                }
                 current.applyCustomLayout(layout, baseCwd: resolvedCwd)
             }
             return
