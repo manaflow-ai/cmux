@@ -2901,17 +2901,21 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
+        let batchConfirmed: Bool
         if BatchCloseSettings.isEnabled() {
             guard confirmClose(
                 title: plan.title,
                 message: plan.message,
                 acceptCmdD: plan.acceptCmdD
             ) else { return }
+            batchConfirmed = true
+        } else {
+            batchConfirmed = false
         }
 
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
+            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: !batchConfirmed)
         }
     }
 
