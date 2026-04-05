@@ -343,9 +343,17 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var gitBranch: SessionGitBranchSnapshot?
 }
 
+struct SessionSidebarSectionSnapshot: Codable, Sendable {
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
+    var workspaceIds: [UUID]
+}
+
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var sections: [SessionSidebarSectionSnapshot]?
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

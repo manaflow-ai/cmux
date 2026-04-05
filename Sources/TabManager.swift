@@ -758,6 +758,7 @@ class TabManager: ObservableObject {
     weak var window: NSWindow?
 
     @Published var tabs: [Workspace] = []
+    @Published var sections: [SidebarSection] = []
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2674,6 +2675,82 @@ class TabManager: ObservableObject {
         return max(clamped, pinnedCount)
     }
 
+    // MARK: - Sidebar Sections
+
+    @discardableResult
+    func createSection(name: String) -> SidebarSection {
+        let section = SidebarSection(name: name)
+        sections.append(section)
+        return section
+    }
+
+    func renameSection(sectionId: UUID, name: String) {
+        guard let section = sections.first(where: { $0.id == sectionId }) else { return }
+        section.name = name
+    }
+
+    func deleteSection(sectionId: UUID) {
+        sections.removeAll { $0.id == sectionId }
+    }
+
+    func reorderSection(sectionId: UUID, toIndex targetIndex: Int) {
+        guard let currentIndex = sections.firstIndex(where: { $0.id == sectionId }) else { return }
+        let clamped = max(0, min(targetIndex, sections.count - 1))
+        guard currentIndex != clamped else { return }
+        let section = sections.remove(at: currentIndex)
+        sections.insert(section, at: clamped)
+    }
+
+    func moveWorkspaceToSection(tabId: UUID, sectionId: UUID, atIndex: Int? = nil) {
+        // Remove from any existing section first
+        for section in sections {
+            section.removeWorkspace(tabId)
+        }
+        guard let section = sections.first(where: { $0.id == sectionId }) else { return }
+        section.addWorkspace(tabId, at: atIndex)
+    }
+
+    func removeWorkspaceFromSection(tabId: UUID) {
+        for section in sections {
+            section.removeWorkspace(tabId)
+        }
+    }
+
+    func sectionForWorkspace(_ tabId: UUID) -> SidebarSection? {
+        sections.first { $0.contains(tabId) }
+    }
+
+    var sidebarLayout: SidebarLayout {
+        let tabById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let pinnedWorkspaces = tabs.filter { $0.isPinned }
+
+        // Workspace IDs that are in some section (and not pinned)
+        var sectionedIds = Set<UUID>()
+        let sectionGroups: [SidebarLayout.SectionGroup] = sections.map { section in
+            let workspaces = section.workspaceIds.compactMap { id -> Workspace? in
+                guard let ws = tabById[id], !ws.isPinned else { return nil }
+                return ws
+            }
+            for ws in workspaces {
+                sectionedIds.insert(ws.id)
+            }
+            return SidebarLayout.SectionGroup(section: section, workspaces: workspaces)
+        }
+
+        let ungroupedWorkspaces = tabs.filter { !$0.isPinned && !sectionedIds.contains($0.id) }
+        return SidebarLayout(
+            pinnedWorkspaces: pinnedWorkspaces,
+            ungroupedWorkspaces: ungroupedWorkspaces,
+            sectionGroups: sectionGroups
+        )
+    }
+
+    private func cleanupSectionsForRemovedWorkspace(_ workspaceId: UUID) {
+        for section in sections {
+            section.removeWorkspace(workspaceId)
+        }
+    }
+
     // MARK: - Surface Directory Updates (Backwards Compatibility)
 
     func updateSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String) {
@@ -2752,6 +2829,7 @@ class TabManager: ObservableObject {
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
         sidebarSelectedWorkspaceIds.remove(workspace.id)
+        cleanupSectionsForRemovedWorkspace(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
@@ -2779,6 +2857,7 @@ class TabManager: ObservableObject {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarSelectedWorkspaceIds.remove(tabId)
+        cleanupSectionsForRemovedWorkspace(tabId)
 
         let removed = tabs.remove(at: index)
         unwireClosedBrowserTracking(for: removed)
@@ -5741,9 +5820,19 @@ extension TabManager {
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
+        let restorableTabIds = Set(restorableTabs.map(\.id))
+        let sectionSnapshots: [SessionSidebarSectionSnapshot] = sections.map { section in
+            SessionSidebarSectionSnapshot(
+                id: section.id,
+                name: section.name,
+                isCollapsed: section.isCollapsed,
+                workspaceIds: section.workspaceIds.filter { restorableTabIds.contains($0) }
+            )
+        }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            sections: sectionSnapshots.isEmpty ? nil : sectionSnapshots
         )
     }
 
@@ -5820,9 +5909,21 @@ extension TabManager {
             newSelectedId = newTabs.first?.id
         }
 
+        // Restore sidebar sections, filtering out workspace IDs that weren't restored.
+        let restoredTabIds = Set(newTabs.map(\.id))
+        let restoredSections: [SidebarSection] = (snapshot.sections ?? []).map { sectionSnapshot in
+            SidebarSection(
+                id: sectionSnapshot.id,
+                name: sectionSnapshot.name,
+                isCollapsed: sectionSnapshot.isCollapsed,
+                workspaceIds: sectionSnapshot.workspaceIds.filter { restoredTabIds.contains($0) }
+            )
+        }
+
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        sections = restoredSections
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
