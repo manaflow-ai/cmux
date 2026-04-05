@@ -3919,8 +3919,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.command
         }()
-        // Prefer explicit initialInput (for session restore), then config template's initial input
-        // Both paths validate: no embedded newlines (command injection prevention)
+        // Prefer explicit initialInput (for session restore), then config template's initial input.
+        // - Explicit initialInput: appends "\n" to execute the command (validated at constructor)
+        // - baseConfig.initialInput: preserved verbatim (Ghostty's native bytes-as-is semantics)
         let resolvedInitialInput: String? = {
             if let initialInput, !initialInput.isEmpty {
                 // Append newline to execute the command

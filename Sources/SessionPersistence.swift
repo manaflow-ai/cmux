@@ -741,10 +741,7 @@ enum SessionRestoreCommandSettings {
     /// - Commands matching the hardcoded denylist are NEVER allowed.
     /// - Returns false immediately if sessionRestoreCommandsEnabled is disabled.
     static func isCommandAllowed(_ command: String, defaults: UserDefaults = .standard) -> Bool {
-        // Check if restore is enabled first (defaults to true if not set)
-        guard defaults.object(forKey: enabledKey) == nil || defaults.bool(forKey: enabledKey) else {
-            return false
-        }
+        guard isEnabled(defaults: defaults) else { return false }
         return isCommandAllowed(command, rawAllowlist: defaults.string(forKey: allowlistKey))
     }
 

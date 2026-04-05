@@ -765,10 +765,8 @@ extension Workspace {
         }
 
         // Skip restoring listeningPorts for remote-backed terminals (remote ports are transient)
-        let isRemoteBackedTerminal =
-            activeRemoteTerminalSurfaceIds.contains(panelId) ||
-            transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
-            remoteTerminalStartupCommand() != nil
+        // Use per-panel isRemoteBacked from snapshot to correctly handle local terminals in remote workspaces
+        let isRemoteBackedTerminal = snapshot.terminal?.isRemoteBacked ?? false
         surfaceListeningPorts[panelId] = isRemoteBackedTerminal
             ? []
             : Array(Set(snapshot.listeningPorts)).sorted()
