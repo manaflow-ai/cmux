@@ -594,6 +594,32 @@ enum SessionRestoreCommandSettings {
         "iptables", "pfctl", "networksetup",
         // Dangerous archivers (can overwrite system files as root)
         "tar",
+        // Kernel module manipulation
+        "modprobe", "insmod", "rmmod", "modinfo",
+        // User/group manipulation
+        "useradd", "userdel", "usermod", "groupadd", "groupdel", "groupmod",
+        "chpasswd", "passwd",
+        // Additional archiver with dangerous options
+        "rsync",
+        // Command execution helpers
+        "xargs", "find",
+        // Netcat - reverse shell vector
+        "nc", "ncat", "netcat",
+        // Package managers (install-only, no run/script capability)
+        // These modify system state and have no legitimate auto-restore use case.
+        // Note: npm/yarn/pnpm/bun are NOT here because they have `run`/`dev` scripts.
+        "apt", "apt-get", "dpkg", "aptitude",
+        "yum", "dnf", "rpm",
+        "brew", "port",
+        "pacman", "yay", "paru", "makepkg",
+        "zypper",
+        "apk",
+        "snap", "flatpak",
+        "pip", "pip3", "pipx",
+        "gem",
+        "cpan", "cpanm",
+        // go install is dangerous (downloads and installs binaries), go run is in allowlist
+        // Note: "go" itself is not blocked because "go run" is legitimate
     ]
 
     /// Substrings that block a command if found anywhere.
@@ -681,6 +707,29 @@ enum SessionRestoreCommandSettings {
         "brew uninstall --force",
         "brew remove --force",
         "brew unlink --force",
+        // SysRq magic key - instant reboot/crash
+        "/proc/sysrq-trigger",
+        "echo b > /proc/sysrq",
+        "echo o > /proc/sysrq",
+        "echo c > /proc/sysrq",
+        // Shell exec redirect - silences shell
+        "exec >",
+        "exec 2>",
+        "exec &>",
+        // Additional disk device targets
+        "of=/dev/hd", "of=/dev/vd", "of=/dev/xvd",
+        "> /dev/hd", "> /dev/vd",
+
+        // Additional fork bomb variants
+        ".() { .|.& };.",
+        "bomb() { bomb | bomb & }; bomb",
+        // Infinite loops that fill disk
+        "while true; do",
+        "for (( ; ; )); do",
+        "while :; do",
+        // LD_PRELOAD injection
+        "LD_PRELOAD=",
+        "LD_LIBRARY_PATH=",
     ]
 
     /// Check if a command matches the allowlist.
@@ -733,7 +782,15 @@ enum SessionRestoreCommandSettings {
 
         // Check substring matches (credentials, destructive patterns, sensitive files)
         for substring in denylistContains {
-            if lowercased.contains(substring.lowercased()) {
+            // Special handling for control characters: Swift treats CRLF (\r\n) as a single
+            // grapheme cluster, so `str.contains("\r")` returns false for a CRLF string.
+            // Check at the Unicode scalar level for single control characters.
+            if substring.count == 1, let scalar = substring.unicodeScalars.first,
+               scalar == "\r" || scalar == "\n" {
+                if lowercased.unicodeScalars.contains(scalar) {
+                    return true
+                }
+            } else if lowercased.contains(substring.lowercased()) {
                 return true
             }
         }
@@ -752,9 +809,9 @@ enum SessionRestoreCommandSettings {
     /// This catches both direct invocations and shell-chained commands.
     private static func containsDangerousExecutable(_ lowercasedCommand: String) -> Bool {
         // Characters that can precede an executable name
-        let boundaryChars: Set<Character> = [" ", "/", "|", ";", "&", "`", "("]
+        let boundaryChars: Set<Character> = [" ", "\t", "\n", "\r", "/", "|", ";", "&", "`", "("]
         // Characters that can follow an executable name (word boundary)
-        let trailingBoundaryChars: Set<Character> = [" ", "\t", ";", "|", "&", ")", "\n", "\"", "'"]
+        let trailingBoundaryChars: Set<Character> = [" ", "\t", ";", "|", "&", ")", "\n", "\"", "'", "`", "$"]
 
         func hasValidTrailingBoundary(_ index: String.Index) -> Bool {
             index == lowercasedCommand.endIndex || trailingBoundaryChars.contains(lowercasedCommand[index])
