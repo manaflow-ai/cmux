@@ -285,6 +285,7 @@ final class CmuxConfigStore: ObservableObject {
     }()
 
     private weak var trackedTabManager: TabManager?
+    private var autoAppliedWorkspaceIds = Set<UUID>()
     private var cancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -414,12 +415,14 @@ final class CmuxConfigStore: ObservableObject {
         checkAutoApply()
     }
 
-    /// If the selected workspace has no splits and a loaded command has
-    /// `autoApply: true` with `target: "current"`, execute it automatically.
+    /// If the selected workspace hasn't been auto-applied this session and a
+    /// loaded command has `autoApply: true` with `target: "current"`, execute
+    /// it automatically. Tracks applied workspaces so it only fires once per
+    /// workspace per app session.
     private func checkAutoApply() {
         guard let tabManager = trackedTabManager,
               let workspace = tabManager.selectedWorkspace,
-              workspace.bonsplitController.allPaneIds.count <= 1,
+              !autoAppliedWorkspaceIds.contains(workspace.id),
               let baseCwd = localConfigPath.map({ ($0 as NSString).deletingLastPathComponent })
         else { return }
 
@@ -427,6 +430,7 @@ final class CmuxConfigStore: ObservableObject {
             $0.autoApply == true && $0.workspace?.target == .current
         }) else { return }
 
+        autoAppliedWorkspaceIds.insert(workspace.id)
         CmuxConfigExecutor.execute(
             command: command,
             tabManager: tabManager,
