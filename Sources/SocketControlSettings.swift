@@ -63,6 +63,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
 enum SocketControlPasswordStore {
     static let directoryName = "cmux"
     static let fileName = "socket-control-password"
+    static let didChangeNotification = Notification.Name("cmux.socketControlPasswordDidChange")
     private static let keychainMigrationDefaultsKey = "socketControlPasswordMigrationVersion"
     private static let keychainMigrationVersion = 1
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
@@ -196,6 +197,7 @@ enum SocketControlPasswordStore {
         let data = Data(normalized.utf8)
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func clearPassword(fileURL: URL? = nil) throws {
@@ -206,6 +208,7 @@ enum SocketControlPasswordStore {
             return
         }
         try FileManager.default.removeItem(at: fileURL)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func resetLazyKeychainFallbackCacheForTests() {

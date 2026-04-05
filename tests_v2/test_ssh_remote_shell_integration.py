@@ -6,6 +6,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import pty
 import re
 import secrets
 import shutil
@@ -22,6 +23,9 @@ from cmux import cmux, cmuxError
 SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
 DOCKER_SSH_HOST = os.environ.get("CMUX_SSH_TEST_DOCKER_HOST", "127.0.0.1")
 DOCKER_PUBLISH_ADDR = os.environ.get("CMUX_SSH_TEST_DOCKER_BIND_ADDR", "127.0.0.1")
+FIXTURE_REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_FIXTURE_HTTP_PORT", "43173"))
+FIXTURE_REMOTE_WS_PORT = int(os.environ.get("CMUX_SSH_TEST_FIXTURE_WS_PORT", "43174"))
+REMOTE_HTTP_PORT = int(os.environ.get("CMUX_SSH_TEST_REMOTE_HTTP_PORT", "8000"))
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 OSC_ESCAPE_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 
@@ -231,6 +235,145 @@ def _surface_text_scrollback_lines(client: cmux, workspace_id: str, surface_id: 
     return [_clean_line(raw) for raw in _surface_text_scrollback(client, workspace_id, surface_id).splitlines()]
 
 
+def _surface_row(client: cmux, workspace_id: str, surface_id: str) -> dict:
+    payload = client._call("surface.list", {"workspace_id": workspace_id}) or {}
+    for row in payload.get("surfaces") or []:
+        if str(row.get("id") or "") == surface_id:
+            return row
+    raise cmuxError(f"surface.list missing surface {surface_id!r}: {payload}")
+
+
+def _debug_terminal_row(client: cmux, workspace_id: str, surface_id: str) -> dict:
+    payload = client._call("debug.terminals", {}) or {}
+    for row in payload.get("terminals") or []:
+        if str(row.get("workspace_id") or "") == workspace_id and str(row.get("surface_id") or "") == surface_id:
+            return row
+    raise cmuxError(
+        f"debug.terminals missing workspace={workspace_id!r} surface={surface_id!r}: {payload}"
+    )
+
+
+def _workspace_row(client: cmux, workspace_id: str) -> dict:
+    payload = client._call("workspace.list", {}) or {}
+    for row in payload.get("workspaces") or []:
+        if str(row.get("id") or "") == workspace_id:
+            return row
+    raise cmuxError(f"workspace.list missing workspace {workspace_id!r}: {payload}")
+
+
+def _wait_surface_tty(client: cmux, workspace_id: str, surface_id: str, timeout: float = 20.0) -> str:
+    deadline = time.time() + timeout
+    last_row = {}
+    while time.time() < deadline:
+        last_row = _debug_terminal_row(client, workspace_id, surface_id)
+        tty_name = str(last_row.get("tty") or "").strip()
+        if tty_name:
+            return tty_name
+        time.sleep(0.2)
+    raise cmuxError(f"Timed out waiting for surface tty: {last_row}")
+
+
+def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface_id: str) -> tuple[subprocess.Popen[bytes], int]:
+    _must(bool(startup_command.strip()), "cmux ssh output missing ssh_terminal_startup_command for PTY fallback")
+    env = dict(os.environ)
+    env.pop("CMUX_SOCKET_PATH", None)
+    env["CMUX_WORKSPACE_ID"] = workspace_id
+    env["CMUX_SURFACE_ID"] = surface_id
+    env["CMUX_TAB_ID"] = workspace_id
+    env["CMUX_PANEL_ID"] = surface_id
+
+    master_fd, slave_fd = pty.openpty()
+    proc = subprocess.Popen(
+        ["/bin/sh", "-lc", startup_command],
+        stdin=slave_fd,
+        stdout=slave_fd,
+        stderr=slave_fd,
+        env=env,
+        start_new_session=True,
+    )
+    os.close(slave_fd)
+    return proc, master_fd
+
+
+def _wait_for_remote_port(
+    client: cmux,
+    workspace_id: str,
+    port: int,
+    *,
+    forbidden_ports: set[int] | None = None,
+    timeout: float = 20.0,
+) -> tuple[dict, dict]:
+    deadline = time.time() + timeout
+    last_status = {}
+    last_row = {}
+    forbidden_ports = forbidden_ports or set()
+
+    while time.time() < deadline:
+        last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+        remote = last_status.get("remote") or {}
+        detected_ports = {
+            int(value)
+            for value in (remote.get("detected_ports") or [])
+            if str(value).isdigit()
+        }
+
+        last_row = _workspace_row(client, workspace_id)
+        listening_ports = {
+            int(value)
+            for value in (last_row.get("listening_ports") or [])
+            if str(value).isdigit()
+        }
+
+        if port in detected_ports and port in listening_ports:
+            leaked = forbidden_ports.intersection(detected_ports.union(listening_ports))
+            if not leaked:
+                return last_status, last_row
+        time.sleep(0.3)
+
+    raise cmuxError(
+        "Timed out waiting for remote shell-integration port detection: "
+        f"status={last_status} workspace={last_row}"
+    )
+
+
+def _assert_remote_ports_absent(
+    client: cmux,
+    workspace_id: str,
+    forbidden_ports: set[int],
+    *,
+    timeout: float = 3.0,
+) -> tuple[dict, dict]:
+    deadline = time.time() + timeout
+    last_status = {}
+    last_row = {}
+
+    while time.time() < deadline:
+        last_status = client._call("workspace.remote.status", {"workspace_id": workspace_id}) or {}
+        remote = last_status.get("remote") or {}
+        detected_ports = {
+            int(value)
+            for value in (remote.get("detected_ports") or [])
+            if str(value).isdigit()
+        }
+
+        last_row = _workspace_row(client, workspace_id)
+        listening_ports = {
+            int(value)
+            for value in (last_row.get("listening_ports") or [])
+            if str(value).isdigit()
+        }
+
+        leaked = forbidden_ports.intersection(detected_ports.union(listening_ports))
+        _must(
+            not leaked,
+            "remote workspace leaked unrelated host ports before shell-specific detection: "
+            f"ports={sorted(leaked)} status={last_status} workspace={last_row}",
+        )
+        time.sleep(0.2)
+
+    return last_status, last_row
+
+
 def _scrollback_has_all_lines(
     client: cmux,
     workspace_id: str,
@@ -323,6 +466,24 @@ def _pick_resize_direction_for_pane(client: cmux, pane_ids: list[str], target_pa
     return ("down" if target_pane == top_id else "up"), "height"
 
 
+def _wait_readable_terminal_text(client: cmux, surface_id: str, timeout: float = 20.0) -> str:
+    deadline = time.time() + timeout
+    saw_missing_surface = False
+    while time.time() < deadline:
+        try:
+            return client.read_terminal_text(surface_id)
+        except cmuxError as exc:
+            if _is_terminal_surface_not_found(exc):
+                saw_missing_surface = True
+                time.sleep(0.2)
+                continue
+            raise
+
+    if saw_missing_surface:
+        raise cmuxError("terminal surface not found")
+    raise cmuxError(f"Timed out waiting for readable terminal surface: {surface_id}")
+
+
 def main() -> int:
     if not _docker_available():
         print("SKIP: docker is not available")
@@ -340,6 +501,9 @@ def main() -> int:
     image_tag = f"cmux-ssh-test:{secrets.token_hex(4)}"
     container_name = f"cmux-ssh-shell-{secrets.token_hex(4)}"
     workspace_id = ""
+    surface_id = ""
+    pty_proc: subprocess.Popen[bytes] | None = None
+    pty_master_fd: int | None = None
 
     try:
         key_path = temp_dir / "id_ed25519"
@@ -404,8 +568,29 @@ def main() -> int:
 
             surfaces = client.list_surfaces(workspace_id)
             _must(bool(surfaces), f"workspace should have at least one surface: {workspace_id}")
-            surface_id = surfaces[0][1]
-            terminal_text = client.read_terminal_text(surface_id)
+            surface_id = str(surfaces[0][1])
+            startup_command = str(payload.get("ssh_terminal_startup_command") or "")
+            _assert_remote_ports_absent(
+                client,
+                workspace_id,
+                {FIXTURE_REMOTE_HTTP_PORT, FIXTURE_REMOTE_WS_PORT},
+                timeout=3.0,
+            )
+            try:
+                terminal_text = _wait_readable_terminal_text(client, surface_id, timeout=5.0)
+            except cmuxError as exc:
+                if not _is_terminal_surface_not_found(exc):
+                    raise
+                print("WARN: readable terminal surface unavailable; falling back to generated ssh startup command PTY")
+                pty_proc, pty_master_fd = _launch_startup_command_pty(startup_command, workspace_id, surface_id)
+                _wait_surface_tty(client, workspace_id, surface_id, timeout=20.0)
+                try:
+                    terminal_text = _wait_readable_terminal_text(client, surface_id, timeout=10.0)
+                except cmuxError as retry_exc:
+                    if _is_terminal_surface_not_found(retry_exc):
+                        print("SKIP: terminal surface unavailable for shell integration assertions")
+                        return 0
+                    raise
             _must(
                 "Reconstructed via infocmp" not in terminal_text,
                 "ssh-terminfo bootstrap should not leak raw infocmp output into the interactive shell",
@@ -449,6 +634,36 @@ def main() -> int:
 
             term_program_version = _read_probe_payload(client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-}\"")
             _must(bool(term_program_version), "ssh-env should propagate non-empty TERM_PROGRAM_VERSION")
+
+            tty_retry_token = f"CMUX_TTY_RETRY_{secrets.token_hex(6)}"
+            client.send_surface(surface_id, f"echo {tty_retry_token}\n")
+            _wait_surface_contains(client, workspace_id, surface_id, tty_retry_token)
+
+            tty_name = _wait_surface_tty(client, workspace_id, surface_id)
+            _must(bool(tty_name), "remote surface should report a tty once shell integration is active")
+
+            port_token = f"CMUX_REMOTE_HTTP_{secrets.token_hex(6)}"
+            client.send_surface(
+                surface_id,
+                f"python3 -m http.server {REMOTE_HTTP_PORT} >/tmp/cmux-http-{port_token}.log 2>&1 & echo {port_token}\n",
+            )
+            _wait_surface_contains(client, workspace_id, surface_id, port_token)
+            port_status, port_workspace_row = _wait_for_remote_port(
+                client,
+                workspace_id,
+                REMOTE_HTTP_PORT,
+                forbidden_ports={FIXTURE_REMOTE_HTTP_PORT, FIXTURE_REMOTE_WS_PORT},
+                timeout=25.0,
+            )
+            detected_ports = set((port_status.get("remote") or {}).get("detected_ports") or [])
+            listening_ports = set(port_workspace_row.get("listening_ports") or [])
+            _must(
+                FIXTURE_REMOTE_HTTP_PORT not in detected_ports
+                and FIXTURE_REMOTE_HTTP_PORT not in listening_ports
+                and FIXTURE_REMOTE_WS_PORT not in detected_ports
+                and FIXTURE_REMOTE_WS_PORT not in listening_ports,
+                "workspace should surface only the foreground shell port, not unrelated remote fixture daemons",
+            )
 
             ls_stamp = secrets.token_hex(4)
             ls_entries = [f"CMUX_RESIZE_LS_{ls_stamp}_{index:02d}" for index in range(1, 17)]
@@ -561,6 +776,18 @@ def main() -> int:
         return 0
 
     finally:
+        if pty_master_fd is not None:
+            try:
+                os.close(pty_master_fd)
+            except OSError:
+                pass
+        if pty_proc is not None and pty_proc.poll() is None:
+            pty_proc.terminate()
+            try:
+                pty_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                pty_proc.kill()
+
         if workspace_id:
             try:
                 with cmux(SOCKET_PATH) as cleanup_client:

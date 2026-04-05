@@ -3,12 +3,53 @@
 import { useEffect, useState } from "react";
 import posthog from "posthog-js";
 
+const STARS_CACHE_TTL_MS = 300_000;
+let cachedStars: number | null = null;
+let cachedStarsFetchedAt = 0;
+let pendingStarsRequest: Promise<number | null> | null = null;
+let hasAnimatedPrimaryStarsBadge = false;
+
 function formatStars(count: number): string {
   if (count >= 1000) {
-    const k = count / 1000;
-    return k % 1 === 0 ? `${k}k` : `${k.toFixed(1)}k`;
+    const k = Number((count / 1000).toFixed(1));
+    return `${k}k`;
   }
   return String(count);
+}
+
+function hasFreshStarsCache() {
+  return (
+    cachedStars !== null &&
+    Date.now() - cachedStarsFetchedAt < STARS_CACHE_TTL_MS
+  );
+}
+
+function loadGitHubStars(): Promise<number | null> {
+  if (hasFreshStarsCache()) {
+    return Promise.resolve(cachedStars);
+  }
+
+  if (pendingStarsRequest) {
+    return pendingStarsRequest;
+  }
+
+  pendingStarsRequest = fetch("/api/github-stars")
+    .then((response) => response.json())
+    .then((data) => {
+      if (data.stars != null) {
+        cachedStars = data.stars;
+        cachedStarsFetchedAt = Date.now();
+        return data.stars;
+      }
+
+      return cachedStars;
+    })
+    .catch(() => cachedStars)
+    .finally(() => {
+      pendingStarsRequest = null;
+    });
+
+  return pendingStarsRequest;
 }
 
 const GITHUB_ICON = (
@@ -30,15 +71,30 @@ export function GitHubStarsBadge({
   location?: string;
   className?: string;
 } = {}) {
-  const [stars, setStars] = useState<number | null>(null);
+  const [stars, setStars] = useState<number | null>(() => cachedStars);
+  const [shouldAnimate] = useState(
+    () => location === "stars_badge" && !hasAnimatedPrimaryStarsBadge
+  );
+  const classes = `inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors ${shouldAnimate ? "animate-fade-in" : ""} ${className ?? ""}`;
 
   useEffect(() => {
-    fetch("/api/github-stars")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.stars != null) setStars(d.stars);
-      })
-      .catch(() => {});
+    if (shouldAnimate) {
+      hasAnimatedPrimaryStarsBadge = true;
+    }
+  }, [shouldAnimate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadGitHubStars().then((nextStars) => {
+      if (!cancelled && nextStars != null) {
+        setStars(nextStars);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (stars === null) return null;
@@ -51,7 +107,7 @@ export function GitHubStarsBadge({
       onClick={() =>
         posthog.capture("cmuxterm_github_clicked", { location })
       }
-      className={className ?? "inline-flex items-center gap-1.5 pr-1 text-sm text-muted hover:text-foreground transition-colors animate-fade-in"}
+      className={classes}
     >
       {GITHUB_ICON}
       <span className="text-xs tabular-nums">{formatStars(stars)}</span>

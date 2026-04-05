@@ -116,6 +116,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         XCTAssertTrue(triggerFlash.insideSuppressed)
         XCTAssertFalse(triggerFlash.insideAllowsFocus)
+
+        let simulateShortcut = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "simulate_shortcut",
+            isV2: false
+        )
+        XCTAssertTrue(simulateShortcut.insideSuppressed)
+        XCTAssertFalse(simulateShortcut.insideAllowsFocus)
+
+        let settingsOpen = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "settings.open",
+            isV2: true
+        )
+        XCTAssertTrue(settingsOpen.insideSuppressed)
+        XCTAssertFalse(settingsOpen.insideAllowsFocus)
+
+        let feedbackOpen = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "feedback.open",
+            isV2: true
+        )
+        XCTAssertTrue(feedbackOpen.insideSuppressed)
+        XCTAssertFalse(feedbackOpen.insideAllowsFocus)
+
+        let debugType = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "debug.type",
+            isV2: true
+        )
+        XCTAssertTrue(debugType.insideSuppressed)
+        XCTAssertFalse(debugType.insideAllowsFocus)
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif
@@ -214,6 +242,107 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(result["surface_id"] as? String, targetPanel.id.uuidString)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: targetPanel.id))
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: focusedPanelId))
+    }
+
+    func testSurfaceRelayRPCsReturnResolvedFocusedSurfaceWhenSurfaceIDOmitted() async throws {
+        let socketPath = makeSocketPath("relay-fallback")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        guard let focusedPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with a focused panel")
+            return
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let reportTTYResponse = try await sendV2RequestAsync(
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "tty_name": "ttys999"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        let reportTTYResult = try XCTUnwrap(reportTTYResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        XCTAssertEqual(reportTTYResult["surface_id"] as? String, focusedPanelId.uuidString)
+        XCTAssertEqual(workspace.surfaceTTYNames[focusedPanelId], "ttys999")
+
+        let portsKickResponse = try await sendV2RequestAsync(
+            method: "surface.ports_kick",
+            params: ["workspace_id": workspace.id.uuidString],
+            to: socketPath
+        )
+
+        XCTAssertEqual(portsKickResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(portsKickResponse)")
+        let portsKickResult = try XCTUnwrap(portsKickResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(portsKickResponse)")
+        XCTAssertEqual(portsKickResult["surface_id"] as? String, focusedPanelId.uuidString)
+    }
+
+    func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
+        let socketPath = makeSocketPath("relay-invalid")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        let unknownSurfaceId = UUID()
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let reportTTYResponse = try await sendV2RequestAsync(
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": unknownSurfaceId.uuidString,
+                "tty_name": "ttys999"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(reportTTYResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        let reportTTYError = try XCTUnwrap(reportTTYResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
+        XCTAssertEqual(reportTTYError["code"] as? String, "not_found")
+        let reportTTYData = try XCTUnwrap(reportTTYError["data"] as? [String: Any], "Expected error data payload")
+        XCTAssertEqual(reportTTYData["surface_id"] as? String, unknownSurfaceId.uuidString)
+        XCTAssertTrue(workspace.surfaceTTYNames.isEmpty)
+
+        let portsKickResponse = try await sendV2RequestAsync(
+            method: "surface.ports_kick",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": unknownSurfaceId.uuidString
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(portsKickResponse["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(portsKickResponse)")
+        let portsKickError = try XCTUnwrap(portsKickResponse["error"] as? [String: Any], "Unexpected JSON-RPC response: \(portsKickResponse)")
+        XCTAssertEqual(portsKickError["code"] as? String, "not_found")
+        let portsKickData = try XCTUnwrap(portsKickError["data"] as? [String: Any], "Expected error data payload")
+        XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
@@ -346,6 +475,27 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
             "Expected JSON-RPC response object"
         )
+    }
+
+    private func sendV2RequestAsync(
+        method: String,
+        params: [String: Any],
+        to socketPath: String
+    ) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let response = try self.sendV2Request(
+                        method: method,
+                        params: params,
+                        to: socketPath
+                    )
+                    continuation.resume(returning: response)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     private nonisolated func connect(to socketPath: String) throws -> Int32 {

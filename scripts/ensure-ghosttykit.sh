@@ -23,18 +23,16 @@ hash_file() {
   fi
 }
 
-extract_surface_config_api_block() {
+validate_bridge_header() {
   local path="$1"
   python3 - "$path" <<'PY'
 from pathlib import Path
 import sys
 
 text = Path(sys.argv[1]).read_text()
-start = text.find("typedef enum {\n  GHOSTTY_SURFACE_IO_EXEC = 0,")
-if start == -1:
-    start = text.index("typedef struct {\n  ghostty_platform_e platform_tag;")
-end = text.index("} ghostty_surface_config_s;") + len("} ghostty_surface_config_s;")
-print(text[start:end], end="")
+required = '#include "ghostty/include/ghostty.h"'
+if required not in text:
+    raise SystemExit(1)
 PY
 }
 
@@ -49,11 +47,14 @@ if ! command -v zig >/dev/null 2>&1; then
   exit 1
 fi
 
-ROOT_SURFACE_CONFIG="$(extract_surface_config_api_block "$PROJECT_DIR/ghostty.h")"
-SUBMODULE_SURFACE_CONFIG="$(extract_surface_config_api_block "$PROJECT_DIR/ghostty/include/ghostty.h")"
-if [[ "$ROOT_SURFACE_CONFIG" != "$SUBMODULE_SURFACE_CONFIG" ]]; then
-  echo "error: ghostty_surface_config_s is out of sync between ghostty.h and ghostty/include/ghostty.h." >&2
-  echo "Update the ghostty submodule SHA or sync the checked-in header before building." >&2
+if [[ ! -f "$PROJECT_DIR/ghostty/include/ghostty.h" ]]; then
+  echo "error: ghostty/include/ghostty.h is missing. Run ./scripts/setup.sh first." >&2
+  exit 1
+fi
+
+if ! validate_bridge_header "$PROJECT_DIR/ghostty.h"; then
+  echo "error: ghostty.h no longer points at ghostty/include/ghostty.h." >&2
+  echo "Restore the bridge header so Xcode uses Ghostty's canonical C API." >&2
   exit 1
 fi
 

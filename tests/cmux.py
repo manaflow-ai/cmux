@@ -752,6 +752,24 @@ class cmux:
         if not response.startswith("OK"):
             raise cmuxError(response)
 
+    def set_agent_pid(self, key: str, pid: int, tab: str = None) -> None:
+        """Register an agent PID for workspace-scoped ownership tracking."""
+        cmd = f"set_agent_pid {key} {pid}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
+    def clear_agent_pid(self, key: str, tab: str = None) -> None:
+        """Clear a previously registered agent PID."""
+        cmd = f"clear_agent_pid {key}"
+        if tab:
+            cmd += f" --tab={tab}"
+        response = self._send_command(cmd)
+        if not response.startswith("OK"):
+            raise cmuxError(response)
+
     def report_tty(self, tty_name: str, tab: str = None, panel: str = None) -> None:
         """Register a TTY for batched port scanning."""
         cmd = f"report_tty {tty_name}"

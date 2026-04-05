@@ -1,1 +1,1 @@
-#import "ghostty.h"
+@import GhosttyKit;

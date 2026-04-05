@@ -6,17 +6,38 @@ import QuartzCore
 import Combine
 import CoreText
 import Darwin
+import Carbon.HIToolbox
 import Sentry
 import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
 
+@_silgen_name("ghostty_surface_clear_selection")
+private func ghostty_surface_clear_selection_compat(_ surface: ghostty_surface_t) -> Bool
+
+@_silgen_name("ghostty_surface_select_cursor_cell")
+private func ghostty_surface_select_cursor_cell_compat(_ surface: ghostty_surface_t) -> Bool
+
 #if os(macOS)
+func cmuxShouldApplyWindowGlass(
+    sidebarBlendMode: String,
+    bgGlassEnabled: Bool,
+    glassEffectAvailable _: Bool
+) -> Bool {
+    // Native NSGlassEffectView vs NSVisualEffectView fallback is chosen inside
+    // WindowGlassEffect.apply. User settings alone decide whether glass is on.
+    sidebarBlendMode == "behindWindow" && bgGlassEnabled
+}
+
 func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     let defaults = UserDefaults.standard
     let sidebarBlendMode = defaults.string(forKey: "sidebarBlendMode") ?? "withinWindow"
     let bgGlassEnabled = defaults.object(forKey: "bgGlassEnabled") as? Bool ?? false
-    return sidebarBlendMode == "behindWindow" && bgGlassEnabled && !WindowGlassEffect.isAvailable
+    return cmuxShouldApplyWindowGlass(
+        sidebarBlendMode: sidebarBlendMode,
+        bgGlassEnabled: bgGlassEnabled,
+        glassEffectAvailable: WindowGlassEffect.isAvailable
+    )
 }
 
 func cmuxShouldUseClearWindowBackground(for opacity: Double) -> Bool {
@@ -29,6 +50,14 @@ private func cmuxTransparentWindowBaseColor() -> NSColor {
     NSColor.white.withAlphaComponent(0.001)
 }
 #endif
+
+private func cmuxRuntimeReadClipboardCallback(
+    _ userdata: UnsafeMutableRawPointer?,
+    _ location: ghostty_clipboard_e,
+    _ state: UnsafeMutableRawPointer?
+) -> Bool {
+    GhosttyApp.runtimeReadClipboardCallback(userdata, location, state)
+}
 
 #if DEBUG
 private func cmuxChildExitProbePath() -> String? {
@@ -101,13 +130,9 @@ enum GhosttyPasteboardHelper {
                 .joined(separator: " ")
         }
 
-        if let value = pasteboard.string(forType: .string) {
-            return value
-        }
-
-        if let value = pasteboard.string(forType: utf8PlainTextType) {
-            return value
-        }
+        let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html)
+        let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf)
+        let rtfdText = attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
 
         if hasImageData(in: pasteboard),
            let html = pasteboard.string(forType: .html),
@@ -115,25 +140,24 @@ enum GhosttyPasteboardHelper {
             return nil
         }
 
-        if let htmlText = attributedStringContents(from: pasteboard, type: .html, documentType: .html) {
-            return htmlText
+        if hasImageData(in: pasteboard) {
+            if let htmlText { return htmlText }
+            if let rtfText { return rtfText }
+            return rtfdText
         }
 
-        if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {
-            return rtfText
+        if let value = plainTextContents(from: pasteboard) {
+            return value
         }
 
-        return attributedStringContents(from: pasteboard, type: .rtfd, documentType: .rtfd)
+        if let htmlText { return htmlText }
+        if let rtfText { return rtfText }
+        return rtfdText
     }
 
     static func hasString(for location: ghostty_clipboard_e) -> Bool {
         guard let pasteboard = pasteboard(for: location) else { return false }
-        let types = pasteboard.types ?? []
-        if types.contains(.fileURL) || types.contains(.string) || types.contains(utf8PlainTextType)
-            || types.contains(.html) || types.contains(.rtf) || types.contains(.rtfd) {
-            return true
-        }
-        return hasImageData(in: pasteboard)
+        return hasPasteableContents(in: pasteboard)
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
@@ -176,6 +200,41 @@ enum GhosttyPasteboardHelper {
 
         guard let sanitized, !sanitized.isEmpty else { return nil }
         return sanitized
+    }
+
+    private static func plainTextContents(from pasteboard: NSPasteboard) -> String? {
+        for type in pasteboard.types ?? [] {
+            guard isPlainTextType(type) else { continue }
+            guard let value = pasteboard.string(forType: type), !value.isEmpty else { continue }
+            return value
+        }
+
+        return nil
+    }
+
+    private static func hasPasteableContents(in pasteboard: NSPasteboard) -> Bool {
+        let types = pasteboard.types ?? []
+        if types.contains(.fileURL) || types.contains(.html) || types.contains(.rtf) || types.contains(.rtfd) {
+            return true
+        }
+        if types.contains(where: isPlainTextType) {
+            return true
+        }
+        return hasImageData(in: pasteboard)
+    }
+
+    private static func isPlainTextType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        if type == .string || type == utf8PlainTextType {
+            return true
+        }
+
+        guard type != .html,
+              type != .rtf,
+              type != .rtfd,
+              type != .fileURL,
+              let utType = UTType(type.rawValue) else { return false }
+
+        return utType.conforms(to: .plainText)
     }
 
     private static func attributedString(
@@ -925,6 +984,120 @@ class GhosttyApp {
         return URL(fileURLWithPath: "/tmp/cmux-bg.log")
     }
 
+    fileprivate static func runtimeReadClipboardCallback(
+        _ userdata: UnsafeMutableRawPointer?,
+        _ location: ghostty_clipboard_e,
+        _ state: UnsafeMutableRawPointer?
+    ) -> Bool {
+        guard let callbackContext = Self.callbackContext(from: userdata),
+              let requestSurface = callbackContext.runtimeSurface else { return false }
+
+        DispatchQueue.main.async {
+            func completeClipboardRequest(with text: String) {
+                let finish = {
+                    guard callbackContext.runtimeSurface == requestSurface else { return }
+                    text.withCString { ptr in
+                        ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
+                    }
+                }
+                if Thread.isMainThread {
+                    finish()
+                } else {
+                    DispatchQueue.main.async(execute: finish)
+                }
+            }
+
+            guard let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location) else {
+                completeClipboardRequest(with: "")
+                return
+            }
+
+            let preparedContent = TerminalImageTransferPlanner.prepare(
+                pasteboard: pasteboard,
+                mode: .paste
+            )
+
+            switch preparedContent {
+            case .reject:
+                completeClipboardRequest(with: "")
+            case .insertText(let text):
+                completeClipboardRequest(with: text)
+            case .fileURLs(let fileURLs):
+                let operation = TerminalImageTransferOperation()
+                MainActor.assumeIsolated {
+                    callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
+                        for: operation,
+                        onCancel: {
+                            completeClipboardRequest(with: "")
+                        }
+                    )
+                }
+
+                let target = MainActor.assumeIsolated {
+                    callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
+                }
+                let plan = TerminalImageTransferPlanner.plan(
+                    fileURLs: fileURLs,
+                    target: target
+                )
+
+                TerminalImageTransferPlanner.execute(
+                    plan: plan,
+                    operation: operation,
+                    uploadWorkspaceRemote: { fileURLs, operation, finish in
+                        guard let workspace = MainActor.assumeIsolated({
+                            callbackContext.terminalSurface?.owningWorkspace()
+                        }) else {
+                            finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
+                            GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                            return
+                        }
+                        workspace.uploadDroppedFilesForRemoteTerminal(
+                            fileURLs,
+                            operation: operation,
+                            completion: { result in
+                                finish(result)
+                                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                            }
+                        )
+                    },
+                    uploadDetectedSSH: { session, fileURLs, operation, finish in
+                        session.uploadDroppedFiles(
+                            fileURLs,
+                            operation: operation,
+                            completion: { result in
+                                finish(result)
+                                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                            }
+                        )
+                    },
+                    insertText: { text in
+                        MainActor.assumeIsolated {
+                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                for: operation
+                            )
+                        }
+                        completeClipboardRequest(with: text)
+                    },
+                    onFailure: { _ in
+                        MainActor.assumeIsolated {
+                            callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
+                                for: operation
+                            )
+                        }
+                        NSSound.beep()
+#if DEBUG
+                        dlog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
+#endif
+                        completeClipboardRequest(with: "")
+                    }
+                )
+            }
+        }
+
+        return true
+    }
+
     let backgroundLogEnabled = {
         if ProcessInfo.processInfo.environment["CMUX_DEBUG_BG"] == "1" {
             return true
@@ -1102,114 +1275,17 @@ class GhosttyApp {
         runtimeConfig.action_cb = { app, target, action in
             return GhosttyApp.shared.handleAction(target: target, action: action)
         }
-        runtimeConfig.read_clipboard_cb = { userdata, location, state in
-            guard let callbackContext = GhosttyApp.callbackContext(from: userdata) else { return }
-
-            DispatchQueue.main.async {
-                guard let requestSurface = callbackContext.runtimeSurface else { return }
-
-                func completeClipboardRequest(with text: String) {
-                    let finish = {
-                        guard callbackContext.runtimeSurface == requestSurface else { return }
-                        text.withCString { ptr in
-                            ghostty_surface_complete_clipboard_request(requestSurface, ptr, state, false)
-                        }
-                    }
-                    if Thread.isMainThread {
-                        finish()
-                    } else {
-                        DispatchQueue.main.async(execute: finish)
-                    }
-                }
-
-                guard let pasteboard = GhosttyPasteboardHelper.pasteboard(for: location) else {
-                    completeClipboardRequest(with: "")
-                    return
-                }
-
-                let preparedContent = TerminalImageTransferPlanner.prepare(
-                    pasteboard: pasteboard,
-                    mode: .paste
-                )
-
-                switch preparedContent {
-                case .reject:
-                    completeClipboardRequest(with: "")
-                case .insertText(let text):
-                    completeClipboardRequest(with: text)
-                case .fileURLs(let fileURLs):
-                    let operation = TerminalImageTransferOperation()
-                    MainActor.assumeIsolated {
-                        callbackContext.terminalSurface?.hostedView.beginImageTransferIndicator(
-                            for: operation,
-                            onCancel: {
-                                completeClipboardRequest(with: "")
-                            }
-                        )
-                    }
-
-                    let target = MainActor.assumeIsolated {
-                        callbackContext.terminalSurface?.resolvedImageTransferTarget() ?? .local
-                    }
-                    let plan = TerminalImageTransferPlanner.plan(
-                        fileURLs: fileURLs,
-                        target: target
-                    )
-
-                    TerminalImageTransferPlanner.execute(
-                        plan: plan,
-                        operation: operation,
-                        uploadWorkspaceRemote: { fileURLs, operation, finish in
-                            guard let workspace = MainActor.assumeIsolated({
-                                callbackContext.terminalSurface?.owningWorkspace()
-                            }) else {
-                                finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                                GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                return
-                            }
-                            workspace.uploadDroppedFilesForRemoteTerminal(
-                                fileURLs,
-                                operation: operation,
-                                completion: { result in
-                                    finish(result)
-                                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                }
-                            )
-                        },
-                        uploadDetectedSSH: { session, fileURLs, operation, finish in
-                            session.uploadDroppedFiles(
-                                fileURLs,
-                                operation: operation,
-                                completion: { result in
-                                    finish(result)
-                                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
-                                }
-                            )
-                        },
-                        insertText: { text in
-                            MainActor.assumeIsolated {
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                    for: operation
-                                )
-                            }
-                            completeClipboardRequest(with: text)
-                        },
-                        onFailure: { _ in
-                            MainActor.assumeIsolated {
-                                callbackContext.terminalSurface?.hostedView.endImageTransferIndicator(
-                                    for: operation
-                                )
-                            }
-                            NSSound.beep()
-#if DEBUG
-                            dlog("terminal.remotePasteUpload.failed surface=\(callbackContext.surfaceId.uuidString.prefix(5))")
-#endif
-                            completeClipboardRequest(with: "")
-                        }
-                    )
-                }
-            }
-        }
+        // Some GhosttyKit builds import this callback as returning `Void` in Swift even
+        // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
+        // project compiles against both importer variants.
+        runtimeConfig.read_clipboard_cb = unsafeBitCast(
+            cmuxRuntimeReadClipboardCallback as @convention(c) (
+                UnsafeMutableRawPointer?,
+                ghostty_clipboard_e,
+                UnsafeMutableRawPointer?
+            ) -> Bool,
+            to: ghostty_runtime_read_clipboard_cb.self
+        )
         runtimeConfig.confirm_read_clipboard_cb = { userdata, content, state, _ in
             guard let content else { return }
             guard let callbackContext = GhosttyApp.callbackContext(from: userdata),
@@ -1972,7 +2048,14 @@ class GhosttyApp {
         }
     }
 
-    func reloadConfiguration(soft: Bool = false, source: String = "unspecified") {
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String = "unspecified",
+        reloadSettingsFromFile: Bool = true
+    ) {
+        if reloadSettingsFromFile {
+            KeyboardShortcutSettings.settingsFileStore.reload()
+        }
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
@@ -2043,7 +2126,10 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
-        reloadConfiguration(source: "appearanceSync:\(source)")
+        reloadConfiguration(
+            source: "appearanceSync:\(source)",
+            reloadSettingsFromFile: false
+        )
     }
 
     func openConfigurationInTextEdit() {
@@ -2146,10 +2232,10 @@ class GhosttyApp {
 
     private func bellAudioPath() -> String? {
         guard let config else { return nil }
-        var value = ghostty_config_path_s()
+        var value: UnsafePointer<Int8>?
         let key = "bell-audio-path"
         guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let rawPath = value.path else {
+              let rawPath = value else {
             return nil
         }
         let path = String(cString: rawPath)
@@ -2972,6 +3058,26 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    private struct PendingKeyEvent {
+        let keycode: UInt32
+        let mods: ghostty_input_mods_e
+        let label: String
+    }
+
+    private enum PendingSocketInput {
+        case text(Data)
+        case key(PendingKeyEvent)
+
+        var estimatedBytes: Int {
+            switch self {
+            case .text(let data):
+                return data.count
+            case .key(let event):
+                return max(event.label.utf8.count, 1)
+            }
+        }
+    }
+
     private(set) var surface: ghostty_surface_t?
     private weak var attachedView: GhosttyNSView?
 
@@ -3021,9 +3127,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
-    private var pendingTextQueue: [Data] = []
-    private var pendingTextBytes: Int = 0
-    private let maxPendingTextBytes = 1_048_576
+    private var pendingSocketInputQueue: [PendingSocketInput] = []
+    private var pendingSocketInputBytes: Int = 0
+    private let maxPendingSocketInputBytes = 1_048_576
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
@@ -3718,6 +3824,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
+            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]
@@ -3929,6 +4038,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // surface was being initialized.
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
+        flushPendingSocketInputIfNeeded()
+
+        // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
+        // miss the first vsync callback and sit on a blank frame until another focus/visibility
+        // transition nudges the renderer.
+        view.forceRefreshSurface()
+        ghostty_surface_refresh(createdSurface)
+
         NotificationCenter.default.post(
             name: .terminalSurfaceDidBecomeReady,
             object: self,
@@ -3937,14 +4054,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 "workspaceId": tabId
             ]
         )
-
-        flushPendingTextIfNeeded()
-
-        // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
-        // miss the first vsync callback and sit on a blank frame until another focus/visibility
-        // transition nudges the renderer.
-        view.forceRefreshSurface()
-        ghostty_surface_refresh(createdSurface)
 
 #if DEBUG
         let runtimeFontText = cmuxCurrentSurfaceFontSizePoints(createdSurface).map {
@@ -4101,10 +4210,23 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
-            enqueuePendingText(data)
+            enqueuePendingSocketInput(.text(data))
+            requestBackgroundSurfaceStartIfNeeded()
             return
         }
         writeTextData(data, to: surface)
+    }
+
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> Bool {
+        guard let event = pendingKeyEvent(for: keyName) else { return false }
+        if let surface = surface {
+            sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+        } else {
+            enqueuePendingSocketInput(.key(event))
+            requestBackgroundSurfaceStartIfNeeded()
+        }
+        return true
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
@@ -4158,11 +4280,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         buffer.removeAll(keepingCapacity: true)
     }
 
-    private func sendKeyEvent(surface: ghostty_surface_t, keycode: UInt32) {
+    private func sendKeyEvent(
+        surface: ghostty_surface_t,
+        keycode: UInt32,
+        mods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
+    ) {
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
         keyEvent.keycode = keycode
-        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.mods = mods
         keyEvent.consumed_mods = GHOSTTY_MODS_NONE
         keyEvent.unshifted_codepoint = 0
         keyEvent.composing = false
@@ -4208,37 +4334,188 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
-    private func enqueuePendingText(_ data: Data) {
-        let incomingBytes = data.count
-        while !pendingTextQueue.isEmpty && pendingTextBytes + incomingBytes > maxPendingTextBytes {
-            let dropped = pendingTextQueue.removeFirst()
-            pendingTextBytes -= dropped.count
+    private func keycodeForLetter(_ letter: Character) -> UInt32? {
+        switch String(letter).lowercased() {
+        case "a": return UInt32(kVK_ANSI_A)
+        case "b": return UInt32(kVK_ANSI_B)
+        case "c": return UInt32(kVK_ANSI_C)
+        case "d": return UInt32(kVK_ANSI_D)
+        case "e": return UInt32(kVK_ANSI_E)
+        case "f": return UInt32(kVK_ANSI_F)
+        case "g": return UInt32(kVK_ANSI_G)
+        case "h": return UInt32(kVK_ANSI_H)
+        case "i": return UInt32(kVK_ANSI_I)
+        case "j": return UInt32(kVK_ANSI_J)
+        case "k": return UInt32(kVK_ANSI_K)
+        case "l": return UInt32(kVK_ANSI_L)
+        case "m": return UInt32(kVK_ANSI_M)
+        case "n": return UInt32(kVK_ANSI_N)
+        case "o": return UInt32(kVK_ANSI_O)
+        case "p": return UInt32(kVK_ANSI_P)
+        case "q": return UInt32(kVK_ANSI_Q)
+        case "r": return UInt32(kVK_ANSI_R)
+        case "s": return UInt32(kVK_ANSI_S)
+        case "t": return UInt32(kVK_ANSI_T)
+        case "u": return UInt32(kVK_ANSI_U)
+        case "v": return UInt32(kVK_ANSI_V)
+        case "w": return UInt32(kVK_ANSI_W)
+        case "x": return UInt32(kVK_ANSI_X)
+        case "y": return UInt32(kVK_ANSI_Y)
+        case "z": return UInt32(kVK_ANSI_Z)
+        default: return nil
         }
-
-        pendingTextQueue.append(data)
-        pendingTextBytes += incomingBytes
-        #if DEBUG
-        dlog(
-            "surface.send_text.queue surface=\(id.uuidString.prefix(8)) chunks=\(pendingTextQueue.count) bytes=\(pendingTextBytes)"
-        )
-        #endif
     }
 
-    private func flushPendingTextIfNeeded() {
-        guard let surface = surface, !pendingTextQueue.isEmpty else { return }
-        let queued = pendingTextQueue
-        let queuedBytes = pendingTextBytes
-        pendingTextQueue.removeAll(keepingCapacity: false)
-        pendingTextBytes = 0
-
-        for chunk in queued {
-            writeTextData(chunk, to: surface)
+    private func keycodeForNamedKey(_ name: String) -> UInt32? {
+        switch name {
+        case "enter", "return": return UInt32(kVK_Return)
+        case "tab": return UInt32(kVK_Tab)
+        case "escape", "esc": return UInt32(kVK_Escape)
+        case "backspace": return UInt32(kVK_Delete)
+        case "delete": return UInt32(kVK_ForwardDelete)
+        case "space": return UInt32(kVK_Space)
+        case "up": return UInt32(kVK_UpArrow)
+        case "down": return UInt32(kVK_DownArrow)
+        case "left": return UInt32(kVK_LeftArrow)
+        case "right": return UInt32(kVK_RightArrow)
+        case "\\": return UInt32(kVK_ANSI_Backslash)
+        default: return nil
         }
-        #if DEBUG
+    }
+
+    private func pendingKeyEvent(for keyName: String) -> PendingKeyEvent? {
+        let normalized = keyName.lowercased()
+        switch normalized {
+        case "ctrl-c", "ctrl+c", "sigint":
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_C), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "ctrl-d", "ctrl+d", "eof":
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_D), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "ctrl-z", "ctrl+z", "sigtstp":
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_Z), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "ctrl-\\", "ctrl+\\", "sigquit":
+            return PendingKeyEvent(keycode: UInt32(kVK_ANSI_Backslash), mods: GHOSTTY_MODS_CTRL, label: normalized)
+        case "enter", "return":
+            return PendingKeyEvent(keycode: UInt32(kVK_Return), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "tab":
+            return PendingKeyEvent(keycode: UInt32(kVK_Tab), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "escape", "esc":
+            return PendingKeyEvent(keycode: UInt32(kVK_Escape), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "backspace":
+            return PendingKeyEvent(keycode: UInt32(kVK_Delete), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "up", "arrow_up", "arrowup":
+            return PendingKeyEvent(keycode: UInt32(kVK_UpArrow), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "down", "arrow_down", "arrowdown":
+            return PendingKeyEvent(keycode: UInt32(kVK_DownArrow), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "left", "arrow_left", "arrowleft":
+            return PendingKeyEvent(keycode: UInt32(kVK_LeftArrow), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "right", "arrow_right", "arrowright":
+            return PendingKeyEvent(keycode: UInt32(kVK_RightArrow), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "shift+tab", "shift-tab", "backtab":
+            return PendingKeyEvent(keycode: UInt32(kVK_Tab), mods: GHOSTTY_MODS_SHIFT, label: normalized)
+        case "home":
+            return PendingKeyEvent(keycode: UInt32(kVK_Home), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "end":
+            return PendingKeyEvent(keycode: UInt32(kVK_End), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "delete", "del", "forward_delete":
+            return PendingKeyEvent(keycode: UInt32(kVK_ForwardDelete), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "pageup", "page_up":
+            return PendingKeyEvent(keycode: UInt32(kVK_PageUp), mods: GHOSTTY_MODS_NONE, label: normalized)
+        case "pagedown", "page_down":
+            return PendingKeyEvent(keycode: UInt32(kVK_PageDown), mods: GHOSTTY_MODS_NONE, label: normalized)
+        default:
+            let parts = normalized
+                .split(separator: "+")
+                .flatMap { $0.split(separator: "-") }
+                .map(String.init)
+                .filter { !$0.isEmpty }
+            guard let baseKey = parts.last else { return nil }
+
+            if parts.count == 1 {
+                if let keycode = keycodeForNamedKey(baseKey) {
+                    return PendingKeyEvent(keycode: keycode, mods: GHOSTTY_MODS_NONE, label: normalized)
+                }
+                if baseKey.count == 1,
+                   let char = baseKey.first,
+                   let keycode = keycodeForLetter(char) {
+                    return PendingKeyEvent(keycode: keycode, mods: GHOSTTY_MODS_NONE, label: normalized)
+                }
+                return nil
+            }
+
+            var mods = GHOSTTY_MODS_NONE
+            for mod in parts.dropLast() {
+                switch mod {
+                case "ctrl", "control":
+                    mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_CTRL.rawValue)
+                case "shift":
+                    mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SHIFT.rawValue)
+                case "alt", "opt", "option":
+                    mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_ALT.rawValue)
+                case "cmd", "command", "super":
+                    mods = ghostty_input_mods_e(rawValue: mods.rawValue | GHOSTTY_MODS_SUPER.rawValue)
+                default:
+                    return nil
+                }
+            }
+
+            if let keycode = keycodeForNamedKey(baseKey) {
+                return PendingKeyEvent(keycode: keycode, mods: mods, label: normalized)
+            }
+            if baseKey.count == 1,
+               let char = baseKey.first,
+               let keycode = keycodeForLetter(char) {
+                return PendingKeyEvent(keycode: keycode, mods: mods, label: normalized)
+            }
+            return nil
+        }
+    }
+
+    private func enqueuePendingSocketInput(_ input: PendingSocketInput) {
+        let incomingBytes = input.estimatedBytes
+        while !pendingSocketInputQueue.isEmpty,
+              pendingSocketInputBytes + incomingBytes > maxPendingSocketInputBytes {
+            let dropped = pendingSocketInputQueue.removeFirst()
+            pendingSocketInputBytes -= dropped.estimatedBytes
+        }
+
+        pendingSocketInputQueue.append(input)
+        pendingSocketInputBytes += incomingBytes
+#if DEBUG
+        let pendingKeys = pendingSocketInputQueue.reduce(into: 0) { count, item in
+            if case .key = item {
+                count += 1
+            }
+        }
         dlog(
-            "surface.send_text.flush surface=\(id.uuidString.prefix(8)) chunks=\(queued.count) bytes=\(queuedBytes)"
+            "surface.socket_input.queue surface=\(id.uuidString.prefix(8)) items=\(pendingSocketInputQueue.count) " +
+            "keys=\(pendingKeys) bytes=\(pendingSocketInputBytes)"
         )
-        #endif
+#endif
+    }
+
+    private func flushPendingSocketInputIfNeeded() {
+        guard let surface = surface, !pendingSocketInputQueue.isEmpty else { return }
+        let queued = pendingSocketInputQueue
+        let queuedBytes = pendingSocketInputBytes
+        pendingSocketInputQueue.removeAll(keepingCapacity: false)
+        pendingSocketInputBytes = 0
+
+        var queuedKeys = 0
+        for item in queued {
+            switch item {
+            case .text(let chunk):
+                writeTextData(chunk, to: surface)
+            case .key(let event):
+                queuedKeys += 1
+                sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
+            }
+        }
+#if DEBUG
+        dlog(
+            "surface.socket_input.flush surface=\(id.uuidString.prefix(8)) items=\(queued.count) " +
+            "keys=\(queuedKeys) bytes=\(queuedBytes)"
+        )
+#endif
     }
 
     func performBindingAction(_ action: String) -> Bool {
@@ -4867,11 +5144,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // The drag pasteboard can retain tab-transfer UTIs briefly after a split command
         // or other layout churn. Only defer terminal resizes while an actual drag event
         // is in flight; otherwise pre-existing panes can stay stuck at their old size.
+        // Interactive geometry resize already has an explicit fast path for sidebar and
+        // split-divider drags. Do not let stale drag-pasteboard state suppress those updates.
+        if TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive {
+            return false
+        }
         guard hasTabDragPasteboardTypes() else { return false }
         return isDragResizeEvent(NSApp.currentEvent?.type)
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
+        if inLiveResize || window?.inLiveResize == true {
+            return nil
+        }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
     }
 
@@ -5098,7 +5383,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard surface != nil else { return false }
         setKeyboardCopyModeActive(!keyboardCopyModeActive)
         if !keyboardCopyModeActive, let surface {
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
         }
         return true
     }
@@ -5109,13 +5394,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeActive = active
         if active, let surface {
             keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
             if keyboardCopyModeViewportRow == nil {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
             // Create a 1-cell selection at the terminal cursor to serve as a
             // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell(surface)
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
@@ -5152,7 +5437,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func keyboardCopyModeSelectionAnchor(surface: ghostty_surface_t) -> (row: Int, y: Double)? {
         let size = ghostty_surface_size(surface)
         guard size.rows > 0, size.columns > 0 else { return nil }
-        guard ghostty_surface_select_cursor_cell(surface) else { return nil }
+        guard ghostty_surface_select_cursor_cell_compat(surface) else { return nil }
 
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
@@ -5173,7 +5458,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
         keyboardCopyModeViewportRow = anchor.row
         // Preserve the visible cursor indicator.
-        _ = ghostty_surface_select_cursor_cell(surface)
+        _ = ghostty_surface_select_cursor_cell_compat(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -5188,7 +5473,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else {
             return false
         }
-        _ = ghostty_surface_clear_selection(surface)
+        _ = ghostty_surface_clear_selection_compat(surface)
 
         var imeX: Double = 0
         var imeY: Double = 0
@@ -5244,18 +5529,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         switch action {
         case .exit:
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
             keyboardCopyModeVisualActive = true
         case .clearSelection:
             keyboardCopyModeVisualActive = false
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
             // Re-create 1-cell cursor at terminal cursor position.
-            _ = ghostty_surface_select_cursor_cell(surface)
+            _ = ghostty_surface_select_cursor_cell_compat(surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case .copyLineAndExit:
             let startRow = currentKeyboardCopyModeViewportRow(surface: surface)
@@ -5264,7 +5549,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 startRow: startRow,
                 lineCount: count
             )
-            _ = ghostty_surface_clear_selection(surface)
+            _ = ghostty_surface_clear_selection_compat(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
             _ = performBindingAction("scroll_page_lines:\(delta * count)")
@@ -5374,13 +5659,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
         let inject = {
-            self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
+            self.withExternalCommittedText {
+                self.insertText(content, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }
         }
         if Thread.isMainThread {
             inject()
         } else {
             DispatchQueue.main.async(execute: inject)
         }
+    }
+
+    private func withExternalCommittedText<T>(_ body: () -> T) -> T {
+        externalCommittedTextDepth += 1
+        defer { externalCommittedTextDepth -= 1 }
+        return body()
     }
 
     override func accessibilitySelectedTextRange() -> NSRange {
@@ -5531,6 +5824,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTextAccumulator: [String]? = nil
     private var markedText = NSMutableAttributedString()
     private var lastPerformKeyEvent: TimeInterval?
+    private var externalCommittedTextDepth = 0
     private struct SelectionSnapshot {
         let range: NSRange
         let string: String
@@ -5577,7 +5871,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// responder-chain `insertText:` action (single-argument form).
     /// Route that into our NSTextInputClient path so text lands in the terminal.
     override func insertText(_ insertString: Any) {
-        insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
+        withExternalCommittedText {
+            insertText(insertString, replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -6001,12 +6297,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        #if DEBUG
+                        _ = sendTimedGhosttyKey(
+                            surface,
+                            keyEvent,
+                            path: "terminal.keyDown.accumulatedGhosttySend",
+                            event: event,
+                            extra: "textBytes=\(text.utf8.count)"
+                        )
+                        #else
+                        _ = sendGhosttyKey(surface, keyEvent)
+                        #endif
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.accumulatedGhosttySend",
+                        path: "terminal.keyDown.accumulatedGhosttySend.total",
                         startedAt: sendTimingStart,
                         event: event,
                         extra: "textBytes=\(text.utf8.count)"
@@ -6058,8 +6364,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     event: translationEvent,
                     markedTextBefore: markedTextBefore
                 )
+            let suppressComposingFallbackText = keyEvent.composing
             if let text = textForKeyEvent(translationEvent) {
-                if shouldSendText(text), !suppressShiftSpaceFallbackText {
+                if shouldSendText(text),
+                   !suppressShiftSpaceFallbackText,
+                   !suppressComposingFallbackText {
                     shouldRefreshAfterTextInput = true
 #if DEBUG
                     let sendTimingStart = CmuxTypingTiming.start()
@@ -6067,12 +6376,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
                     text.withCString { ptr in
                         keyEvent.text = ptr
-                        _ = ghostty_surface_key(surface, keyEvent)
+                        #if DEBUG
+                        _ = sendTimedGhosttyKey(
+                            surface,
+                            keyEvent,
+                            path: "terminal.keyDown.ghosttySend",
+                            event: event,
+                            extra: "textBytes=\(text.utf8.count)"
+                        )
+                        #else
+                        _ = sendGhosttyKey(surface, keyEvent)
+                        #endif
                     }
 #if DEBUG
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     CmuxTypingTiming.logDuration(
-                        path: "terminal.keyDown.ghosttySend",
+                        path: "terminal.keyDown.ghosttySend.total",
                         startedAt: sendTimingStart,
                         event: event,
                         extra: "textBytes=\(text.utf8.count)"
@@ -7698,6 +8017,24 @@ final class GhosttySurfaceScrollView: NSView {
         })
 
         observers.append(NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let readySurfaceId = notification.userInfo?["surfaceId"] as? UUID,
+                  readySurfaceId == self.surfaceView.terminalSurface?.id else {
+                return
+            }
+            // Session restore can request focus before the runtime surface exists.
+            // Re-run the normal first-responder/focus path once the surface is live.
+            guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
+                return
+            }
+            self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
             queue: .main
@@ -9040,11 +9377,11 @@ final class GhosttySurfaceScrollView: NSView {
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceOwnsFirstResponder = isSurfaceViewFirstResponder()
 
-        guard surfaceView.desiredFocus else { return }
-        guard isSurfaceViewFirstResponder() else { return }
-        guard isActive else { return }
+        guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
         guard surfaceView.isVisibleInUI else { return }
+        surfaceView.terminalSurface?.recordExternalFocusState(true)
         guard let window, window.isKeyWindow else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
@@ -9056,6 +9393,15 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             scheduleAutomaticFirstResponderApply(reason: "clearSuppressReparentFocus.hiddenOrTiny")
             return
+        }
+        if !surfaceOwnsFirstResponder && !isSurfaceViewFirstResponder() {
+#if DEBUG
+            dlog(
+                "focus.reparent.resume.restoreFirstResponder surface=\(surfaceShort) " +
+                "firstResponder=\(String(describing: window.firstResponder))"
+            )
+#endif
+            guard window.makeFirstResponder(surfaceView), isSurfaceViewFirstResponder() else { return }
         }
 #if DEBUG
         dlog("focus.reparent.resume surface=\(surfaceShort) firstResponder=\(String(describing: window.firstResponder))")
@@ -9140,6 +9486,12 @@ final class GhosttySurfaceScrollView: NSView {
               matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
 #if DEBUG
             dlog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
+#endif
+            return
+        }
+        if AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) == true {
+#if DEBUG
+            dlog("find.applyFirstResponder SKIP surface=\(surfaceShort) reason=commandPaletteVisible")
 #endif
             return
         }
@@ -9859,7 +10211,11 @@ final class GhosttySurfaceScrollView: NSView {
 // MARK: - NSTextInputClient
 
 extension GhosttyNSView: NSTextInputClient {
-    fileprivate func sendTextToSurface(_ chars: String) {
+    /// Deliver committed text using typed-input semantics so shells and editors
+    /// keep their normal interactive behaviors (autosuggestions, Return
+    /// execution, etc.). Programmatic callers can preserve literal ESC bytes so
+    /// automation payloads remain byte-for-byte stable.
+    fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard let surface = surface else { return }
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -9873,16 +10229,68 @@ extension GhosttyNSView: NSTextInputClient {
             increments: ["probeInsertTextCount": 1]
         )
 #endif
-        chars.withCString { ptr in
+
+        var bufferedText = ""
+        var previousWasCR = false
+
+        func flushBufferedText() {
+            guard !bufferedText.isEmpty else { return }
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = GHOSTTY_ACTION_PRESS
             keyEvent.keycode = 0
             keyEvent.mods = GHOSTTY_MODS_NONE
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-            keyEvent.text = ptr
+            keyEvent.unshifted_codepoint = 0
             keyEvent.composing = false
-            _ = ghostty_surface_key(surface, keyEvent)
+            bufferedText.withCString { ptr in
+                keyEvent.text = ptr
+                _ = sendGhosttyKey(surface, keyEvent)
+            }
+            bufferedText.removeAll(keepingCapacity: true)
         }
+
+        func sendControlKey(_ keycode: UInt32) {
+            var keyEvent = ghostty_input_key_s()
+            keyEvent.action = GHOSTTY_ACTION_PRESS
+            keyEvent.keycode = keycode
+            keyEvent.mods = GHOSTTY_MODS_NONE
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+            keyEvent.unshifted_codepoint = 0
+            keyEvent.composing = false
+            keyEvent.text = nil
+            _ = sendGhosttyKey(surface, keyEvent)
+        }
+
+        for scalar in chars.unicodeScalars {
+            switch scalar.value {
+            case 0x0A:
+                if !previousWasCR {
+                    flushBufferedText()
+                    sendControlKey(0x24) // kVK_Return
+                }
+                previousWasCR = false
+            case 0x0D:
+                flushBufferedText()
+                sendControlKey(0x24) // kVK_Return
+                previousWasCR = true
+            case 0x09:
+                flushBufferedText()
+                sendControlKey(0x30) // kVK_Tab
+                previousWasCR = false
+            case 0x1B:
+                if preserveLiteralEscape {
+                    bufferedText.unicodeScalars.append(scalar)
+                } else {
+                    flushBufferedText()
+                    sendControlKey(0x35) // kVK_Escape
+                }
+                previousWasCR = false
+            default:
+                bufferedText.unicodeScalars.append(scalar)
+                previousWasCR = false
+            }
+        }
+        flushBufferedText()
 #if DEBUG
         CmuxTypingTiming.logDuration(
             path: "terminal.sendTextToSurface",
@@ -9890,6 +10298,115 @@ extension GhosttyNSView: NSTextInputClient {
             extra: "textBytes=\(chars.utf8.count)"
         )
 #endif
+    }
+
+    /// External accessibility/dictation tools should commit plain text, but
+    /// some inject a leading escape sequence first. Strip those bytes on the
+    /// committed-text path so they can't leak into the PTY as literals.
+    static func sanitizeExternalCommittedText(_ text: String) -> String {
+        let bytes = Array(text.utf8)
+        guard !bytes.isEmpty else { return text }
+
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x1B {
+                index = consumeLeadingEscapeSequence(in: bytes, from: index)
+                continue
+            }
+
+            if byte == 0xC2 {
+                let next = index + 1
+                if next < bytes.count, bytes[next] == 0x9B {
+                    // U+009B (C1 CSI) is encoded as the UTF-8 byte pair C2 9B.
+                    index = consumeLeadingCSISequence(in: bytes, from: next + 1)
+                    continue
+                }
+            }
+
+            break
+        }
+
+        if index == 0 {
+            return text
+        }
+
+        guard index < bytes.count else { return "" }
+        return String(decoding: bytes[index...], as: UTF8.self)
+    }
+
+    private static func consumeLeadingEscapeSequence(
+        in bytes: [UInt8],
+        from start: Int
+    ) -> Int {
+        let next = start + 1
+        guard next < bytes.count else { return bytes.count }
+
+        switch bytes[next] {
+        case 0x5B:
+            // CSI: ESC [ ... final
+            return consumeLeadingCSISequence(in: bytes, from: next + 1)
+        case 0x4F:
+            // SS3: ESC O final
+            return min(bytes.count, next + 2)
+        case 0x50, 0x5D, 0x5E, 0x5F:
+            // DCS/OSC/PM/APC: consume until BEL/ST or EOF.
+            return consumeLeadingEscapedStringSequence(in: bytes, from: next + 1)
+        default:
+            // Single-character escape.
+            return min(bytes.count, next + 1)
+        }
+    }
+
+    private static func consumeLeadingCSISequence(
+        in bytes: [UInt8],
+        from start: Int
+    ) -> Int {
+        var index = start
+        while index < bytes.count {
+            let byte = bytes[index]
+            if (0x20...0x3F).contains(byte) {
+                index += 1
+                continue
+            }
+
+            if (0x40...0x7E).contains(byte) {
+                return index + 1
+            }
+
+            break
+        }
+
+        return index
+    }
+
+    private static func consumeLeadingEscapedStringSequence(
+        in bytes: [UInt8],
+        from start: Int
+    ) -> Int {
+        var index = start
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == 0x07 {
+                return index + 1
+            }
+
+            if byte == 0x1B {
+                let next = index + 1
+                if next < bytes.count, bytes[next] == 0x5C {
+                    return next + 1
+                }
+                return index
+            }
+
+            if byte < 0x20 || byte == 0x7F {
+                return index + 1
+            }
+
+            index += 1
+        }
+
+        return bytes.count
     }
 
     func hasMarkedText() -> Bool {
@@ -10117,8 +10634,32 @@ extension GhosttyNSView: NSTextInputClient {
             return
         }
 
+        let isExternalCommittedText = externalCommittedTextDepth > 0
+        let sanitizedChars = if isExternalCommittedText {
+            // Only sanitize explicit external committed-text paths used by
+            // AX/dictation integrations. Programmatic NSTextInputClient callers
+            // may intentionally start with ESC/CSI bytes.
+            Self.sanitizeExternalCommittedText(chars)
+        } else {
+            chars
+        }
+
+#if DEBUG
+        if sanitizedChars != chars {
+            dlog(
+                "ime.insertText.sanitized originalBytes=\(chars.utf8.count) " +
+                "sanitizedBytes=\(sanitizedChars.utf8.count)"
+            )
+        }
+#endif
+
+        guard !sanitizedChars.isEmpty else { return }
+
         // Otherwise send directly to the terminal
-        sendTextToSurface(chars)
+        sendTextToSurface(
+            sanitizedChars,
+            preserveLiteralEscape: !isExternalCommittedText
+        )
     }
 }
 

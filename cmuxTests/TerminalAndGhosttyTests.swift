@@ -35,10 +35,109 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
     }
 
+    func testAlternatePlainTextUTIExtractsPlainText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-plain-text-uti-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from public.plain-text",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from public.plain-text"
+        )
+    }
+
+    func testEmptyPlainTextFallsBackToRichTextPayload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("", forType: .string)
+
+        let attributed = NSAttributedString(string: "hello from rtf fallback")
+        let rtfData = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
+        )
+        pasteboard.setData(rtfData, forType: .rtf)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "hello from rtf fallback"
+        )
+    }
+
+    func testXHTMLTypeFallsBackToRenderedHTMLText() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-xhtml-html-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "<div>Hello <strong>world</strong></div>",
+            forType: NSPasteboard.PasteboardType("public.xhtml")
+        )
+        pasteboard.setString("<p>Hello <strong>world</strong></p>", forType: .html)
+
+        XCTAssertEqual(cmuxPasteboardStringContentsForTesting(pasteboard), "Hello world")
+    }
+
+    func testImageClipboardWithPlainTextFallbackStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-plain-text-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "https://example.com/keyboard.png",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.orange.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
     func testImageHTMLClipboardFallsBackToImagePath() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-\(UUID().uuidString)"))
         pasteboard.clearContents()
         pasteboard.setString("<meta charset='utf-8'><img src=\"https://example.com/keyboard.png\">", forType: .html)
+
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let pngData = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        pasteboard.setData(pngData, forType: .png)
+
+        XCTAssertNil(cmuxPasteboardStringContentsForTesting(pasteboard))
+
+        let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
+        defer { try? FileManager.default.removeItem(atPath: imagePath) }
+
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
+    }
+
+    func testImageHTMLClipboardWithGenericPlainTextStillFallsBackToImagePath() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-html-generic-text-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("<meta charset='utf-8'><img src=\"https://example.com/keyboard.png\">", forType: .html)
+        pasteboard.setString(
+            "https://example.com/keyboard.png",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
 
         let image = NSImage(size: NSSize(width: 1, height: 1))
         image.lockFocus()
