@@ -414,12 +414,12 @@ final class CmuxConfigStore: ObservableObject {
         checkAutoApply()
     }
 
-    /// If the selected workspace has a single pane and a loaded command has
+    /// If the selected workspace has no splits and a loaded command has
     /// `autoApply: true` with `target: "current"`, execute it automatically.
     private func checkAutoApply() {
         guard let tabManager = trackedTabManager,
               let workspace = tabManager.selectedWorkspace,
-              workspace.panels.count == 1,
+              workspace.bonsplitController.allPaneIds.count <= 1,
               let baseCwd = localConfigPath.map({ ($0 as NSString).deletingLastPathComponent })
         else { return }
 
