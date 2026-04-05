@@ -116,6 +116,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        target = try container.decodeIfPresent(CmuxWorkspaceTarget.self, forKey: .target)
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {

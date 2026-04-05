@@ -15066,10 +15066,25 @@ private struct SidebarTabDropDelegate: DropDelegate {
             return true
         }
 
+        // If both dragged and target are in the same section, reorder within
+        // the section's workspaceIds so the visual order updates correctly.
+        if let targetTabId,
+           let section = tabManager.sectionForWorkspace(draggedTabId),
+           section.contains(targetTabId) {
+            let insertAfter = dropIndicator?.edge == .bottom
+            if let targetIdx = section.workspaceIds.firstIndex(of: targetTabId) {
+                let insertIdx = insertAfter ? targetIdx + 1 : targetIdx
+                section.addWorkspace(draggedTabId, at: insertIdx)
+            }
 #if DEBUG
-        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+            dlog("sidebar.drop.section tab=\(draggedTabId.uuidString.prefix(5)) section=\(section.name)")
 #endif
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        } else {
+#if DEBUG
+            dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+#endif
+            _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        }
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
@@ -15695,6 +15710,30 @@ private struct SidebarBackdrop: View {
                     // When using liquidGlass + behindWindow, window handles glass + tint
                     // Sidebar is fully transparent
                     if !useWindowLevelGlass {
+                        #if compiler(>=6.2)
+                        if #available(macOS 26.0, *), useLiquidGlass {
+                            // Native SwiftUI Liquid Glass on macOS 26+
+                            Color.clear
+                                .glassEffect(
+                                    .regular.tint(Color(nsColor: tintColor)),
+                                    in: .rect(cornerRadius: cornerRadius)
+                                )
+                                .opacity(sidebarBlurOpacity)
+                        } else {
+                            SidebarVisualEffectBackground(
+                                material: material,
+                                blendingMode: blendingMode,
+                                state: state,
+                                opacity: sidebarBlurOpacity,
+                                tintColor: tintColor,
+                                cornerRadius: cornerRadius,
+                                preferLiquidGlass: false
+                            )
+                            if !useLiquidGlass {
+                                Color(nsColor: tintColor)
+                            }
+                        }
+                        #else
                         SidebarVisualEffectBackground(
                             material: material,
                             blendingMode: blendingMode,
@@ -15708,6 +15747,7 @@ private struct SidebarBackdrop: View {
                         if !useLiquidGlass {
                             Color(nsColor: tintColor)
                         }
+                        #endif
                     }
                 }
                 // When material is none or useWindowLevelGlass, render nothing
