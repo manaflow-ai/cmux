@@ -3926,16 +3926,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 // Append newline to execute the command
                 return initialInput + "\n"
             }
-            // Fallback to config's initial input, but normalize it consistently
-            // (the constructor already rejects newlines in initialInput; apply same check here)
-            // Check for newlines on raw string before trimming for consistency
-            if let baseInput = baseConfig.initialInput,
-               !baseInput.contains("\n"),
-               !baseInput.contains("\r") {
-                let trimmed = baseInput.trimmingCharacters(in: .whitespacesAndNewlines)
-                return trimmed.isEmpty ? nil : trimmed
-            }
-            return nil
+            // Preserve Ghostty's native startup-input semantics for inherited config.
+            // Ghostty's `input` configuration sends bytes as-is to the PTY with no encoding—
+            // repeated inputs are concatenated without separators or newlines.
+            // Do NOT trim or validate here; that would break configs relying on exact bytes.
+            guard let baseInput = baseConfig.initialInput, !baseInput.isEmpty else { return nil }
+            return baseInput
         }()
 #if DEBUG
         if resolvedInitialInput != nil || initialInput != nil || baseConfig.initialInput != nil {

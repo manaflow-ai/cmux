@@ -493,7 +493,8 @@ extension Workspace {
                 workingDirectory: panelDirectories[panelId],
                 scrollback: resolvedScrollback,
                 restoreCommand: isRemoteBackedTerminal ? nil : panelRestoreCommands[panelId],
-                detectedCommand: detectedCommand
+                detectedCommand: detectedCommand,
+                isRemoteBacked: isRemoteBackedTerminal
             )
             // Don't persist remote-detected listening ports
             listeningPorts = isRemoteBackedTerminal ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
@@ -672,13 +673,18 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+            // Check if this specific panel was remote-backed (not just workspace-wide remote)
+            // A remote-configured workspace can contain local terminals via attachDetachedSurface()
+            let panelWasRemoteBacked = snapshot.terminal?.isRemoteBacked ?? false
             // Determine which command to restore:
             // 1. Feature must be enabled globally
-            // 2. Explicit restoreCommand (user-configured via socket API) takes priority
+            // 2. Panel must not be remote-backed (don't restore commands to SSH sessions)
+            // 3. Explicit restoreCommand (user-configured via socket API) takes priority
             //    but still requires allowlist validation for security
-            // 3. Otherwise, check if detectedCommand is in the allowlist
+            // 4. Otherwise, check if detectedCommand is in the allowlist
             let commandToRestore: String? = {
                 guard SessionRestoreCommandSettings.isEnabled() else { return nil }
+                guard !panelWasRemoteBacked else { return nil }
                 // Explicit restoreCommand takes priority (validated for security)
                 if let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
                     return validated
@@ -696,7 +702,8 @@ extension Workspace {
                 return nil
             }
             // Persist explicit restoreCommand if allowed and not remote-backed
-            if remoteTerminalStartupCommand() == nil,
+            // Use per-panel remote flag instead of workspace-wide check
+            if !panelWasRemoteBacked,
                let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
                 setPanelRestoreCommand(panelId: terminalPanel.id, command: validated)
             }

@@ -227,6 +227,9 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var restoreCommand: String?
     /// The command that was running when the session was saved (detected from process tree)
     var detectedCommand: String?
+    /// Whether this terminal was remote-backed (SSH) when saved.
+    /// Used to restore local terminals correctly in a remote-configured workspace.
+    var isRemoteBacked: Bool?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
@@ -855,12 +858,10 @@ enum SessionRestoreCommandSettings {
     /// Check if a command is a MySQL-family tool with -p password flag
     /// MySQL, MariaDB, mysqldump, mysqladmin all use -p for password
     private static func isMySQLPasswordCommand(_ lowercasedCommand: String) -> Bool {
-        let mysqlTools = ["mysql", "mariadb", "mysqldump", "mysqladmin"]
+        let mysqlTools: Set<String> = ["mysql", "mariadb", "mysqldump", "mysqladmin"]
 
-        // Check if command starts with or contains a mysql tool
-        let commandBase = lowercasedCommand.split(separator: " ").first.map(String.init) ?? ""
-        let toolName = commandBase.split(separator: "/").last.map(String.init) ?? commandBase
-
+        // Parse the leading shell token (handles quoted paths like '/My App/mysql')
+        let toolName = parseLeadingExecutableBasename(lowercasedCommand)
         guard mysqlTools.contains(toolName) else { return false }
 
         // Check if -p flag is present (with or without space before value)
@@ -868,16 +869,117 @@ enum SessionRestoreCommandSettings {
         return lowercasedCommand.contains(" -p") || lowercasedCommand.contains(" -p=")
     }
 
+    /// Parse the leading executable token from a command line, handling shell quoting.
+    /// Returns the basename of the executable (e.g., "mysql" from "'/My App/mysql' --flag")
+    private static func parseLeadingExecutableBasename(_ command: String) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return "" }
+
+        var executablePath: String
+        let firstChar = trimmed.first!
+
+        if firstChar == "'" {
+            // Single-quoted: find closing quote, handle escaped quotes
+            if let closeIndex = findClosingSingleQuote(trimmed, startAfter: trimmed.startIndex) {
+                let start = trimmed.index(after: trimmed.startIndex)
+                executablePath = String(trimmed[start..<closeIndex])
+                // Unescape '\'' sequences
+                executablePath = executablePath.replacingOccurrences(of: "'\\''", with: "'")
+            } else {
+                // Unclosed quote, take whole thing minus opening quote
+                executablePath = String(trimmed.dropFirst())
+            }
+        } else if firstChar == "\"" {
+            // Double-quoted: find closing quote
+            if let closeIndex = findClosingDoubleQuote(trimmed, startAfter: trimmed.startIndex) {
+                let start = trimmed.index(after: trimmed.startIndex)
+                executablePath = String(trimmed[start..<closeIndex])
+                // Unescape basic sequences
+                executablePath = executablePath.replacingOccurrences(of: "\\\"", with: "\"")
+                executablePath = executablePath.replacingOccurrences(of: "\\\\", with: "\\")
+            } else {
+                executablePath = String(trimmed.dropFirst())
+            }
+        } else {
+            // Unquoted: take until first whitespace
+            if let spaceIndex = trimmed.firstIndex(where: { $0.isWhitespace }) {
+                executablePath = String(trimmed[..<spaceIndex])
+            } else {
+                executablePath = trimmed
+            }
+        }
+
+        // Extract basename
+        return URL(fileURLWithPath: executablePath).lastPathComponent
+    }
+
+    /// Find closing single quote, handling '\'' escape sequences
+    private static func findClosingSingleQuote(_ s: String, startAfter: String.Index) -> String.Index? {
+        var i = s.index(after: startAfter)
+        while i < s.endIndex {
+            if s[i] == "'" {
+                // Check if this is start of '\'' escape sequence
+                let remaining = s[i...]
+                if remaining.hasPrefix("'\\''") {
+                    // Skip the escape sequence
+                    i = s.index(i, offsetBy: 4, limitedBy: s.endIndex) ?? s.endIndex
+                } else {
+                    return i
+                }
+            } else {
+                i = s.index(after: i)
+            }
+        }
+        return nil
+    }
+
+    /// Find closing double quote, handling backslash escapes
+    private static func findClosingDoubleQuote(_ s: String, startAfter: String.Index) -> String.Index? {
+        var i = s.index(after: startAfter)
+        while i < s.endIndex {
+            if s[i] == "\\" {
+                // Skip next character (escaped)
+                i = s.index(after: i)
+                if i < s.endIndex {
+                    i = s.index(after: i)
+                }
+            } else if s[i] == "\"" {
+                return i
+            } else {
+                i = s.index(after: i)
+            }
+        }
+        return nil
+    }
+
     private static func commandMatchesPattern(_ command: String, pattern: String) -> Bool {
         let trimmedPattern = pattern.trimmingCharacters(in: .whitespaces)
 
-        // Extract command basename for matching (handles /usr/bin/opencode -> opencode)
-        let commandParts = command.split(separator: " ", maxSplits: 1)
-        let commandExec = String(commandParts.first ?? "")
-        let commandBasename = URL(fileURLWithPath: commandExec).lastPathComponent
-        let commandWithBasename = commandParts.count > 1
-            ? "\(commandBasename) \(commandParts[1])"
-            : commandBasename
+        // Extract command basename for matching (handles quoted paths like '/My App/opencode')
+        let commandBasename = parseLeadingExecutableBasename(command)
+        // Reconstruct command with basename: find where args start after the executable
+        let commandWithBasename: String = {
+            let trimmed = command.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { return commandBasename }
+            let firstChar = trimmed.first!
+            var afterExec: String.Index?
+            if firstChar == "'" {
+                if let close = findClosingSingleQuote(trimmed, startAfter: trimmed.startIndex) {
+                    afterExec = trimmed.index(after: close)
+                }
+            } else if firstChar == "\"" {
+                if let close = findClosingDoubleQuote(trimmed, startAfter: trimmed.startIndex) {
+                    afterExec = trimmed.index(after: close)
+                }
+            } else if let space = trimmed.firstIndex(where: { $0.isWhitespace }) {
+                afterExec = space
+            }
+            if let afterExec, afterExec < trimmed.endIndex {
+                let rest = trimmed[afterExec...].trimmingCharacters(in: .whitespaces)
+                return rest.isEmpty ? commandBasename : "\(commandBasename) \(rest)"
+            }
+            return commandBasename
+        }()
 
         // Prefix match: "opencode *" matches "opencode", "/usr/bin/opencode --flag", etc.
         // Also handles tab as argument separator for robustness
@@ -916,11 +1018,12 @@ final class SessionForegroundProcessCache {
         queue.async { [self] in
             var newCache: [String: String] = [:]
             for ttyName in ttyNames {
-                if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
+                let normalizedTTY = Self.normalizeTTYName(ttyName)
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: normalizedTTY),
                    let commandLine = detected.commandLine {
                     let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
-                        newCache[ttyName] = trimmed
+                        newCache[normalizedTTY] = trimmed
                     }
                 }
             }
@@ -937,11 +1040,12 @@ final class SessionForegroundProcessCache {
         queue.async { [self] in
             var newCache: [String: String] = [:]
             for ttyName in ttyNames {
-                if let detected = SessionForegroundProcessDetector.detect(forTTY: ttyName),
+                let normalizedTTY = Self.normalizeTTYName(ttyName)
+                if let detected = SessionForegroundProcessDetector.detect(forTTY: normalizedTTY),
                    let commandLine = detected.commandLine {
                     let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
                     if SessionRestoreCommandSettings.isCommandAllowed(trimmed) {
-                        newCache[ttyName] = trimmed
+                        newCache[normalizedTTY] = trimmed
                     }
                 }
             }
@@ -956,9 +1060,19 @@ final class SessionForegroundProcessCache {
 
     /// Get cached command line for a TTY. Safe to call from main thread.
     func cachedCommandLine(forTTY ttyName: String) -> String? {
+        let normalizedTTY = Self.normalizeTTYName(ttyName)
         os_unfair_lock_lock(&unfairLock)
         defer { os_unfair_lock_unlock(&unfairLock) }
-        return cache[ttyName]
+        return cache[normalizedTTY]
+    }
+
+    /// Normalize TTY name for consistent cache keying (strips /dev/ prefix)
+    private static func normalizeTTYName(_ ttyName: String) -> String {
+        let trimmed = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("/dev/") {
+            return String(trimmed.dropFirst(5))
+        }
+        return trimmed
     }
 
     /// Clear the cache (e.g., on app termination).
@@ -1112,19 +1226,23 @@ enum SessionForegroundProcessDetector {
         // IMPORTANT: Count ALL arguments including empty strings to avoid scanning past argv
         // into environment variables. An empty argv entry (two consecutive nulls) must still
         // be counted toward argc.
+        // If any argument fails UTF-8 decoding, abort entirely to avoid restoring a
+        // materially different command (e.g., "tool <bad-bytes> --flag" → "tool --flag").
         var args: [String] = []
         var argCount = 0
         var start = offset
         for i in offset...buffer.count {
             let byte: UInt8 = i < buffer.count ? buffer[i] : 0
             if byte == 0 {
-                // Always count this as an argument, even if empty or non-UTF8
+                // Always count this as an argument, even if empty
                 argCount += 1
                 if i > start {
                     let slice = Array(buffer[start..<i])
-                    if let s = String(bytes: slice, encoding: .utf8) {
-                        args.append(s)
+                    guard let s = String(bytes: slice, encoding: .utf8) else {
+                        // Abort on first UTF-8 decode failure
+                        return nil
                     }
+                    args.append(s)
                 }
                 // Empty strings (i == start) are counted but not added to args
                 if argCount >= Int(argc) { break }
