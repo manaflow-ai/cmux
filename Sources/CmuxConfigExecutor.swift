@@ -88,6 +88,20 @@ struct CmuxConfigExecutor {
         baseCwd: String
     ) {
         let workspaceName = wsDef.name ?? command.name
+        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
+
+        // "target": "current" — apply the layout to the selected workspace in-place.
+        if wsDef.target == .current, let current = tabManager.selectedWorkspace {
+            current.setCustomTitle(workspaceName)
+            if let color = wsDef.color {
+                current.setCustomColor(color)
+            }
+            if let layout = wsDef.layout {
+                current.applyCustomLayout(layout, baseCwd: resolvedCwd)
+            }
+            return
+        }
+
         let restart = command.restart ?? .ignore
 
         if let existing = tabManager.tabs.first(where: { $0.customTitle == workspaceName }) {
@@ -118,7 +132,6 @@ struct CmuxConfigExecutor {
             }
         }
 
-        let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
         let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {

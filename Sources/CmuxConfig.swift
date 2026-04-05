@@ -90,16 +90,25 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case confirm
 }
 
+enum CmuxWorkspaceTarget: String, Codable, Sendable {
+    /// Apply the layout to the currently selected workspace.
+    case current
+    /// Create a new workspace (default).
+    case new
+}
+
 struct CmuxWorkspaceDefinition: Codable, Sendable {
     var name: String?
     var cwd: String?
     var color: String?
+    var target: CmuxWorkspaceTarget?
     var layout: CmuxLayoutNode?
 
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
+    init(name: String? = nil, cwd: String? = nil, color: String? = nil, target: CmuxWorkspaceTarget? = nil, layout: CmuxLayoutNode? = nil) {
         self.name = name
         self.cwd = cwd
         self.color = color
+        self.target = target
         self.layout = layout
     }
 
