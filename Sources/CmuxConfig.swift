@@ -11,6 +11,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var description: String?
     var keywords: [String]?
     var restart: CmuxRestartBehavior?
+    var autoApply: Bool?
     var workspace: CmuxWorkspaceDefinition?
     var command: String?
     var confirm: Bool?
@@ -24,6 +25,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         description: String? = nil,
         keywords: [String]? = nil,
         restart: CmuxRestartBehavior? = nil,
+        autoApply: Bool? = nil,
         workspace: CmuxWorkspaceDefinition? = nil,
         command: String? = nil,
         confirm: Bool? = nil
@@ -32,6 +34,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         self.description = description
         self.keywords = keywords
         self.restart = restart
+        self.autoApply = autoApply
         self.workspace = workspace
         self.command = command
         self.confirm = confirm
@@ -43,6 +46,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
         restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
+        autoApply = try container.decodeIfPresent(Bool.self, forKey: .autoApply)
         workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
         command = try container.decodeIfPresent(String.self, forKey: .command)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
@@ -280,6 +284,7 @@ final class CmuxConfigStore: ObservableObject {
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }()
 
+    private weak var trackedTabManager: TabManager?
     private var cancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -302,6 +307,7 @@ final class CmuxConfigStore: ObservableObject {
     // MARK: - Public API
 
     func wireDirectoryTracking(tabManager: TabManager) {
+        trackedTabManager = tabManager
         cancellables.removeAll()
 
         tabManager.$selectedTabId
@@ -391,6 +397,29 @@ final class CmuxConfigStore: ObservableObject {
         loadedCommands = commands
         commandSourcePaths = sourcePaths
         configRevision &+= 1
+        checkAutoApply()
+    }
+
+    /// If the selected workspace has a single pane and a loaded command has
+    /// `autoApply: true` with `target: "current"`, execute it automatically.
+    private func checkAutoApply() {
+        guard let tabManager = trackedTabManager,
+              let workspace = tabManager.selectedWorkspace,
+              workspace.panels.count == 1,
+              let baseCwd = localConfigPath.map({ ($0 as NSString).deletingLastPathComponent })
+        else { return }
+
+        guard let command = loadedCommands.first(where: {
+            $0.autoApply == true && $0.workspace?.target == .current
+        }) else { return }
+
+        CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: commandSourcePaths[command.id],
+            globalConfigPath: globalConfigPath
+        )
     }
 
     // MARK: - Parsing
