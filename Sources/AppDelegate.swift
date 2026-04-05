@@ -2861,24 +2861,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        // Don't set isTerminatingApp yet - user may cancel the quit dialog.
-        // Precautionary save uses async refresh; final save in applicationWillTerminate uses sync.
+        // Precautionary save; final save with sync refresh happens in applicationWillTerminate
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
+            isTerminatingApp = true
             return .terminateNow
         }
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
+            isTerminatingApp = true
             return .terminateNow
         }
 
         // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
+            isTerminatingApp = true
             return .terminateNow
         }
 
@@ -2902,8 +2904,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
+                self.isTerminatingApp = true
             } else {
-                // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)

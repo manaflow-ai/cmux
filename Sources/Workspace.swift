@@ -247,23 +247,15 @@ extension Workspace {
         )
     }
 
-    /// Check if a panel is remote-backed for session snapshot purposes.
-    /// Includes active remote terminals, transferred remotes, and child-exited remotes.
     private func isRemoteBackedForSessionSnapshot(_ panelId: UUID) -> Bool {
         activeRemoteTerminalSurfaceIds.contains(panelId) ||
         transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
         pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
     }
 
-    /// Returns all TTY names for local terminal panels in this workspace.
-    /// Used to refresh the foreground process cache before snapshotting.
-    /// Skips remote-backed terminals (their TTYs won't be used in snapshot).
     func allTerminalTTYNames() -> [String] {
         panels.compactMap { panelId, panel in
-            guard panel is TerminalPanel,
-                  !isRemoteBackedForSessionSnapshot(panelId) else {
-                return nil
-            }
+            guard panel is TerminalPanel, !isRemoteBackedForSessionSnapshot(panelId) else { return nil }
             return surfaceTTYNames[panelId]
         }
     }
@@ -458,12 +450,13 @@ extension Workspace {
         let branchSnapshot = panelGitBranches[panelId].map {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
+        let isRemoteBackedTerminal = isRemoteBackedForSessionSnapshot(panelId)
+        let listeningPorts = isRemoteBackedTerminal ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
-        let listeningPorts: [Int]
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -481,12 +474,8 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
-            // Skip restore/detection metadata for remote-backed terminals
-            let isRemoteBackedTerminal = isRemoteBackedForSessionSnapshot(panelId)
-            // Read cached foreground command (cache is refreshed before snapshot)
             let detectedCommand: String? = {
-                guard !isRemoteBackedTerminal,
-                      let ttyName = surfaceTTYNames[panelId] else { return nil }
+                guard !isRemoteBackedTerminal, let ttyName else { return nil }
                 return SessionForegroundProcessCache.shared.cachedCommandLine(forTTY: ttyName)
             }()
             terminalSnapshot = SessionTerminalPanelSnapshot(
@@ -496,8 +485,6 @@ extension Workspace {
                 detectedCommand: detectedCommand,
                 isRemoteBacked: isRemoteBackedTerminal
             )
-            // Don't persist remote-detected listening ports
-            listeningPorts = isRemoteBackedTerminal ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
             browserSnapshot = nil
             markdownSnapshot = nil
         case .browser:
@@ -513,13 +500,11 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
-            listeningPorts = []
             markdownSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            listeningPorts = []
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
         }
 
@@ -673,24 +658,12 @@ extension Workspace {
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
-            // Check if this specific panel was remote-backed (not just workspace-wide remote)
-            // A remote-configured workspace can contain local terminals via attachDetachedSurface()
             let panelWasRemoteBacked = snapshot.terminal?.isRemoteBacked ?? false
-            // Determine which command to restore:
-            // 1. Feature must be enabled globally
-            // 2. Panel must not be remote-backed (don't restore commands to SSH sessions)
-            // 3. Explicit restoreCommand (user-configured via socket API) takes priority
-            //    but still requires allowlist validation for security
-            // 4. Otherwise, check if detectedCommand is in the allowlist
             let commandToRestore: String? = {
-                guard SessionRestoreCommandSettings.isEnabled() else { return nil }
-                guard !panelWasRemoteBacked else { return nil }
-                // Explicit restoreCommand takes priority (validated for security)
-                if let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
-                    return validated
-                }
-                // Fall back to detected command if allowed
-                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
+                guard SessionRestoreCommandSettings.isEnabled(), !panelWasRemoteBacked else { return nil }
+                // Explicit restoreCommand takes priority, then detected command
+                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand)
+                    ?? SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
             }()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
@@ -701,8 +674,6 @@ extension Workspace {
             ) else {
                 return nil
             }
-            // Persist explicit restoreCommand if allowed and not remote-backed
-            // Use per-panel remote flag instead of workspace-wide check
             if !panelWasRemoteBacked,
                let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
                 setPanelRestoreCommand(panelId: terminalPanel.id, command: validated)
@@ -764,16 +735,9 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        // Skip restoring listeningPorts for remote-backed terminals (remote ports are transient)
-        // Use per-panel isRemoteBacked from snapshot to correctly handle local terminals in remote workspaces
         let isRemoteBackedTerminal = snapshot.terminal?.isRemoteBacked ?? false
-        surfaceListeningPorts[panelId] = isRemoteBackedTerminal
-            ? []
-            : Array(Set(snapshot.listeningPorts)).sorted()
-
-        // Note: We intentionally do NOT restore ttyName from snapshot.
-        // The snapshot TTY is from a dead session; the new terminal will report its live TTY.
-        // syncRemotePortScanTTYs() will be called when the new terminal reports its TTY.
+        surfaceListeningPorts[panelId] = isRemoteBackedTerminal ? [] : Array(Set(snapshot.listeningPorts)).sorted()
+        // Don't restore ttyName - stale from dead session; new terminal reports its own TTY
 
         if let browserSnapshot = snapshot.browser,
            let browserPanel = browserPanel(for: panelId) {
@@ -6405,7 +6369,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
-    /// Command to run when restoring this terminal panel after app restart
     @Published private(set) var panelRestoreCommands: [UUID: String] = [:]
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
@@ -7197,8 +7160,6 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
-    /// Set or clear the command to auto-restore when this terminal panel is restored after app restart.
-    /// Only terminal panels support restore commands. Blocked commands are rejected.
     func setPanelRestoreCommand(panelId: UUID, command: String?) {
         guard panels[panelId] is TerminalPanel else { return }
         guard let validated = SessionRestoreCommandSettings.validatedRestoreCommand(command) else {
@@ -8050,7 +8011,6 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
-        // Clear stale local TTY name - remote terminals use remote TTYs, not local ones
         surfaceTTYNames.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -8720,11 +8680,6 @@ final class Workspace: Identifiable, ObservableObject {
     ///                    true = force focus/selection of the new surface,
     ///                    false = never focus (used for internal placeholder repair paths).
     @discardableResult
-    /// Create a new terminal surface in the specified pane.
-    ///
-    /// - Parameters:
-    ///   - initialInput: Text to type into the shell after it starts (for session restore).
-    ///                   Unlike initialCommand on remote workspaces, this doesn't replace the shell.
     func newTerminalSurface(
         inPane paneId: PaneID,
         focus: Bool? = nil,
@@ -8738,7 +8693,6 @@ final class Workspace: Identifiable, ObservableObject {
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
-        // Skip initialInput for SSH (restore text would land in prompts)
         let safeInitialInput = remoteTerminalStartupCommand != nil ? nil : initialInput
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -9579,7 +9533,6 @@ final class Workspace: Identifiable, ObservableObject {
         if let customTitle = detached.customTitle {
             panelCustomTitles[detached.panelId] = customTitle
         }
-        // Note: restoreCommand is handled after remoteCleanupConfiguration check below
         if detached.isPinned {
             pinnedPanelIds.insert(detached.panelId)
         } else {
@@ -9640,10 +9593,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
         }
-        // Don't restore command for remote-backed terminals (their commands ran on remote server)
-        // Check both isRemoteTerminal AND remoteCleanupConfiguration to catch transferred remotes
-        let isRemoteBackedDetachedSurface =
-            detached.isRemoteTerminal || detached.remoteCleanupConfiguration != nil
+        let isRemoteBackedDetachedSurface = detached.isRemoteTerminal || detached.remoteCleanupConfiguration != nil
         if !isRemoteBackedDetachedSurface, let restoreCommand = detached.restoreCommand {
             setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
         }

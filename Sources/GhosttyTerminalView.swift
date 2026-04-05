@@ -3919,33 +3919,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
             }
             return baseConfig.command
         }()
-        // Prefer explicit initialInput (for session restore), then config template's initial input.
-        // - Explicit initialInput: appends "\n" to execute the command (validated at constructor)
-        // - baseConfig.initialInput: preserved verbatim (Ghostty's native bytes-as-is semantics)
         let resolvedInitialInput: String? = {
             if let initialInput, !initialInput.isEmpty {
-                // Append newline to execute the command
+                // Session restore: append newline to execute
                 return initialInput + "\n"
             }
-            // Preserve Ghostty's native startup-input semantics for inherited config.
-            // Ghostty's `input` configuration sends bytes as-is to the PTY with no encoding—
-            // repeated inputs are concatenated without separators or newlines.
-            // Do NOT trim or validate here; that would break configs relying on exact bytes.
+            // Ghostty config: pass through unchanged
             guard let baseInput = baseConfig.initialInput, !baseInput.isEmpty else { return nil }
             return baseInput
         }()
 #if DEBUG
-        if resolvedInitialInput != nil || initialInput != nil || baseConfig.initialInput != nil {
-            // Log presence and byte counts only to avoid leaking sensitive command content
-            let explicitBytes = initialInput?.utf8.count ?? 0
-            let baseBytes = baseConfig.initialInput?.utf8.count ?? 0
-            let resolvedBytes = resolvedInitialInput?.utf8.count ?? 0
-            dlog(
-                "surface.createSurface.initialInput surface=\(id.uuidString.prefix(5)) " +
-                "explicitPresent=\(initialInput != nil ? 1 : 0) explicitBytes=\(explicitBytes) " +
-                "basePresent=\(baseConfig.initialInput != nil ? 1 : 0) baseBytes=\(baseBytes) " +
-                "resolvedPresent=\(resolvedInitialInput != nil ? 1 : 0) resolvedBytes=\(resolvedBytes)"
-            )
+        if resolvedInitialInput != nil {
+            dlog("surface.createSurface surface=\(id.uuidString.prefix(5)) hasInitialInput=1")
         }
 #endif
         func withOptionalCString<T>(_ value: String?, _ body: (UnsafePointer<CChar>?) -> T) -> T {
