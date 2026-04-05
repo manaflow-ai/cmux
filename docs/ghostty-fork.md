@@ -115,7 +115,7 @@ The fork branch HEAD is now the section 7 cmux theme picker helper commit.
 
 ### 9) Initial focus seeding and DECSET 1004 startup behavior
 
-- Status: working tree change (not yet committed)
+- Commit: `c19c82bfd` (Seed initial focus state and avoid startup focus-report leak)
 - Files:
   - `include/ghostty.h`
   - `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
@@ -126,6 +126,8 @@ The fork branch HEAD is now the section 7 cmux theme picker helper commit.
   - Adds an explicit initial `focused` flag to surface creation so host apps can start background panes unfocused.
   - Seeds renderer and termio focus bookkeeping from that initial state before the IO thread starts.
   - Keeps DECSET 1004 enablement side-effect free so focus sequences are emitted only on subsequent real focus transitions, preventing `CSI I/O` from leaking into shells during pane creation.
+
+The fork branch HEAD is now the section 9 focus-reporting commit.
 
 ## Upstreamed fork changes
 
