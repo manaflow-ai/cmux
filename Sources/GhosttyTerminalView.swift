@@ -6524,10 +6524,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func modsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
+        let raw = event.modifierFlags.rawValue
         if event.modifierFlags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if event.modifierFlags.contains(.control) { mods |= GHOSTTY_MODS_CTRL.rawValue }
         if event.modifierFlags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
         if event.modifierFlags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
+        if raw & UInt(NX_DEVICERSHIFTKEYMASK) != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERCTLKEYMASK) != 0 { mods |= GHOSTTY_MODS_CTRL_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERALTKEYMASK) != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERCMDKEYMASK) != 0 { mods |= GHOSTTY_MODS_SUPER_RIGHT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
@@ -6536,10 +6541,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// should be excluded from consumed_mods.
     private func consumedModsFromFlags(_ flags: NSEvent.ModifierFlags) -> ghostty_input_mods_e {
         var mods = GHOSTTY_MODS_NONE.rawValue
+        let raw = flags.rawValue
         // Only include Shift and Option as potentially consumed
         // Control and Command are never consumed for text translation
         if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
         if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
+        if raw & UInt(NX_DEVICERSHIFTKEYMASK) != 0 { mods |= GHOSTTY_MODS_SHIFT_RIGHT.rawValue }
+        if raw & UInt(NX_DEVICERALTKEYMASK) != 0 { mods |= GHOSTTY_MODS_ALT_RIGHT.rawValue }
         return ghostty_input_mods_e(rawValue: mods)
     }
 
