@@ -522,6 +522,9 @@ enum SessionRestoreCommandSettings {
         "flask run *",
         // Watchers/logs
         "tail -f *",
+        // Remote sessions
+        "ssh *",
+        "mosh *",
     ]
 
     static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
@@ -646,6 +649,9 @@ enum SessionRestoreCommandSettings {
         // SSH/auth keys
         "--private-key=", "--private-key ",
         "--ssh-key=", "--ssh-key ",
+        // SSH password wrappers and inline credentials
+        "sshpass ",
+        ":@",  // user:pass@host syntax
         // Generic auth
         "--credentials=", "--credentials ",
         "--auth=", "--auth ",

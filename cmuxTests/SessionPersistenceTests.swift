@@ -72,6 +72,83 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
     }
 
+    @MainActor
+    func testSessionSnapshotSetsIsRemoteBackedForRemoteTerminal() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertEqual(panelSnapshot.terminal?.isRemoteBacked, true)
+    }
+
+    @MainActor
+    func testSessionSnapshotSkipsRestoreCommandForRemoteTerminal() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.setPanelRestoreCommand(panelId: panelId, command: "opencode")
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertNil(panelSnapshot.terminal?.restoreCommand)
+    }
+
+    @MainActor
+    func testAllTerminalTTYNamesExcludesRemoteTerminals() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.surfaceTTYNames[panelId] = "/dev/ttys001"
+        XCTAssertEqual(workspace.allTerminalTTYNames(), ["/dev/ttys001"])
+
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        XCTAssertTrue(workspace.allTerminalTTYNames().isEmpty)
+    }
+
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -1574,6 +1651,31 @@ final class SessionRestoreCommandSettingsTests: XCTestCase {
             "mycli cat .aws/credentials",
             "mycli cat .kube/config",
         ], allowlist: allowlist)
+    }
+
+    func testDenylistBlocksSSHWithCredentials() {
+        let allowlist = "ssh *\nmosh *"
+        assertAllBlocked([
+            // sshpass password wrapper
+            "sshpass -p secret ssh user@host",
+            "sshpass -f /path/to/passfile ssh user@host",
+            // user:pass@host syntax
+            "ssh user:password@host",
+            "mosh user:secret@server.com",
+            // Default key paths
+            "ssh -i ~/.ssh/id_rsa user@host",
+            "ssh -i .ssh/id_ed25519 user@host",
+        ], allowlist: allowlist)
+    }
+
+    func testAllowlistAllowsSSHWithoutCredentials() {
+        let allowlist = "ssh *\nmosh *"
+        // Safe SSH commands should be allowed
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("ssh user@host", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("ssh -t user@host opencode", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("ssh -i /custom/path/mykey user@host", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("mosh user@host", rawAllowlist: allowlist))
+        XCTAssertTrue(SessionRestoreCommandSettings.isCommandAllowed("ssh -p 2222 user@host", rawAllowlist: allowlist))
     }
 
     func testDenylistBlocksDestructiveOperations() {

@@ -2906,6 +2906,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self.isQuitWarningConfirmed = true
                 self.isTerminatingApp = true
             } else {
+                // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)

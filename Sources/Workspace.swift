@@ -248,7 +248,7 @@ extension Workspace {
     }
 
     private func isRemoteBackedForSessionSnapshot(_ panelId: UUID) -> Bool {
-        activeRemoteTerminalSurfaceIds.contains(panelId) ||
+        isRemoteTerminalSurface(panelId) ||
         transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil ||
         pendingRemoteTerminalChildExitSurfaceIds.contains(panelId)
     }
@@ -451,7 +451,8 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
         }
         let isRemoteBackedTerminal = isRemoteBackedForSessionSnapshot(panelId)
-        let listeningPorts = isRemoteBackedTerminal ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
+        let hasRemoteDetectedPorts = remoteDetectedSurfaceIds.contains(panelId)
+        let listeningPorts = (isRemoteBackedTerminal || hasRemoteDetectedPorts) ? [] : (surfaceListeningPorts[panelId] ?? []).sorted()
         let ttyName = surfaceTTYNames[panelId]
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?

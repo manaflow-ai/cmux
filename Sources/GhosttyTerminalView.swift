@@ -3186,8 +3186,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         self.workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.initialCommand = (trimmedCommand?.isEmpty == false) ? trimmedCommand : nil
-        // Reject initialInput containing newlines to prevent command injection (e.g., "ssh host\nrm -rf ~")
-        // Check for newlines on RAW string before trimming to catch "\ncmd" or "cmd\r"
+        // Last-resort safety check for newlines only.
+        // Primary validation is in SessionRestoreCommandSettings.validatedRestoreCommand()
         if let rawInput = initialInput,
            !rawInput.contains("\n"),
            !rawInput.contains("\r") {
