@@ -3768,6 +3768,70 @@ enum QuitWarningSettings {
     }
 }
 
+enum CloseRunningProcessSettings {
+    static let enabledKey = "confirmCloseRunningProcess"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: enabledKey)
+    }
+}
+
+enum ClosePinnedWorkspaceSettings {
+    static let enabledKey = "confirmClosePinnedWorkspace"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: enabledKey)
+    }
+}
+
+enum CloseWindowSettings {
+    static let enabledKey = "confirmCloseWindow"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: enabledKey)
+    }
+}
+
+enum BatchCloseSettings {
+    static let enabledKey = "confirmBatchClose"
+    static let defaultEnabled = true
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+
+    static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(isEnabled, forKey: enabledKey)
+    }
+}
+
 enum CommandPaletteRenameSelectionSettings {
     static let selectAllOnFocusKey = "commandPalette.renameSelectAllOnFocus"
     static let defaultSelectAllOnFocus = true
@@ -3932,6 +3996,10 @@ struct SettingsView: View {
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+    @AppStorage(CloseRunningProcessSettings.enabledKey) private var confirmCloseRunningProcess = CloseRunningProcessSettings.defaultEnabled
+    @AppStorage(ClosePinnedWorkspaceSettings.enabledKey) private var confirmClosePinnedWorkspace = ClosePinnedWorkspaceSettings.defaultEnabled
+    @AppStorage(CloseWindowSettings.enabledKey) private var confirmCloseWindow = CloseWindowSettings.defaultEnabled
+    @AppStorage(BatchCloseSettings.enabledKey) private var confirmBatchClose = BatchCloseSettings.defaultEnabled
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
@@ -4778,6 +4846,58 @@ struct SettingsView: View {
                                 : String(localized: "settings.app.warnBeforeQuit.subtitleOff", defaultValue: "Cmd+Q quits immediately without confirmation.")
                         ) {
                             Toggle("", isOn: $warnBeforeQuitShortcut)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.confirmCloseRunningProcess", defaultValue: "Confirm Close Running Process"),
+                            subtitle: confirmCloseRunningProcess
+                                ? String(localized: "settings.app.confirmCloseRunningProcess.subtitleOn", defaultValue: "Show a confirmation before closing a workspace with a running command.")
+                                : String(localized: "settings.app.confirmCloseRunningProcess.subtitleOff", defaultValue: "Close workspaces without confirmation, even with running commands.")
+                        ) {
+                            Toggle("", isOn: $confirmCloseRunningProcess)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.confirmClosePinnedWorkspace", defaultValue: "Confirm Close Pinned Workspace"),
+                            subtitle: confirmClosePinnedWorkspace
+                                ? String(localized: "settings.app.confirmClosePinnedWorkspace.subtitleOn", defaultValue: "Show a confirmation before closing a pinned workspace.")
+                                : String(localized: "settings.app.confirmClosePinnedWorkspace.subtitleOff", defaultValue: "Close pinned workspaces without extra confirmation.")
+                        ) {
+                            Toggle("", isOn: $confirmClosePinnedWorkspace)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.confirmCloseWindow", defaultValue: "Confirm Close Window"),
+                            subtitle: confirmCloseWindow
+                                ? String(localized: "settings.app.confirmCloseWindow.subtitleOn", defaultValue: "Show a confirmation before closing a window with workspaces.")
+                                : String(localized: "settings.app.confirmCloseWindow.subtitleOff", defaultValue: "Close windows without confirmation.")
+                        ) {
+                            Toggle("", isOn: $confirmCloseWindow)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.app.confirmBatchClose", defaultValue: "Confirm Batch Close"),
+                            subtitle: confirmBatchClose
+                                ? String(localized: "settings.app.confirmBatchClose.subtitleOn", defaultValue: "Show a confirmation before closing multiple tabs or workspaces at once.")
+                                : String(localized: "settings.app.confirmBatchClose.subtitleOff", defaultValue: "Close multiple tabs or workspaces without confirmation.")
+                        ) {
+                            Toggle("", isOn: $confirmBatchClose)
                                 .labelsHidden()
                                 .controlSize(.small)
                         }
@@ -5910,6 +6030,10 @@ struct SettingsView: View {
         notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
+        confirmCloseRunningProcess = CloseRunningProcessSettings.defaultEnabled
+        confirmClosePinnedWorkspace = ClosePinnedWorkspaceSettings.defaultEnabled
+        confirmCloseWindow = CloseWindowSettings.defaultEnabled
+        confirmBatchClose = BatchCloseSettings.defaultEnabled
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         ShortcutHintDebugSettings.resetVisibilityDefaults()

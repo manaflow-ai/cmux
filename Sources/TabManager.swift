@@ -2827,14 +2827,16 @@ class TabManager: ObservableObject {
     func closeOtherTabsInFocusedPaneWithConfirmation() {
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
-        let count = plan.panelIds.count
-        let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
-        let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
-        guard confirmClose(
-            title: "Close other tabs?",
-            message: message,
-            acceptCmdD: false
-        ) else { return }
+        if BatchCloseSettings.isEnabled() {
+            let count = plan.panelIds.count
+            let titleLines = plan.titles.map { "• \($0)" }.joined(separator: "\n")
+            let message = "This is about to close \(count) tab\(count == 1 ? "" : "s") in this pane:\n\(titleLines)"
+            guard confirmClose(
+                title: "Close other tabs?",
+                message: message,
+                acceptCmdD: false
+            ) else { return }
+        }
 
         for panelId in plan.panelIds {
             _ = plan.workspace.closePanel(panelId, force: true)
@@ -2861,7 +2863,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
-        if workspace.isPinned {
+        if workspace.isPinned && ClosePinnedWorkspaceSettings.isEnabled() {
             guard confirmClose(
                 title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
                 message: String(
@@ -2899,11 +2901,13 @@ class TabManager: ObservableObject {
         }
 
         let plan = closeWorkspacesPlan(for: workspaces)
-        guard confirmClose(
-            title: plan.title,
-            message: plan.message,
-            acceptCmdD: plan.acceptCmdD
-        ) else { return }
+        if BatchCloseSettings.isEnabled() {
+            guard confirmClose(
+                title: plan.title,
+                message: plan.message,
+                acceptCmdD: plan.acceptCmdD
+            ) else { return }
+        }
 
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
