@@ -765,6 +765,8 @@ class TabManager: ObservableObject {
     /// Views that read `sidebarLayout` also read this to ensure re-evaluation.
     @Published private(set) var sectionRevision: UInt64 = 0
     private var sectionObserverCancellables: [AnyCancellable] = []
+    /// Set to a section ID to auto-enter rename mode on the next render.
+    @Published var pendingRenameSectionId: UUID?
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
@@ -2706,6 +2708,7 @@ class TabManager: ObservableObject {
     func createSection(name: String) -> SidebarSection {
         let section = SidebarSection(name: name)
         sections.append(section)
+        pendingRenameSectionId = section.id
         return section
     }
 
@@ -5922,6 +5925,7 @@ extension TabManager {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let workspace = Workspace(
+                restoredId: workspaceSnapshot.id,
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal

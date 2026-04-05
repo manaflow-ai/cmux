@@ -12364,6 +12364,12 @@ private struct SidebarSectionHeaderView: View {
             section.toggleCollapsed()
             tabManager.objectWillChange.send()
         }
+        .onReceive(tabManager.$pendingRenameSectionId) { pendingId in
+            guard pendingId == section.id else { return }
+            tabManager.pendingRenameSectionId = nil
+            editedName = section.name
+            isEditing = true
+        }
         .contextMenu {
             Button(section.isCollapsed
                 ? String(localized: "contextMenu.expandSection", defaultValue: "Expand Section")
