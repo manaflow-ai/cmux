@@ -327,6 +327,20 @@ final class CmuxConfigStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Separate observer for autoApply: fires on every workspace switch
+        // (after a short delay so the workspace is fully visible).
+        tabManager.$selectedTabId
+            .dropFirst() // skip the initial value on subscribe
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                // Small delay so the config for the new directory loads first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.checkAutoApply()
+                }
+            }
+            .store(in: &cancellables)
+
         if let directory = tabManager.selectedWorkspace?.currentDirectory {
             updateLocalConfigPath(directory)
         }
