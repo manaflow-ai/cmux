@@ -6169,6 +6169,14 @@ struct ContentView: View {
             return .splitRight
         case "palette.terminalSplitDown":
             return .splitDown
+        case "palette.terminalFind":
+            return .find
+        case "palette.terminalFindNext":
+            return .findNext
+        case "palette.terminalFindPrevious":
+            return .findPrevious
+        case "palette.terminalHideFind":
+            return .hideFind
         case "palette.toggleSplitZoom":
             return .toggleSplitZoom
         case "palette.triggerFlash":
@@ -6207,7 +6215,7 @@ struct ContentView: View {
         case "palette.terminalFindNext":
             return "⌘G"
         case "palette.terminalFindPrevious":
-            return "⌘⇧G"
+            return "⌥⌘G"
         case "palette.terminalHideFind":
             return "⌘⇧F"
         case "palette.terminalUseSelectionForFind":
@@ -6964,7 +6972,7 @@ struct ContentView: View {
                 commandId: "palette.terminalFindPrevious",
                 title: constant(String(localized: "command.terminalFindPrevious.title", defaultValue: "Find Previous")),
                 subtitle: terminalPanelSubtitle,
-                shortcutHint: "⌘⇧G",
+                shortcutHint: "⌥⌘G",
                 keywords: ["terminal", "find", "previous", "search"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
@@ -7338,7 +7346,9 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.browserReactGrab") {
-            tabManager.toggleReactGrabFocusedBrowser()
+            if !tabManager.toggleReactGrabFromCurrentFocus() {
+                NSSound.beep()
+            }
         }
         registry.register(commandId: "palette.browserZoomIn") {
             if !tabManager.zoomInFocusedBrowser() {
