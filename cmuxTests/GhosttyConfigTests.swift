@@ -2755,6 +2755,27 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
+    func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_restore_terminal_identity_after_startup
+            print -r -- "$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_THEME_TERM="$TERM"
+            if [[ $TERM = (*256color|*rxvt*) ]]; then
+              export CMUX_STARTUP_THEME_BRANCH=extended
+            else
+              export CMUX_STARTUP_THEME_BRANCH=basic
+            fi
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-ghostty|basic|xterm-256color|unset", output)
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3204,7 +3225,8 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         cmuxLoadGhosttyIntegration: Bool,
         cmuxLoadShellIntegration: Bool,
         command: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        userZshRCContents: String? = nil
     ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3226,6 +3248,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             atomically: true,
             encoding: .utf8
         )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
