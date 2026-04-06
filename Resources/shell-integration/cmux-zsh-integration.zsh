@@ -1238,6 +1238,6 @@ add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
 add-zsh-hook precmd _cmux_restore_terminal_identity_after_startup
 if (( $+functions[add-zle-hook-widget] )); then
-    add-zle-hook-widget line-init _cmux_restore_terminal_identity_after_startup
+    add-zle-hook-widget line-init _cmux_restore_terminal_identity_after_startup 2>/dev/null || true
 fi
 add-zsh-hook zshexit _cmux_zshexit
