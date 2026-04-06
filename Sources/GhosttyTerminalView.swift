@@ -5918,6 +5918,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
+        let flags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+
+        // Printable text without Command/Control should stay on the normal keyDown
+        // path. AppKit can still route layout-dependent punctuation through
+        // performKeyEquivalent first, and probing bindings here can misclassify
+        // keys such as ABC-QWERTZ Shift+7 ("/") or Shift+- ("?") as shortcuts.
+        if !flags.contains(.command),
+           !flags.contains(.control),
+           let text = textForKeyEvent(event),
+           shouldSendText(text) {
+            lastPerformKeyEvent = nil
+            return false
+        }
+
 #if DEBUG
         recordKeyLatency(path: "performKeyEquivalent", event: event)
 #endif
