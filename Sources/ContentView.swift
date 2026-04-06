@@ -1895,6 +1895,7 @@ struct ContentView: View {
         enum Kind: Equatable {
             case workspace(workspaceId: UUID)
             case tab(workspaceId: UUID, panelId: UUID)
+            case window(windowId: UUID)
         }
 
         let kind: Kind
@@ -1906,6 +1907,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspaceTitle", defaultValue: "Rename Workspace")
             case .tab:
                 return String(localized: "commandPalette.rename.tabTitle", defaultValue: "Rename Tab")
+            case .window:
+                return String(localized: "commandPalette.rename.windowTitle", defaultValue: "Rename Window")
             }
         }
 
@@ -1915,6 +1918,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspaceDescription", defaultValue: "Choose a custom workspace name.")
             case .tab:
                 return String(localized: "commandPalette.rename.tabDescription", defaultValue: "Choose a custom tab name.")
+            case .window:
+                return String(localized: "commandPalette.rename.windowDescription", defaultValue: "Choose a custom window name.")
             }
         }
 
@@ -1924,6 +1929,8 @@ struct ContentView: View {
                 return String(localized: "commandPalette.rename.workspacePlaceholder", defaultValue: "Workspace name")
             case .tab:
                 return String(localized: "commandPalette.rename.tabPlaceholder", defaultValue: "Tab name")
+            case .window:
+                return String(localized: "commandPalette.rename.windowPlaceholder", defaultValue: "Window name")
             }
         }
     }
@@ -2191,6 +2198,8 @@ struct ContentView: View {
         static let panelHasCustomName = "panel.hasCustomName"
         static let panelShouldPin = "panel.shouldPin"
         static let panelHasUnread = "panel.hasUnread"
+
+        static let windowHasCustomTitle = "window.hasCustomTitle"
 
         static let updateHasAvailable = "update.hasAvailable"
         static let cliInstalledInPATH = "cli.installedInPATH"
@@ -2798,7 +2807,19 @@ struct ContentView: View {
             }
             return
         }
-        let title = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let workspaceName = tab.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let windowCustomTitle = AppDelegate.shared?.customWindowTitle(for: windowId)
+        let title: String
+        if let windowCustomTitle, !windowCustomTitle.isEmpty {
+            title = workspaceName.isEmpty
+                ? windowCustomTitle
+                : String(
+                    localized: "titlebar.windowWithWorkspace",
+                    defaultValue: "\(windowCustomTitle) - \(workspaceName)"
+                )
+        } else {
+            title = workspaceName
+        }
         if titlebarText != title {
             titlebarText = title
         }
@@ -3064,6 +3085,13 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .mainWindowContextsDidChange)) { _ in
+            scheduleTitlebarTextRefresh()
+            if isCommandPalettePresented {
+                scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
+            }
+        })
+
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
@@ -3243,6 +3271,17 @@ struct ContentView: View {
                 mainWindow: NSApp.mainWindow
             ) else { return }
             openCommandPaletteRenameWorkspaceInput()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWindowRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            openCommandPaletteRenameWindowInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteEditWorkspaceDescriptionRequested)) { notification in
@@ -5097,6 +5136,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
         case .tab:
             return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
+        case .window:
+            return String(localized: "commandPalette.rename.windowInputHint", defaultValue: "Enter a window name. Press Enter to rename, Escape to cancel.")
         }
     }
 
@@ -5106,6 +5147,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
         case .tab:
             return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
+        case .window:
+            return String(localized: "commandPalette.rename.windowConfirmHint", defaultValue: "Press Enter to apply this window name, or Escape to cancel.")
         }
     }
 
@@ -5910,7 +5953,11 @@ struct ContentView: View {
         var windowLabelById: [UUID: String] = [:]
         if orderedSummaries.count > 1 {
             for (index, summary) in orderedSummaries.enumerated() where summary.windowId != windowId {
-                windowLabelById[summary.windowId] = String(localized: "commandPalette.switcher.windowLabel", defaultValue: "Window \(index + 1)")
+                if let customTitle = summary.customWindowTitle {
+                    windowLabelById[summary.windowId] = customTitle
+                } else {
+                    windowLabelById[summary.windowId] = String(localized: "commandPalette.switcher.windowLabel", defaultValue: "Window \(index + 1)")
+                }
             }
         }
 
@@ -6155,6 +6202,8 @@ struct ContentView: View {
             return .renameTab
         case "palette.renameWorkspace":
             return .renameWorkspace
+        case "palette.renameWindow":
+            return .renameWindow
         case "palette.editWorkspaceDescription":
             return .editWorkspaceDescription
         case "palette.nextWorkspace":
@@ -6301,6 +6350,11 @@ struct ContentView: View {
                 }
             }
         }
+
+        snapshot.setBool(
+            CommandPaletteContextKeys.windowHasCustomTitle,
+            AppDelegate.shared?.customWindowTitle(for: windowId) != nil
+        )
 
         if case .updateAvailable = updateViewModel.effectiveState {
             snapshot.setBool(CommandPaletteContextKeys.updateHasAvailable, true)
@@ -6559,6 +6613,24 @@ struct ContentView: View {
                 keywords: ["rename", "workspace", "title"],
                 dismissOnRun: false,
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.renameWindow",
+                title: constant(String(localized: "command.renameWindow.title", defaultValue: "Rename Window…")),
+                subtitle: constant(String(localized: "command.renameWindow.subtitle", defaultValue: "Window")),
+                keywords: ["rename", "window", "title", "name"],
+                dismissOnRun: false
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.clearWindowName",
+                title: constant(String(localized: "command.clearWindowName.title", defaultValue: "Clear Window Name")),
+                subtitle: constant(String(localized: "command.clearWindowName.subtitle", defaultValue: "Window")),
+                keywords: ["clear", "window", "name"],
+                when: { $0.bool(CommandPaletteContextKeys.windowHasCustomTitle) }
             )
         )
         contributions.append(
@@ -7210,6 +7282,12 @@ struct ContentView: View {
 
         registry.register(commandId: "palette.renameWorkspace") {
             beginRenameWorkspaceFlow()
+        }
+        registry.register(commandId: "palette.renameWindow") {
+            beginRenameWindowFlow()
+        }
+        registry.register(commandId: "palette.clearWindowName") {
+            AppDelegate.shared?.setCustomWindowTitle(windowId: windowId, title: nil)
         }
         registry.register(commandId: "palette.editWorkspaceDescription") {
             beginWorkspaceDescriptionFlow()
@@ -7881,6 +7959,13 @@ struct ContentView: View {
         beginRenameWorkspaceFlow()
     }
 
+    private func openCommandPaletteRenameWindowInput() {
+        if !isCommandPalettePresented {
+            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        }
+        beginRenameWindowFlow()
+    }
+
     private func openCommandPaletteWorkspaceDescriptionInput() {
 #if DEBUG
         dlog(
@@ -8524,6 +8609,15 @@ struct ContentView: View {
         startRenameFlow(target)
     }
 
+    private func beginRenameWindowFlow() {
+        let currentTitle = AppDelegate.shared?.customWindowTitle(for: windowId) ?? ""
+        let target = CommandPaletteRenameTarget(
+            kind: .window(windowId: windowId),
+            currentName: currentTitle
+        )
+        startRenameFlow(target)
+    }
+
     private func beginWorkspaceDescriptionFlow() {
         guard let workspace = tabManager.selectedWorkspace else {
             NSSound.beep()
@@ -8604,6 +8698,8 @@ struct ContentView: View {
                 return
             }
             workspace.setPanelCustomTitle(panelId: panelId, title: normalizedName)
+        case .window(let windowId):
+            AppDelegate.shared?.setCustomWindowTitle(windowId: windowId, title: normalizedName)
         }
 
         dismissCommandPalette()

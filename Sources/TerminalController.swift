@@ -2079,6 +2079,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WindowCreate(params: params))
         case "window.close":
             return v2Result(id: id, self.v2WindowClose(params: params))
+        case "window.rename":
+            return v2Result(id: id, self.v2WindowRename(params: params))
 
         // Workspaces
         case "workspace.list":
@@ -2473,6 +2475,7 @@ class TerminalController {
             "window.focus",
             "window.create",
             "window.close",
+            "window.rename",
             "workspace.list",
             "workspace.create",
             "workspace.select",
@@ -3257,7 +3260,8 @@ class TerminalController {
                 "visible": item.isVisible,
                 "workspace_count": item.workspaceCount,
                 "selected_workspace_id": v2OrNull(item.selectedWorkspaceId?.uuidString),
-                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: item.selectedWorkspaceId)
+                "selected_workspace_ref": v2Ref(kind: .workspace, uuid: item.selectedWorkspaceId),
+                "custom_title": v2OrNull(item.customWindowTitle)
             ]
         }
         return .ok(["windows": payload])
@@ -3270,9 +3274,11 @@ class TerminalController {
         guard let windowId = v2ResolveWindowId(tabManager: tabManager) else {
             return .err(code: "not_found", message: "Current window not found", data: nil)
         }
+        let customTitle = v2MainSync { AppDelegate.shared?.customWindowTitle(for: windowId) }
         return .ok([
             "window_id": windowId.uuidString,
-            "window_ref": v2Ref(kind: .window, uuid: windowId)
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "custom_title": v2OrNull(customTitle)
         ])
     }
 
@@ -3320,6 +3326,37 @@ class TerminalController {
                 "window_id": windowId.uuidString,
                 "window_ref": v2Ref(kind: .window, uuid: windowId)
             ])
+    }
+
+    private func v2WindowRename(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let titleRaw = v2String(params, "title"),
+              !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        }
+
+        let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var renamed = false
+        v2MainSync {
+            guard AppDelegate.shared?.tabManagerFor(windowId: windowId) != nil else { return }
+            AppDelegate.shared?.setCustomWindowTitle(windowId: windowId, title: title)
+            renamed = true
+        }
+
+        guard renamed else {
+            return .err(code: "not_found", message: "Window not found", data: [
+                "window_id": windowId.uuidString,
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
+        }
+
+        return .ok([
+            "window_id": windowId.uuidString,
+            "window_ref": v2Ref(kind: .window, uuid: windowId),
+            "title": title
+        ])
     }
 
     // MARK: - V2 Workspace Methods

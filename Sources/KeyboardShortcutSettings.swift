@@ -41,6 +41,7 @@ enum KeyboardShortcutSettings {
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
+        case renameWindow
         case editWorkspaceDescription
         case closeTab
         case closeOtherTabsInPane
@@ -105,6 +106,7 @@ enum KeyboardShortcutSettings {
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
+            case .renameWindow: return String(localized: "shortcut.renameWindow.label", defaultValue: "Rename Window")
             case .editWorkspaceDescription: return String(localized: "shortcut.editWorkspaceDescription.label", defaultValue: "Edit Workspace Description")
             case .closeTab: return String(localized: "menu.file.closeTab", defaultValue: "Close Tab")
             case .closeOtherTabsInPane: return String(localized: "menu.file.closeOtherTabs", defaultValue: "Close Other Tabs in Pane")
@@ -182,6 +184,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
             case .renameWorkspace:
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
+            case .renameWindow:
+                return StoredShortcut(key: "r", command: true, shift: true, option: true, control: false)
             case .editWorkspaceDescription:
                 return StoredShortcut(key: "e", command: true, shift: true, option: false, control: false)
             case .closeTab:

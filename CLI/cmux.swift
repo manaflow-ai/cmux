@@ -1863,7 +1863,8 @@ struct CMUXCLI {
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
 
         // If the user explicitly targets a window, focus it first so commands route correctly.
-        if let windowId {
+        // Exclude non-focus-intent commands that route by explicit window_id.
+        if let windowId, command != "rename-window" {
             let normalizedWindow = try normalizeWindowHandle(windowId, client: client) ?? windowId
             _ = try client.sendV2(method: "window.focus", params: ["window_id": normalizedWindow])
         }
@@ -2355,18 +2356,41 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "workspace.select", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
 
-        case "rename-workspace", "rename-window":
+        case "rename-workspace":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let titleArgs = rem0.dropFirst(rem0.first == "--" ? 1 : 0)
             let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
-                throw CLIError(message: "\(command) requires a title")
+                throw CLIError(message: "rename-workspace requires a title")
             }
             let wsId = try resolveWorkspaceId(workspaceArg, client: client)
             let params: [String: Any] = ["title": title, "workspace_id": wsId]
             let payload = try client.sendV2(method: "workspace.rename", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace"]))
+
+        case "rename-window":
+            let (winArg, rem0) = parseOption(commandArgs, name: "--window")
+            let titleArgs = rem0.dropFirst(rem0.first == "--" ? 1 : 0)
+            let title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !title.isEmpty else {
+                throw CLIError(message: "rename-window requires a title")
+            }
+            let winId: String
+            if let winArg {
+                winId = try normalizeWindowHandle(winArg, client: client) ?? winArg
+            } else if let windowId {
+                winId = try normalizeWindowHandle(windowId, client: client) ?? windowId
+            } else {
+                let current = try client.sendV2(method: "window.current")
+                guard let id = (current["window_id"] as? String) else {
+                    throw CLIError(message: "Could not determine current window")
+                }
+                winId = id
+            }
+            let params: [String: Any] = ["title": title, "window_id": winId]
+            let payload = try client.sendV2(method: "window.rename", params: params)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["window"]))
 
         case "current-workspace":
             let response = try client.sendV2(method: "workspace.current")
@@ -7400,19 +7424,31 @@ struct CMUXCLI {
               cmux select-workspace --workspace workspace:2
               cmux select-workspace --workspace 0
             """
-        case "rename-workspace", "rename-window":
+        case "rename-workspace":
             return """
             Usage: cmux rename-workspace [--workspace <id|ref|index>] [--] <title>
 
             Rename a workspace. Defaults to the current workspace.
-            tmux-compatible alias: rename-window
 
             Flags:
               --workspace <id|ref|index>   Workspace to rename (default: current/$CMUX_WORKSPACE_ID)
 
             Example:
               cmux rename-workspace "backend logs"
-              cmux rename-window --workspace workspace:2 "agent run"
+              cmux rename-workspace --workspace workspace:2 "agent run"
+            """
+        case "rename-window":
+            return """
+            Usage: cmux rename-window [--window <id|ref|index>] [--] <title>
+
+            Rename a window. Defaults to the current window.
+
+            Flags:
+              --window <id|ref|index>   Window to rename (default: current window)
+
+            Example:
+              cmux rename-window "Gymatch"
+              cmux rename-window --window window:2 "staging"
             """
         case "current-workspace":
             return """
@@ -11532,6 +11568,7 @@ struct CMUXCLI {
             guard !title.isEmpty else {
                 throw CLIError(message: "rename-window requires a title")
             }
+            // In tmux mode, rename-window maps to workspace rename for compatibility
             let workspaceId = try tmuxResolveWorkspaceTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "workspace.rename", params: [
                 "workspace_id": workspaceId,
@@ -14367,7 +14404,7 @@ struct CMUXCLI {
           close-workspace --workspace <id|ref>
           select-workspace --workspace <id|ref>
           rename-workspace [--workspace <id|ref>] <title>
-          rename-window [--workspace <id|ref>] <title>
+          rename-window [--window <id|ref|index>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
