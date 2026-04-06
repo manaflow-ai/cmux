@@ -1198,6 +1198,7 @@ class GhosttyApp {
     private let _tickLock = NSLock()
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
+    private(set) var usesHostLayerBackground = true
     private static func resolveBackgroundLogURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
@@ -1618,6 +1619,7 @@ class GhosttyApp {
                 prefix: "cmux-layer-bg",
                 logLabel: "layer background (fallback)"
             )
+            usesHostLayerBackground = true
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
 
@@ -1689,21 +1691,50 @@ class GhosttyApp {
         }
     }
 
+    private func hasConfiguredBackgroundImage(_ config: ghostty_config_t) -> Bool {
+        var backgroundImage: UnsafePointer<Int8>?
+        let key = "background-image"
+        guard ghostty_config_get(config, &backgroundImage, key, UInt(key.lengthOfBytes(using: .utf8))),
+              let backgroundImage else {
+            return false
+        }
+
+        return !String(cString: backgroundImage).isEmpty
+    }
+
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
-        // cmux provides the terminal background via backgroundView (CALayer)
-        // instead of the GPU full-screen bg pass, so the layer can provide
-        // instant coverage during sidebar toggle and other layout transitions.
-        loadInlineGhosttyConfig(
-            "macos-background-from-layer = true",
-            into: config,
-            prefix: "cmux-layer-bg",
-            logLabel: "layer background"
-        )
+        let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
+        usesHostLayerBackground = useHostLayerBackground
+        if !useHostLayerBackground {
+            // Background images need Ghostty's fullscreen background pass. Force
+            // the layer-backed solid-color shortcut back off even if the user
+            // config enabled it manually.
+            loadInlineGhosttyConfig(
+                "macos-background-from-layer = false",
+                into: config,
+                prefix: "cmux-layer-bg-image-override",
+                logLabel: "layer background image override"
+            )
+        } else {
+            // cmux provides the terminal background via backgroundView (CALayer)
+            // instead of the GPU full-screen bg pass, so the layer can provide
+            // instant coverage during sidebar toggle and other layout transitions.
+            //
+            // Keep Ghostty's native background rendering when a background image
+            // is configured: the separate CALayer background only matches the
+            // solid-color path, not Ghostty's combined image compositing.
+            loadInlineGhosttyConfig(
+                "macos-background-from-layer = true",
+                into: config,
+                prefix: "cmux-layer-bg",
+                logLabel: "layer background"
+            )
+        }
         ghostty_config_finalize(config)
     }
 
@@ -5147,7 +5178,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func applySurfaceBackground() {
-        let color = effectiveBackgroundColor()
+        let useHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
+        let color = useHostLayerBackground ? effectiveBackgroundColor() : .clear
         if let layer {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -5159,13 +5191,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         terminalSurface?.hostedView.setBackgroundColor(color)
         if GhosttyApp.shared.backgroundLogEnabled {
-            let signature = "\(color.hexString()):\(String(format: "%.3f", color.alphaComponent))"
+            let signature = "\(useHostLayerBackground ? color.hexString() : "ghostty-native"):\(String(format: "%.3f", color.alphaComponent))"
             if signature != lastLoggedSurfaceBackgroundSignature {
                 lastLoggedSurfaceBackgroundSignature = signature
                 let hasOverride = backgroundColor != nil
                 let overrideHex = backgroundColor?.hexString() ?? "nil"
                 let defaultHex = GhosttyApp.shared.defaultBackgroundColor.hexString()
-                let source = hasOverride ? "surfaceOverride" : "defaultBackground"
+                let source = useHostLayerBackground ? (hasOverride ? "surfaceOverride" : "defaultBackground") : "ghosttyNativeBackground"
                 GhosttyApp.shared.logBackground(
                     "surface background applied tab=\(tabId?.uuidString ?? "unknown") surface=\(terminalSurface?.id.uuidString ?? "unknown") source=\(source) override=\(overrideHex) default=\(defaultHex) color=\(color.hexString()) opacity=\(String(format: "%.3f", color.alphaComponent))"
                 )
@@ -9515,6 +9547,46 @@ final class GhosttySurfaceScrollView: NSView {
         return nil
     }
 
+    private func mountedSearchFieldIfAvailable() -> NSTextField? {
+        guard let overlay = searchOverlayHostingView,
+              overlay.superview === self else {
+            return nil
+        }
+        return findEditableSearchField(in: overlay)
+    }
+
+    private func mountedSearchFieldOwnsResponder(
+        _ responder: NSResponder?,
+        field: NSTextField? = nil
+    ) -> Bool {
+        guard let responder else { return false }
+        guard let field = field ?? mountedSearchFieldIfAvailable() else { return false }
+        return responder === field || field.currentEditor() === responder
+    }
+
+    private func resolvedKeyboardFocusOwnerView(for responder: NSResponder?) -> NSView? {
+        guard let responder else { return nil }
+
+        let mountedSearchField = mountedSearchFieldIfAvailable()
+        if mountedSearchFieldOwnsResponder(responder, field: mountedSearchField) {
+            return mountedSearchField
+        }
+
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor {
+            var current = editor.nextResponder
+            while let next = current {
+                if let view = next as? NSView {
+                    return view
+                }
+                current = next.nextResponder
+            }
+            return editor.superview ?? editor
+        }
+
+        return responder as? NSView
+    }
+
     private func canApplyMountedSearchFieldFocusRequest() -> Bool {
         guard let terminalSurface = surfaceView.terminalSurface,
               let app = AppDelegate.shared,
@@ -9552,9 +9624,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         let firstResponder = window.firstResponder
-        let alreadyFocused = firstResponder === field ||
-            field.currentEditor() != nil ||
-            ((firstResponder as? NSTextView)?.delegate as? NSTextField) === field
+        let alreadyFocused = mountedSearchFieldOwnsResponder(firstResponder, field: field)
         guard !alreadyFocused else { return }
 
         surfaceView.terminalSurface?.setFocus(false)
@@ -9696,6 +9766,11 @@ final class GhosttySurfaceScrollView: NSView {
 
         keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeContainerView.isHidden = true
+    }
+
+    func refreshHostBackgroundAfterGhosttyConfigReload() {
+        surfaceView.applySurfaceBackground()
+        surfaceView.applyWindowBackgroundIfActive()
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
@@ -10016,7 +10091,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func moveFocus(from previous: GhosttySurfaceScrollView? = nil, delay: TimeInterval? = nil) {
 #if DEBUG
-        let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         let searchActive = self.surfaceView.terminalSurface?.searchState != nil
         dlog(
             "find.moveFocus to=\(surfaceShort) " +
@@ -10315,7 +10390,7 @@ final class GhosttySurfaceScrollView: NSView {
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
-        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         let surfaceOwnsFirstResponder = isSurfaceViewFirstResponder()
 
         guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
@@ -10363,7 +10438,7 @@ final class GhosttySurfaceScrollView: NSView {
             guard let self else { return }
             self.pendingAutomaticFirstResponderApply = false
 #if DEBUG
-            let surfaceShort = self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+            let surfaceShort = String(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
             dlog("find.applyFirstResponder.defer surface=\(surfaceShort) reason=\(reason)")
 #endif
             self.applyFirstResponderIfNeeded()
@@ -10406,7 +10481,7 @@ final class GhosttySurfaceScrollView: NSView {
             return size.width > 1 && size.height > 1
         }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
-        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
@@ -10463,7 +10538,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Restore focus when window becomes key and the find bar is open.
     /// Respects `searchFocusTarget` so Escape-to-terminal intent is preserved across window switches.
     private func restoreSearchFocus(window: NSWindow) {
-        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         switch searchFocusTarget {
         case .searchField:
             if let firstResponder = window.firstResponder,
@@ -10487,6 +10562,9 @@ final class GhosttySurfaceScrollView: NSView {
                     "reason=foreignSearchResponder firstResponder=\(String(describing: firstResponder))"
                 )
 #endif
+                return
+            }
+            if focusMountedSearchFieldIfAvailable(window: window, surfaceShort: surfaceShort) {
                 return
             }
             // Explicitly unfocus the terminal so cursor stops blinking immediately.
@@ -10514,6 +10592,46 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    @discardableResult
+    private func focusMountedSearchFieldIfAvailable(
+        window: NSWindow,
+        surfaceShort: String
+    ) -> Bool {
+        guard canApplyMountedSearchFieldFocusRequest() else {
+            return false
+        }
+        guard let field = mountedSearchFieldIfAvailable() else {
+            return false
+        }
+
+        let firstResponder = window.firstResponder
+        let alreadyFocused = mountedSearchFieldOwnsResponder(firstResponder, field: field)
+
+        surfaceView.terminalSurface?.setFocus(false)
+
+#if DEBUG
+        if alreadyFocused {
+            dlog(
+                "find.restoreSearchFocus.skip surface=\(surfaceShort) target=searchField " +
+                "reason=mountedFieldAlreadyFocused firstResponder=\(String(describing: firstResponder))"
+            )
+        }
+#endif
+        guard !alreadyFocused else { return true }
+
+        let result = window.makeFirstResponder(field)
+        let ownsField = mountedSearchFieldOwnsResponder(window.firstResponder, field: field)
+
+#if DEBUG
+        dlog(
+            "find.restoreSearchFocus surface=\(surfaceShort) target=searchField " +
+            "via=mountedField result=\(result ? 1 : 0) firstResponder=\(String(describing: window.firstResponder))"
+        )
+#endif
+
+        return ownsField
+    }
+
     func capturePanelFocusIntent(in window: NSWindow?) -> TerminalPanelFocusIntent {
         if surfaceView.terminalSurface?.searchState != nil {
             if let firstResponder = window?.firstResponder as? NSView,
@@ -10536,6 +10654,18 @@ final class GhosttySurfaceScrollView: NSView {
             return .findField
         }
         return .surface
+    }
+
+    func responderMatchesPreferredKeyboardFocus(_ responder: NSResponder) -> Bool {
+        switch preferredPanelFocusIntentForActivation() {
+        case .surface:
+            guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
+            return view === surfaceView || view.isDescendant(of: surfaceView)
+
+        case .findField:
+            return isCurrentSurfaceSearchResponder(responder) &&
+                isSearchOverlayOrDescendant(responder)
+        }
     }
 
     func preparePanelFocusIntentForActivation(_ intent: TerminalPanelFocusIntent) {
@@ -10590,16 +10720,7 @@ final class GhosttySurfaceScrollView: NSView {
             return .findField
         }
 
-        let resolvedResponder: NSResponder
-        if let editor = responder as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSView {
-            resolvedResponder = editedView
-        } else {
-            resolvedResponder = responder
-        }
-
-        guard let view = resolvedResponder as? NSView else { return nil }
+        guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return nil }
         if view === surfaceView || view.isDescendant(of: surfaceView) {
             return .surface
         }
@@ -10648,14 +10769,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// Handles the AppKit field-editor case: when an NSTextField is being edited,
     /// window.firstResponder is the shared NSTextView field editor, not the text field.
     private func isSearchOverlayOrDescendant(_ responder: NSResponder) -> Bool {
-        // If the responder is a field editor, follow its delegate back to the owning control.
-        if let editor = responder as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSView {
-            return isSearchOverlayOrDescendant(editedView)
-        }
-
-        guard let view = responder as? NSView else { return false }
+        guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
         var current: NSView? = view
         while let v = current {
             if v is NSHostingView<SurfaceSearchOverlay> { return true }
@@ -10667,24 +10781,15 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func isCurrentSurfaceSearchResponder(_ responder: NSResponder) -> Bool {
-        let resolvedResponder: NSResponder
-        if let editor = responder as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSView {
-            resolvedResponder = editedView
-        } else {
-            resolvedResponder = responder
-        }
-
-        guard let view = resolvedResponder as? NSView else { return false }
+        guard let view = resolvedKeyboardFocusOwnerView(for: responder) else { return false }
         return view.isDescendant(of: self)
     }
 
     private func isCurrentSurfaceSearchFieldResponder(_ responder: NSResponder) -> Bool {
-        if let editor = responder as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSTextField {
-            return editedView.isDescendant(of: self) && isSearchOverlayOrDescendant(editedView)
+        if let mountedSearchField = mountedSearchFieldIfAvailable(),
+           mountedSearchFieldOwnsResponder(responder, field: mountedSearchField) {
+            return mountedSearchField.isDescendant(of: self) &&
+                isSearchOverlayOrDescendant(mountedSearchField)
         }
 
         guard let textField = responder as? NSTextField else { return false }
