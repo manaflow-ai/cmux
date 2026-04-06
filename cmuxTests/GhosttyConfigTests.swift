@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import WebKit
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2809,12 +2810,11 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     }
 
     func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
-        let output = try runInteractiveZsh(
+        let output = try runPromptInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
             command: """
-            _cmux_restore_terminal_identity_after_startup
-            print -r -- "$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            print -r -- "CMD=$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" >> "$CMUX_TEST_OUTPUT"
             """,
             userZshRCContents: """
             export CMUX_STARTUP_THEME_TERM="$TERM"
@@ -2823,10 +2823,20 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             else
               export CMUX_STARTUP_THEME_BRANCH=basic
             fi
+
+            cmux_test_ready() {
+              print -r -- "PRE=$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" > "$CMUX_TEST_OUTPUT"
+              : > "$CMUX_TEST_READY"
+            }
+            precmd_functions+=(cmux_test_ready)
             """
         )
 
-        XCTAssertEqual(output, "xterm-ghostty|basic|xterm-256color|unset", output)
+        XCTAssertEqual(
+            output,
+            "PRE=xterm-ghostty|basic|xterm-ghostty|xterm-256color\nCMD=xterm-256color|unset",
+            output
+        )
     }
 
     func testShellIntegrationDoesNotSpoofManagedTermForInteractiveCommandMode() throws {
@@ -3459,6 +3469,136 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(process.terminationStatus, 0, error)
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func runPromptInteractiveZsh(
+        cmuxLoadGhosttyIntegration: Bool,
+        cmuxLoadShellIntegration: Bool,
+        command: String,
+        extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
+        userZshRCContents: String? = nil
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-prompt-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let userZdotdir = root.appendingPathComponent("zdotdir")
+        try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
+            to: userZdotdir.appendingPathComponent(".zshenv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let readyPath = root.appendingPathComponent("ready", isDirectory: false)
+        let outputPath = root.appendingPathComponent("output.log", isDirectory: false)
+
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+        XCTAssertEqual(openpty(&masterFD, &slaveFD, nil, nil, nil), 0)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-i"]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+            "USER": NSUserName(),
+            "ZDOTDIR": cmuxZdotdir.path,
+            "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
+            "CMUX_SHELL_INTEGRATION": "0",
+            "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+            "CMUX_TEST_READY": readyPath.path,
+            "CMUX_TEST_OUTPUT": outputPath.path,
+        ]
+        if cmuxLoadGhosttyIntegration {
+            process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+        if cmuxLoadShellIntegration {
+            process.environment?["CMUX_SHELL_INTEGRATION"] = "1"
+            process.environment?["CMUX_SHELL_INTEGRATION_DIR"] = cmuxZdotdir.path
+            process.environment?["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux-test.sock").path
+            process.environment?["CMUX_TAB_ID"] = "tab-test"
+            process.environment?["CMUX_PANEL_ID"] = "panel-test"
+        }
+        for (key, value) in extraEnvironment {
+            process.environment?[key] = value
+        }
+
+        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
+        process.standardInput = slaveHandle
+        process.standardOutput = slaveHandle
+        process.standardError = slaveHandle
+
+        let masterHandle = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+
+        try process.run()
+        slaveHandle.closeFile()
+
+        let readyDeadline = Date().addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: readyPath.path) && Date() < readyDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if !fileManager.fileExists(atPath: readyPath.path) {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = String(
+                data: masterHandle.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            XCTFail("Timed out waiting for interactive zsh prompt: \(terminalOutput)")
+        }
+
+        masterHandle.write(Data((command + "\nexit\n").utf8))
+
+        let exitDeadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < exitDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = String(
+                data: masterHandle.readDataToEndOfFile(),
+                encoding: .utf8
+            ) ?? ""
+            XCTFail("Timed out waiting for interactive zsh to exit: \(terminalOutput)")
+        }
+
+        let terminalOutput = String(data: masterHandle.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, terminalOutput)
+        return (try? String(contentsOf: outputPath, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func runInteractiveBash(
