@@ -28,6 +28,62 @@ enum ReactGrabSettings {
     }
 }
 
+struct ReactGrabShortcutPanelSnapshot: Equatable {
+    let id: UUID
+    let panelType: PanelType
+    let isFocused: Bool
+}
+
+struct ReactGrabShortcutRoute: Equatable {
+    let browserPanelId: UUID
+    let returnTerminalPanelId: UUID?
+}
+
+func resolveReactGrabShortcutRoute(
+    panels: [ReactGrabShortcutPanelSnapshot]
+) -> ReactGrabShortcutRoute? {
+    guard let focusedPanel = panels.first(where: \.isFocused) else { return nil }
+
+    if focusedPanel.panelType == .browser {
+        return ReactGrabShortcutRoute(
+            browserPanelId: focusedPanel.id,
+            returnTerminalPanelId: nil
+        )
+    }
+
+    guard focusedPanel.panelType == .terminal else { return nil }
+
+    let browserPanels = panels.filter { $0.panelType == .browser }
+    guard browserPanels.count == 1, let browserPanel = browserPanels.first else {
+        return nil
+    }
+
+    return ReactGrabShortcutRoute(
+        browserPanelId: browserPanel.id,
+        returnTerminalPanelId: focusedPanel.id
+    )
+}
+
+enum ReactGrabPastebackNotificationKey {
+    static let workspaceId = "workspaceId"
+    static let browserPanelId = "browserPanelId"
+    static let returnPanelId = "returnPanelId"
+    static let content = "content"
+}
+
+private enum ReactGrabPastebackContentFilter {
+    private static let dangerousScalars: Set<Unicode.Scalar> = [
+        "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+        "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+        "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+        "\u{FEFF}",
+    ]
+
+    static func filtered(_ text: String) -> String {
+        String(text.unicodeScalars.filter { !dangerousScalars.contains($0) })
+    }
+}
+
 // MARK: - Script Loader
 
 /// Fetches, integrity-checks, and caches the react-grab script.
@@ -89,11 +145,30 @@ enum ReactGrabScriptLoader {
 
 private let reactGrabMessageHandlerName = "cmuxReactGrab"
 
-class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
-    private let onStateChange: @MainActor (Bool) -> Void
+enum ReactGrabBridgeMessage {
+    case stateChange(isActive: Bool)
+    case copySuccess(content: String, token: String?)
 
-    init(onStateChange: @escaping @MainActor (Bool) -> Void) {
-        self.onStateChange = onStateChange
+    init?(body: [String: Any]) {
+        let type = body["type"] as? String ?? "stateChange"
+        switch type {
+        case "stateChange":
+            guard let isActive = body["isActive"] as? Bool else { return nil }
+            self = .stateChange(isActive: isActive)
+        case "copySuccess":
+            guard let content = body["content"] as? String else { return nil }
+            self = .copySuccess(content: content, token: body["token"] as? String)
+        default:
+            return nil
+        }
+    }
+}
+
+class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
+    private let onMessage: @MainActor (ReactGrabBridgeMessage) -> Void
+
+    init(onMessage: @escaping @MainActor (ReactGrabBridgeMessage) -> Void) {
+        self.onMessage = onMessage
     }
 
     func userContentController(
@@ -101,15 +176,25 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         didReceive message: WKScriptMessage
     ) {
         guard let body = message.body as? [String: Any],
-              let isActive = body["isActive"] as? Bool else { return }
+              let bridgeMessage = ReactGrabBridgeMessage(body: body) else { return }
         #if DEBUG
-        dlog("reactGrab.messageHandler isActive=\(isActive)")
+        switch bridgeMessage {
+        case .stateChange(let isActive):
+            dlog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
+        case .copySuccess(let content, _):
+            dlog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
+        }
         #endif
         Task { @MainActor in
             #if DEBUG
-            dlog("reactGrab.messageHandler.mainActor isActive=\(isActive)")
+            switch bridgeMessage {
+            case .stateChange(let isActive):
+                dlog("reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive)")
+            case .copySuccess(let content, _):
+                dlog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
+            }
             #endif
-            onStateChange(isActive)
+            onMessage(bridgeMessage)
         }
     }
 }
@@ -117,12 +202,119 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
 // MARK: - BrowserPanel extension
 
 extension BrowserPanel {
+    private func reactGrabSessionTokenLiteral() -> String {
+        pendingReactGrabRoundTripToken.map { "'\($0)'" } ?? "null"
+    }
+
+    private func reactGrabBridgeSessionRefreshScript() -> String {
+        """
+        (function() {
+            var syncToken = window['\(reactGrabBridgeSessionUpdaterName)'];
+            if (typeof syncToken !== 'function') {
+                return false;
+            }
+            return !!syncToken(\(reactGrabSessionTokenLiteral()));
+        })();
+        """
+    }
+
     func setupReactGrabMessageHandler(for webView: WKWebView) {
-        let handler = ReactGrabMessageHandler { [weak self] isActive in
-            self?.isReactGrabActive = isActive
+        let handler = ReactGrabMessageHandler { [weak self] message in
+            self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
         webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
+    }
+
+    func armReactGrabRoundTrip(returnTo panelId: UUID) {
+        let token = UUID().uuidString
+#if DEBUG
+        dlog(
+            "reactGrab.pasteback h3.arm " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "return=\(panelId.uuidString.prefix(5))"
+        )
+#endif
+        pendingReactGrabReturnTargetPanelId = panelId
+        pendingReactGrabRoundTripToken = token
+    }
+
+    func clearReactGrabRoundTrip(reason: String = "unspecified") {
+#if DEBUG
+        let previousTarget = pendingReactGrabReturnTargetPanelId.map {
+            String($0.uuidString.prefix(5))
+        } ?? "nil"
+        dlog(
+            "reactGrab.pasteback h3.clear " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) previous=\(previousTarget)"
+        )
+#endif
+        pendingReactGrabReturnTargetPanelId = nil
+        pendingReactGrabRoundTripToken = nil
+    }
+
+    func handleReactGrabBridgeMessage(_ message: ReactGrabBridgeMessage) {
+        switch message {
+        case .stateChange(let isActive):
+            isReactGrabActive = isActive
+#if DEBUG
+            let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+                String($0.uuidString.prefix(5))
+            } ?? "nil"
+            dlog(
+                "reactGrab.pasteback h3.stateChange " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "browser=\(id.uuidString.prefix(5)) " +
+                "isActive=\(isActive ? 1 : 0) pending=\(pendingTarget)"
+            )
+#endif
+        case .copySuccess(let content, let token):
+            guard let returnPanelId = pendingReactGrabReturnTargetPanelId,
+                  let expectedToken = pendingReactGrabRoundTripToken else {
+#if DEBUG
+                dlog(
+                    "reactGrab.pasteback h3.copySuccess.drop " +
+                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                    "browser=\(id.uuidString.prefix(5)) reason=noReturnTarget len=\(content.count)"
+                )
+#endif
+                return
+            }
+            guard token == expectedToken else {
+#if DEBUG
+                dlog(
+                    "reactGrab.pasteback h3.copySuccess.drop " +
+                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                    "browser=\(id.uuidString.prefix(5)) reason=tokenMismatch len=\(content.count)"
+                )
+#endif
+                clearReactGrabRoundTrip(reason: "copySuccess.tokenMismatch")
+                return
+            }
+#if DEBUG
+            dlog(
+                "reactGrab.pasteback h3.copySuccess " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "browser=\(id.uuidString.prefix(5)) " +
+                "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
+            )
+#endif
+            let filteredContent = ReactGrabPastebackContentFilter.filtered(content)
+            clearReactGrabRoundTrip(reason: "copySuccess")
+            NotificationCenter.default.post(
+                name: .reactGrabDidCopySelection,
+                object: nil,
+                userInfo: [
+                    ReactGrabPastebackNotificationKey.workspaceId: workspaceId,
+                    ReactGrabPastebackNotificationKey.browserPanelId: id,
+                    ReactGrabPastebackNotificationKey.returnPanelId: returnPanelId,
+                    ReactGrabPastebackNotificationKey.content: filteredContent,
+                ]
+            )
+        }
     }
 
     func injectReactGrab() async {
@@ -140,13 +332,35 @@ extension BrowserPanel {
         #endif
 
         let handlerName = reactGrabMessageHandlerName
+        let sessionTokenLiteral = reactGrabSessionTokenLiteral()
         let combined = """
         (function() {
-            if (window.__REACT_GRAB__) { window.__REACT_GRAB__.activate(); return; }
-            window.addEventListener('react-grab:init', function(e) {
-                var api = e.detail;
-                if (!api) return;
-                api.activate();
+            var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
+            var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
+            var refreshSessionToken = function() {
+                var syncToken = window[updaterName];
+                if (typeof syncToken !== 'function') return false;
+                return !!syncToken(\(sessionTokenLiteral));
+            };
+            var installBridge = function(api) {
+                if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
+                window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
+                var activeToken = null;
+                var syncSessionToken = function(token) {
+                    activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
+                    return true;
+                };
+                try {
+                    Object.defineProperty(window, updaterName, {
+                        value: syncSessionToken,
+                        writable: false,
+                        configurable: false,
+                        enumerable: false
+                    });
+                } catch (_) {
+                    if (typeof window[updaterName] !== 'function') return;
+                }
+                refreshSessionToken();
                 var lastActive;
                 api.registerPlugin({
                     name: 'cmux-bridge',
@@ -154,11 +368,28 @@ extension BrowserPanel {
                         onStateChange: function(state) {
                             if (state.isActive === lastActive) return;
                             lastActive = state.isActive;
-                            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-                            if (h) h.postMessage({ isActive: state.isActive });
+                            if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
+                        },
+                        onCopySuccess: function(elements, content) {
+                            var token = activeToken;
+                            activeToken = null;
+                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
                         }
                     }
                 });
+            }
+            if (window.__REACT_GRAB__) {
+                installBridge(window.__REACT_GRAB__);
+                refreshSessionToken();
+                window.__REACT_GRAB__.activate();
+                return;
+            }
+            window.addEventListener('react-grab:init', function(e) {
+                var api = e.detail;
+                if (!api) return;
+                installBridge(api);
+                refreshSessionToken();
+                api.activate();
             }, { once: true });
         })();
         \(scriptSource)
@@ -199,7 +430,48 @@ extension BrowserPanel {
         }
     }
 
-    func resetReactGrabState() {
+    func ensureReactGrabActive() async {
+        if isReactGrabActive {
+            guard pendingReactGrabRoundTripToken != nil else { return }
+            if await refreshReactGrabBridgeSessionToken() {
+                return
+            }
+        }
+        await injectReactGrab()
+    }
+
+    @discardableResult
+    func refreshReactGrabBridgeSessionToken() async -> Bool {
+        do {
+            let result = try await evaluateJavaScript(reactGrabBridgeSessionRefreshScript())
+            return (result as? Bool) ?? false
+        } catch {
+#if DEBUG
+            dlog("reactGrab.bridgeSessionRefresh.error error=\(error.localizedDescription)")
+#endif
+            return false
+        }
+    }
+
+    func resetReactGrabState(
+        preserveRoundTrip: Bool = false,
+        reason: String = "unspecified"
+    ) {
+#if DEBUG
+        let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+            String($0.uuidString.prefix(5))
+        } ?? "nil"
+        dlog(
+            "reactGrab.pasteback h3.reset " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) preserve=\(preserveRoundTrip ? 1 : 0) " +
+            "pending=\(pendingTarget) active=\(isReactGrabActive ? 1 : 0)"
+        )
+#endif
         isReactGrabActive = false
+        if !preserveRoundTrip {
+            clearReactGrabRoundTrip(reason: reason)
+        }
     }
 }
