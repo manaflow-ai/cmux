@@ -2829,6 +2829,36 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "xterm-ghostty|basic|xterm-256color|unset", output)
     }
 
+    func testShellIntegrationDoesNotSpoofManagedTermForInteractiveCommandMode() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermWhenIntegrationDisabled() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: false,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
