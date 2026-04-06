@@ -228,9 +228,6 @@ extension BrowserPanel {
                 "isActive=\(isActive ? 1 : 0) pending=\(pendingTarget)"
             )
 #endif
-            if !isActive {
-                clearReactGrabRoundTrip()
-            }
         case .copySuccess(let content):
             guard let returnPanelId = pendingReactGrabReturnTargetPanelId else {
 #if DEBUG

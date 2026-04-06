@@ -822,6 +822,7 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
+            panel.clearReactGrabRoundTrip()
             Task { await panel.toggleOrInjectReactGrab() }
         }) {
             Image(systemName: "cursorarrow.click.2")
