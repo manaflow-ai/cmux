@@ -2735,11 +2735,12 @@ class TabManager: ObservableObject {
     }
 
     func moveWorkspaceToSection(tabId: UUID, sectionId: UUID, atIndex: Int? = nil) {
-        // Remove from any existing section first
-        for section in sections {
-            section.removeWorkspace(tabId)
-        }
+        // Validate destination exists before modifying any state.
         guard let section = sections.first(where: { $0.id == sectionId }) else { return }
+        // Remove from any existing section first
+        for s in sections {
+            s.removeWorkspace(tabId)
+        }
         section.addWorkspace(tabId, at: atIndex)
         notifySectionChange()
     }

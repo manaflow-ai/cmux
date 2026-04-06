@@ -9999,7 +9999,9 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabIndexById = Dictionary(uniqueKeysWithValues: allOrdered.enumerated().map {
+        // Index by flat tabs order (not section order) so shift-selection
+        // ranges and moveBy(_:) work against tabManager.tabs correctly.
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
@@ -12362,7 +12364,6 @@ private struct SidebarSectionHeaderView: View {
         .onTapGesture {
             guard !isEditing else { return }
             section.toggleCollapsed()
-            tabManager.objectWillChange.send()
         }
         .onReceive(tabManager.$pendingRenameSectionId) { pendingId in
             guard pendingId == section.id else { return }
@@ -12376,7 +12377,6 @@ private struct SidebarSectionHeaderView: View {
                 : String(localized: "contextMenu.collapseSection", defaultValue: "Collapse Section")
             ) {
                 section.toggleCollapsed()
-                tabManager.objectWillChange.send()
             }
 
             Button(String(localized: "contextMenu.renameSection", defaultValue: "Rename Section…")) {
@@ -13502,7 +13502,7 @@ private struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
-        if !tabManager.sections.isEmpty || true {
+        if !tabManager.sections.isEmpty {
             let sections = tabManager.sections
             let currentSection = tabManager.sectionForWorkspace(tab.id)
             Menu(String(localized: "contextMenu.moveToSection", defaultValue: "Move to Section")) {
@@ -15072,9 +15072,13 @@ private struct SidebarTabDropDelegate: DropDelegate {
            let section = tabManager.sectionForWorkspace(draggedTabId),
            section.contains(targetTabId) {
             let insertAfter = dropIndicator?.edge == .bottom
+            // Remove first so indices are stable for the insert.
+            section.workspaceIds.removeAll { $0 == draggedTabId }
             if let targetIdx = section.workspaceIds.firstIndex(of: targetTabId) {
                 let insertIdx = insertAfter ? targetIdx + 1 : targetIdx
-                section.addWorkspace(draggedTabId, at: insertIdx)
+                section.workspaceIds.insert(draggedTabId, at: min(insertIdx, section.workspaceIds.count))
+            } else {
+                section.workspaceIds.append(draggedTabId)
             }
 #if DEBUG
             dlog("sidebar.drop.section tab=\(draggedTabId.uuidString.prefix(5)) section=\(section.name)")

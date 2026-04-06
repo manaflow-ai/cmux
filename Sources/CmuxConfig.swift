@@ -423,6 +423,9 @@ final class CmuxConfigStore: ObservableObject {
         guard let tabManager = trackedTabManager,
               let workspace = tabManager.selectedWorkspace,
               !autoAppliedWorkspaceIds.contains(workspace.id),
+              // Only auto-apply to workspaces with a single pane — don't tear
+              // down user-customized layouts or restored split configurations.
+              workspace.panels.count <= 1,
               let baseCwd = localConfigPath.map({ ($0 as NSString).deletingLastPathComponent })
         else { return }
 

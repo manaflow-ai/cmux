@@ -91,7 +91,10 @@ struct CmuxConfigExecutor {
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
 
         // "target": "current" — apply the layout to the selected workspace in-place.
-        if wsDef.target == .current, let current = tabManager.selectedWorkspace {
+        // If no workspace is selected, skip silently rather than falling through
+        // to the name-based create/recreate path.
+        if wsDef.target == .current {
+            guard let current = tabManager.selectedWorkspace else { return }
             current.setCustomTitle(workspaceName)
             if let color = wsDef.color {
                 current.setCustomColor(color)
@@ -100,7 +103,8 @@ struct CmuxConfigExecutor {
                 // Close all panels except the focused one so applyCustomLayout
                 // starts from a single pane and doesn't stack on existing splits.
                 let keep = current.focusedPanelId
-                for panelId in current.panels.keys where panelId != keep {
+                let panelIdsToClose = current.panels.keys.filter { $0 != keep }
+                for panelId in panelIdsToClose {
                     current.closePanel(panelId, force: true)
                 }
                 current.applyCustomLayout(layout, baseCwd: resolvedCwd)
