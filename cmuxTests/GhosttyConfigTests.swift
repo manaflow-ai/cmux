@@ -3524,7 +3524,15 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         var masterFD: Int32 = -1
         var slaveFD: Int32 = -1
-        XCTAssertEqual(openpty(&masterFD, &slaveFD, nil, nil, nil), 0)
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            let message = "openpty failed: \(String(cString: strerror(errno)))"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -3576,7 +3584,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
                 data: masterHandle.readDataToEndOfFile(),
                 encoding: .utf8
             ) ?? ""
-            XCTFail("Timed out waiting for interactive zsh prompt: \(terminalOutput)")
+            let message = "Timed out waiting for interactive zsh prompt: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
         }
 
         masterHandle.write(Data((command + "\nexit\n").utf8))
@@ -3592,7 +3606,13 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
                 data: masterHandle.readDataToEndOfFile(),
                 encoding: .utf8
             ) ?? ""
-            XCTFail("Timed out waiting for interactive zsh to exit: \(terminalOutput)")
+            let message = "Timed out waiting for interactive zsh to exit: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
         }
 
         let terminalOutput = String(data: masterHandle.readDataToEndOfFile(), encoding: .utf8) ?? ""
