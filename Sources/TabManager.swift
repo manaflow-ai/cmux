@@ -766,8 +766,13 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     private static var nextPortOrdinal: Int = 0
     private static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
-    private static let workspaceGitMetadataPollInterval: TimeInterval = 30
-    private static let selectedWorkspaceGitMetadataPollInterval: TimeInterval = 5
+    // Background PR metadata is best-effort. Keep it infrequent so idle windows
+    // don't repeatedly spawn `gh` when nothing is changing.
+    private static let workspaceGitMetadataPollInterval: TimeInterval = 5 * 60
+    private static let selectedWorkspaceGitMetadataPollInterval: TimeInterval = 2 * 60
+    // Keep individual `gh` probes long enough for cold launches and slower
+    // VPN/GitHub Enterprise responses. The lower poll frequency already limits
+    // idle process churn, so an overly aggressive timeout hurts correctness.
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
     @Published var selectedTabId: UUID? {
         willSet {
@@ -829,6 +834,7 @@ class TabManager: ObservableObject {
                 if let selectedTabId = self.selectedTabId {
                     self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
                 }
+                self.scheduleSelectedWorkspaceGitMetadataRefresh(reason: "selectionChange")
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
@@ -1046,6 +1052,26 @@ class TabManager: ObservableObject {
         )
     }
 
+    private func scheduleSelectedWorkspaceGitMetadataRefresh(reason: String) {
+        guard let workspace = selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId else {
+            return
+        }
+
+        // Preserve any in-flight bootstrap retry sequence for this workspace.
+        let probeKey = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: focusedPanelId)
+        guard workspaceGitProbeGenerationByKey[probeKey] == nil,
+              workspaceGitProbeTimersByKey[probeKey] == nil else {
+            return
+        }
+
+        scheduleWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspace.id,
+            panelId: focusedPanelId,
+            reason: reason
+        )
+    }
+
     func refreshTrackedWorkspaceGitMetadataForTesting() {
         refreshTrackedWorkspaceGitMetadata()
     }
@@ -1059,6 +1085,11 @@ class TabManager: ObservableObject {
             in: workspace,
             activeProbeKeys: activeProbeKeys
         )
+    }
+
+    func workspaceGitProbeAttemptCountForTesting(workspaceId: UUID, panelId: UUID) -> Int {
+        let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        return workspaceGitProbeTimersByKey[probeKey]?.count ?? 0
     }
 
     func activeWorkspaceGitProbePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {

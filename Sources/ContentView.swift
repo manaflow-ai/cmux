@@ -1546,6 +1546,9 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             )
         )
         super.init()
+        model.onStateChange = { [weak self] in
+            self?.renderModelState()
+        }
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.wantsLayer = true
         containerView.layer?.backgroundColor = NSColor.clear.cgColor
@@ -1592,25 +1595,22 @@ private final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         guard ensureInstalled() else { return }
         if let state {
             model.apply(state)
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
-                unreadRects: model.unreadRects,
-                flashRect: model.flashRect,
-                flashStartedAt: model.flashStartedAt,
-                flashReason: model.flashReason
-            )
-            containerView.alphaValue = 1
-            containerView.isHidden = false
         } else {
             model.clear()
-            hostingView.rootView = TmuxWorkspacePaneOverlayView(
-                unreadRects: [],
-                flashRect: nil,
-                flashStartedAt: nil,
-                flashReason: nil
-            )
-            containerView.alphaValue = 0
-            containerView.isHidden = true
         }
+        renderModelState()
+    }
+
+    private func renderModelState() {
+        guard ensureInstalled() else { return }
+        hostingView.rootView = TmuxWorkspacePaneOverlayView(
+            unreadRects: model.unreadRects,
+            flashRect: model.flashRect,
+            flashStartedAt: model.flashStartedAt,
+            flashReason: model.flashReason
+        )
+        containerView.alphaValue = model.hasVisibleContent ? 1 : 0
+        containerView.isHidden = !model.hasVisibleContent
     }
 }
 

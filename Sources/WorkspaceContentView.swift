@@ -102,14 +102,25 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
 }
 
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
 
     private var lastWorkspaceId: UUID?
-    private var lastFlashToken: UInt64?
+    private var lastObservedFlashToken: UInt64?
+    private var runningFlashToken: UInt64?
+    private var flashResetWorkItem: DispatchWorkItem?
+    var onStateChange: (() -> Void)?
+
+    var showsAnimatedFlash: Bool {
+        flashRect != nil && flashStartedAt != nil
+    }
+
+    var hasVisibleContent: Bool {
+        !unreadRects.isEmpty || showsAnimatedFlash
+    }
 
     func apply(
         _ state: TmuxWorkspacePaneOverlayRenderState,
@@ -122,26 +133,88 @@ final class TmuxWorkspacePaneOverlayModel: ObservableObject {
         let didChangeWorkspace = lastWorkspaceId != state.workspaceId
         if didChangeWorkspace {
             lastWorkspaceId = state.workspaceId
-            lastFlashToken = state.flashToken
+            lastObservedFlashToken = state.flashToken
+            runningFlashToken = nil
+            cancelFlashReset()
             flashStartedAt = nil
             return
         }
 
-        if let lastFlashToken,
-           state.flashToken != lastFlashToken,
-           state.flashRect != nil {
-            flashStartedAt = now()
+        let didChangeFlashToken = lastObservedFlashToken != state.flashToken
+        if didChangeFlashToken {
+            lastObservedFlashToken = state.flashToken
+
+            if state.flashRect != nil {
+                startFlash(
+                    workspaceId: state.workspaceId,
+                    flashToken: state.flashToken,
+                    startedAt: now()
+                )
+            } else {
+                // A new token supersedes any in-flight flash even when layout churn
+                // temporarily leaves the pane without a window-space rect.
+                cancelFlashReset()
+                flashStartedAt = nil
+                runningFlashToken = nil
+            }
+            return
         }
-        self.lastFlashToken = state.flashToken
+
+        // Preserve an in-flight flash if the pane rect is temporarily missing.
+        // Once the same token has a rect again, resume from the original start time.
+        if runningFlashToken == nil,
+           state.flashRect != nil {
+            startFlash(
+                workspaceId: state.workspaceId,
+                flashToken: state.flashToken,
+                startedAt: now()
+            )
+        }
     }
 
     func clear() {
+        cancelFlashReset()
         unreadRects = []
         flashRect = nil
         flashStartedAt = nil
         flashReason = nil
         lastWorkspaceId = nil
-        lastFlashToken = nil
+        lastObservedFlashToken = nil
+        runningFlashToken = nil
+    }
+
+    private func startFlash(workspaceId: UUID, flashToken: UInt64, startedAt: Date) {
+        flashStartedAt = startedAt
+        runningFlashToken = flashToken
+        scheduleFlashReset(workspaceId: workspaceId, flashToken: flashToken)
+    }
+
+    private func scheduleFlashReset(workspaceId: UUID, flashToken: UInt64) {
+        cancelFlashReset()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard self.lastWorkspaceId == workspaceId,
+                  self.runningFlashToken == flashToken else {
+                return
+            }
+
+            self.flashStartedAt = nil
+            // Keep the handled token latched so later layout churn with the same
+            // token cannot replay a completed flash. A new token or workspace
+            // change will reset the latch.
+            self.onStateChange?()
+        }
+        flashResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + FocusFlashPattern.duration,
+            execute: workItem
+        )
+    }
+
+    private func cancelFlashReset() {
+        flashResetWorkItem?.cancel()
+        flashResetWorkItem = nil
     }
 }
 
@@ -152,27 +225,48 @@ struct TmuxWorkspacePaneOverlayView: View {
     let flashReason: WorkspaceAttentionFlashReason?
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { context, _ in
-                for rect in unreadRects {
-                    drawUnreadRing(in: &context, rect: rect)
+        Group {
+            if flashRect != nil && flashStartedAt != nil {
+                TimelineView(.animation) { timeline in
+                    Canvas { context, _ in
+                        renderOverlay(
+                            in: &context,
+                            currentDate: timeline.date
+                        )
+                    }
                 }
-
-                guard let flashRect,
-                      let flashStartedAt else { return }
-                let elapsed = timeline.date.timeIntervalSince(flashStartedAt)
-                let opacity = FocusFlashPattern.opacity(at: elapsed)
-                guard opacity > 0.001 else { return }
-                drawFlashRing(
-                    in: &context,
-                    rect: flashRect,
-                    opacity: opacity,
-                    reason: flashReason ?? .notificationArrival
-                )
+            } else if !unreadRects.isEmpty {
+                Canvas { context, _ in
+                    renderOverlay(in: &context, currentDate: nil)
+                }
+            } else {
+                Color.clear
             }
         }
         .allowsHitTesting(false)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func renderOverlay(
+        in context: inout GraphicsContext,
+        currentDate: Date?
+    ) {
+        for rect in unreadRects {
+            drawUnreadRing(in: &context, rect: rect)
+        }
+
+        guard let flashRect,
+              let flashStartedAt,
+              let currentDate else { return }
+        let elapsed = currentDate.timeIntervalSince(flashStartedAt)
+        let opacity = FocusFlashPattern.opacity(at: elapsed)
+        guard opacity > 0.001 else { return }
+        drawFlashRing(
+            in: &context,
+            rect: flashRect,
+            opacity: opacity,
+            reason: flashReason ?? .notificationArrival
+        )
     }
 
     private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
