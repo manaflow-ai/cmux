@@ -822,6 +822,39 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
     }
+
+    func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {
+        let tab = UUID()
+        let latestSurface = UUID()
+        let previousSurface = UUID()
+        let latestNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: latestSurface,
+            title: "Latest",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+        let previousNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: previousSurface,
+            title: "Previous",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: true
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([latestNotification, previousNotification])
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, latestNotification.id)
+
+        store.clearLatestNotification(forTabId: tab)
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, previousNotification.id)
+    }
 }
 
 

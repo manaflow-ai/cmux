@@ -13118,6 +13118,10 @@ private struct TabItemView: View, Equatable {
             multi: String(localized: "contextMenu.markWorkspacesUnread", defaultValue: "Mark Workspaces as Unread"),
             single: String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread"),
             isMulti: isMulti)
+        let clearLatestNotificationLabel = contextMenuLabel(
+            multi: String(localized: "contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
+            single: String(localized: "contextMenu.clearLatestNotification", defaultValue: "Clear Latest Notification"),
+            isMulti: isMulti)
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
@@ -13305,6 +13309,11 @@ private struct TabItemView: View, Equatable {
             markTabsUnread(targetIds)
         }
         .disabled(!hasReadNotifications(in: targetIds))
+
+        Button(clearLatestNotificationLabel) {
+            clearLatestNotifications(targetIds)
+        }
+        .disabled(!hasLatestNotifications(in: targetIds))
     }
 
     private var selectionBackgroundColor: NSColor {
@@ -13469,6 +13478,12 @@ private struct TabItemView: View, Equatable {
         }
     }
 
+    private func clearLatestNotifications(_ targetIds: [UUID]) {
+        for id in targetIds {
+            notificationStore.clearLatestNotification(forTabId: id)
+        }
+    }
+
     private func hasUnreadNotifications(in targetIds: [UUID]) -> Bool {
         let targetSet = Set(targetIds)
         return notificationStore.notifications.contains { targetSet.contains($0.tabId) && !$0.isRead }
@@ -13477,6 +13492,10 @@ private struct TabItemView: View, Equatable {
     private func hasReadNotifications(in targetIds: [UUID]) -> Bool {
         let targetSet = Set(targetIds)
         return notificationStore.notifications.contains { targetSet.contains($0.tabId) && $0.isRead }
+    }
+
+    private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
+        targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
     }
 
     private func syncSelectionAfterMutation() {
