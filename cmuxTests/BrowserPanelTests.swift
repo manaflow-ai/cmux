@@ -229,17 +229,38 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
     }
 
-    func testInactiveStateClearsPendingTarget() {
-        let panel = BrowserPanel(workspaceId: UUID())
+    func testInactiveStateKeepsPendingTargetUntilCopySuccess() {
+        let workspaceId = UUID()
         let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let browserId = panel.id
+        let expectation = expectation(description: "react grab pasteback notification after deactivate")
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID, workspaceId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID, browserId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.returnPanelId] as? UUID, terminalId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
         XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
 
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
 
-        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
         XCTAssertFalse(panel.isReactGrabActive)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>"))
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
     }
 }
 
