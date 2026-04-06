@@ -1073,7 +1073,6 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
     private static let batchSSHControlOptionKeys: Set<String> = [
         "controlmaster",
         "controlpersist",
-        "controlpath",
     ]
 
     static func daemonTransportArguments(
@@ -4033,8 +4032,10 @@ final class WorkspaceRemoteSessionController {
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
         ]
-        // Only add StrictHostKeyChecking default if not resolved from user config.
-        if !resolved.hasStrictHostKeyChecking {
+        // Only add StrictHostKeyChecking default if not resolved from ssh -G and not
+        // explicitly set in configuration.sshOptions.
+        if !resolved.hasStrictHostKeyChecking
+            && !hasSSHOptionKey(configuration.sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         args += [
@@ -4158,6 +4159,15 @@ final class WorkspaceRemoteSessionController {
     ///
     /// Input: "jumphost,bastion" (comma-separated hops, may be config aliases)
     /// Output: "admin@jump.example.com:22,user@bastion.example.com:22" (resolved)
+    ///
+    /// Limitation: per-hop config beyond hostname/user/port (e.g. hop-specific
+    /// IdentityFile, CertificateFile, HostKeyAlias) cannot be represented in
+    /// the `-J` string and is lost when `-F /dev/null` propagates to jump
+    /// processes. This affects bastion chains where the jump host requires a
+    /// dedicated key or host-key alias. The preferred ControlMaster path does
+    /// not have this limitation since it reuses the primary connection. The SSH
+    /// agent will handle authentication for most cases; users with non-agent
+    /// hop-specific keys should ensure the ControlMaster path succeeds.
     private func resolveProxyJumpChain(_ chain: String) -> String {
         let hops = chain.split(separator: ",").map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4319,7 +4329,6 @@ final class WorkspaceRemoteSessionController {
         let batchSSHControlOptionKeys: Set<String> = [
             "controlmaster",
             "controlpersist",
-            "controlpath",
         ]
         return normalizedSSHOptions(options).filter { option in
             guard let key = sshOptionKey(option) else { return false }
