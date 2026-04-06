@@ -38,6 +38,9 @@ jobs:
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
+      - name: Validate Sparkle build number is monotonic
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
