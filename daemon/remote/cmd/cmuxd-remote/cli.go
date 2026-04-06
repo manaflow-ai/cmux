@@ -154,6 +154,12 @@ doneFlags:
 	if cmdName == "omo" {
 		return runOMORelay(socketPath, cmdArgs, refreshAddr)
 	}
+	if cmdName == "omx" {
+		return runOMXRelay(socketPath, cmdArgs, refreshAddr)
+	}
+	if cmdName == "omc" {
+		return runOMCRelay(socketPath, cmdArgs, refreshAddr)
+	}
 
 	// Tmux compatibility layer (used by agent shims)
 	if cmdName == "__tmux-compat" {
