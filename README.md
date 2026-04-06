@@ -120,7 +120,7 @@ On first launch, macOS may ask you to confirm opening an app from an identified 
 
 Install the cmux skills for Claude Code to give your agent control over windows, panes, browser panels, and markdown viewers:
 
-```
+```bash
 /plugin marketplace add manaflow-ai/cmux
 /plugin install cmux@cmux
 ```
