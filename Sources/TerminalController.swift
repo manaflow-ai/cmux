@@ -10,6 +10,7 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
 /// Unix socket-based controller for programmatic terminal control
