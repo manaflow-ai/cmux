@@ -10092,6 +10092,35 @@ final class Workspace: Identifiable, ObservableObject {
 
     }
 
+    /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
+    /// Unlike moveFocus(direction:), this visits all panes regardless of spatial layout.
+    func cycleFocus(forward: Bool) {
+        let allPaneIds = bonsplitController.allPaneIds
+        guard allPaneIds.count > 1,
+              let currentId = bonsplitController.focusedPaneId,
+              let currentIndex = allPaneIds.firstIndex(of: currentId) else { return }
+
+        // Unfocus the currently-focused panel before navigating.
+        if let prevPanelId = focusedPanelId, let prev = panels[prevPanelId] {
+            prev.unfocus()
+        }
+
+        let targetIndex: Int
+        if forward {
+            targetIndex = (currentIndex + 1) % allPaneIds.count
+        } else {
+            targetIndex = currentIndex == 0 ? allPaneIds.count - 1 : currentIndex - 1
+        }
+        bonsplitController.focusPane(allPaneIds[targetIndex])
+
+        // Reconcile selection/focus after navigation so AppKit first-responder and
+        // bonsplit's focused pane stay aligned.
+        if let paneId = bonsplitController.focusedPaneId,
+           let tabId = bonsplitController.selectedTab(inPane: paneId)?.id {
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+    }
+
     // MARK: - Surface Navigation
 
     /// Select the next surface in the currently focused pane

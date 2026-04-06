@@ -4014,6 +4014,13 @@ class TabManager: ObservableObject {
         return true
     }
 
+    /// Cycle focus to the next or previous pane in tree order, wrapping at the ends.
+    func cycleSplitFocus(tabId: UUID, forward: Bool) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        tab.cycleFocus(forward: forward)
+        return true
+    }
+
     /// Resize split - not directly supported by bonsplit, but we can adjust divider positions
     func resizeSplit(tabId: UUID, surfaceId: UUID, direction: ResizeDirection, amount: UInt16) -> Bool {
         guard amount > 0,
