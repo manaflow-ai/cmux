@@ -3283,17 +3283,18 @@ final class BrowserPanel: Panel, ObservableObject {
         clearWebViewFocusSuppression()
         NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
 
-        // Prevent omnibar auto-focus from immediately stealing first responder back.
-        suppressOmnibarAutofocus(for: 1.5)
-
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
         if Self.responderChainContains(window.firstResponder, target: webView) {
+            // Prevent omnibar auto-focus from immediately stealing first responder back.
+            suppressOmnibarAutofocus(for: 1.5)
             noteWebViewFocused()
             return true
         }
 
         guard window.makeFirstResponder(webView) else { return false }
+        // Prevent omnibar auto-focus from immediately stealing first responder back.
+        suppressOmnibarAutofocus(for: 1.5)
         noteWebViewFocused()
 
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
@@ -3301,6 +3302,7 @@ final class BrowserPanel: Panel, ObservableObject {
             guard webView.window === window else { return }
             if !Self.responderChainContains(window.firstResponder, target: webView),
                window.makeFirstResponder(webView) {
+                self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
             }
         }

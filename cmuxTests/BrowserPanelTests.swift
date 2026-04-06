@@ -200,6 +200,15 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    @MainActor
+    func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+        XCTAssertFalse(panel.requestExplicitWebViewFocus())
+        XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+    }
+
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
         let workspaceId = UUID()
         let terminalId = UUID()
@@ -330,6 +339,31 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         wait(for: [invertedExpectation], timeout: 0.1)
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
         XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testCopySuccessStripsDangerousInvisibleScalarsBeforePastebackNotification() throws {
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let expectation = expectation(description: "react grab pasteback notification")
+        let rawContent = "<button>Sa\u{202E}v\u{200B}e</button>\u{2069}\n"
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>\n")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: rawContent, token: token))
+
+        wait(for: [expectation], timeout: 1.0)
     }
 }
 

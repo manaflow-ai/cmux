@@ -71,6 +71,19 @@ enum ReactGrabPastebackNotificationKey {
     static let content = "content"
 }
 
+private enum ReactGrabPastebackContentFilter {
+    private static let dangerousScalars: Set<Unicode.Scalar> = [
+        "\u{200B}", "\u{200C}", "\u{200D}", "\u{200E}", "\u{200F}",
+        "\u{202A}", "\u{202B}", "\u{202C}", "\u{202D}", "\u{202E}",
+        "\u{2066}", "\u{2067}", "\u{2068}", "\u{2069}",
+        "\u{FEFF}",
+    ]
+
+    static func filtered(_ text: String) -> String {
+        String(text.unicodeScalars.filter { !dangerousScalars.contains($0) })
+    }
+}
+
 // MARK: - Script Loader
 
 /// Fetches, integrity-checks, and caches the react-grab script.
@@ -273,6 +286,7 @@ extension BrowserPanel {
                 "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
             )
 #endif
+            let filteredContent = ReactGrabPastebackContentFilter.filtered(content)
             clearReactGrabRoundTrip(reason: "copySuccess")
             NotificationCenter.default.post(
                 name: .reactGrabDidCopySelection,
@@ -281,7 +295,7 @@ extension BrowserPanel {
                     ReactGrabPastebackNotificationKey.workspaceId: workspaceId,
                     ReactGrabPastebackNotificationKey.browserPanelId: id,
                     ReactGrabPastebackNotificationKey.returnPanelId: returnPanelId,
-                    ReactGrabPastebackNotificationKey.content: content,
+                    ReactGrabPastebackNotificationKey.content: filteredContent,
                 ]
             )
         }
