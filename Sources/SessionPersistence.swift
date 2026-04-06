@@ -527,8 +527,6 @@ enum SessionRestoreCommandSettings {
         "mosh *",
     ]
 
-    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
-
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: enabledKey) == nil {
             return defaultEnabled
@@ -1078,13 +1076,6 @@ final class SessionForegroundProcessCache {
             return String(trimmed.dropFirst(5))
         }
         return trimmed
-    }
-
-    /// Clear the cache (e.g., on app termination).
-    func clear() {
-        os_unfair_lock_lock(&unfairLock)
-        cache.removeAll()
-        os_unfair_lock_unlock(&unfairLock)
     }
 }
 
