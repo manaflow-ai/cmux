@@ -98,7 +98,7 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
-    func testSessionSnapshotSkipsRestoreCommandForRemoteTerminal() throws {
+    func testSessionSnapshotSkipsDetectedCommandForRemoteTerminal() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let configuration = WorkspaceRemoteConfiguration(
@@ -115,12 +115,14 @@ final class SessionPersistenceTests: XCTestCase {
         )
 
         workspace.configureRemoteConnection(configuration, autoConnect: false)
-        workspace.setPanelRestoreCommand(panelId: panelId, command: "opencode")
+        // Even if TTY exists, detected command should be nil for remote terminals
+        workspace.surfaceTTYNames[panelId] = "/dev/ttys001"
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
 
-        XCTAssertNil(panelSnapshot.terminal?.restoreCommand)
+        // Remote terminals should not have detectedCommand (can't detect remote foreground process)
+        XCTAssertNil(panelSnapshot.terminal?.detectedCommand)
     }
 
     @MainActor

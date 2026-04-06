@@ -482,7 +482,6 @@ extension Workspace {
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
                 scrollback: resolvedScrollback,
-                restoreCommand: isRemoteBackedTerminal ? nil : panelRestoreCommands[panelId],
                 detectedCommand: detectedCommand,
                 isRemoteBacked: isRemoteBackedTerminal
             )
@@ -662,9 +661,7 @@ extension Workspace {
             let panelWasRemoteBacked = snapshot.terminal?.isRemoteBacked ?? false
             let commandToRestore: String? = {
                 guard SessionRestoreCommandSettings.isEnabled(), !panelWasRemoteBacked else { return nil }
-                // Explicit restoreCommand takes priority, then detected command
-                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand)
-                    ?? SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
+                return SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.detectedCommand)
             }()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
@@ -674,10 +671,6 @@ extension Workspace {
                 initialInput: commandToRestore
             ) else {
                 return nil
-            }
-            if !panelWasRemoteBacked,
-               let validated = SessionRestoreCommandSettings.validatedRestoreCommand(snapshot.terminal?.restoreCommand) {
-                setPanelRestoreCommand(panelId: terminalPanel.id, command: validated)
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {
@@ -6370,7 +6363,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var panelCustomTitles: [UUID: String] = [:]
     @Published private(set) var pinnedPanelIds: Set<UUID> = []
     @Published private(set) var manualUnreadPanelIds: Set<UUID> = []
-    @Published private(set) var panelRestoreCommands: [UUID: String] = [:]
     @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
@@ -6828,7 +6820,6 @@ final class Workspace: Identifiable, ObservableObject {
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
-        let restoreCommand: String?
         let manuallyUnread: Bool
         let isRemoteTerminal: Bool
         let remoteRelayPort: Int?
@@ -6848,7 +6839,6 @@ final class Workspace: Identifiable, ObservableObject {
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
-                restoreCommand: restoreCommand,
                 manuallyUnread: manuallyUnread,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
@@ -7159,15 +7149,6 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
-    }
-
-    func setPanelRestoreCommand(panelId: UUID, command: String?) {
-        guard panels[panelId] is TerminalPanel else { return }
-        guard let validated = SessionRestoreCommandSettings.validatedRestoreCommand(command) else {
-            panelRestoreCommands.removeValue(forKey: panelId)
-            return
-        }
-        panelRestoreCommands[panelId] = validated
     }
 
     func isPanelPinned(_ panelId: UUID) -> Bool {
@@ -7583,7 +7564,6 @@ final class Workspace: Identifiable, ObservableObject {
         panelDirectories = panelDirectories.filter { validSurfaceIds.contains($0.key) }
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
-        panelRestoreCommands = panelRestoreCommands.filter { validSurfaceIds.contains($0.key) }
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
         panelGitBranches = panelGitBranches.filter { validSurfaceIds.contains($0.key) }
@@ -9567,7 +9547,6 @@ final class Workspace: Identifiable, ObservableObject {
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
-            panelRestoreCommands.removeValue(forKey: detached.panelId)
             pinnedPanelIds.remove(detached.panelId)
             manualUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
@@ -9596,10 +9575,6 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: detached.panelId)
-        }
-        let isRemoteBackedDetachedSurface = detached.isRemoteTerminal || detached.remoteCleanupConfiguration != nil
-        if !isRemoteBackedDetachedSurface, let restoreCommand = detached.restoreCommand {
-            setPanelRestoreCommand(panelId: detached.panelId, command: restoreCommand)
         }
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
@@ -11473,7 +11448,6 @@ extension Workspace: BonsplitDelegate {
                 ttyName: surfaceTTYNames[panelId],
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
-                restoreCommand: panelRestoreCommands[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
@@ -11497,7 +11471,6 @@ extension Workspace: BonsplitDelegate {
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
-        panelRestoreCommands.removeValue(forKey: panelId)
         pinnedPanelIds.remove(panelId)
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
@@ -11652,7 +11625,6 @@ extension Workspace: BonsplitDelegate {
                 panelPullRequests.removeValue(forKey: panelId)
                 panelTitles.removeValue(forKey: panelId)
                 panelCustomTitles.removeValue(forKey: panelId)
-                panelRestoreCommands.removeValue(forKey: panelId)
                 pinnedPanelIds.remove(panelId)
                 manualUnreadPanelIds.remove(panelId)
                 panelSubscriptions.removeValue(forKey: panelId)
