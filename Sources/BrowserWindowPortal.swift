@@ -2087,6 +2087,13 @@ final class WindowBrowserSlotView: NSView {
 final class WindowBrowserPortal: NSObject {
     private static let transientRecoveryRetryBudget: Int = 12
 
+    private static func dividerHitRectContains(_ point: NSPoint, rect: NSRect) -> Bool {
+        point.x >= rect.minX &&
+            point.x <= rect.maxX &&
+            point.y >= rect.minY &&
+            point.y <= rect.maxY
+    }
+
     private weak var window: NSWindow?
     private let hostView = WindowBrowserHostView(frame: .zero)
     private weak var installedContainerView: NSView?
@@ -2193,7 +2200,8 @@ final class WindowBrowserPortal: NSObject {
             )
         }
 
-        if dividerRect.insetBy(dx: -4, dy: -4).contains(location) {
+        let hitRect = dividerRect.insetBy(dx: -5, dy: -5)
+        if dividerHitRectContains(location, rect: hitRect) {
             window.browserPortalHasInteractiveSplitDividerDrag = true
         }
     }

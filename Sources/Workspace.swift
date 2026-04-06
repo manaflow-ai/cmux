@@ -8635,6 +8635,12 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: newPanel.id,
+            reason: "splitCreate"
+        )
+
         return newPanel
     }
 
@@ -8709,6 +8715,12 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: newPanel.id,
+            reason: "surfaceCreate"
+        )
         return newPanel
     }
 

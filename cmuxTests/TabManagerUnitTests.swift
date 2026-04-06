@@ -460,6 +460,76 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testTrackedWorkspaceGitMetadataPollCandidatesExcludeDirectoriesWithoutResolvedGitMetadata() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-nonrepo-candidate-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: directoryURL.path)
+
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty &&
+                    manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id)
+                    .isEmpty &&
+                    workspace.panelGitBranches[panelId] == nil
+            }
+        )
+    }
+
+    func testInheritedBackgroundWorkspaceFetchesGitBranchWithoutSelection() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-inherited-background-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+        workspace.currentDirectory = repoURL.path
+
+        let backgroundWorkspace = manager.addWorkspace(select: false)
+        guard let backgroundPanelId = backgroundWorkspace.focusedPanelId else {
+            XCTFail("Expected background workspace with focused panel")
+            return
+        }
+
+        XCTAssertNotEqual(manager.selectedTabId, backgroundWorkspace.id)
+        XCTAssertTrue(
+            waitForCondition {
+                backgroundWorkspace.panelGitBranches[backgroundPanelId]?.branch == "main"
+            }
+        )
+        XCTAssertEqual(backgroundWorkspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
     func testPeriodicWorkspaceGitMetadataRefreshUpdatesMainWorkspaceAfterCheckoutToFeatureBranch() throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-main-refresh-\(UUID().uuidString)")
@@ -484,8 +554,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
 
         XCTAssertEqual(
             manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: workspace.id),
@@ -502,6 +572,90 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             }
         )
         XCTAssertEqual(workspace.gitBranch?.branch, "feature/sidebar-live-refresh")
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshRestoresClearedBranchForStaleTerminal() throws {
+        let fileManager = FileManager.default
+        let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-stale-branch-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["init", "-b", "main"], in: repoURL)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "main", isDirty: false)
+        manager.clearSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId)
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+            }
+        )
+        XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
+    func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+
+        guard let splitPanel = workspace.newTerminalSplit(from: panelId, orientation: .horizontal, focus: false) else {
+            XCTFail("Expected remote split terminal panel to be created")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(splitPanel.id))
+        XCTAssertEqual(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id), Set<UUID>())
     }
 
     func testResolvedCommandPathFallsBackOutsideAppPATH() throws {
@@ -556,8 +710,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "feature/sidebar-pr", isDirty: false)
         workspace.updatePanelPullRequest(
             panelId: panelId,
             number: 1052,
