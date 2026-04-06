@@ -202,6 +202,23 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
 // MARK: - BrowserPanel extension
 
 extension BrowserPanel {
+    private func reactGrabSessionTokenLiteral() -> String {
+        pendingReactGrabRoundTripToken.map { "'\($0)'" } ?? "null"
+    }
+
+    private func reactGrabBridgeSessionRefreshScript() -> String {
+        """
+        (function() {
+            var bridgeState = window.__CMUX_REACT_GRAB_BRIDGE_STATE__;
+            if (!bridgeState || typeof bridgeState.beginSession !== 'function') {
+                return false;
+            }
+            bridgeState.beginSession(\(reactGrabSessionTokenLiteral()));
+            return true;
+        })();
+        """
+    }
+
     func setupReactGrabMessageHandler(for webView: WKWebView) {
         let handler = ReactGrabMessageHandler { [weak self] message in
             self?.handleReactGrabBridgeMessage(message)
@@ -316,7 +333,7 @@ extension BrowserPanel {
         #endif
 
         let handlerName = reactGrabMessageHandlerName
-        let sessionTokenLiteral = pendingReactGrabRoundTripToken.map { "'\($0)'" } ?? "null"
+        let sessionTokenLiteral = reactGrabSessionTokenLiteral()
         let combined = """
         (function() {
             var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
@@ -410,8 +427,26 @@ extension BrowserPanel {
     }
 
     func ensureReactGrabActive() async {
-        guard !isReactGrabActive else { return }
+        if isReactGrabActive {
+            guard pendingReactGrabRoundTripToken != nil else { return }
+            if await refreshReactGrabBridgeSessionToken() {
+                return
+            }
+        }
         await injectReactGrab()
+    }
+
+    @discardableResult
+    func refreshReactGrabBridgeSessionToken() async -> Bool {
+        do {
+            let result = try await evaluateJavaScript(reactGrabBridgeSessionRefreshScript())
+            return (result as? Bool) ?? false
+        } catch {
+#if DEBUG
+            dlog("reactGrab.bridgeSessionRefresh.error error=\(error.localizedDescription)")
+#endif
+            return false
+        }
     }
 
     func resetReactGrabState(

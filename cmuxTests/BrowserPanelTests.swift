@@ -365,6 +365,30 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
 
         wait(for: [expectation], timeout: 1.0)
     }
+
+    func testEnsureReactGrabActiveRefreshesBridgeSessionTokenWhenAlreadyActive() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        _ = try await panel.evaluateJavaScript(
+            """
+            window.__CMUX_REACT_GRAB_BRIDGE_STATE__ = {
+                beginSession: function(token) {
+                    window.__cmuxTestRoundTripToken = token;
+                }
+            };
+            true;
+            """
+        )
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.armReactGrabRoundTrip(returnTo: UUID())
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        await panel.ensureReactGrabActive()
+
+        let refreshedToken = try await panel.evaluateJavaScript("window.__cmuxTestRoundTripToken") as? String
+        XCTAssertEqual(refreshedToken, token)
+    }
 }
 
 
