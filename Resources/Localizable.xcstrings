@@ -29715,6 +29715,40 @@
         }
       }
     },
+    "contextMenu.clearLatestNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Latest Notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の通知をクリア"
+          }
+        }
+      }
+    },
+    "contextMenu.clearLatestNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Latest Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新の通知をクリア"
+          }
+        }
+      }
+    },
     "contextMenu.closeOtherWorkspaces": {
       "extractionState": "manual",
       "localizations": {
