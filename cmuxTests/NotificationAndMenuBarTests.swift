@@ -816,7 +816,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.markRead(forTabId: tab, surfaceId: surfaceUnread)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: surfaceUnread))
-        XCTAssertNil(store.latestNotification(forTabId: tab))
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, unreadNotification.id)
 
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
