@@ -8005,6 +8005,8 @@ final class Workspace: Identifiable, ObservableObject {
             panel is TerminalPanel ? panelId : nil
         }
         guard terminalIds.count == 1, let initialPanelId = terminalIds.first else { return }
+        // Clear stale local TTY - this existing terminal is being upgraded to remote
+        surfaceTTYNames.removeValue(forKey: initialPanelId)
         trackRemoteTerminalSurface(initialPanelId)
     }
 
@@ -8012,7 +8014,8 @@ final class Workspace: Identifiable, ObservableObject {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
-        surfaceTTYNames.removeValue(forKey: panelId)
+        // Note: Don't clear surfaceTTYNames here - detached remote terminals carry valid TTYs.
+        // Stale local TTYs are cleared in seedInitialRemoteTerminalSessionIfNeeded() where needed.
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)

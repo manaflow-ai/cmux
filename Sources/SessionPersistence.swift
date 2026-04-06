@@ -803,7 +803,8 @@ enum SessionRestoreCommandSettings {
 
         // Check MySQL-family commands with -p flag (password)
         // These tools use -p for password, unlike cargo/flask/npm which use it for port/package
-        if isMySQLPasswordCommand(lowercased) {
+        // Note: Must check original command because -p (password) vs -P (port) are case-sensitive
+        if isMySQLPasswordCommand(command, lowercasedCommand: lowercased) {
             return true
         }
 
@@ -859,17 +860,18 @@ enum SessionRestoreCommandSettings {
     }
 
     /// Check if a command is a MySQL-family tool with -p password flag
-    /// MySQL, MariaDB, mysqldump, mysqladmin all use -p for password
-    private static func isMySQLPasswordCommand(_ lowercasedCommand: String) -> Bool {
+    /// MySQL, MariaDB, mysqldump, mysqladmin all use -p for password (case-sensitive: -P is port)
+    private static func isMySQLPasswordCommand(_ command: String, lowercasedCommand: String) -> Bool {
         let mysqlTools: Set<String> = ["mysql", "mariadb", "mysqldump", "mysqladmin"]
 
         // Parse the leading shell token (handles quoted paths like '/My App/mysql')
         let toolName = parseLeadingExecutableBasename(lowercasedCommand)
         guard mysqlTools.contains(toolName) else { return false }
 
-        // Check if -p flag is present (with or without space before value)
-        // -p, -pPASSWORD, or -p PASSWORD
-        return lowercasedCommand.contains(" -p") || lowercasedCommand.contains(" -p=")
+        // Check if -p flag is present (case-sensitive: -p is password, -P is port)
+        // Must check original command, not lowercased, to preserve case distinction
+        // Matches: -p, -pPASSWORD, -p PASSWORD, -p=PASSWORD
+        return command.contains(" -p") || command.contains(" -p=")
     }
 
     /// Parse the leading executable token from a command line, handling shell quoting.
