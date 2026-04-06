@@ -23,23 +23,23 @@ else
     builtin unset ZDOTDIR
 fi
 
-if [[ -o interactive \
-   && -z "${ZSH_EXECUTION_STRING:-}" \
-   && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \
-   && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" \
-   && -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" \
-   && "${TERM:-}" == "xterm-256color" \
-   && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
-    # Keep startup TERM-compatible prompt/theme selection during shell init,
-    # then restore the managed xterm-256color identity once zle starts.
-    builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
-    builtin export TERM="xterm-ghostty"
-fi
-
 {
     # zsh treats unset ZDOTDIR as if it were HOME. We do the same.
     builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
     [[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
+
+    if [[ -o interactive \
+       && -z "${ZSH_EXECUTION_STRING:-}" \
+       && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \
+       && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+       && -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" \
+       && "${TERM:-}" == "xterm-256color" \
+       && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+        # Keep startup TERM-compatible prompt/theme selection during shell init,
+        # then restore the managed xterm-256color identity once zle starts.
+        builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
+        builtin export TERM="xterm-ghostty"
+    fi
 } always {
     if [[ -o interactive ]]; then
         # We overwrote GhosttyKit's injected ZDOTDIR, so manually load Ghostty's
