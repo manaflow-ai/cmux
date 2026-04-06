@@ -2,6 +2,83 @@
 
 All notable changes to cmux are documented here.
 
+## [0.63.2] - 2026-04-06
+
+### Added
+- Support chorded keyboard shortcuts ([#2528](https://github.com/manaflow-ai/cmux/pull/2528))
+- Detect listening ports for remote SSH workspaces ([#2398](https://github.com/manaflow-ai/cmux/pull/2398))
+- Editable workspace descriptions ([#2475](https://github.com/manaflow-ai/cmux/pull/2475))
+- Claude Binary Path setting ([#2514](https://github.com/manaflow-ai/cmux/pull/2514))
+- `cmux omx` and `cmux omc` agent integrations ([#2619](https://github.com/manaflow-ai/cmux/pull/2619))
+- "Open Folder in VS Code (Inline)" menu item and command palette entry ([#2409](https://github.com/manaflow-ai/cmux/pull/2409))
+- New Window entry in the Dock menu ([#2340](https://github.com/manaflow-ai/cmux/pull/2340))
+- Reset-terminal workaround in the terminal menu ([#2349](https://github.com/manaflow-ai/cmux/pull/2349))
+- React Grab inject button in the browser toolbar ([#2373](https://github.com/manaflow-ai/cmux/pull/2373))
+- Hover background on split action buttons ([#2271](https://github.com/manaflow-ai/cmux/pull/2271))
+- Cmd-click fallback for bare filenames in `ls` output ([#2294](https://github.com/manaflow-ai/cmux/pull/2294))
+- Localized tab context menu and alert strings ([#2422](https://github.com/manaflow-ai/cmux/pull/2422))
+
+### Changed
+- Relicense cmux from AGPL-3.0 to GPL-3.0 ([#2364](https://github.com/manaflow-ai/cmux/pull/2364))
+- Update bundled Ghostty fork to latest upstream ([#2379](https://github.com/manaflow-ai/cmux/pull/2379))
+- Sidebar PR lookups are now event-driven to reduce GitHub API load ([#2453](https://github.com/manaflow-ai/cmux/pull/2453))
+- Keep the latest sidebar notification until it is explicitly cleared ([#2623](https://github.com/manaflow-ai/cmux/pull/2623))
+- Switch the nightly Sparkle appcast feed to R2 ([#2335](https://github.com/manaflow-ai/cmux/pull/2335), [#2363](https://github.com/manaflow-ai/cmux/pull/2363), [#2366](https://github.com/manaflow-ai/cmux/pull/2366))
+
+### Fixed
+- Fix terminals freezing when the first responder drifts off the focused surface ([#2505](https://github.com/manaflow-ai/cmux/pull/2505))
+- Fix sidebar layout loop and CLI socket deadlocks ([#2601](https://github.com/manaflow-ai/cmux/pull/2601))
+- Fix sidebar LazyVStack layout loop in the workspace list ([#2328](https://github.com/manaflow-ai/cmux/pull/2328))
+- Fix focus reporting leak on pane creation ([#2511](https://github.com/manaflow-ai/cmux/pull/2511))
+- Fix browser pane flicker during multi-split resize ([#2574](https://github.com/manaflow-ai/cmux/pull/2574))
+- Fix browser panel resize flicker during split drag ([#2513](https://github.com/manaflow-ai/cmux/pull/2513))
+- Fix browser pane hangs from redundant portal refreshes ([#2353](https://github.com/manaflow-ai/cmux/pull/2353))
+- Fix browser pane dark-mode leak on light pages ([#2346](https://github.com/manaflow-ai/cmux/pull/2346))
+- Fix DevTools pane breaking after workspace switch round-trips ([#2621](https://github.com/manaflow-ai/cmux/pull/2621))
+- Fix sidebar background: add missing locale entries and portal resync on toggle ([#2622](https://github.com/manaflow-ai/cmux/pull/2622))
+- Fix session restore suppression on relaunch ([#2469](https://github.com/manaflow-ai/cmux/pull/2469))
+- Fix session restore terminal cursor focus race ([#2471](https://github.com/manaflow-ai/cmux/pull/2471))
+- Fix terminal focus and surface recovery after layout changes ([#2354](https://github.com/manaflow-ai/cmux/pull/2354))
+- Fix missing sidebar ports for agent-run dev servers ([#2562](https://github.com/manaflow-ai/cmux/pull/2562))
+- Fix missing sidebar git branch metadata for workspaces ([#2563](https://github.com/manaflow-ai/cmux/pull/2563))
+- Fix sidebar live refresh for branch and PR state ([#2331](https://github.com/manaflow-ai/cmux/pull/2331))
+- Fix duplicate sidebar git metadata publishes ([#2405](https://github.com/manaflow-ai/cmux/pull/2405))
+- Fix SSH password-auth bootstrap race ([#2564](https://github.com/manaflow-ai/cmux/pull/2564))
+- Fix remote proxy notification spam with cooldown, backoff, and SSH keepalive ([#2330](https://github.com/manaflow-ai/cmux/pull/2330))
+- Fix tmux-compat `split-window` surface resolution ([#2351](https://github.com/manaflow-ai/cmux/pull/2351))
+- Fix `new-split` falling back to the focused surface when the target is stale ([#2518](https://github.com/manaflow-ai/cmux/pull/2518)) — thanks @anusheel!
+- Fix CLI commands briefly stealing focus ([#2464](https://github.com/manaflow-ai/cmux/pull/2464))
+- Fix paste from Raycast and other apps using alternate plain-text UTIs ([#2467](https://github.com/manaflow-ai/cmux/pull/2467))
+- Fix stray `C` insertion from Speakly dictation ([#2413](https://github.com/manaflow-ai/cmux/pull/2413))
+- Fix Korean IME jamo leak during composition ([#2529](https://github.com/manaflow-ai/cmux/pull/2529))
+- Stop swallowing `/` and `?` on ABC-QWERTZ keyboard layouts ([#2447](https://github.com/manaflow-ai/cmux/pull/2447))
+- Keep prompt colors when zsh switches local `TERM` to `xterm-256color` ([#2613](https://github.com/manaflow-ai/cmux/pull/2613))
+- Ensure shell integrations always dispatch `claude` through the bundled wrapper ([#2465](https://github.com/manaflow-ai/cmux/pull/2465))
+- Fix shell integration review regressions ([#2466](https://github.com/manaflow-ai/cmux/pull/2466))
+- Fix React Grab Cmd+Shift+G terminal round-trip ([#2615](https://github.com/manaflow-ai/cmux/pull/2615))
+- Suppress cmd-hover path highlighting while terminal selection is active ([#2579](https://github.com/manaflow-ai/cmux/pull/2579))
+- Keep cmux browser Find shortcuts authoritative over page handlers ([#2356](https://github.com/manaflow-ai/cmux/pull/2356))
+- Fix minimal-mode tab bar disappearing in fullscreen ([#2375](https://github.com/manaflow-ai/cmux/pull/2375))
+- Fix transparent background flash during sidebar toggle ([#2378](https://github.com/manaflow-ai/cmux/pull/2378))
+- Fix macOS 26 glass window gating ([#2468](https://github.com/manaflow-ai/cmux/pull/2468))
+- Fix fullscreen new windows opening in the current Space ([#2345](https://github.com/manaflow-ai/cmux/pull/2345))
+- Fix Dock persistence for manual app icons ([#2360](https://github.com/manaflow-ai/cmux/pull/2360))
+- Fix update error details dialog overflow ([#2359](https://github.com/manaflow-ai/cmux/pull/2359))
+- Fix Ctrl+K reaching the command palette text editor ([#2394](https://github.com/manaflow-ai/cmux/pull/2394))
+- Keep Cmd+P stable during animated workspace title updates ([#2393](https://github.com/manaflow-ai/cmux/pull/2393))
+- Fix Cmd+P workspace retention for the main CI workspace ([#2412](https://github.com/manaflow-ai/cmux/pull/2412))
+- Coalesce portal sync to latest geometry to fix browser overlay drift ([#2214](https://github.com/manaflow-ai/cmux/pull/2214))
+- Fix `claude_vm_node` OOM behavior and hook payload retention ([#2462](https://github.com/manaflow-ai/cmux/pull/2462))
+- Fix GitHub star badge `k` formatting ([#2473](https://github.com/manaflow-ai/cmux/pull/2473))
+- Keep GitHub stars badge stable across navigation ([#2476](https://github.com/manaflow-ai/cmux/pull/2476))
+- Fix web header overlap ([#2452](https://github.com/manaflow-ai/cmux/pull/2452))
+
+### Thanks to 3 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@anusheel](https://github.com/anusheel)
+
 ## [0.63.1] - 2026-03-28
 
 ### Fixed
