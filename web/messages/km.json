@@ -624,7 +624,9 @@
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
-      "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ"
+      "changelog": "កំណត់ត្រាផ្លាស់ប្ដូរ",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyClaudeCode": "oh-my-claudecode"
     }
   },
   "legal": {

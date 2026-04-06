@@ -709,7 +709,9 @@
       "agentIntegrations": "Інтеграції з агентами",
       "claudeCodeTeams": "Claude Code Teams",
       "ohMyOpenCode": "oh-my-opencode",
-      "changelog": "Журнал змін"
+      "changelog": "Журнал змін",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyClaudeCode": "oh-my-claudecode"
     }
   },
   "legal": {
