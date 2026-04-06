@@ -146,6 +146,27 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
         )
     }
 
+    func testDoesNotFallbackWhenPreferredTerminalTargetIsMissing() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace split")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertNil(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: UUID()
+            )
+        )
+    }
+
     func testShortcutStillRoutesTerminalPastebackWhenWebViewFocusIsDeferred() {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
@@ -161,6 +182,28 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
         workspace.focusPanel(terminalId)
 
         XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+    }
+
+    func testShortcutClearsSplitZoomBeforeRoutingToBrowserPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: terminalId))
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+
+        XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
         XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
     }

@@ -200,7 +200,7 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelReactGrabBridgeTests: XCTestCase {
-    func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() {
+    func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
         let workspaceId = UUID()
         let terminalId = UUID()
         let panel = BrowserPanel(workspaceId: workspaceId)
@@ -222,14 +222,16 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
         XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>"))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
     }
 
-    func testInactiveStateKeepsPendingTargetUntilCopySuccess() {
+    func testInactiveStateKeepsPendingTargetUntilCopySuccess() throws {
         let workspaceId = UUID()
         let terminalId = UUID()
         let panel = BrowserPanel(workspaceId: workspaceId)
@@ -251,19 +253,21 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
         XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
 
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
 
         XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
         XCTAssertFalse(panel.isReactGrabActive)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>"))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
     }
 
-    func testResetStateCanPreservePendingTargetUntilCopySuccess() {
+    func testResetStateCanPreservePendingTargetUntilCopySuccess() throws {
         let workspaceId = UUID()
         let terminalId = UUID()
         let panel = BrowserPanel(workspaceId: workspaceId)
@@ -285,6 +289,7 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
 
         panel.armReactGrabRoundTrip(returnTo: terminalId)
         panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
 
         panel.resetReactGrabState(
             preserveRoundTrip: true,
@@ -294,10 +299,37 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertFalse(panel.isReactGrabActive)
         XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
 
-        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>"))
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
 
         wait(for: [expectation], timeout: 1.0)
         XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testMismatchedCopyTokenDropsPastebackAndClearsPendingTarget() {
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: UUID())
+        let invertedExpectation = expectation(description: "react grab pasteback notification")
+        invertedExpectation.isInverted = true
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { _ in
+            invertedExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertNotNil(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: nil))
+
+        wait(for: [invertedExpectation], timeout: 0.1)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
     }
 }
 

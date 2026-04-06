@@ -2261,6 +2261,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var isReactGrabActive: Bool = false
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var pendingReactGrabReturnTargetPanelId: UUID?
+    var pendingReactGrabRoundTripToken: String?
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?

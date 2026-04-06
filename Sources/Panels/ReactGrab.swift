@@ -134,7 +134,7 @@ private let reactGrabMessageHandlerName = "cmuxReactGrab"
 
 enum ReactGrabBridgeMessage {
     case stateChange(isActive: Bool)
-    case copySuccess(content: String)
+    case copySuccess(content: String, token: String?)
 
     init?(body: [String: Any]) {
         let type = body["type"] as? String ?? "stateChange"
@@ -144,7 +144,7 @@ enum ReactGrabBridgeMessage {
             self = .stateChange(isActive: isActive)
         case "copySuccess":
             guard let content = body["content"] as? String else { return nil }
-            self = .copySuccess(content: content)
+            self = .copySuccess(content: content, token: body["token"] as? String)
         default:
             return nil
         }
@@ -168,7 +168,7 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
         switch bridgeMessage {
         case .stateChange(let isActive):
             dlog("reactGrab.messageHandler type=stateChange isActive=\(isActive)")
-        case .copySuccess(let content):
+        case .copySuccess(let content, _):
             dlog("reactGrab.messageHandler type=copySuccess len=\(content.count)")
         }
         #endif
@@ -177,7 +177,7 @@ class ReactGrabMessageHandler: NSObject, WKScriptMessageHandler {
             switch bridgeMessage {
             case .stateChange(let isActive):
                 dlog("reactGrab.messageHandler.mainActor type=stateChange isActive=\(isActive)")
-            case .copySuccess(let content):
+            case .copySuccess(let content, _):
                 dlog("reactGrab.messageHandler.mainActor type=copySuccess len=\(content.count)")
             }
             #endif
@@ -198,6 +198,7 @@ extension BrowserPanel {
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
+        let token = UUID().uuidString
 #if DEBUG
         dlog(
             "reactGrab.pasteback h3.arm " +
@@ -207,6 +208,7 @@ extension BrowserPanel {
         )
 #endif
         pendingReactGrabReturnTargetPanelId = panelId
+        pendingReactGrabRoundTripToken = token
     }
 
     func clearReactGrabRoundTrip(reason: String = "unspecified") {
@@ -222,6 +224,7 @@ extension BrowserPanel {
         )
 #endif
         pendingReactGrabReturnTargetPanelId = nil
+        pendingReactGrabRoundTripToken = nil
     }
 
     func handleReactGrabBridgeMessage(_ message: ReactGrabBridgeMessage) {
@@ -239,8 +242,9 @@ extension BrowserPanel {
                 "isActive=\(isActive ? 1 : 0) pending=\(pendingTarget)"
             )
 #endif
-        case .copySuccess(let content):
-            guard let returnPanelId = pendingReactGrabReturnTargetPanelId else {
+        case .copySuccess(let content, let token):
+            guard let returnPanelId = pendingReactGrabReturnTargetPanelId,
+                  let expectedToken = pendingReactGrabRoundTripToken else {
 #if DEBUG
                 dlog(
                     "reactGrab.pasteback h3.copySuccess.drop " +
@@ -248,6 +252,17 @@ extension BrowserPanel {
                     "browser=\(id.uuidString.prefix(5)) reason=noReturnTarget len=\(content.count)"
                 )
 #endif
+                return
+            }
+            guard token == expectedToken else {
+#if DEBUG
+                dlog(
+                    "reactGrab.pasteback h3.copySuccess.drop " +
+                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                    "browser=\(id.uuidString.prefix(5)) reason=tokenMismatch len=\(content.count)"
+                )
+#endif
+                clearReactGrabRoundTrip(reason: "copySuccess.tokenMismatch")
                 return
             }
 #if DEBUG
@@ -287,9 +302,29 @@ extension BrowserPanel {
         #endif
 
         let handlerName = reactGrabMessageHandlerName
+        let sessionTokenLiteral = pendingReactGrabRoundTripToken.map { "'\($0)'" } ?? "null"
         let combined = """
         (function() {
             var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
+            var bridgeState = window.__CMUX_REACT_GRAB_BRIDGE_STATE__;
+            if (!bridgeState) {
+                bridgeState = (function() {
+                    var activeToken = null;
+                    return {
+                        beginSession: function(token) {
+                            activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
+                        },
+                        currentToken: function() {
+                            return activeToken;
+                        },
+                        clearSession: function() {
+                            activeToken = null;
+                        }
+                    };
+                })();
+                window.__CMUX_REACT_GRAB_BRIDGE_STATE__ = bridgeState;
+            }
+            bridgeState.beginSession(\(sessionTokenLiteral));
             var installBridge = function(api) {
                 if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
                 window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
@@ -303,7 +338,9 @@ extension BrowserPanel {
                             if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
                         },
                         onCopySuccess: function(elements, content) {
-                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || '') });
+                            var token = bridgeState.currentToken();
+                            if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
+                            bridgeState.clearSession();
                         }
                     }
                 });

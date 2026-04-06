@@ -7516,9 +7516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     static func resolveTerminalPanelForTextSend(in tab: Tab, preferredPanelId: UUID? = nil) -> TerminalPanel? {
-        if let preferredPanelId,
-           let terminalPanel = tab.terminalPanel(for: preferredPanelId) {
-            return terminalPanel
+        if let preferredPanelId {
+            return tab.terminalPanel(for: preferredPanelId)
         }
         return tab.focusedTerminalPanel
     }
@@ -11397,7 +11396,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
-            return tabManager?.toggleReactGrabFromCurrentFocus() ?? false
+            let didHandle = tabManager?.toggleReactGrabFromCurrentFocus() ?? false
+            if !didHandle { NSSound.beep() }
+            return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {

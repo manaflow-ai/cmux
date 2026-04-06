@@ -3343,6 +3343,7 @@ class TabManager: ObservableObject {
         }
 
         if workspace.focusedPanelId != browserPanel.id {
+            workspace.clearSplitZoom()
             workspace.focusPanel(browserPanel.id)
         }
 
