@@ -36,7 +36,8 @@ fi
        && "${TERM:-}" == "xterm-256color" \
        && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
         # Keep startup TERM-compatible prompt/theme selection during shell init,
-        # then restore the managed xterm-256color identity once zle starts.
+        # then restore the managed xterm-256color identity before the first
+        # interactive command executes.
         builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
         builtin export TERM="xterm-ghostty"
     fi
