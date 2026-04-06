@@ -374,10 +374,33 @@ extension Workspace {
         case .pane(let pane):
             let panelIds = sessionPanelIDs(for: pane)
             let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
+
+            // Capture tab groups for this pane (exclude workspace-managed groups;
+            // those are recreated from customColor on restore via syncWorkspaceGroup)
+            let paneId = PaneID(id: UUID(uuidString: pane.id) ?? UUID())
+            let paneGroups = bonsplitController.groups(inPane: paneId)
+                .filter { $0.id != workspaceGroupId }
+            let groupSnapshots: [SessionTabGroupSnapshot]? = paneGroups.isEmpty ? nil : paneGroups.map {
+                SessionTabGroupSnapshot(id: $0.id, name: $0.name, colorHex: $0.colorHex, isCollapsed: $0.isCollapsed ? true : nil)
+            }
+
+            var panelGroupAssignments: [UUID: UUID]? = nil
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            let assignments = tabs.compactMap { tab -> (UUID, UUID)? in
+                guard let gid = tab.groupId, gid != workspaceGroupId,
+                      let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
+                return (panelId, gid)
+            }
+            if !assignments.isEmpty {
+                panelGroupAssignments = Dictionary(uniqueKeysWithValues: assignments)
+            }
+
             return .pane(
                 SessionPaneLayoutSnapshot(
                     panelIds: panelIds,
-                    selectedPanelId: selectedPanelId
+                    selectedPanelId: selectedPanelId,
+                    groups: groupSnapshots,
+                    panelGroupAssignments: panelGroupAssignments
                 )
             )
         case .split(let split):
@@ -633,6 +656,27 @@ extension Workspace {
            let selectedTabId = surfaceIdFromPanelId(selectedPanelId) {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(selectedTabId)
+        }
+
+        // Restore tab groups
+        if let savedGroups = snapshot.groups {
+            for groupSnapshot in savedGroups {
+                bonsplitController.createGroup(
+                    id: groupSnapshot.id,
+                    name: groupSnapshot.name,
+                    colorHex: groupSnapshot.colorHex,
+                    isCollapsed: groupSnapshot.isCollapsed ?? false,
+                    inPane: paneId
+                )
+            }
+
+            if let assignments = snapshot.panelGroupAssignments {
+                for (oldPanelId, groupId) in assignments {
+                    guard let newPanelId = oldToNewPanelIds[oldPanelId],
+                          let tabId = surfaceIdFromPanelId(newPanelId) else { continue }
+                    bonsplitController.assignTab(tabId, toGroup: groupId)
+                }
+            }
         }
     }
 
@@ -6486,6 +6530,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    /// Group ID for the auto-created workspace group (ties sidebar color to tab groups).
+    var workspaceGroupId: UUID?
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -7519,6 +7565,41 @@ final class Workspace: Identifiable, ObservableObject {
             customColor = WorkspaceTabColorSettings.normalizedHex(hex)
         } else {
             customColor = nil
+        }
+        syncWorkspaceGroup()
+    }
+
+    /// Ensures the workspace group exists when the workspace has a color, and
+    /// auto-assigns all tabs in every pane to the workspace group.
+    func syncWorkspaceGroup() {
+        guard let colorHex = customColor?.replacingOccurrences(of: "#", with: "") else {
+            // No color → remove workspace group if it exists
+            if let gid = workspaceGroupId {
+                for paneId in bonsplitController.allPaneIds {
+                    bonsplitController.deleteGroup(gid, inPane: paneId)
+                }
+                workspaceGroupId = nil
+            }
+            return
+        }
+
+        let groupName = customTitle ?? title
+        if let gid = workspaceGroupId {
+            // Update existing group color and name in all panes
+            for paneId in bonsplitController.allPaneIds {
+                bonsplitController.renameGroup(gid, to: groupName, inPane: paneId)
+                bonsplitController.changeGroupColor(gid, to: colorHex, inPane: paneId)
+            }
+        } else {
+            // Create workspace group in all panes and assign all tabs
+            for paneId in bonsplitController.allPaneIds {
+                if let gid = bonsplitController.createGroup(name: groupName, colorHex: colorHex, inPane: paneId) {
+                    if workspaceGroupId == nil { workspaceGroupId = gid }
+                    for tab in bonsplitController.tabs(inPane: paneId) {
+                        bonsplitController.assignTab(tab.id, toGroup: gid)
+                    }
+                }
+            }
         }
     }
 
@@ -12131,6 +12212,13 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    func splitTabBar(_ controller: BonsplitController, didCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        // Auto-assign new tabs to the workspace group when the workspace has a color
+        if let gid = workspaceGroupId, tab.groupId == nil {
+            bonsplitController.assignTab(tab.id, toGroup: gid)
+        }
+    }
+
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         switch kind {
         case "terminal":
@@ -12180,6 +12268,19 @@ extension Workspace: BonsplitDelegate {
         case .toggleZoom:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleSplitZoom(panelId: panelId)
+        case .newGroup:
+            let colors = ["4F46E5", "DC2626", "059669", "D97706", "7C3AED", "DB2777"]
+            let existingCount = bonsplitController.groups(inPane: pane).count
+            let color = colors[existingCount % colors.count]
+            let name = "Group \(existingCount + 1)"
+            if let groupId = bonsplitController.createGroup(name: name, colorHex: color, inPane: pane) {
+                bonsplitController.assignTab(tab.id, toGroup: groupId)
+            }
+        case .addToGroup:
+            // Handled via direct bonsplitController.assignTab() from the submenu
+            break
+        case .removeFromGroup:
+            bonsplitController.removeTabFromGroup(tab.id)
         @unknown default:
             break
         }
