@@ -3569,6 +3569,25 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         process.standardError = slaveHandle
 
         let masterHandle = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+        let terminalOutputLock = NSLock()
+        var terminalOutputData = Data()
+        masterHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            terminalOutputLock.lock()
+            terminalOutputData.append(data)
+            terminalOutputLock.unlock()
+        }
+        defer { masterHandle.readabilityHandler = nil }
+
+        func terminalOutputSnapshot() -> String {
+            terminalOutputLock.lock()
+            defer { terminalOutputLock.unlock() }
+            return String(data: terminalOutputData, encoding: .utf8) ?? ""
+        }
 
         try process.run()
         slaveHandle.closeFile()
@@ -3580,10 +3599,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         if !fileManager.fileExists(atPath: readyPath.path) {
             process.terminate()
             process.waitUntilExit()
-            let terminalOutput = String(
-                data: masterHandle.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
+            let terminalOutput = terminalOutputSnapshot()
             let message = "Timed out waiting for interactive zsh prompt: \(terminalOutput)"
             XCTFail(message)
             throw NSError(
@@ -3602,10 +3618,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         if process.isRunning {
             process.terminate()
             process.waitUntilExit()
-            let terminalOutput = String(
-                data: masterHandle.readDataToEndOfFile(),
-                encoding: .utf8
-            ) ?? ""
+            let terminalOutput = terminalOutputSnapshot()
             let message = "Timed out waiting for interactive zsh to exit: \(terminalOutput)"
             XCTFail(message)
             throw NSError(
@@ -3615,7 +3628,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        let terminalOutput = String(data: masterHandle.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let terminalOutput = terminalOutputSnapshot()
         XCTAssertEqual(process.terminationStatus, 0, terminalOutput)
         return (try? String(contentsOf: outputPath, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
