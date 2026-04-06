@@ -732,7 +732,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
-    private var didRequestFallbackUITestWindow = false
+    private weak var fallbackUITestWindow: NSWindow?
     private struct UITestRenderDiagnosticsSnapshot {
         let panelId: UUID
         let drawCount: Int
@@ -1142,12 +1142,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         guard isRunningUnderXCTest(env) else { return }
 
-        if NSApp.windows.isEmpty, !didRequestFallbackUITestWindow {
-            didRequestFallbackUITestWindow = true
+        if NSApp.windows.isEmpty, fallbackUITestWindow == nil {
+            // WindowGroup hasn't materialized yet — force-create a fallback window.
+            // Store a weak reference so we can close it if the real window appears later.
             openNewMainWindow(nil)
+            fallbackUITestWindow = NSApp.windows.first
         }
 
-        moveUITestWindowToTargetDisplayIfNeeded()
+        // Only start the display-move retry chain on the first attempt.
+        // moveUITestWindowToTargetDisplayIfNeeded() schedules its own 20-step retry;
+        // calling it on every pass of this outer loop would fan out into overlapping timers.
+        if attempt == 0 {
+            moveUITestWindowToTargetDisplayIfNeeded()
+        }
         activateUITestAppIfNeeded()
 
         let hasWindow = !NSApp.windows.isEmpty
@@ -3456,6 +3463,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if window.isKeyWindow {
             setActiveMainWindow(window)
         }
+
+        #if DEBUG
+        // If a forced fallback window was created during UI test launch stabilization,
+        // close it once a real WindowGroup window registers to avoid two main windows.
+        if let fallback = fallbackUITestWindow, fallback !== window, mainWindowContexts.count > 1 {
+            fallbackUITestWindow = nil
+            fallback.close()
+        }
+        #endif
 
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
