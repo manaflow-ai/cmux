@@ -132,6 +132,85 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	return 1
 }
 
+// runOMXRelay implements `cmux omx` on the remote side.
+func runOMXRelay(socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	shimDir, err := createTmuxShimDir("omx-bin", omxShimScript)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omx: failed to create shim directory: %v\n", err)
+		return 1
+	}
+
+	originalPath := os.Getenv("PATH")
+	omxPath := findExecutableInPath("omx", originalPath, shimDir)
+	if omxPath == "" {
+		fmt.Fprintf(os.Stderr, "cmux omx: omx not found in PATH\n"+
+			"Install it first:\n  npm install -g oh-my-codex\n")
+		return 1
+	}
+
+	focused := getFocusedContext(rc)
+
+	configureAgentEnvironment(agentConfig{
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omx",
+		cmuxBinEnvVar:  "CMUX_OMX_CMUX_BIN",
+		termEnvVar:     "CMUX_OMX_TERM",
+		extraEnv:       map[string]string{},
+	})
+
+	launchPath, launchArgv := resolveNodeScriptExec(omxPath, args, originalPath, shimDir)
+	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
+	fmt.Fprintf(os.Stderr, "cmux omx: exec failed: %v\n", execErr)
+	return 1
+}
+
+// runOMCRelay implements `cmux omc` on the remote side.
+func runOMCRelay(socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	shimDir, err := createTmuxShimDir("omc-bin", omcShimScript)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omc: failed to create shim directory: %v\n", err)
+		return 1
+	}
+
+	originalPath := os.Getenv("PATH")
+	omcPath := findExecutableInPath("omc", originalPath, shimDir)
+	if omcPath == "" {
+		fmt.Fprintf(os.Stderr, "cmux omc: omc not found in PATH\n"+
+			"Install it first:\n  npm install -g oh-my-claude-sisyphus\n")
+		return 1
+	}
+
+	focused := getFocusedContext(rc)
+
+	configureAgentEnvironment(agentConfig{
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omc",
+		cmuxBinEnvVar:  "CMUX_OMC_CMUX_BIN",
+		termEnvVar:     "CMUX_OMC_TERM",
+		extraEnv:       map[string]string{},
+	})
+
+	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
+	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
+		configureClaudeNodeOptions(restoreModulePath)
+	} else {
+		fmt.Fprintf(os.Stderr, "cmux omc: warning: failed to create NODE_OPTIONS restore module: %v\n", err)
+	}
+
+	launchPath, launchArgv := resolveNodeScriptExec(omcPath, args, originalPath, shimDir)
+	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
+	fmt.Fprintf(os.Stderr, "cmux omc: exec failed: %v\n", execErr)
+	return 1
+}
+
 // --- Shim creation ---
 
 const claudeTeamsShimScript = `#!/usr/bin/env bash
@@ -147,6 +226,22 @@ case "${1:-}" in
   -V|-v) echo "tmux 3.4"; exit 0 ;;
 esac
 exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
+const omxShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMX_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
+const omcShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMC_CMUX_BIN:-cmux}" __tmux-compat "$@"
 `
 
 const omoNotifierShimScript = `#!/usr/bin/env bash

@@ -13,7 +13,9 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current cmux fork head: `0b231db94` (`v1.3.1-472-g0b231db94`).
+Current cmux pinned fork head: `ae3cc5d29` (`v1.3.1-473-gae3cc5d29`).
+Fork `main` keeps this pin reachable via merge commit `5c781d710`
+(`Retain layer-background pin ancestry on main`).
 
 ### 1) macOS display link restart on display changes
 
@@ -124,6 +126,12 @@ The fork branch HEAD is now the section 7 layer-background restore commit.
 - Were local in the fork as `8ade43ce5`, `0cf559581`, `312c7b23a`, and `404a3f175`.
 - Dropped during the March 30, 2026 rebase because newer Ghostty prompt-marking changes on the refreshed base superseded these fork-only zsh redraw patches, so cmux no longer carries them separately.
 
+### initial focus seeding and DECSET 1004 startup behavior
+
+- Was local in the fork as `c19c82bfd`.
+- Dropped from the current pinned fork head when cmux removed the corresponding
+  app-side initial focus seed and went back to post-create focus sync.
+
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
@@ -152,5 +160,14 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
     If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
     paths still zero out `bg_color[3]` correctly.
+
+- `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
+    and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
+    background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/termio/stream_handler.zig`
+  - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
+    `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
 
 If you resolve a conflict, update this doc with what changed.

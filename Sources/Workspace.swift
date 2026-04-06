@@ -344,6 +344,7 @@ extension Workspace {
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
         agentPIDs.removeAll()
+        agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -1068,6 +1069,125 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
     }
 }
 
+enum WorkspaceRemoteSSHBatchCommandBuilder {
+    private static let batchSSHControlOptionKeys: Set<String> = [
+        "controlmaster",
+        "controlpersist",
+    ]
+
+    static func daemonTransportArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        remotePath: String
+    ) -> [String] {
+        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(shellSingleQuoted(script))"
+        return ["-T"]
+            + batchArguments(configuration: configuration)
+            + ["-o", "RequestTTY=no", configuration.destination, command]
+    }
+
+    static func reverseRelayControlMasterArguments(
+        configuration: WorkspaceRemoteConfiguration,
+        controlCommand: String,
+        forwardSpec: String
+    ) -> [String]? {
+        guard let controlPath = sshOptionValue(named: "ControlPath", in: configuration.sshOptions)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !controlPath.isEmpty,
+              controlPath.lowercased() != "none" else {
+            return nil
+        }
+
+        var args = batchArguments(configuration: configuration)
+        args += ["-O", controlCommand, "-R", forwardSpec, configuration.destination]
+        return args
+    }
+
+    private static func batchArguments(configuration: WorkspaceRemoteConfiguration) -> [String] {
+        let effectiveSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        var args: [String] = [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+        ]
+        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        args += ["-o", "BatchMode=yes"]
+        // Batch helpers may reuse an existing ControlPath, but must not negotiate a new master.
+        args += ["-o", "ControlMaster=no"]
+        if let port = configuration.port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
+        for option in effectiveSSHOptions {
+            args += ["-o", option]
+        }
+        return args
+    }
+
+    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
+        let loweredKey = key.lowercased()
+        for option in options {
+            if sshOptionKey(option) == loweredKey {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
+        options.compactMap { option in
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+    }
+
+    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
+        normalizedSSHOptions(options).filter { option in
+            guard let key = sshOptionKey(option) else { return false }
+            return !batchSSHControlOptionKeys.contains(key)
+        }
+    }
+
+    private static func sshOptionValue(named key: String, in options: [String]) -> String? {
+        let loweredKey = key.lowercased()
+        for option in normalizedSSHOptions(options) {
+            let parts = option.split(
+                maxSplits: 1,
+                omittingEmptySubsequences: true,
+                whereSeparator: { $0 == "=" || $0.isWhitespace }
+            )
+            guard parts.count == 2, parts[0].lowercased() == loweredKey else {
+                continue
+            }
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func sshOptionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
     static let requiredProxyStreamCapability = "proxy.stream.push"
@@ -1513,87 +1633,10 @@ private final class WorkspaceRemoteDaemonRPCClient {
     }
 
     private static func daemonArguments(configuration: WorkspaceRemoteConfiguration, remotePath: String) -> [String] {
-        let script = "exec \(shellSingleQuoted(remotePath)) serve --stdio"
-        // Use non-login sh so remote ~/.profile noise does not interfere with daemon transport startup.
-        let command = "sh -c \(shellSingleQuoted(script))"
-        return ["-T", "-S", "none"]
-            + sshCommonArguments(configuration: configuration, batchMode: true)
-            + ["-o", "RequestTTY=no", configuration.destination, command]
-    }
-
-    private static let batchSSHControlOptionKeys: Set<String> = [
-        "controlmaster",
-        "controlpersist",
-    ]
-
-    private static func sshCommonArguments(configuration: WorkspaceRemoteConfiguration, batchMode: Bool) -> [String] {
-        let effectiveSSHOptions: [String] = {
-            if batchMode {
-                return backgroundSSHOptions(configuration.sshOptions)
-            }
-            return normalizedSSHOptions(configuration.sshOptions)
-        }()
-        var args: [String] = [
-            "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
-        ]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
-            args += ["-o", "StrictHostKeyChecking=accept-new"]
-        }
-        if batchMode {
-            args += ["-o", "BatchMode=yes"]
-            // Batch helpers should reuse an existing ControlPath if one was configured,
-            // but must never try to negotiate a new master connection.
-            args += ["-o", "ControlMaster=no"]
-        }
-        if let port = configuration.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = configuration.identityFile,
-           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            args += ["-i", identityFile]
-        }
-        for option in effectiveSSHOptions {
-            args += ["-o", option]
-        }
-        return args
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let token = sshOptionKey(option)
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private static func backgroundSSHOptions(_ options: [String]) -> [String] {
-        normalizedSSHOptions(options).filter { option in
-            guard let key = sshOptionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private static func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        WorkspaceRemoteSSHBatchCommandBuilder.daemonTransportArguments(
+            configuration: configuration,
+            remotePath: remotePath
+        )
     }
 
     private static func shellSingleQuoted(_ value: String) -> String {
@@ -3313,6 +3356,7 @@ final class WorkspaceRemoteSessionController {
     private var daemonBootstrapVersion: String?
     private var daemonRemotePath: String?
     private var reverseRelayProcess: Process?
+    private var reverseRelayControlMasterForwardSpec: String?
     private var cliRelayServer: WorkspaceRemoteCLIRelayServer?
     private var remotePortScanTTYNames: [UUID: String] = [:]
     private var remoteScannedPortsByPanel: [UUID: [Int]] = [:]
@@ -3556,6 +3600,7 @@ final class WorkspaceRemoteSessionController {
             return
         }
         guard reverseRelayProcess == nil else { return }
+        guard reverseRelayControlMasterForwardSpec == nil else { return }
 
         reverseRelayRestartWorkItem?.cancel()
         reverseRelayRestartWorkItem = nil
@@ -3572,6 +3617,31 @@ final class WorkspaceRemoteSessionController {
                 destination: configuration.destination,
                 relayPort: relayPort
             )
+            let forwardSpec = "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)"
+
+            if startReverseRelayViaControlMasterLocked(forwardSpec: forwardSpec) {
+                cliRelayServer = relayServer
+                reverseRelayStderrBuffer = ""
+                do {
+                    try installRemoteRelayMetadataLocked(
+                        remotePath: remotePath,
+                        relayPort: relayPort,
+                        relayID: relayID,
+                        relayToken: relayToken
+                    )
+                } catch {
+                    debugLog("remote.relay.metadata.error \(error.localizedDescription)")
+                    stopReverseRelayLocked()
+                    scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
+                    return
+                }
+                recordHeartbeatActivityLocked()
+                debugLog(
+                    "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
+                    "target=\(configuration.displayTarget) controlMaster=1"
+                )
+                return
+            }
 
             let process = Process()
             let stderrPipe = Pipe()
@@ -3627,7 +3697,7 @@ final class WorkspaceRemoteSessionController {
             recordHeartbeatActivityLocked()
             debugLog(
                 "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
-                "target=\(configuration.displayTarget)"
+                "target=\(configuration.displayTarget) controlMaster=0"
             )
         } catch {
             debugLog(
@@ -3697,6 +3767,7 @@ final class WorkspaceRemoteSessionController {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
+        stopReverseRelayViaControlMasterLocked()
         reverseRelayStderrPipe = nil
         reverseRelayStderrBuffer = ""
         cliRelayServer?.stop()
@@ -3936,9 +4007,8 @@ final class WorkspaceRemoteSessionController {
     }
 
     private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
-        // `-o ControlPath=none` is not enough on macOS OpenSSH, the client can still
-        // attach to an existing master and exit immediately with its status.
-        // `-S none` forces a standalone transport for the reverse relay.
+        // Fallback standalone transport when dynamic forwarding through an existing
+        // control master is unavailable.
         var args: [String] = ["-N", "-T", "-S", "none"]
         args += sshCommonArguments(batchMode: true)
         args += [
@@ -3948,6 +4018,44 @@ final class WorkspaceRemoteSessionController {
             configuration.destination,
         ]
         return args
+    }
+
+    private func startReverseRelayViaControlMasterLocked(forwardSpec: String) -> Bool {
+        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
+            configuration: configuration,
+            controlCommand: "forward",
+            forwardSpec: forwardSpec
+        ) else {
+            return false
+        }
+
+        do {
+            let result = try sshExec(arguments: arguments, timeout: 6)
+            guard result.status == 0 else {
+                let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
+                    ?? "ssh exited \(result.status)"
+                debugLog("remote.relay.controlmaster.forwardFailed \(detail) \(debugConfigSummary())")
+                return false
+            }
+            reverseRelayControlMasterForwardSpec = forwardSpec
+            return true
+        } catch {
+            debugLog("remote.relay.controlmaster.forwardFailed \(error.localizedDescription) \(debugConfigSummary())")
+            return false
+        }
+    }
+
+    private func stopReverseRelayViaControlMasterLocked() {
+        guard let forwardSpec = reverseRelayControlMasterForwardSpec else { return }
+        reverseRelayControlMasterForwardSpec = nil
+        guard let arguments = WorkspaceRemoteSSHBatchCommandBuilder.reverseRelayControlMasterArguments(
+            configuration: configuration,
+            controlCommand: "cancel",
+            forwardSpec: forwardSpec
+        ) else {
+            return
+        }
+        _ = try? sshExec(arguments: arguments, timeout: 4)
     }
 
     private static let remotePlatformProbeOSMarker = "__CMUX_REMOTE_OS__="
@@ -5095,10 +5203,95 @@ final class WorkspaceRemoteSessionController {
         return regex.firstMatch(in: command, options: [], range: range) != nil
     }
 
+    static func executableSearchPaths(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        pathHelperOutput: String? = nil
+    ) -> [String] {
+        var ordered: [String] = []
+        var seen: Set<String> = []
+
+        func appendSearchPath(_ rawPath: String?) {
+            guard let rawPath else { return }
+            let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            guard seen.insert(trimmed).inserted else { return }
+            ordered.append(trimmed)
+        }
+
+        if let path = environment["PATH"] {
+            for component in path.split(separator: ":") {
+                appendSearchPath(String(component))
+            }
+        }
+
+        if let home = environment["HOME"], !home.isEmpty {
+            appendSearchPath((home as NSString).appendingPathComponent(".local/bin"))
+            appendSearchPath((home as NSString).appendingPathComponent("go/bin"))
+            appendSearchPath((home as NSString).appendingPathComponent("bin"))
+        }
+
+        let helperOutput = pathHelperOutput ?? pathHelperShellOutput()
+        for component in parsePathHelperPaths(helperOutput) {
+            appendSearchPath(component)
+        }
+
+        for component in [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ] {
+            appendSearchPath(component)
+        }
+
+        return ordered
+    }
+
+    static func parsePathHelperPaths(_ output: String) -> [String] {
+        for fragment in output.split(whereSeparator: { $0 == "\n" || $0 == ";" }) {
+            let trimmed = fragment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("PATH=\"") else { continue }
+            let suffix = trimmed.dropFirst("PATH=\"".count)
+            guard let closingQuote = suffix.firstIndex(of: "\"") else { return [] }
+            return suffix[..<closingQuote]
+                .split(separator: ":")
+                .map(String.init)
+        }
+        return []
+    }
+
+    private static func pathHelperShellOutput() -> String {
+        let executable = "/usr/libexec/path_helper"
+        guard FileManager.default.isExecutableFile(atPath: executable) else { return "" }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = ["-s"]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            return ""
+        }
+
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return "" }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
     private static func which(_ executable: String) -> String? {
-        let path = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for component in path.split(separator: ":") {
-            let candidate = String(component) + "/" + executable
+        for component in executableSearchPaths() {
+            let candidate = (component as NSString).appendingPathComponent(executable)
             if FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
@@ -5776,6 +5969,33 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let relayToken: String?
     let localSocketPath: String?
     let terminalStartupCommand: String?
+    let foregroundAuthToken: String?
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
+        localProxyPort: Int?,
+        relayPort: Int?,
+        relayID: String?,
+        relayToken: String?,
+        localSocketPath: String?,
+        terminalStartupCommand: String?,
+        foregroundAuthToken: String? = nil
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.sshOptions = sshOptions
+        self.localProxyPort = localProxyPort
+        self.relayPort = relayPort
+        self.relayID = relayID
+        self.relayToken = relayToken
+        self.localSocketPath = localSocketPath
+        self.terminalStartupCommand = terminalStartupCommand
+        self.foregroundAuthToken = foregroundAuthToken
+    }
 
     var displayTarget: String {
         guard let port else { return destination }
@@ -6362,6 +6582,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var pullRequest: SidebarPullRequestState?
     @Published var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
@@ -6376,6 +6597,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var surfaceTTYNames: [UUID: String] = [:]
     private var remoteSessionController: WorkspaceRemoteSessionController?
+    private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
     private var remoteLastErrorFingerprint: String?
     private var remoteLastDaemonErrorFingerprint: String?
@@ -7456,6 +7678,7 @@ final class Workspace: Identifiable, ObservableObject {
     func resetSidebarContext(reason: String = "unspecified") {
         statusEntries.removeAll()
         agentPIDs.removeAll()
+        agentListeningPorts.removeAll()
         logEntries.removeAll()
         progress = nil
         gitBranch = nil
@@ -7562,6 +7785,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func recomputeListeningPorts() {
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
+            .union(agentListeningPorts)
             .union(remoteDetectedPorts)
             .union(remoteForwardedPorts)
         let next = unique.sorted()
@@ -7885,7 +8109,12 @@ final class Workspace: Identifiable, ObservableObject {
         applyRemoteProxyEndpointUpdate(nil)
         applyBrowserRemoteWorkspaceStatusToPanels()
 
-        guard autoConnect else {
+        let foregroundAuthToken = Self.normalizedForegroundAuthToken(configuration.foregroundAuthToken)
+        let shouldAutoConnect =
+            autoConnect
+            || (foregroundAuthToken != nil && foregroundAuthToken == pendingRemoteForegroundAuthToken)
+        pendingRemoteForegroundAuthToken = nil
+        guard shouldAutoConnect else {
             remoteConnectionState = .disconnected
             applyBrowserRemoteWorkspaceStatusToPanels()
             return
@@ -7910,6 +8139,31 @@ final class Workspace: Identifiable, ObservableObject {
         configureRemoteConnection(configuration, autoConnect: true)
     }
 
+    private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
+        guard let token else { return nil }
+        let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func notifyRemoteForegroundAuthenticationReady(token: String? = nil) {
+        guard let foregroundAuthToken = Self.normalizedForegroundAuthToken(token) else {
+            return
+        }
+
+        guard let remoteConfiguration else {
+            pendingRemoteForegroundAuthToken = foregroundAuthToken
+            return
+        }
+
+        guard Self.normalizedForegroundAuthToken(remoteConfiguration.foregroundAuthToken) == foregroundAuthToken else {
+            return
+        }
+
+        pendingRemoteForegroundAuthToken = nil
+        guard remoteConnectionState == .disconnected else { return }
+        reconnectRemoteConnection()
+    }
+
     func disconnectRemoteConnection(clearConfiguration: Bool = false) {
         let shouldCleanupControlMaster =
             clearConfiguration
@@ -7921,6 +8175,7 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteSessionControllerID = nil
         remoteSessionController = nil
         previousController?.stop()
+        pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
@@ -8635,6 +8890,12 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
 
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: newPanel.id,
+            reason: "splitCreate"
+        )
+
         return newPanel
     }
 
@@ -8709,6 +8970,12 @@ final class Workspace: Identifiable, ObservableObject {
                 previousHostedView: previousHostedView
             )
         }
+
+        owningTabManager?.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: id,
+            panelId: newPanel.id,
+            reason: "surfaceCreate"
+        )
         return newPanel
     }
 
