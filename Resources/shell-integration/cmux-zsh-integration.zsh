@@ -1214,13 +1214,30 @@ _cmux_fix_path() {
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
+_cmux_restore_terminal_identity_after_startup() {
+    if [[ -n "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+        builtin export TERM="$CMUX_ZSH_RESTORE_TERM"
+        builtin unset CMUX_ZSH_RESTORE_TERM
+    fi
+
+    if (( $+functions[add-zle-hook-widget] )); then
+        add-zle-hook-widget -d line-init _cmux_restore_terminal_identity_after_startup 2>/dev/null
+    fi
+    add-zsh-hook -d precmd _cmux_restore_terminal_identity_after_startup 2>/dev/null
+}
+
 _cmux_zshexit() {
     _cmux_stop_git_head_watch
     _cmux_stop_pr_poll_loop
 }
 
 autoload -Uz add-zsh-hook
+autoload -Uz add-zle-hook-widget 2>/dev/null || true
 add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
+add-zsh-hook precmd _cmux_restore_terminal_identity_after_startup
+if (( $+functions[add-zle-hook-widget] )); then
+    add-zle-hook-widget line-init _cmux_restore_terminal_identity_after_startup
+fi
 add-zsh-hook zshexit _cmux_zshexit

@@ -3250,6 +3250,22 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return merged
     }
 
+    static let managedTerminalType = "xterm-256color"
+    static let managedTerminalProgram = "ghostty"
+    static let managedColorTerm = "truecolor"
+
+    static func applyManagedTerminalIdentityEnvironment(
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>
+    ) {
+        environment["TERM"] = managedTerminalType
+        protectedKeys.insert("TERM")
+        environment["COLORTERM"] = managedColorTerm
+        protectedKeys.insert("COLORTERM")
+        environment["TERM_PROGRAM"] = managedTerminalProgram
+        protectedKeys.insert("TERM_PROGRAM")
+    }
+
     static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,
@@ -3784,6 +3800,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var env = baseConfig.environmentVariables
 
         var protectedStartupEnvironmentKeys: Set<String> = []
+        Self.applyManagedTerminalIdentityEnvironment(
+            to: &env,
+            protectedKeys: &protectedStartupEnvironmentKeys
+        )
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
             env[key] = value
             protectedStartupEnvironmentKeys.insert(key)

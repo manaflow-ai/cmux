@@ -229,11 +229,15 @@ struct cmuxApp: App {
         }
 
         if getenv("TERM") == nil {
-            setenv("TERM", "xterm-ghostty", 1)
+            setenv("TERM", TerminalSurface.managedTerminalType, 1)
+        }
+
+        if getenv("COLORTERM") == nil {
+            setenv("COLORTERM", TerminalSurface.managedColorTerm, 1)
         }
 
         if getenv("TERM_PROGRAM") == nil {
-            setenv("TERM_PROGRAM", "ghostty", 1)
+            setenv("TERM_PROGRAM", TerminalSurface.managedTerminalProgram, 1)
         }
 
         if let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap({ String(cString: $0) }) {

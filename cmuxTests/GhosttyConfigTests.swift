@@ -987,6 +987,29 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 }
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
+        var environment = [
+            "TERM": "xterm-ghostty",
+            "COLORTERM": "24bit",
+            "TERM_PROGRAM": "Apple_Terminal",
+            "CUSTOM_FLAG": "1"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertEqual(environment["CUSTOM_FLAG"], "1")
+        XCTAssertTrue(protectedKeys.contains("TERM"))
+        XCTAssertTrue(protectedKeys.contains("COLORTERM"))
+        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(
@@ -1027,6 +1050,36 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["PATH"], "/usr/bin")
         XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+
+    func testMergedStartupEnvironmentProtectsManagedTerminalIdentity() {
+        var baseEnvironment = [
+            "PATH": "/usr/bin"
+        ]
+        var protectedKeys: Set<String> = ["PATH"]
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys
+        )
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: baseEnvironment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "TERM": "xterm-ghostty",
+                "COLORTERM": "24bit",
+                "TERM_PROGRAM": "Apple_Terminal"
+            ],
+            initialEnvironmentOverrides: [
+                "TERM": "screen-256color",
+                "COLORTERM": "false",
+                "TERM_PROGRAM": "WarpTerminal"
+            ]
+        )
+
+        XCTAssertEqual(merged["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
 }
 

@@ -23,6 +23,13 @@ else
     builtin unset ZDOTDIR
 fi
 
+if [[ -o interactive && "${TERM:-}" == "xterm-256color" && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+    # Keep startup TERM-compatible prompt/theme selection during shell init,
+    # then restore the managed xterm-256color identity once zle starts.
+    builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
+    builtin export TERM="xterm-ghostty"
+fi
+
 {
     # zsh treats unset ZDOTDIR as if it were HOME. We do the same.
     builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zshenv"
