@@ -1,0 +1,21 @@
+{
+  "name": "cmux",
+  "owner": {
+    "name": "Manaflow AI",
+    "url": "https://github.com/manaflow-ai"
+  },
+  "metadata": {
+    "description": "Official Claude Code skills for cmux terminal multiplexer"
+  },
+  "plugins": [
+    {
+      "name": "cmux",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Jac0bDeal/cmux.git",
+        "ref": "feat/claude-code-plugin"
+      },
+      "description": "Window management, browser automation, and markdown viewing skills for cmux"
+    }
+  ]
+}

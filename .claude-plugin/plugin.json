@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "cmux",
+  "version": "0.1.0",
+  "description": "Claude Code skills for cmux terminal multiplexer — window management, browser automation, and markdown viewing",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "homepage": "https://cmux.dev",
+  "license": "MIT",
+  "keywords": ["terminal", "multiplexer", "tmux", "window-management", "browser", "markdown"],
+  "skills": [
+    "./skills/cmux",
+    "./skills/cmux-browser",
+    "./skills/cmux-markdown"
+  ],
+  "author": {
+    "name": "Manaflow AI",
+    "url": "https://github.com/manaflow-ai"
+  }
+}
