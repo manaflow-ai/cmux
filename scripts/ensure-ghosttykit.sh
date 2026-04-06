@@ -140,5 +140,13 @@ else
   echo "==> Cached GhosttyKit.xcframework at $CACHE_XCFRAMEWORK"
 fi
 
+MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
+if [[ -f "$MACOS_ARCHIVE" ]]; then
+  # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
+  # until its ranlib index is refreshed after reuse or copy.
+  echo "==> Refreshing libghostty archive index..."
+  ranlib "$MACOS_ARCHIVE"
+fi
+
 echo "==> Creating symlink for GhosttyKit.xcframework..."
 ln -sfn "$CACHE_XCFRAMEWORK" GhosttyKit.xcframework
