@@ -6913,7 +6913,7 @@ class TerminalController {
     }
 
     private func v2NotificationClear() -> V2CallResult {
-        DispatchQueue.main.sync {
+        DispatchQueue.main.async {
             TerminalNotificationStore.shared.clearAll()
         }
         return .ok([:])
@@ -12672,6 +12672,30 @@ class TerminalController {
         let tabArg = parts[0]
         let panelArg = parts[1]
         let payload = parts.count > 2 ? parts[2] : ""
+        let (title, subtitle, body) = parseNotificationPayload(payload)
+
+        if let workspaceId = UUID(uuidString: tabArg),
+           let panelId = UUID(uuidString: panelArg) {
+            var result = "OK"
+            DispatchQueue.main.sync {
+                guard let tab = self.tabForSidebarMutation(id: workspaceId) else {
+                    result = "ERROR: Tab not found"
+                    return
+                }
+                guard tab.panels[panelId] != nil else {
+                    result = "ERROR: Panel not found"
+                    return
+                }
+                TerminalNotificationStore.shared.addNotification(
+                    tabId: workspaceId,
+                    surfaceId: panelId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
+            }
+            return result
+        }
 
         var result = "OK"
         DispatchQueue.main.sync {
@@ -12690,7 +12714,6 @@ class TerminalController {
                 result = "ERROR: Panel not found"
                 return
             }
-            let (title, subtitle, body) = parseNotificationPayload(payload)
             TerminalNotificationStore.shared.addNotification(
                 tabId: tab.id,
                 surfaceId: panelId,
@@ -12718,7 +12741,7 @@ class TerminalController {
     private func clearNotifications(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            DispatchQueue.main.sync {
+            DispatchQueue.main.async {
                 TerminalNotificationStore.shared.clearAll()
             }
             return "OK"
@@ -12728,17 +12751,12 @@ class TerminalController {
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return "ERROR: Usage: clear_notifications [--tab=X]"
         }
-        var tabId: UUID?
-        DispatchQueue.main.sync {
-            if let tab = resolveTabForReport(trimmed) {
-                tabId = tab.id
-            }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: Tab not found"
         }
-        guard let tabId else {
-            return "ERROR: Tab not found"
-        }
-        DispatchQueue.main.sync {
-            TerminalNotificationStore.shared.clearNotifications(forTabId: tabId)
+        scheduleSidebarMutation(target: target) { _, tab in
+            TerminalNotificationStore.shared.clearNotifications(forTabId: tab.id)
         }
         return "OK"
     }
@@ -14464,21 +14482,48 @@ class TerminalController {
         return tabManager.tabs.first(where: { $0.id == selectedId })
     }
 
-    private func resolveTabIdForSidebarMutation(
-        reportArgs: String,
+    private enum SidebarMutationTabTarget {
+        case selected
+        case workspace(UUID)
+        case index(Int)
+    }
+
+    private func parseSidebarMutationTabTarget(
         options: [String: String]
-    ) -> (tabId: UUID?, error: String?) {
-        var tabId: UUID?
-        DispatchQueue.main.sync {
-            if let tab = resolveTabForReport(reportArgs) {
-                tabId = tab.id
+    ) -> (target: SidebarMutationTabTarget?, error: String?) {
+        if let rawTabArg = options["tab"] {
+            let tabArg = rawTabArg.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tabArg.isEmpty else {
+                return (nil, "ERROR: Tab not found")
             }
+            if let tabId = UUID(uuidString: tabArg) {
+                return (.workspace(tabId), nil)
+            }
+            if let index = Int(tabArg), index >= 0 {
+                return (.index(index), nil)
+            }
+            return (nil, "ERROR: Tab not found")
         }
-        if let tabId {
-            return (tabId, nil)
+        return (.selected, nil)
+    }
+
+    private func resolveSidebarMutationTab(_ target: SidebarMutationTabTarget) -> Tab? {
+        switch target {
+        case .selected:
+            guard let tabManager = self.tabManager,
+                  let selectedId = tabManager.selectedTabId else {
+                return nil
+            }
+            return tabManager.tabs.first(where: { $0.id == selectedId })
+        case .workspace(let tabId):
+            return tabForSidebarMutation(id: tabId)
+        case .index(let index):
+            guard let tabManager = self.tabManager,
+                  index < tabManager.tabs.count else {
+                return nil
+            }
+            return tabManager.tabs[index]
         }
-        let error = options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-        return (nil, error)
     }
 
     private func tabForSidebarMutation(id: UUID) -> Tab? {
@@ -14506,6 +14551,16 @@ class TerminalController {
         guard let value else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func scheduleSidebarMutation(
+        target: SidebarMutationTabTarget,
+        mutation: @escaping (TerminalController, Tab) -> Void
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
+            mutation(self, tab)
+        }
     }
 
     private func schedulePanelMetadataMutation(
@@ -14599,9 +14654,9 @@ class TerminalController {
             parsedURL = nil
         }
 
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
         }
 
         let pidValue: pid_t? = {
@@ -14612,8 +14667,7 @@ class TerminalController {
             return nil
         }()
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(target: target) { controller, tab in
             guard Self.shouldReplaceStatusEntry(
                 current: tab.statusEntries[key],
                 key: key,
@@ -14627,7 +14681,7 @@ class TerminalController {
                 // Still update PID tracking even if the status display hasn't changed.
                 if let pidValue {
                     tab.agentPIDs[key] = pidValue
-                    self.refreshTrackedAgentPorts(for: tab)
+                    controller.refreshTrackedAgentPorts(for: tab)
                 }
                 return
             }
@@ -14643,7 +14697,7 @@ class TerminalController {
             )
             if let pidValue {
                 tab.agentPIDs[key] = pidValue
-                self.refreshTrackedAgentPorts(for: tab)
+                controller.refreshTrackedAgentPorts(for: tab)
             }
         }
         return "OK"
@@ -14655,20 +14709,18 @@ class TerminalController {
             return "ERROR: Missing metadata key — usage: \(usage)"
         }
 
-        var result = "OK"
-        DispatchQueue.main.sync {
-            guard let tab = resolveTabForReport(args) else {
-                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
-                return
-            }
-            if tab.statusEntries.removeValue(forKey: key) == nil {
-                result = "OK (key not found)"
-            }
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
+        }
+
+        scheduleSidebarMutation(target: target) { controller, tab in
+            _ = tab.statusEntries.removeValue(forKey: key)
             if tab.agentPIDs.removeValue(forKey: key) != nil {
-                self.refreshTrackedAgentPorts(for: tab)
+                controller.refreshTrackedAgentPorts(for: tab)
             }
         }
-        return result
+        return "OK"
     }
 
     /// Register an agent PID for stale-session detection without setting a visible status entry.
@@ -14680,14 +14732,13 @@ class TerminalController {
             return "ERROR: Usage: set_agent_pid <key> <pid> [--tab=<id>]"
         }
         let key = parsed.positional[0]
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
         }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(target: target) { controller, tab in
             tab.agentPIDs[key] = pid
-            self.refreshTrackedAgentPorts(for: tab)
+            controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
     }
@@ -14698,16 +14749,13 @@ class TerminalController {
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: clear_agent_pid <key> [--tab=<id>]"
         }
-        // Resolve tab ID synchronously before dispatching to avoid
-        // racing against selection changes on the main queue.
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
         }
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(target: target) { controller, tab in
             tab.agentPIDs.removeValue(forKey: key)
-            self.refreshTrackedAgentPorts(for: tab)
+            controller.refreshTrackedAgentPorts(for: tab)
         }
         return "OK"
     }
@@ -14827,13 +14875,12 @@ class TerminalController {
             priority = 0
         }
 
-        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: parts.optionsPart, options: parsed.options)
-        guard let targetTabId = tabResolution.tabId else {
-            return tabResolution.error ?? "ERROR: No tab selected"
+        let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
+        guard let target = targetResolution.target else {
+            return targetResolution.error ?? "ERROR: No tab selected"
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+        scheduleSidebarMutation(target: target) { _, tab in
             guard Self.shouldReplaceMetadataBlock(
                 current: tab.metadataBlocks[key],
                 key: key,

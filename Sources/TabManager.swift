@@ -1505,6 +1505,20 @@ class TabManager: ObservableObject {
         }
     }
 
+    private func scheduleInitialWorkspaceGitMetadataRefresh(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String
+    ) {
+        scheduleWorkspaceGitMetadataRefresh(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            directory: directory,
+            delays: Self.initialWorkspaceGitProbeDelays,
+            reason: "initial"
+        )
+    }
+
     private func scheduleWorkspaceGitMetadataRefresh(
         workspaceId: UUID,
         panelId: UUID,

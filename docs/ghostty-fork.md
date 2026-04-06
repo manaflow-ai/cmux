@@ -112,6 +112,23 @@ tend to conflict together during rebases.
 
 The fork branch HEAD is now the section 7 layer-background restore commit.
 
+### 9) Initial focus seeding and DECSET 1004 startup behavior
+
+- Commit: `c19c82bfd` (Seed initial focus state and avoid startup focus-report leak)
+- Files:
+  - `include/ghostty.h`
+  - `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/termio/stream_handler.zig`
+- Summary:
+  - Adds an explicit initial `focused` flag to surface creation so host apps can start background panes unfocused.
+  - Seeds renderer and termio focus bookkeeping from that initial state before the IO thread starts.
+  - Keeps DECSET 1004 enablement side-effect free so focus sequences are emitted only on subsequent real focus transitions, preventing `CSI I/O` from leaking into shells during pane creation.
+
+The latest cmux-specific focus-reporting change is the section 9 commit. The
+current submodule SHA also includes a newer merge from upstream `main`.
+
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -152,5 +169,14 @@ These files change frequently upstream; be careful when rebasing the fork:
   - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
     If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
     paths still zero out `bg_color[3]` correctly.
+
+- `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
+  - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
+    and macOS wrapper. If upstream refactors surface creation or post-create focus sync, re-check that
+    background panes can start unfocused without synthesizing a focus-loss transition during creation.
+
+- `src/termio/stream_handler.zig`
+  - Keep DECSET 1004 enablement side-effect free. xterm-compatible focus reporting should only emit
+    `CSI I` / `CSI O` on actual focus transitions, not immediately when the mode is enabled.
 
 If you resolve a conflict, update this doc with what changed.
