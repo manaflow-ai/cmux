@@ -224,8 +224,10 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    /// Restore command explicitly set for this terminal (takes priority over detectedCommand).
+    /// Reserved for future socket API; currently only preserved through restore/detach cycles.
     var restoreCommand: String?
-    /// The command that was running when the session was saved (detected from process tree)
+    /// Command auto-detected from foreground process when session was saved.
     var detectedCommand: String?
     /// Whether this terminal was remote-backed (SSH) when saved.
     /// Used to restore local terminals correctly in a remote-configured workspace.
