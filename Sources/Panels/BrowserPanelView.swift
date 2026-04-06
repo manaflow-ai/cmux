@@ -586,7 +586,10 @@ struct BrowserPanelView: View {
             if isWebViewBlank() {
                 refreshEmptyStateImportBrowsers()
             }
-            panel.resetReactGrabState()
+            panel.resetReactGrabState(
+                preserveRoundTrip: true,
+                reason: "panel.currentURL.changed"
+            )
         }
         .onChange(of: browserThemeModeRaw) { _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
@@ -822,6 +825,7 @@ struct BrowserPanelView: View {
 
     private var reactGrabButton: some View {
         Button(action: {
+            panel.clearReactGrabRoundTrip(reason: "toolbarButton.manualStart")
             Task { await panel.toggleOrInjectReactGrab() }
         }) {
             Image(systemName: "cursorarrow.click.2")

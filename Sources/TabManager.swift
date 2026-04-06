@@ -3320,9 +3320,56 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
     }
 
-    func toggleReactGrabFocusedBrowser() {
-        guard let panel = focusedBrowserPanel else { return }
-        Task { await panel.toggleOrInjectReactGrab() }
+    @discardableResult
+    func toggleReactGrabFromCurrentFocus() -> Bool {
+        guard let workspace = selectedWorkspace else { return false }
+
+        let snapshots = workspace.panels.values.map { panel in
+            ReactGrabShortcutPanelSnapshot(
+                id: panel.id,
+                panelType: panel.panelType,
+                isFocused: panel.id == workspace.focusedPanelId
+            )
+        }
+        guard let route = resolveReactGrabShortcutRoute(panels: snapshots),
+              let browserPanel = workspace.browserPanel(for: route.browserPanelId) else {
+            return false
+        }
+
+        if let returnTerminalPanelId = route.returnTerminalPanelId {
+            browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
+        } else {
+            browserPanel.clearReactGrabRoundTrip(reason: "shortcut.noReturnTarget")
+        }
+
+        if workspace.focusedPanelId != browserPanel.id {
+            workspace.clearSplitZoom()
+            workspace.focusPanel(browserPanel.id)
+        }
+
+        let didRequestExplicitWebViewFocus = browserPanel.requestExplicitWebViewFocus()
+#if DEBUG
+        dlog(
+            "reactGrab.pasteback h1.focusRequestResult " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "browser=\(browserPanel.id.uuidString.prefix(5)) " +
+            "return=\(route.returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "success=\(didRequestExplicitWebViewFocus ? 1 : 0)"
+        )
+#endif
+
+        Task { @MainActor [weak browserPanel] in
+            guard let browserPanel else { return }
+            if route.returnTerminalPanelId != nil {
+                await browserPanel.ensureReactGrabActive()
+            } else {
+                await browserPanel.toggleOrInjectReactGrab()
+            }
+            if !didRequestExplicitWebViewFocus {
+                _ = browserPanel.requestExplicitWebViewFocus()
+            }
+        }
+        return true
     }
 
     /// Backwards compatibility: returns the focused surface ID

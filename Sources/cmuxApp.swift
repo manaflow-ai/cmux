@@ -711,7 +711,9 @@ struct cmuxApp: App {
                 }
 
                 splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: menuShortcut(for: .toggleReactGrab)) {
-                    activeTabManager.toggleReactGrabFocusedBrowser()
+                    if !activeTabManager.toggleReactGrabFromCurrentFocus() {
+                        NSSound.beep()
+                    }
                 }
 
                 splitCommandButton(title: String(localized: "menu.view.zoomIn", defaultValue: "Zoom In"), shortcut: menuShortcut(for: .browserZoomIn)) {
