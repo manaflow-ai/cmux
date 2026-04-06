@@ -14,6 +14,135 @@ import CommonCrypto
 import Security
 #endif
 
+// MARK: - Element Picker Message Handler
+
+/// Receives Option+Click element selection from the browser JS and sends
+/// sanitized summary to the focused terminal in the workspace.
+///
+/// Security notes (terminal stdin injection):
+/// - A native NSEvent Option+Click must have occurred within 1 second
+///   of receiving the postMessage. This prevents page JS from calling
+///   postMessage directly without a real user click (zero-click attack).
+/// - All text from web content is sanitized before terminal injection.
+/// - Control characters (U+0000–U+001F, U+007F–U+009F) are stripped to
+///   prevent ANSI escape sequence attacks and terminal command injection.
+/// - Newlines are removed so injected text cannot execute shell commands.
+/// - Text is truncated to 200 chars to prevent buffer overflow attempts.
+/// - Sanitization is applied on both the JS side (first pass) and the
+///   Swift side (defense in depth), since page JS can call postMessage
+///   directly with arbitrary payloads.
+/// - The `__cmuxPointedElement` global is defined as non-enumerable to
+///   reduce CAPTCHA/bot-detection fingerprinting surface.
+final class BrowserPickerMessageHandler: NSObject, WKScriptMessageHandler {
+    private var workspaceId: UUID
+
+    func updateWorkspaceId(_ newId: UUID) {
+        workspaceId = newId
+    }
+
+    /// Timestamp of last native Option+Click detected via NSEvent monitor.
+    /// Used to validate that postMessage was triggered by a real user click,
+    /// not by malicious page JS calling postMessage directly.
+    private var lastNativeOptionClickTime: TimeInterval = 0
+    private var eventMonitor: Any?
+    /// Weak reference to the associated webView for source validation.
+    /// Ensures clicks in other windows/panels cannot authorize this handler.
+    weak var associatedWebView: WKWebView?
+
+    /// Maximum allowed delay between native click and postMessage arrival.
+    private static let nativeEventWindowSeconds: TimeInterval = 1.0
+
+    init(workspaceId: UUID) {
+        self.workspaceId = workspaceId
+        super.init()
+        // Monitor native mouse clicks with Option modifier.
+        // Only accept clicks that hit our associated webView (checked via hitTest).
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            guard let self, event.modifierFlags.contains(.option) else { return event }
+            // Verify the click targets our webView's window and hit-tests within it
+            if let webView = self.associatedWebView,
+               let window = webView.window,
+               event.window === window {
+                let pointInWebView = webView.convert(event.locationInWindow, from: nil)
+                if webView.bounds.contains(pointInWebView) {
+                    self.lastNativeOptionClickTime = ProcessInfo.processInfo.systemUptime
+                }
+            }
+            return event
+        }
+    }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    /// Strip control characters, newlines, and ANSI escape sequences.
+    /// This is critical for security: web content is untrusted and is
+    /// injected into terminal stdin. Without sanitization, a malicious
+    /// page could embed shell commands via newlines or ANSI sequences.
+    /// Dangerous Unicode scalars: BiDi overrides, zero-width chars
+    private static let dangerousScalars: Set<UInt32> = [
+        0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF,  // zero-width
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,            // BiDi overrides
+        0x2066, 0x2067, 0x2068, 0x2069                      // BiDi isolates
+    ]
+
+    private func filtered(_ value: String) -> String {
+        let cleaned = value.unicodeScalars.filter { s in
+            ((s.value >= 0x20 && s.value <= 0x7E) || s.value > 0x9F)
+            && !Self.dangerousScalars.contains(s.value)
+        }
+        return String(String.UnicodeScalarView(cleaned))
+    }
+
+    /// Sanitize display text: strip control chars + BiDi/zero-width, cap at 200 chars
+    private func sanitizeWebText(_ text: String) -> String {
+        String(filtered(text).prefix(200)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Sanitize xpath: strip control chars + BiDi/zero-width, cap at 2000 chars (preserve selector fidelity)
+    private func sanitizeXPath(_ xpath: String) -> String {
+        String(filtered(xpath).prefix(2000)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "cmuxPointer" else { return }
+        guard let body = message.body as? [String: Any] else { return }
+
+        // Security: verify a real native Option+Click occurred recently.
+        // Reject postMessage calls from page JS without a corresponding native event.
+        let now = ProcessInfo.processInfo.systemUptime
+        let elapsed = now - lastNativeOptionClickTime
+        guard elapsed < Self.nativeEventWindowSeconds else {
+            return  // No recent native Option+Click — likely a spoofed postMessage
+        }
+        // Invalidate the timestamp so each native click can only be used once
+        lastNativeOptionClickTime = 0
+
+        let xpath = sanitizeXPath(body["xpath"] as? String ?? "")
+        let rawText = sanitizeWebText(body["text"] as? String ?? "")
+
+        var summary = "[picked] \(xpath)"
+        if !rawText.isEmpty {
+            summary += " \"\(rawText)\""
+        }
+
+        NotificationCenter.default.post(
+            name: .browserElementPicked,
+            object: nil,
+            userInfo: [
+                "workspaceId": workspaceId,
+                "summary": summary
+            ]
+        )
+    }
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -1796,6 +1925,122 @@ final class BrowserPanel: Panel, ObservableObject {
         } catch (_) {}
       });
 
+      // --- Element Picker (Option+Click) ---
+      // Guard against double-injection on SPA navigation
+      if (!window.__cmuxPickerInstalled) {
+        Object.defineProperty(window, '__cmuxPickerInstalled', { value: true, enumerable: false });
+        // Store picked element as non-enumerable to reduce CAPTCHA fingerprinting
+        Object.defineProperty(window, '__cmuxPointedElement', { value: null, writable: true, enumerable: false, configurable: true });
+        (() => {
+          let __overlay = null;
+          const __ensureOverlay = () => {
+            if (__overlay) return __overlay;
+            __overlay = document.createElement('div');
+            __overlay.setAttribute('aria-hidden', 'true');
+            __overlay.setAttribute('role', 'presentation');
+            const s = __overlay.style;
+            s.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #4F46E5;background:rgba(79,70,229,0.1);display:none;border-radius:3px;';
+            // Respect prefers-reduced-motion
+            if (!window.matchMedia || !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+              s.transition = 'all 0.05s';
+            }
+            (document.body || document.documentElement).appendChild(__overlay);
+            return __overlay;
+          };
+          // Build xpath using previousElementSibling (avoids Array.from allocation)
+          const __siblingIndex = (el) => {
+            let idx = 1;
+            let sib = el.previousElementSibling;
+            while (sib) {
+              if (sib.tagName === el.tagName) idx++;
+              sib = sib.previousElementSibling;
+            }
+            return idx;
+          };
+          const __hasSameTagSibling = (el) => {
+            let sib = el.parentElement ? el.parentElement.firstElementChild : null;
+            while (sib) {
+              if (sib !== el && sib.tagName === el.tagName) return true;
+              sib = sib.nextElementSibling;
+            }
+            return false;
+          };
+          const __xpath = (node) => {
+            const parts = [];
+            let cur = node;
+            while (cur && cur.nodeType === 1) {
+              if (cur === document.body) { parts.unshift('body'); break; }
+              if (cur === document.documentElement) { parts.unshift('html'); break; }
+              const tag = cur.tagName.toLowerCase();
+              if (__hasSameTagSibling(cur)) {
+                parts.unshift(tag + '[' + __siblingIndex(cur) + ']');
+              } else {
+                parts.unshift(tag);
+              }
+              cur = cur.parentElement;
+            }
+            return '/' + parts.join('/');
+          };
+          // Security: sanitize text before sending to terminal stdin.
+          // Strip control chars (U+0000-U+001F, U+007F-U+009F) to prevent:
+          // - Terminal command injection via embedded newlines
+          // - ANSI escape sequence attacks (cursor movement, title change)
+          // - Terminal control character exploitation
+          // This is the first pass; Swift side applies a second sanitization.
+          const __sanitize = (str) => {
+            return str.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
+          };
+          // Use e.altKey directly instead of tracking keydown/keyup state
+          // This avoids stuck-Alt issues from blur, tab-away, IME, etc.
+          document.addEventListener('mouseover', (e) => {
+            if (!e.altKey) {
+              if (__overlay && __overlay.style.display !== 'none') {
+                __overlay.style.display = 'none';
+              }
+              return;
+            }
+            // Use composedPath for shadow DOM support
+            const target = (e.composedPath && e.composedPath()[0]) || e.target;
+            const r = target.getBoundingClientRect();
+            const ov = __ensureOverlay();
+            ov.style.display = 'block';
+            // Reset color to default on each hover (fix: green stuck after click)
+            ov.style.borderColor = '#4F46E5';
+            ov.style.background = 'rgba(79,70,229,0.1)';
+            ov.style.top = r.top + 'px';
+            ov.style.left = r.left + 'px';
+            ov.style.width = r.width + 'px';
+            ov.style.height = r.height + 'px';
+          }, true);
+          document.addEventListener('click', (e) => {
+            if (!e.altKey) return;
+            e.preventDefault();
+            // Use stopPropagation instead of stopImmediatePropagation to avoid breaking page handlers
+            e.stopPropagation();
+            const el = (e.composedPath && e.composedPath()[0]) || e.target;
+            const ov = __ensureOverlay();
+            ov.style.borderColor = '#16A34A';
+            ov.style.background = 'rgba(22,163,74,0.15)';
+            const xpath = __xpath(el);
+            const text = __sanitize(el.textContent || '');
+            const data = { xpath: xpath, text: text, tag: el.tagName, timestamp_ms: Date.now() };
+            window.__cmuxPointedElement = data;
+            try {
+              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.cmuxPointer) {
+                window.webkit.messageHandlers.cmuxPointer.postMessage(data);
+              }
+            } catch (_) {}
+          }, true);
+          // Reset overlay on blur/visibility change (prevents stuck state)
+          window.addEventListener('blur', () => {
+            if (__overlay) __overlay.style.display = 'none';
+          });
+          document.addEventListener('visibilitychange', () => {
+            if (document.hidden && __overlay) __overlay.style.display = 'none';
+          });
+        })();
+      }
+
       return true;
     })()
     """
@@ -2534,7 +2779,22 @@ final class BrowserPanel: Panel, ObservableObject {
         )
     }
 
+    private var pickerMessageHandler: BrowserPickerMessageHandler?
+
     private func bindWebView(_ webView: CmuxWebView) {
+        // Clean up previous picker handler from the OLD webView to prevent NSEvent monitor leaks
+        // when bindWebView is called multiple times (profile change, context reset, etc.)
+        if pickerMessageHandler != nil {
+            // Remove from the previous webView (self.webView), not the new one being bound
+            self.webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
+            pickerMessageHandler = nil
+        }
+        // Register Option+Click element picker message handler on the NEW webView.
+        let handler = BrowserPickerMessageHandler(workspaceId: workspaceId)
+        handler.associatedWebView = webView  // Link for source validation
+        pickerMessageHandler = handler
+        webView.configuration.userContentController.add(handler, name: "cmuxPointer")
+
         webView.onContextMenuDownloadStateChanged = { [weak self] downloading in
             if downloading {
                 self?.beginDownloadActivity()
@@ -2780,6 +3040,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
     }
 
     func reattachToWorkspace(
@@ -2790,6 +3051,7 @@ final class BrowserPanel: Panel, ObservableObject {
         remoteStatus: BrowserRemoteWorkspaceStatus?
     ) {
         workspaceId = newWorkspaceId
+        pickerMessageHandler?.updateWorkspaceId(newWorkspaceId)
         usesRemoteWorkspaceProxy = isRemoteWorkspace
         let targetStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
@@ -3918,6 +4180,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        // Remove picker message handler to break WKUserContentController retain cycle
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxPointer")
+        pickerMessageHandler = nil
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView

@@ -10,6 +10,7 @@ extension Notification.Name {
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
     static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
+    static let browserElementPicked = Notification.Name("cmux.browserElementPicked")
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -198,6 +199,7 @@ class TerminalController {
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
     private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
+    private var browserElementPickedObserver: NSObjectProtocol?
 
     private init() {
         browserDownloadObserver = NotificationCenter.default.addObserver(
@@ -212,6 +214,55 @@ class TerminalController {
                 var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
                 queue.append(event)
                 self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+            }
+        }
+
+        browserElementPickedObserver = NotificationCenter.default.addObserver(
+            forName: .browserElementPicked,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                  let summary = note.userInfo?["summary"] as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.sendPickedElementToTerminal(workspaceId: workspaceId, summary: summary)
+            }
+        }
+    }
+
+    /// Send picked element summary to the focused terminal in the workspace.
+    ///
+    /// Security: the `summary` string has already been sanitized by
+    /// `BrowserPickerMessageHandler.sanitize()` which strips all control
+    /// characters (U+0000–U+001F, U+007F–U+009F), newlines, and ANSI escape
+    /// sequences. This prevents terminal command injection even if a malicious
+    /// page crafts element text containing shell commands. The text is also
+    /// truncated to 200 chars. Sanitization happens on both the JS side and
+    /// the Swift side (defense in depth). Additionally, the postMessage is
+    /// only accepted if a native NSEvent Option+Click occurred within 1 second
+    /// (see BrowserPickerMessageHandler).
+    ///
+    /// Multi-window: resolves the workspace via AppDelegate.workspaceFor(tabId:)
+    /// which searches across all windows, not just the active one.
+    private func sendPickedElementToTerminal(workspaceId: UUID, summary: String) {
+        // Resolve workspace across all windows (not just self.tabManager which is active-window only)
+        guard let ws = AppDelegate.shared?.workspaceFor(tabId: workspaceId) else { return }
+        // Prefer the focused panel if it's a terminal
+        if let focusedId = ws.focusedPanelId,
+           let terminalPanel = ws.terminalPanel(for: focusedId),
+           let surface = terminalPanel.surface.surface {
+            sendSocketText(summary, surface: surface)
+            terminalPanel.surface.forceRefresh(reason: "browserElementPicked")
+            return
+        }
+        // Fallback: find any terminal panel in the workspace
+        for (panelId, _) in ws.panels {
+            if let terminalPanel = ws.terminalPanel(for: panelId),
+               let surface = terminalPanel.surface.surface {
+                sendSocketText(summary, surface: surface)
+                terminalPanel.surface.forceRefresh(reason: "browserElementPicked")
+                return
             }
         }
     }
@@ -2341,6 +2392,12 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
         case "browser.errors.list":
             return v2Result(id: id, self.v2BrowserErrorsList(params: params))
+        case "browser.picked":
+            return v2Result(id: id, self.v2BrowserPicked(params: params))
+        case "browser.picked.clear":
+            return v2Result(id: id, self.v2BrowserPickedClear(params: params))
+        case "browser.picked.wait":
+            return v2Result(id: id, self.v2BrowserPickedWait(params: params))
         case "browser.highlight":
             return v2Result(id: id, self.v2BrowserHighlight(params: params))
         case "browser.state.save":
@@ -2597,6 +2654,9 @@ class TerminalController {
             "browser.console.list",
             "browser.console.clear",
             "browser.errors.list",
+            "browser.picked",
+            "browser.picked.clear",
+            "browser.picked.wait",
             "browser.highlight",
             "browser.state.save",
             "browser.state.load",
@@ -10439,6 +10499,207 @@ class TerminalController {
                     "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
+                ])
+            }
+        }
+    }
+
+    /// Dangerous Unicode scalars: BiDi overrides, zero-width chars
+    private static let dangerousScalars: Set<UInt32> = [
+        0x200B, 0x200C, 0x200D, 0x200E, 0x200F, 0xFEFF,
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+        0x2066, 0x2067, 0x2068, 0x2069
+    ]
+
+    private func v2SanitizeScalar(_ scalar: Unicode.Scalar) -> Bool {
+        ((scalar.value >= 0x20 && scalar.value <= 0x7E) || scalar.value > 0x9F)
+        && !Self.dangerousScalars.contains(scalar.value)
+    }
+
+    /// Sanitize text from web content: strip control chars + BiDi/zero-width, truncate to 200 chars
+    private func v2SanitizeWebText(_ text: String) -> String {
+        let sanitized = text.unicodeScalars.filter { v2SanitizeScalar($0) }
+        return String(String.UnicodeScalarView(sanitized)).prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Sanitize xpath from web content: strip control chars + BiDi/zero-width, cap at 2000 chars
+    private func v2SanitizeXPath(_ xpath: String) -> String {
+        let sanitized = xpath.unicodeScalars.filter { v2SanitizeScalar($0) }
+        return String(String.UnicodeScalarView(sanitized)).prefix(2000).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func v2BrowserPicked(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            v2BrowserEnsureTelemetryHooks(surfaceId: surfaceId, browserPanel: browserPanel)
+            let script = """
+            (() => {
+              const el = window.__cmuxPointedElement;
+              if (!el) return { ok: true, picked: false, element: null };
+              // Sanitize text on read (defense in depth)
+              if (el.text) el.text = el.text.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
+              return { ok: true, picked: true, element: el };
+            })()
+            """
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success(let value):
+                let dict = value as? [String: Any]
+                let picked = (dict?["picked"] as? Bool) ?? false
+                if picked, let raw = dict?["element"] as? [String: Any] {
+                    // Whitelist-based sanitization: only return known safe fields
+                    let element: [String: Any] = [
+                        "xpath": v2SanitizeXPath(raw["xpath"] as? String ?? ""),
+                        "text": v2SanitizeWebText(raw["text"] as? String ?? ""),
+                        "tag": v2SanitizeWebText(raw["tag"] as? String ?? ""),
+                        "timestamp_ms": (raw["timestamp_ms"] as? NSNumber) ?? 0
+                    ]
+                    return .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "picked": true,
+                        "element": element
+                    ])
+                } else {
+                    return .ok([
+                        "workspace_id": ws.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "picked": false,
+                        "message": "No element picked. Use Option+Click in the browser to select an element."
+                    ])
+                }
+            }
+        }
+    }
+
+    private func v2BrowserPickedWait(params: [String: Any]) -> V2CallResult {
+        let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 30_000)
+
+        var setupResult: V2CallResult?
+        var workspaceId: UUID?
+        var surfaceIdOut: UUID?
+        var webView: WKWebView?
+
+        v2MainSync {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                setupResult = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
+            }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let surfaceId = self.v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
+                return
+            }
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            workspaceId = ws.id
+            surfaceIdOut = surfaceId
+            webView = browserPanel.webView
+
+            // Clear any previous selection synchronously before waiting
+            // (fire-and-forget evaluateJavaScript would race with v2WaitForBrowserCondition)
+            switch self.v2RunJavaScript(
+                browserPanel.webView,
+                script: "window.__cmuxPointedElement = null; true",
+                timeout: 5.0,
+                contentWorld: .page
+            ) {
+            case .failure(let message):
+                setupResult = .err(code: "js_error", message: message, data: nil)
+                return
+            case .success:
+                break
+            }
+        }
+
+        if let setupResult { return setupResult }
+        guard let workspaceId, let surfaceIdOut, let webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        // Wait for user to Option+Click an element
+        let conditionScript = "window.__cmuxPointedElement !== null"
+        guard v2WaitForBrowserCondition(
+            webView,
+            surfaceId: surfaceIdOut,
+            conditionScript: conditionScript,
+            timeoutMs: timeoutMs
+        ) else {
+            return .err(code: "timeout", message: "No element picked before timeout", data: ["timeout_ms": timeoutMs])
+        }
+
+        // Element was picked — read the data with JS-side re-sanitization (defense in depth)
+        let readScript = """
+        (() => {
+          const el = window.__cmuxPointedElement;
+          if (!el) return { ok: true, picked: false, element: null };
+          if (el.text) el.text = el.text.replace(/[\\u0000-\\u001f\\u007f-\\u009f]/g, '').slice(0, 200).trim();
+          window.__cmuxPointedElement = null;
+          return { ok: true, picked: true, element: el };
+        })()
+        """
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read picked element", data: nil)
+        v2MainSync {
+            switch self.v2RunJavaScript(webView, script: readScript, timeout: 5.0, contentWorld: .page) {
+            case .failure(let message):
+                result = .err(code: "js_error", message: message, data: nil)
+            case .success(let value):
+                let dict = value as? [String: Any]
+                let picked = (dict?["picked"] as? Bool) ?? false
+                if picked, let raw = dict?["element"] as? [String: Any] {
+                    // Whitelist-based sanitization: only return known safe fields
+                    let element: [String: Any] = [
+                        "xpath": self.v2SanitizeXPath(raw["xpath"] as? String ?? ""),
+                        "text": self.v2SanitizeWebText(raw["text"] as? String ?? ""),
+                        "tag": self.v2SanitizeWebText(raw["tag"] as? String ?? ""),
+                        "timestamp_ms": (raw["timestamp_ms"] as? NSNumber) ?? 0
+                    ]
+                    result = .ok([
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": surfaceIdOut.uuidString,
+                        "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
+                        "picked": true,
+                        "element": element
+                    ])
+                } else {
+                    result = .ok([
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": self.v2Ref(kind: .workspace, uuid: workspaceId),
+                        "surface_id": surfaceIdOut.uuidString,
+                        "surface_ref": self.v2Ref(kind: .surface, uuid: surfaceIdOut),
+                        "picked": false,
+                        "message": "Element was cleared before it could be read"
+                    ])
+                }
+            }
+        }
+        return result
+    }
+
+    private func v2BrowserPickedClear(params: [String: Any]) -> V2CallResult {
+        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
+            let script = "window.__cmuxPointedElement = null; true"
+            switch v2RunJavaScript(browserPanel.webView, script: script, timeout: 5.0, contentWorld: .page) {
+            case .failure(let message):
+                return .err(code: "js_error", message: message, data: nil)
+            case .success:
+                return .ok([
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "surface_id": surfaceId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                    "cleared": true
                 ])
             }
         }

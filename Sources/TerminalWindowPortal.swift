@@ -1154,6 +1154,10 @@ final class WindowTerminalPortal: NSObject {
 
         synchronizeHostedView(withId: hostedId)
         scheduleDeferredFullSynchronizeAll()
+        // Session/window restore can queue additional ancestor layout shifts (sidebar width,
+        // split positions) after the initial bind tick. Queue a later external sync so the
+        // portal catches that settled geometry instead of staying at the seeded frame.
+        scheduleExternalGeometrySynchronize()
         pruneDeadEntries()
     }
 

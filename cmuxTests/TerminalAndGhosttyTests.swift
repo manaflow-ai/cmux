@@ -3342,6 +3342,83 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
+    func testBindQueuesExternalGeometrySyncForQueuedLayoutShift() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+            window.orderOut(nil)
+        }
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let shiftedContainer = NSView(frame: NSRect(x: 40, y: 60, width: 260, height: 180))
+        contentView.addSubview(shiftedContainer)
+        let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 180))
+        shiftedContainer.addSubview(anchor)
+        let hosted = surface.hostedView
+        TerminalWindowPortalRegistry.bind(
+            hostedView: hosted,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        let anchorCenter = NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY)
+        let originalWindowPoint = anchor.convert(anchorCenter, to: nil)
+        let originalAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(originalWindowPoint, in: window),
+            "Initial hit-testing should resolve the portal-hosted terminal at its original window position"
+        )
+
+        DispatchQueue.main.async {
+            shiftedContainer.frame.origin.x += 72
+            contentView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
+        XCTAssertGreaterThan(
+            shiftedAnchorFrameInWindow.minX,
+            originalAnchorFrameInWindow.minX + 1,
+            "The queued layout shift should move the anchor to the right"
+        )
+        let retiredStaleWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.minX + shiftedAnchorFrameInWindow.minX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        let shiftedWindowPoint = NSPoint(
+            x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
+            y: shiftedAnchorFrameInWindow.midY
+        )
+        XCTAssertNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
+            "Bind should queue a later external sync so restore-like ancestor shifts do not leave a stale portal in the sidebar region"
+        )
+        XCTAssertNotNil(
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window),
+            "Bind should refresh the portal after queued ancestor layout settles"
+        )
+    }
+
     func testScheduledExternalGeometrySyncKeepsDragDrivenResizeResponsive() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
