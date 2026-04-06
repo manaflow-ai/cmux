@@ -23,7 +23,13 @@ else
     builtin unset ZDOTDIR
 fi
 
-if [[ -o interactive && "${TERM:-}" == "xterm-256color" && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
+if [[ -o interactive \
+   && -z "${ZSH_EXECUTION_STRING:-}" \
+   && "${CMUX_SHELL_INTEGRATION:-1}" != "0" \
+   && -n "${CMUX_SHELL_INTEGRATION_DIR:-}" \
+   && -r "${CMUX_SHELL_INTEGRATION_DIR}/cmux-zsh-integration.zsh" \
+   && "${TERM:-}" == "xterm-256color" \
+   && -z "${CMUX_ZSH_RESTORE_TERM:-}" ]]; then
     # Keep startup TERM-compatible prompt/theme selection during shell init,
     # then restore the managed xterm-256color identity once zle starts.
     builtin export CMUX_ZSH_RESTORE_TERM="$TERM"
