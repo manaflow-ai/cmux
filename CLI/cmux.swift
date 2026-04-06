@@ -10243,11 +10243,63 @@ struct CMUXCLI {
         }
     }
 
-    private func claudeTeamsLaunchArguments(commandArgs: [String]) -> [String] {
-        guard !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) else {
+    /// Subcommands that don't accept `--settings` / `--teammate-mode`. Mirrors
+    /// the list in Resources/bin/claude:166-168. These must be passed through
+    /// verbatim so `cmux claude-teams mcp`, `cmux claude-teams config`, etc.
+    /// still work when users reuse a claude-teams alias for non-team invocations.
+    private static let claudeTeamsPassthroughSubcommands: Set<String> = [
+        "mcp", "config", "api-key", "rc", "remote-control",
+    ]
+
+    /// Hook settings JSON injected via `--settings` so Claude Code lifecycle
+    /// hooks (SessionStart, Stop, SessionEnd, Notification, UserPromptSubmit,
+    /// PreToolUse) fire back into cmux via `cmux claude-hook`. Mirrors the
+    /// `HOOKS_JSON` literal in Resources/bin/claude:207.
+    ///
+    /// Each hook command references `${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}` so the
+    /// hook always dispatches through the bundled cmux binary (pinned via
+    /// `setenv` in `configureClaudeTeamsEnvironment`), never a stale PATH entry.
+    ///
+    /// Keeping this literal in sync with `Resources/bin/claude` is handled the
+    /// same way as `claudeNodeOptionsRestoreModule` above — intentional bash↔Swift
+    /// duplication for an uncomplicated invariant.
+    private static let claudeHooksJSON = #"{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook stop","timeout":10}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" claude-hook pre-tool-use","timeout":5,"async":true}]}]}}"#
+
+    private func claudeTeamsLaunchArguments(
+        commandArgs: [String],
+        hooksDisabled: Bool
+    ) -> [String] {
+        // Subcommands like `mcp`, `config`, `rc` don't accept --settings or
+        // --teammate-mode; pass them through so `cmux claude-teams mcp ...`
+        // behaves the same as `claude mcp ...`.
+        if let first = commandArgs.first,
+           Self.claudeTeamsPassthroughSubcommands.contains(first) {
             return commandArgs
         }
-        return ["--teammate-mode", "auto"] + commandArgs
+
+        var result: [String] = []
+
+        // Only auto-prepend `--teammate-mode auto` when the user didn't
+        // already pass `--teammate-mode` explicitly. Preserves the user's
+        // chosen mode (`auto` or `manual`).
+        if !claudeTeamsHasExplicitTeammateMode(commandArgs: commandArgs) {
+            result.append(contentsOf: ["--teammate-mode", "auto"])
+        }
+
+        // `--settings` injection is INDEPENDENT of `--teammate-mode` handling.
+        // Resources/bin/claude:208 prepends `--settings` unconditionally
+        // regardless of what's in "$@", so an explicit `--teammate-mode` must
+        // not silently disable hook injection. Coupling these two concerns
+        // (the original early-return) was the regression flagged by both
+        // Greptile and CodeRabbit during PR #2629 review — it caused
+        // `cmux claude-teams --teammate-mode auto|manual ...` to silently
+        // skip the same hook JSON the plain `claude` path injects.
+        if !hooksDisabled {
+            result.append(contentsOf: ["--settings", Self.claudeHooksJSON])
+        }
+
+        result.append(contentsOf: commandArgs)
+        return result
     }
 
     private func configureTmuxCompatEnvironment(
@@ -10334,6 +10386,12 @@ struct CMUXCLI {
                 (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
             ]
         )
+        // Pin the cmux binary that Claude Code's --settings hook commands will
+        // invoke. The HOOKS_JSON literal references ${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux},
+        // so hooks always dispatch through this specific bundled cmux rather than
+        // whatever `cmux` happens to be on PATH (mise shims, stale installs, etc.).
+        // Mirrors Resources/bin/claude:189.
+        setenv("CMUX_CLAUDE_HOOK_CMUX_BIN", executablePath, 1)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -10448,7 +10506,23 @@ struct CMUXCLI {
         )
 
         let launchPath = claudeExecutablePath ?? "claude"
-        let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
+        let hooksDisabled = launcherEnvironment["CMUX_CLAUDE_HOOKS_DISABLED"] == "1"
+        let launchArguments = claudeTeamsLaunchArguments(
+            commandArgs: commandArgs,
+            hooksDisabled: hooksDisabled
+        )
+
+        // Mirror Resources/bin/claude:188: export CMUX_CLAUDE_PID before execv
+        // so the cmux claude-hook session-start handler can read it
+        // (cmux.swift's `ProcessInfo.processInfo.environment["CMUX_CLAUDE_PID"]`
+        // lookup) and call `set_agent_pid claude_code`, which is what populates
+        // `workspace.agentPIDs["claude_code"]` and drives the sidebar Running
+        // indicator (see GhosttyTerminalView.swift agentPIDs check).
+        //
+        // Because we execv below, this process's PID becomes the claude
+        // process PID, so `getpid()` is the correct value to export.
+        setenv("CMUX_CLAUDE_PID", String(getpid()), 1)
+
         var argv = ([launchPath] + launchArguments).map { strdup($0) }
         defer {
             for item in argv {
