@@ -3133,15 +3133,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var backgroundSurfaceStartQueued = false
     private var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     /// The desired focus state for the Ghostty C surface. May be set before the
-    /// C surface exists (e.g. during layout restoration); `createSurface` seeds
-    /// the initial runtime focus state from this value, then keeps using it as a
-    /// dedup guard to avoid redundant `ghostty_surface_set_focus` calls
+    /// C surface exists (e.g. during layout restoration); `createSurface`
+    /// reapplies this value once the runtime surface exists, then keeps using it
+    /// as a dedup guard to avoid redundant `ghostty_surface_set_focus` calls
     /// (prevents prompt redraws with P10k).
     ///
     /// Start unfocused and only opt into focus when the workspace/AppKit focus
-    /// path explicitly requests it. `createSurface` passes this through as the
-    /// runtime surface's initial focus state so background panes never need a
-    /// synthetic focus-loss transition during creation.
+    /// path explicitly requests it so background panes do not keep a focused
+    /// state unless the workspace focus path requests it.
     private var desiredFocusState: Bool = false
 #if DEBUG
     private var needsConfirmCloseOverrideForTesting: Bool?
@@ -3785,7 +3784,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext?.release()
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
-        surfaceConfig.focused = desiredFocusState
         surfaceConfig.context = surfaceContext
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
