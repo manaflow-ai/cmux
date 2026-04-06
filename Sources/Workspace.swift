@@ -4007,6 +4007,12 @@ final class WorkspaceRemoteSessionController {
         }
     }
 
+    /// Resolved SSH transport options with metadata about what was set.
+    private struct ResolvedTransportOptions {
+        let args: [String]
+        let hasStrictHostKeyChecking: Bool
+    }
+
     private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
         // Fallback standalone transport when dynamic forwarding through an existing
         // control master is unavailable.
@@ -4016,16 +4022,22 @@ final class WorkspaceRemoteSessionController {
         // ports already bound by the primary SSH connection. Transport-critical options
         // (ProxyJump, ProxyCommand, HostKeyAlgorithms, etc.) are resolved via ssh -G
         // and passed explicitly so connectivity is preserved without config-file forwards.
+        let resolved = resolvedRelayTransportOptions()
         var args: [String] = ["-N", "-T", "-S", "none", "-F", "/dev/null"]
-        args += resolvedRelayTransportOptions()
+        args += resolved.args
         args += [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
-            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "BatchMode=yes",
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
+        ]
+        // Only add StrictHostKeyChecking default if not resolved from user config.
+        if !resolved.hasStrictHostKeyChecking {
+            args += ["-o", "StrictHostKeyChecking=accept-new"]
+        }
+        args += [
             "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
             configuration.destination,
         ]
@@ -4035,7 +4047,7 @@ final class WorkspaceRemoteSessionController {
     /// Resolve transport-critical SSH options for the relay by running `ssh -G`.
     /// This extracts options like ProxyJump, ProxyCommand, IdentityFile, HostKeyAlgorithms,
     /// etc. from the user's SSH config without carrying over forwarding directives.
-    private func resolvedRelayTransportOptions() -> [String] {
+    private func resolvedRelayTransportOptions() -> ResolvedTransportOptions {
         // Build the ssh -G probe command with the same port/identity/options as the
         // primary connection so Host/Match blocks resolve identically.
         var probeArgs: [String] = ["-G"]
@@ -4055,7 +4067,10 @@ final class WorkspaceRemoteSessionController {
               result.status == 0 else {
             debugLog("remote.relay.sshG.failed falling back to explicit config only")
             // Fallback: use just the explicitly configured options without ssh -G resolution.
-            return explicitRelayTransportOptions()
+            return ResolvedTransportOptions(
+                args: explicitRelayTransportOptions(),
+                hasStrictHostKeyChecking: false
+            )
         }
 
         return parseRelayTransportOptions(from: result.stdout)
@@ -4070,6 +4085,8 @@ final class WorkspaceRemoteSessionController {
         "proxycommand",
         "identityfile",
         "identitiesonly",
+        "certificatefile",
+        "identityagent",
         "hostkeyalgorithms",
         "kexalgorithms",
         "ciphers",
@@ -4079,11 +4096,13 @@ final class WorkspaceRemoteSessionController {
         "globalknownhostsfile",
         "pubkeyacceptedalgorithms",
         "preferredauthentications",
+        "stricthostkeychecking",
     ]
 
     /// Parse `ssh -G` output and extract transport-critical options as `-o Key=Value` pairs.
-    private func parseRelayTransportOptions(from sshGOutput: String) -> [String] {
+    private func parseRelayTransportOptions(from sshGOutput: String) -> ResolvedTransportOptions {
         var args: [String] = []
+        var hasStrictHostKeyChecking = false
 
         for line in sshGOutput.split(separator: "\n") {
             let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
@@ -4099,9 +4118,10 @@ final class WorkspaceRemoteSessionController {
             case "user":
                 args += ["-l", value]
             case "port":
-                // Only add if not already set via configuration.port
-                if configuration.port == nil, let portNum = Int(value), portNum != 22 {
-                    args += ["-p", value]
+                // Prefer explicitly configured port; fall back to ssh -G resolved value.
+                let effectivePort = configuration.port.map(String.init) ?? value
+                if let portNum = Int(effectivePort), portNum != 22 {
+                    args += ["-p", effectivePort]
                 }
             case "identityfile":
                 // ssh -G may emit multiple identity files; include all that exist on disk.
@@ -4120,12 +4140,15 @@ final class WorkspaceRemoteSessionController {
                 if value.lowercased() != "none" {
                     args += ["-o", "ProxyCommand=\(value)"]
                 }
+            case "stricthostkeychecking":
+                hasStrictHostKeyChecking = true
+                args += ["-o", "StrictHostKeyChecking=\(value)"]
             default:
                 args += ["-o", "\(parts[0])=\(value)"]
             }
         }
 
-        return args
+        return ResolvedTransportOptions(args: args, hasStrictHostKeyChecking: hasStrictHostKeyChecking)
     }
 
     /// Resolve a ProxyJump chain by running `ssh -G` on each hop to get its
@@ -4141,8 +4164,8 @@ final class WorkspaceRemoteSessionController {
         }
 
         let resolved = hops.map { hop -> String in
-            // If the hop already contains @ or : it's likely already explicit
-            if hop.contains("@") && hop.contains(":") {
+            // If the hop already looks fully qualified (user@host:port), pass through.
+            if hop.contains("@") && (hop.contains("]:") || (!hop.contains("[") && hop.last?.isNumber == true && hop.split(separator: ":").count == 2)) {
                 return hop
             }
             // Try to resolve via ssh -G
@@ -4168,8 +4191,15 @@ final class WorkspaceRemoteSessionController {
             guard let resolvedHost = hostname else { return hop }
             var resolved = ""
             if let user { resolved += "\(user)@" }
-            resolved += resolvedHost
-            if let port, port != "22" { resolved += ":\(port)" }
+            // Bracket IPv6 literals when a non-default port is appended.
+            let needsPort = port != nil && port != "22"
+            let isIPv6 = resolvedHost.contains(":")
+            if isIPv6 && needsPort {
+                resolved += "[\(resolvedHost)]:\(port!)"
+            } else {
+                resolved += resolvedHost
+                if needsPort { resolved += ":\(port!)" }
+            }
             return resolved
         }
 
