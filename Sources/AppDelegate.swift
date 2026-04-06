@@ -2007,10 +2007,18 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
         return ghosttyView
     }
 
-    if let textView = responder as? NSTextView,
-       let delegateView = textView.delegate as? NSView,
-       let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
-        return ghosttyView
+    if let textView = responder as? NSTextView {
+        if textView.isFieldEditor,
+           let ownerView = cmuxFieldEditorOwnerView(textView),
+           let ghosttyView = cmuxOwningGhosttyView(for: ownerView) {
+            return ghosttyView
+        }
+
+        if !textView.isFieldEditor,
+           let delegateView = textView.delegate as? NSView,
+           let ghosttyView = cmuxOwningGhosttyView(for: delegateView) {
+            return ghosttyView
+        }
     }
 
     var current = responder.nextResponder
@@ -2026,6 +2034,20 @@ func cmuxOwningGhosttyView(for responder: NSResponder?) -> GhosttyNSView? {
     }
 
     return nil
+}
+
+private func cmuxFieldEditorOwnerView(_ editor: NSTextView) -> NSView? {
+    guard editor.isFieldEditor else { return nil }
+
+    var current = editor.nextResponder
+    while let next = current {
+        if let view = next as? NSView {
+            return view
+        }
+        current = next.nextResponder
+    }
+
+    return editor.superview
 }
 
 private func cmuxOwningGhosttyView(for view: NSView) -> GhosttyNSView? {
@@ -5611,6 +5633,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    private func keyRoutingOwnerView(for responder: NSResponder?) -> NSView? {
+        guard let responder else { return nil }
+        if let editor = responder as? NSTextView,
+           editor.isFieldEditor {
+            return cmuxFieldEditorOwnerView(editor) ?? editor
+        }
+        return responder as? NSView
+    }
+
+    private func responderHasViableKeyRoutingOwner(
+        _ responder: NSResponder,
+        in window: NSWindow
+    ) -> Bool {
+        if let ghosttyView = cmuxOwningGhosttyView(for: responder) {
+            if ghosttyView.window !== window {
+                return false
+            }
+            if ghosttyView.isHiddenOrHasHiddenAncestor {
+                return false
+            }
+            return ghosttyView === window.contentView || ghosttyView.superview != nil
+        }
+
+        guard let ownerView = keyRoutingOwnerView(for: responder) else {
+            return false
+        }
+
+        if ownerView.window !== window {
+            return false
+        }
+
+        if ownerView.isHiddenOrHasHiddenAncestor {
+            return false
+        }
+
+        if ownerView !== window.contentView, ownerView.superview == nil {
+            return false
+        }
+
+        return true
+    }
+
+    private func responderNeedsFocusedTerminalKeyRepair(
+        _ responder: NSResponder?,
+        in window: NSWindow,
+        hostedView: GhosttySurfaceScrollView
+    ) -> Bool {
+        guard let responder else { return true }
+        if responder is NSWindow { return true }
+        guard responderHasViableKeyRoutingOwner(responder, in: window) else {
+            return true
+        }
+        if hostedView.responderMatchesPreferredKeyboardFocus(responder) {
+            return false
+        }
+        return true
+    }
+
+    func repairFocusedTerminalKeyboardRoutingIfNeeded(
+        window: NSWindow,
+        event: NSEvent
+    ) {
+        guard event.type == .keyDown else { return }
+        let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard !normalizedFlags.contains(.command) else { return }
+        guard isMainTerminalWindow(window) else { return }
+        guard window.attachedSheet == nil else { return }
+        guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
+        guard let context = contextForMainWindow(window) ?? contextForMainTerminalWindow(window),
+              let workspace = context.tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            return
+        }
+        guard responderNeedsFocusedTerminalKeyRepair(
+            window.firstResponder,
+            in: window,
+            hostedView: terminalPanel.hostedView
+        ) else { return }
+
+#if DEBUG
+        let before = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let target = terminalPanel.hostedView.preferredPanelFocusIntentForActivation()
+        dlog(
+            "focus.keyRepair attempt window=\(ObjectIdentifier(window)) " +
+            "workspace=\(String(workspace.id.uuidString.prefix(5))) " +
+            "panel=\(String(panelId.uuidString.prefix(5))) " +
+            "target=\(target == .findField ? "searchField" : "surface") " +
+            "fr=\(before) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
+        )
+#endif
+
+        terminalPanel.hostedView.ensureFocus(for: workspace.id, surfaceId: panelId)
+
+#if DEBUG
+        let after = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        dlog(
+            "focus.keyRepair result window=\(ObjectIdentifier(window)) " +
+            "panel=\(String(panelId.uuidString.prefix(5))) " +
+            "isSurfaceResponder=\(terminalPanel.hostedView.isSurfaceViewFirstResponder() ? 1 : 0) " +
+            "fr=\(after)"
+        )
+#endif
+    }
+
     func locateSurface(surfaceId: UUID) -> (windowId: UUID, workspaceId: UUID, tabManager: TabManager)? {
         for ctx in mainWindowContexts.values {
             for ws in ctx.tabManager.tabs {
@@ -5675,6 +5802,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
             terminalPanel.hostedView.reconcileGeometryNow()
+            terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
             terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
             refreshedCount += 1
         }
@@ -13795,6 +13923,7 @@ private extension NSWindow {
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
         var contextSetupMs: Double = 0
+        var focusRepairMs: Double = 0
         var folderGuardMs: Double = 0
         var originalDispatchMs: Double = 0
         let typingTimingExtra: String? = {
@@ -13828,6 +13957,7 @@ private extension NSWindow {
                     thresholdMs: 1.0,
                     parts: [
                         ("contextSetupMs", contextSetupMs),
+                        ("focusRepairMs", focusRepairMs),
                         ("folderGuardMs", folderGuardMs),
                         ("originalDispatchMs", originalDispatchMs),
                     ],
@@ -13852,6 +13982,18 @@ private extension NSWindow {
 #if DEBUG
         if event.type == .keyDown {
             contextSetupMs = (ProcessInfo.processInfo.systemUptime - contextSetupStart) * 1000.0
+        }
+        let focusRepairStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
+#endif
+        if event.type == .keyDown {
+            AppDelegate.shared?.repairFocusedTerminalKeyboardRoutingIfNeeded(
+                window: self,
+                event: event
+            )
+        }
+#if DEBUG
+        if event.type == .keyDown {
+            focusRepairMs = (ProcessInfo.processInfo.systemUptime - focusRepairStart) * 1000.0
         }
         let folderGuardStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
