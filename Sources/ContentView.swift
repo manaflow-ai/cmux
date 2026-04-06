@@ -3387,6 +3387,16 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
+        view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
+            guard sidebarState.isVisible,
+                  sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
+            if let observedWindow {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
+        })
+
         view = AnyView(view.onChange(of: isMinimalMode) { _, _ in
             syncTrafficLightInset()
         })

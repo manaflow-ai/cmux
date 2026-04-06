@@ -1918,8 +1918,16 @@ final class WindowBrowserSlotView: NSView {
             if current.isDescendant(of: primaryWebView) {
                 continue
             }
+            if current.isHidden || current.alphaValue <= 0 {
+                continue
+            }
             if String(describing: type(of: current)).contains("WK") {
-                return true
+                let width = max(current.frame.width, current.bounds.width)
+                let height = max(current.frame.height, current.bounds.height)
+                if width > 1, height > 1 {
+                    return true
+                }
+                continue
             }
             stack.append(contentsOf: current.subviews)
         }
@@ -2563,6 +2571,103 @@ final class WindowBrowserPortal: NSObject {
         }) ?? reference
     }
 
+    private func directTransferChild(of container: NSView, containing descendant: NSView) -> NSView? {
+        var current: NSView? = descendant
+        var directChild: NSView?
+        while let view = current, view !== container {
+            directChild = view
+            current = view.superview
+        }
+        guard current === container else { return nil }
+        return directChild
+    }
+
+    private func relatedWebKitTransferSubviews(
+        from sourceSuperview: NSView,
+        primaryWebView: WKWebView
+    ) -> [NSView] {
+        var relatedSubviews: [NSView] = []
+        var seen = Set<ObjectIdentifier>()
+
+        func append(_ candidate: NSView?) {
+            guard let candidate, candidate !== sourceSuperview else { return }
+            let id = ObjectIdentifier(candidate)
+            guard seen.insert(id).inserted else { return }
+            relatedSubviews.append(candidate)
+        }
+
+        append(directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView)
+
+        if let inspectorFrontend = primaryWebView.cmuxInspectorFrontendWebView() {
+            append(directTransferChild(of: sourceSuperview, containing: inspectorFrontend) ?? inspectorFrontend)
+        }
+
+        for view in sourceSuperview.subviews {
+            if view === primaryWebView { continue }
+            let className = String(describing: type(of: view))
+            guard className.contains("WK") else { continue }
+            if className.contains("WKInspector") &&
+                (view.isHidden || view.alphaValue <= 0 || view.frame.width <= 1 || view.frame.height <= 1) {
+                continue
+            }
+            append(view)
+        }
+
+        return relatedSubviews
+    }
+
+    private func appendHostedWebKitSubviews(
+        in root: NSView,
+        to result: inout [WKWebView],
+        seen: inout Set<ObjectIdentifier>
+    ) {
+        if let webView = root as? WKWebView {
+            let id = ObjectIdentifier(webView)
+            if seen.insert(id).inserted {
+                result.append(webView)
+            }
+        }
+        for subview in root.subviews {
+            appendHostedWebKitSubviews(in: subview, to: &result, seen: &seen)
+        }
+    }
+
+    private func hostedWebKitSubviews(
+        in containerView: NSView,
+        primaryWebView: WKWebView
+    ) -> [WKWebView] {
+        var result: [WKWebView] = []
+        var seen = Set<ObjectIdentifier>()
+
+        func append(_ webView: WKWebView?) {
+            guard let webView else { return }
+            let id = ObjectIdentifier(webView)
+            guard seen.insert(id).inserted else { return }
+            result.append(webView)
+        }
+
+        if primaryWebView === containerView ||
+            primaryWebView.superview === containerView ||
+            primaryWebView.isDescendant(of: containerView) {
+            append(primaryWebView)
+        }
+        appendHostedWebKitSubviews(in: containerView, to: &result, seen: &seen)
+        return result
+    }
+
+    private func notifyHostedWebKitHidden(
+        in containerView: NSView,
+        primaryWebView: WKWebView,
+        reason: String
+    ) {
+        for webKitSubview in hostedWebKitSubviews(
+            in: containerView,
+            primaryWebView: primaryWebView
+        ) {
+            webKitSubview.browserPortalNotifyHidden(reason: reason)
+        }
+    }
+
     private func ensureContainerView(for entry: Entry, webView: WKWebView) -> WindowBrowserSlotView {
         if let existing = entry.containerView {
             existing.setPaneDropContext(entry.paneDropContext)
@@ -2602,35 +2707,45 @@ final class WindowBrowserPortal: NSObject {
             return
         }
 
+        let hostedWebKitSubviews = hostedWebKitSubviews(
+            in: containerView,
+            primaryWebView: webView
+        )
+        guard !hostedWebKitSubviews.isEmpty else { return }
+
         containerView.needsLayout = true
         containerView.needsDisplay = true
         containerView.setNeedsDisplay(containerView.bounds)
 
-        if let scrollView = webView.enclosingScrollView {
-            scrollView.needsLayout = true
-            scrollView.needsDisplay = true
-            scrollView.setNeedsDisplay(scrollView.bounds)
-            scrollView.contentView.needsLayout = true
-            scrollView.contentView.needsDisplay = true
-        }
+        for webKitSubview in hostedWebKitSubviews {
+            if let scrollView = webKitSubview.enclosingScrollView {
+                scrollView.needsLayout = true
+                scrollView.needsDisplay = true
+                scrollView.setNeedsDisplay(scrollView.bounds)
+                scrollView.contentView.needsLayout = true
+                scrollView.contentView.needsDisplay = true
+            }
 
-        webView.needsLayout = true
-        webView.needsDisplay = true
-        webView.setNeedsDisplay(webView.bounds)
+            webKitSubview.needsLayout = true
+            webKitSubview.needsDisplay = true
+            webKitSubview.setNeedsDisplay(webKitSubview.bounds)
+        }
 
         containerView.layoutSubtreeIfNeeded()
-        if let scrollView = webView.enclosingScrollView {
-            scrollView.layoutSubtreeIfNeeded()
-            scrollView.contentView.layoutSubtreeIfNeeded()
-            scrollView.displayIfNeeded()
-        }
-        webView.layoutSubtreeIfNeeded()
-        if reattachRenderingState {
-            webView.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+        for webKitSubview in hostedWebKitSubviews {
+            if let scrollView = webKitSubview.enclosingScrollView {
+                scrollView.layoutSubtreeIfNeeded()
+                scrollView.contentView.layoutSubtreeIfNeeded()
+                scrollView.displayIfNeeded()
+            }
+            webKitSubview.layoutSubtreeIfNeeded()
+            if reattachRenderingState {
+                webKitSubview.browserPortalReattachRenderingState(reason: "\(reason):\(phase)")
+            }
+            webKitSubview.displayIfNeeded()
         }
         containerView.displayIfNeeded()
-        webView.displayIfNeeded()
-        (webView.window ?? hostView.window)?.displayIfNeeded()
+        (containerView.window ?? webView.window ?? hostView.window)?.displayIfNeeded()
 #if DEBUG
         dlog(
             "\(reattachRenderingState ? "browser.portal.refresh" : "browser.portal.invalidate") " +
@@ -2779,15 +2894,10 @@ final class WindowBrowserPortal: NSObject {
         // When Web Inspector is docked, WebKit can inject companion WK* subviews
         // next to the primary WKWebView. Move those with the web view so inspector
         // UI state does not get orphaned in the old host during split churn.
-        let relatedSubviews = sourceSuperview.subviews.filter { view in
-            if view === primaryWebView { return true }
-            let className = String(describing: type(of: view))
-            guard className.contains("WK") else { return false }
-            if className.contains("WKInspector") {
-                return !view.isHidden && view.alphaValue > 0 && view.frame.width > 1 && view.frame.height > 1
-            }
-            return true
-        }
+        let relatedSubviews = relatedWebKitTransferSubviews(
+            from: sourceSuperview,
+            primaryWebView: primaryWebView
+        )
         guard !relatedSubviews.isEmpty else { return }
 #if DEBUG
         dlog(
@@ -2831,8 +2941,54 @@ final class WindowBrowserPortal: NSObject {
             "hadContainerSuperview=\(hadContainerSuperview) hadWebSuperview=\(hadWebSuperview)"
         )
 #endif
-        entry.webView?.browserPortalNotifyHidden(reason: "detach")
+        if let webView = entry.webView, let containerView = entry.containerView {
+            notifyHostedWebKitHidden(
+                in: containerView,
+                primaryWebView: webView,
+                reason: "detach"
+            )
+        } else {
+            entry.webView?.browserPortalNotifyHidden(reason: "detach")
+        }
         entry.webView?.removeFromSuperview()
+        entry.containerView?.removeFromSuperview()
+    }
+
+    func discardWebViewEntry(
+        withId webViewId: ObjectIdentifier,
+        source: String,
+        preserveCurrentSuperview: Bool
+    ) {
+        cancelPendingHostedWebViewRefreshes(for: webViewId)
+        guard let entry = entriesByWebViewId.removeValue(forKey: webViewId) else { return }
+        if let anchor = entry.anchorView {
+            webViewByAnchorId.removeValue(forKey: ObjectIdentifier(anchor))
+        }
+
+        let portalOwnsWebView = entry.webView?.superview === entry.containerView
+#if DEBUG
+        dlog(
+            "browser.portal.discard web=\(browserPortalDebugToken(entry.webView)) " +
+            "container=\(browserPortalDebugToken(entry.containerView)) " +
+            "anchor=\(browserPortalDebugToken(entry.anchorView)) " +
+            "source=\(source) preserve=\(preserveCurrentSuperview ? 1 : 0) " +
+            "portalOwnsWeb=\(portalOwnsWebView ? 1 : 0) " +
+            "currentSuper=\(browserPortalDebugToken(entry.webView?.superview))"
+        )
+#endif
+
+        if !(preserveCurrentSuperview && !portalOwnsWebView) {
+            if let webView = entry.webView, let containerView = entry.containerView {
+                notifyHostedWebKitHidden(
+                    in: containerView,
+                    primaryWebView: webView,
+                    reason: "discard:\(source)"
+                )
+            } else {
+                entry.webView?.browserPortalNotifyHidden(reason: "discard:\(source)")
+            }
+            entry.webView?.removeFromSuperview()
+        }
         entry.containerView?.removeFromSuperview()
     }
 
@@ -3197,7 +3353,11 @@ final class WindowBrowserPortal: NSObject {
             // and can trigger page reloads. Reserve the full lifecycle notify for cases
             // where the visible surface is actually leaving the window/render tree.
             if entry.visibleInUI, !containerView.isHidden, webView.superview === containerView {
-                webView.browserPortalNotifyHidden(reason: reason)
+                notifyHostedWebKitHidden(
+                    in: containerView,
+                    primaryWebView: webView,
+                    reason: reason
+                )
             }
             containerView.isHidden = true
         }
@@ -3907,6 +4067,22 @@ enum BrowserWindowPortalRegistry {
         guard let windowId = webViewToWindowId[webViewId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.hideWebView(withId: webViewId, source: source)
+        postRegistryDidChange(for: webView)
+    }
+
+    static func discard(
+        webView: WKWebView,
+        source: String = "externalDiscard",
+        preserveCurrentSuperview: Bool = false
+    ) {
+        let webViewId = ObjectIdentifier(webView)
+        guard let windowId = webViewToWindowId.removeValue(forKey: webViewId),
+              let portal = portalsByWindowId[windowId] else { return }
+        portal.discardWebViewEntry(
+            withId: webViewId,
+            source: source,
+            preserveCurrentSuperview: preserveCurrentSuperview
+        )
         postRegistryDidChange(for: webView)
     }
 
