@@ -2349,6 +2349,19 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
+        if shouldUseLocalInlineDeveloperToolsHosting() {
+            activePortalHostLease = nil
+            lockedPortalHost = nil
+#if DEBUG
+            dlog(
+                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason).localInlineDevTools host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            return false
+        }
+
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
