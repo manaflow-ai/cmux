@@ -336,9 +336,17 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
-        isRestoringSession = true
+
+        // Before syncing workspace color, adopt any workspace group restored from
+        // the snapshot so syncWorkspaceGroup updates it instead of creating a duplicate.
+        if let colorHex = snapshot.customColor?.replacingOccurrences(of: "#", with: ""),
+           let firstPane = bonsplitController.allPaneIds.first {
+            let restored = bonsplitController.groups(inPane: firstPane)
+            if let match = restored.first(where: { $0.colorHex == colorHex }) {
+                workspaceGroupId = match.id
+            }
+        }
         setCustomColor(snapshot.customColor)
-        isRestoringSession = false
         isPinned = snapshot.isPinned
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -377,11 +385,9 @@ extension Workspace {
             let panelIds = sessionPanelIDs(for: pane)
             let selectedPanelId = pane.selectedTabId.flatMap(sessionPanelID(forExternalTabIDString:))
 
-            // Capture tab groups for this pane (exclude workspace-managed groups;
-            // those are recreated from customColor on restore via syncWorkspaceGroup)
+            // Capture all tab groups for this pane (including workspace-managed groups)
             let paneId = PaneID(id: UUID(uuidString: pane.id) ?? UUID())
             let paneGroups = bonsplitController.groups(inPane: paneId)
-                .filter { $0.id != workspaceGroupId }
             let groupSnapshots: [SessionTabGroupSnapshot]? = paneGroups.isEmpty ? nil : paneGroups.map {
                 SessionTabGroupSnapshot(id: $0.id, name: $0.name, colorHex: $0.colorHex, isCollapsed: $0.isCollapsed ? true : nil)
             }
@@ -389,7 +395,7 @@ extension Workspace {
             var panelGroupAssignments: [UUID: UUID]? = nil
             let tabs = bonsplitController.tabs(inPane: paneId)
             let assignments = tabs.compactMap { tab -> (UUID, UUID)? in
-                guard let gid = tab.groupId, gid != workspaceGroupId,
+                guard let gid = tab.groupId,
                       let panelId = panelIdFromSurfaceId(tab.id) else { return nil }
                 return (panelId, gid)
             }
@@ -6534,9 +6540,6 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     /// Group ID for the auto-created workspace group (ties sidebar color to tab groups).
     var workspaceGroupId: UUID?
-    /// When true, syncWorkspaceGroup skips tab auto-assignment (set during session restore
-    /// to avoid clobbering saved per-tab group assignments).
-    private var isRestoringSession = false
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -7604,16 +7607,15 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         } else {
-            // Create workspace group with a single stable ID across all panes
+            // Create workspace group with a single stable ID across all panes.
+            // Only assign tabs that aren't already in a group (preserves saved assignments
+            // during restore and user-created groups during normal operation).
             let stableId = UUID()
             workspaceGroupId = stableId
             for paneId in bonsplitController.allPaneIds {
                 bonsplitController.createGroup(id: stableId, name: groupName, colorHex: colorHex, inPane: paneId)
-                // Skip auto-assignment during restore — saved assignments take precedence
-                if !isRestoringSession {
-                    for tab in bonsplitController.tabs(inPane: paneId) {
-                        bonsplitController.assignTab(tab.id, toGroup: stableId)
-                    }
+                for tab in bonsplitController.tabs(inPane: paneId) where tab.groupId == nil {
+                    bonsplitController.assignTab(tab.id, toGroup: stableId)
                 }
             }
         }
