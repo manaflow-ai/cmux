@@ -2782,12 +2782,8 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
-        for tab in tabManager.tabs {
-            if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
-                tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
-            }
-        }
+        // tabBarLeadingInset was removed from bonsplit; traffic light offset is now
+        // handled by WindowDecorationsController.
     }
 
     private func updateTitlebarText() {
