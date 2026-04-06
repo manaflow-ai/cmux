@@ -201,6 +201,8 @@ func runOMCRelay(socketPath string, args []string, refreshAddr func() string) in
 	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
 	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
 		configureClaudeNodeOptions(restoreModulePath)
+	} else {
+		fmt.Fprintf(os.Stderr, "cmux omc: warning: failed to create NODE_OPTIONS restore module: %v\n", err)
 	}
 
 	launchPath, launchArgv := resolveNodeScriptExec(omcPath, args, originalPath, shimDir)

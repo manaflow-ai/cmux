@@ -1729,8 +1729,6 @@ struct CMUXCLI {
         if command != "__tmux-compat",
            command != "claude-teams",
            command != "codex",
-           command != "omx",
-           command != "omc",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
                 return
@@ -11217,7 +11215,7 @@ struct CMUXCLI {
             execvp("omc", &argv)
         }
         let code = errno
-        throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claudecode installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
+        throw CLIError(message: "Failed to launch omc: \(String(cString: strerror(code)))\n\nIs oh-my-claude-sisyphus installed? Install with:\n  npm install -g oh-my-claude-sisyphus")
     }
 
     private func runClaudeTeamsTmuxCompat(

@@ -776,5 +776,7 @@ func cliUsage() {
 	fmt.Fprintln(os.Stderr, "  browser <sub>             Browser commands (open, navigate, back, forward, reload, get-url)")
 	fmt.Fprintln(os.Stderr, "  claude-teams [args...]     Launch Claude Code in teammate mode")
 	fmt.Fprintln(os.Stderr, "  omo [args...]              Launch OpenCode with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omx [args...]              Launch Oh My Codex with cmux integration")
+	fmt.Fprintln(os.Stderr, "  omc [args...]              Launch Oh My Claude Code with cmux integration")
 	fmt.Fprintln(os.Stderr, "  rpc <method> [json-params] Send arbitrary JSON-RPC")
 }
