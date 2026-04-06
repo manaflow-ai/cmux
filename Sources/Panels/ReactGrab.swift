@@ -198,6 +198,14 @@ extension BrowserPanel {
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {
+#if DEBUG
+        dlog(
+            "reactGrab.pasteback h3.arm " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "return=\(panelId.uuidString.prefix(5))"
+        )
+#endif
         pendingReactGrabReturnTargetPanelId = panelId
     }
 
@@ -209,11 +217,39 @@ extension BrowserPanel {
         switch message {
         case .stateChange(let isActive):
             isReactGrabActive = isActive
+#if DEBUG
+            let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+                String($0.uuidString.prefix(5))
+            } ?? "nil"
+            dlog(
+                "reactGrab.pasteback h3.stateChange " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "browser=\(id.uuidString.prefix(5)) " +
+                "isActive=\(isActive ? 1 : 0) pending=\(pendingTarget)"
+            )
+#endif
             if !isActive {
                 clearReactGrabRoundTrip()
             }
         case .copySuccess(let content):
-            guard let returnPanelId = pendingReactGrabReturnTargetPanelId else { return }
+            guard let returnPanelId = pendingReactGrabReturnTargetPanelId else {
+#if DEBUG
+                dlog(
+                    "reactGrab.pasteback h3.copySuccess.drop " +
+                    "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                    "browser=\(id.uuidString.prefix(5)) reason=noReturnTarget len=\(content.count)"
+                )
+#endif
+                return
+            }
+#if DEBUG
+            dlog(
+                "reactGrab.pasteback h3.copySuccess " +
+                "workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "browser=\(id.uuidString.prefix(5)) " +
+                "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
+            )
+#endif
             clearReactGrabRoundTrip()
             NotificationCenter.default.post(
                 name: .reactGrabDidCopySelection,
