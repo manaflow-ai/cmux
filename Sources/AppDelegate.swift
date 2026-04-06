@@ -6673,15 +6673,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         manager.focusTab(workspaceId, surfaceId: returnPanelId, suppressFlash: true)
-        sendTextWhenReady(content, to: workspace)
+        sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
     }
 
     static func resolveTerminalPanelForTextSend(in tab: Tab, preferredPanelId: UUID? = nil) -> TerminalPanel? {
-        tab.focusedTerminalPanel
+        if let preferredPanelId,
+           let terminalPanel = tab.terminalPanel(for: preferredPanelId) {
+            return terminalPanel
+        }
+        return tab.focusedTerminalPanel
     }
 
-    private func sendTextWhenReady(_ text: String, to tab: Tab, beforeSend: (() -> Void)? = nil) {
-        if let terminalPanel = Self.resolveTerminalPanelForTextSend(in: tab),
+    private func sendTextWhenReady(
+        _ text: String,
+        to tab: Tab,
+        preferredPanelId: UUID? = nil,
+        beforeSend: (() -> Void)? = nil
+    ) {
+        if let terminalPanel = Self.resolveTerminalPanelForTextSend(
+            in: tab,
+            preferredPanelId: preferredPanelId
+        ),
            terminalPanel.surface.surface != nil {
             beforeSend?()
             terminalPanel.sendText(text)
@@ -6694,7 +6706,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func finishIfReady() {
             guard !resolved,
-                  let terminalPanel = Self.resolveTerminalPanelForTextSend(in: tab),
+                  let terminalPanel = Self.resolveTerminalPanelForTextSend(
+                    in: tab,
+                    preferredPanelId: preferredPanelId
+                  ),
                   terminalPanel.surface.surface != nil else { return }
             resolved = true
             if let readyObserver {
@@ -6715,6 +6730,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { note in
             guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
                   workspaceId == tab.id else { return }
+            if let preferredPanelId,
+               let surfaceId = note.userInfo?["surfaceId"] as? UUID,
+               surfaceId != preferredPanelId {
+                return
+            }
             finishIfReady()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
