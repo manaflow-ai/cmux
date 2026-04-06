@@ -392,7 +392,7 @@ extension Workspace {
                 return (panelId, gid)
             }
             if !assignments.isEmpty {
-                panelGroupAssignments = Dictionary(uniqueKeysWithValues: assignments)
+                panelGroupAssignments = Dictionary(assignments, uniquingKeysWith: { _, last in last })
             }
 
             return .pane(
@@ -7587,17 +7587,25 @@ final class Workspace: Identifiable, ObservableObject {
         if let gid = workspaceGroupId {
             // Update existing group color and name in all panes
             for paneId in bonsplitController.allPaneIds {
-                bonsplitController.renameGroup(gid, to: groupName, inPane: paneId)
-                bonsplitController.changeGroupColor(gid, to: colorHex, inPane: paneId)
-            }
-        } else {
-            // Create workspace group in all panes and assign all tabs
-            for paneId in bonsplitController.allPaneIds {
-                if let gid = bonsplitController.createGroup(name: groupName, colorHex: colorHex, inPane: paneId) {
-                    if workspaceGroupId == nil { workspaceGroupId = gid }
-                    for tab in bonsplitController.tabs(inPane: paneId) {
+                // Ensure the group exists in this pane (may be new from a split)
+                if bonsplitController.groups(inPane: paneId).first(where: { $0.id == gid }) == nil {
+                    bonsplitController.createGroup(id: gid, name: groupName, colorHex: colorHex, inPane: paneId)
+                    for tab in bonsplitController.tabs(inPane: paneId) where tab.groupId == nil {
                         bonsplitController.assignTab(tab.id, toGroup: gid)
                     }
+                } else {
+                    bonsplitController.renameGroup(gid, to: groupName, inPane: paneId)
+                    bonsplitController.changeGroupColor(gid, to: colorHex, inPane: paneId)
+                }
+            }
+        } else {
+            // Create workspace group with a single stable ID across all panes
+            let stableId = UUID()
+            workspaceGroupId = stableId
+            for paneId in bonsplitController.allPaneIds {
+                bonsplitController.createGroup(id: stableId, name: groupName, colorHex: colorHex, inPane: paneId)
+                for tab in bonsplitController.tabs(inPane: paneId) {
+                    bonsplitController.assignTab(tab.id, toGroup: stableId)
                 }
             }
         }
