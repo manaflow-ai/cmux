@@ -3320,9 +3320,46 @@ class TabManager: ObservableObject {
         focusedBrowserPanel?.showDeveloperToolsConsole() ?? false
     }
 
-    func toggleReactGrabFocusedBrowser() {
-        guard let panel = focusedBrowserPanel else { return }
-        Task { await panel.toggleOrInjectReactGrab() }
+    @discardableResult
+    func toggleReactGrabFromCurrentFocus() -> Bool {
+        guard let workspace = selectedWorkspace else { return false }
+
+        let snapshots = workspace.panels.values.map { panel in
+            ReactGrabShortcutPanelSnapshot(
+                id: panel.id,
+                panelType: panel.panelType,
+                isFocused: panel.id == workspace.focusedPanelId
+            )
+        }
+        guard let route = resolveReactGrabShortcutRoute(panels: snapshots),
+              let browserPanel = workspace.browserPanel(for: route.browserPanelId) else {
+            return false
+        }
+
+        if let returnTerminalPanelId = route.returnTerminalPanelId {
+            browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
+        } else {
+            browserPanel.clearReactGrabRoundTrip()
+        }
+
+        if workspace.focusedPanelId != browserPanel.id {
+            workspace.focusPanel(browserPanel.id)
+        }
+
+        guard browserPanel.requestExplicitWebViewFocus() else {
+            browserPanel.clearReactGrabRoundTrip()
+            return false
+        }
+
+        Task { @MainActor [weak browserPanel] in
+            guard let browserPanel else { return }
+            if route.returnTerminalPanelId != nil {
+                await browserPanel.ensureReactGrabActive()
+            } else {
+                await browserPanel.toggleOrInjectReactGrab()
+            }
+        }
+        return true
     }
 
     /// Backwards compatibility: returns the focused surface ID

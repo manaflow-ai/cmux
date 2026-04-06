@@ -59,6 +59,64 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     }
 }
 
+final class ReactGrabShortcutRouteTests: XCTestCase {
+    func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: true),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: nil)
+        )
+    }
+
+    func testFocusedTerminalRoutesToOnlyBrowserAndRemembersPastebackTarget() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: terminalId)
+        )
+    }
+
+    func testFocusedTerminalDoesNotRouteWhenMultipleBrowsersExist() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+
+    func testFocusedTerminalDoesNotRouteWithoutBrowser() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+}
+
 
 final class FullScreenShortcutTests: XCTestCase {
     func testMatchesCommandControlF() {

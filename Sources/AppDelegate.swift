@@ -2468,6 +2468,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleReactGrabDidCopySelection(_:)),
+            name: .reactGrabDidCopySelection,
+            object: nil
+        )
 
 #if DEBUG
         // UI tests run on a shared VM user profile, so persisted shortcuts can drift and make
@@ -6656,6 +6662,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pasteboard.setString(payload, forType: .string)
     }
 
+    @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
+        guard let workspaceId = notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID,
+              let returnPanelId = notification.userInfo?[ReactGrabPastebackNotificationKey.returnPanelId] as? UUID,
+              let content = notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String,
+              let manager = tabManagerFor(tabId: workspaceId),
+              let workspace = manager.tabs.first(where: { $0.id == workspaceId }),
+              workspace.terminalPanel(for: returnPanelId) != nil else {
+            return
+        }
+
+        manager.focusTab(workspaceId, surfaceId: returnPanelId, suppressFlash: true)
+        sendTextWhenReady(content, to: workspace)
+    }
+
     private func sendTextWhenReady(_ text: String, to tab: Tab, beforeSend: (() -> Void)? = nil) {
         if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
             beforeSend?()
@@ -10370,12 +10390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .toggleReactGrab) {
-            guard let tabManager, tabManager.focusedBrowserPanel != nil else {
-                NSSound.beep()
-                return true
-            }
-            tabManager.toggleReactGrabFocusedBrowser()
-            return true
+            return tabManager?.toggleReactGrabFromCurrentFocus() ?? false
         }
 
         if matchConfiguredShortcut(event: event, action: .browserZoomIn) {

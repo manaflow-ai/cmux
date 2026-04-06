@@ -2260,6 +2260,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     @Published var isReactGrabActive: Bool = false
     var reactGrabMessageHandler: ReactGrabMessageHandler?
+    var pendingReactGrabReturnTargetPanelId: UUID?
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -3271,6 +3272,39 @@ final class BrowserPanel: Panel, ObservableObject {
         if window.makeFirstResponder(webView) {
             noteWebViewFocused()
         }
+    }
+
+    @discardableResult
+    func requestExplicitWebViewFocus() -> Bool {
+        // Programmatic WebView focus should win over stale omnibar focus state, especially
+        // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
+        endSuppressWebViewFocusForAddressBar()
+        clearWebViewFocusSuppression()
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        // Prevent omnibar auto-focus from immediately stealing first responder back.
+        suppressOmnibarAutofocus(for: 1.5)
+
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+
+        if Self.responderChainContains(window.firstResponder, target: webView) {
+            noteWebViewFocused()
+            return true
+        }
+
+        guard window.makeFirstResponder(webView) else { return false }
+        noteWebViewFocused()
+
+        DispatchQueue.main.async { [weak self, weak window, weak webView] in
+            guard let self, let window, let webView else { return }
+            guard webView.window === window else { return }
+            if !Self.responderChainContains(window.firstResponder, target: webView),
+               window.makeFirstResponder(webView) {
+                self.noteWebViewFocused()
+            }
+        }
+
+        return true
     }
 
     func unfocus() {
