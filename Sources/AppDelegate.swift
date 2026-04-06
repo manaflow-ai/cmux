@@ -8513,6 +8513,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
+            let layout = env["CMUX_UI_TEST_GOTO_SPLIT_LAYOUT"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if layout == "three_pane_terminal" {
+                self.setupThreePaneTerminalLayout(tabManager: tabManager)
+                return
+            }
+
             let tab = tabManager.addTab()
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
@@ -8546,6 +8554,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             runSetupWhenWindowReady()
         }
+    }
+
+    /// Create a 3-pane terminal-only layout: one horizontal split (right) and one vertical split (down).
+    /// Used by `CMUX_UI_TEST_GOTO_SPLIT_LAYOUT=three_pane_terminal`.
+    /// Focus changes are recorded by `recordGotoSplitCycleMoveIfNeeded` in the Ghostty action handler.
+    private func setupThreePaneTerminalLayout(tabManager: TabManager) {
+        let tab = tabManager.addTab()
+        guard let initialPanelId = tab.focusedPanelId else {
+            writeGotoSplitTestData(["setupError": "Missing initial panel id"])
+            return
+        }
+
+        // Create horizontal split (right)
+        guard tabManager.createSplit(
+            tabId: tab.id, surfaceId: initialPanelId, direction: .right
+        ) != nil else {
+            writeGotoSplitTestData(["setupError": "Failed to create horizontal split"])
+            return
+        }
+
+        // Focus back to initial pane, then create vertical split (down)
+        tab.focusPanel(initialPanelId)
+        guard tabManager.createSplit(
+            tabId: tab.id, surfaceId: initialPanelId, direction: .down
+        ) != nil else {
+            writeGotoSplitTestData(["setupError": "Failed to create vertical split"])
+            return
+        }
+
+        let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
+        let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
+
+        writeGotoSplitTestData([
+            "paneCount": String(allPaneIds.count),
+            "allPaneIds": allPaneIds.joined(separator: ","),
+            "focusedPaneId": focusedPaneId,
+            "setupComplete": "true",
+        ])
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
@@ -9480,6 +9526,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastMoveDirection"] = directionValue
+        writeGotoSplitTestData(updates)
+    }
+
+    func recordGotoSplitCycleMoveIfNeeded(forward: Bool) {
+        guard isGotoSplitUITestRecordingEnabled() else { return }
+        guard let tabManager, let workspace = tabManager.selectedWorkspace else { return }
+
+        var updates = gotoSplitFindStateSnapshot(for: workspace)
+        updates["lastMoveDirection"] = forward ? "next" : "previous"
         writeGotoSplitTestData(updates)
     }
 

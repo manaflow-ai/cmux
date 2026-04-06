@@ -97,6 +97,7 @@
 					B9000023A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */; };
 					B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */; };
 					D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */; };
+					CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */; };
 					D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
 					FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */; };
 					E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
@@ -294,6 +295,7 @@
 					B9000022A1B2C3D4E5F60719 /* CloseWorkspaceCmdDUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWorkspaceCmdDUITests.swift; sourceTree = "<group>"; };
 					B9000026A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseWindowConfirmDialogUITests.swift; sourceTree = "<group>"; };
 						D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
+						CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GotoSplitCycleUITests.swift; sourceTree = "<group>"; };
 						D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
 						FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserImportProfilesUITests.swift; sourceTree = "<group>"; };
 						E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
@@ -570,6 +572,7 @@
 							C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
 							E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
 							D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
+							CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */,
 							D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */,
 							FB100001A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift */,
 							C0B4D9B1A1B2C3D4E5F60718 /* UpdatePillUITests.swift */,
@@ -870,6 +873,7 @@
 							C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
 							E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 							D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+							CC000000A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift in Sources */,
 							D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
 							FB100000A1B2C3D4E5F60718 /* BrowserImportProfilesUITests.swift in Sources */,
 							C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
