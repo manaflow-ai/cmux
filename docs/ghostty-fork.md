@@ -13,7 +13,9 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current cmux fork head: `0b231db94` (`v1.3.1-472-g0b231db94`).
+Current cmux pinned fork head: `ae3cc5d29` (`v1.3.1-473-gae3cc5d29`).
+Fork `main` keeps this pin reachable via merge commit `5c781d710`
+(`Retain layer-background pin ancestry on main`).
 
 ### 1) macOS display link restart on display changes
 
@@ -112,23 +114,6 @@ tend to conflict together during rebases.
 
 The fork branch HEAD is now the section 7 layer-background restore commit.
 
-### 9) Initial focus seeding and DECSET 1004 startup behavior
-
-- Commit: `c19c82bfd` (Seed initial focus state and avoid startup focus-report leak)
-- Files:
-  - `include/ghostty.h`
-  - `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
-  - `src/Surface.zig`
-  - `src/apprt/embedded.zig`
-  - `src/termio/stream_handler.zig`
-- Summary:
-  - Adds an explicit initial `focused` flag to surface creation so host apps can start background panes unfocused.
-  - Seeds renderer and termio focus bookkeeping from that initial state before the IO thread starts.
-  - Keeps DECSET 1004 enablement side-effect free so focus sequences are emitted only on subsequent real focus transitions, preventing `CSI I/O` from leaking into shells during pane creation.
-
-The latest cmux-specific focus-reporting change is the section 9 commit. The
-current submodule SHA also includes a newer merge from upstream `main`.
-
 ## Upstreamed fork changes
 
 ### cursor-click-to-move respects OSC 133 click-to-move
@@ -140,6 +125,12 @@ current submodule SHA also includes a newer merge from upstream `main`.
 
 - Were local in the fork as `8ade43ce5`, `0cf559581`, `312c7b23a`, and `404a3f175`.
 - Dropped during the March 30, 2026 rebase because newer Ghostty prompt-marking changes on the refreshed base superseded these fork-only zsh redraw patches, so cmux no longer carries them separately.
+
+### initial focus seeding and DECSET 1004 startup behavior
+
+- Was local in the fork as `c19c82bfd`.
+- Dropped from the current pinned fork head when cmux removed the corresponding
+  app-side initial focus seed and went back to post-create focus sync.
 
 ## Merge conflict notes
 
