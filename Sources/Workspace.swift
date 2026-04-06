@@ -7639,6 +7639,13 @@ final class Workspace: Identifiable, ObservableObject {
             customTitle = trimmed
             self.title = trimmed
         }
+        // Keep workspace group name in sync with workspace title
+        if let gid = workspaceGroupId {
+            let groupName = customTitle ?? self.title
+            for paneId in bonsplitController.allPaneIds {
+                bonsplitController.renameGroup(gid, to: groupName, inPane: paneId)
+            }
+        }
     }
 
     func setCustomDescription(_ description: String?) {
@@ -12231,8 +12238,14 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) {
-        // Auto-assign new tabs to the workspace group when the workspace has a color
+        // Auto-assign new tabs to the workspace group when the workspace has a color.
+        // Ensure the group exists in this pane first (may be new from a split).
         if let gid = workspaceGroupId, tab.groupId == nil {
+            if bonsplitController.groups(inPane: pane).first(where: { $0.id == gid }) == nil {
+                let groupName = customTitle ?? title
+                let colorHex = customColor?.replacingOccurrences(of: "#", with: "") ?? ""
+                bonsplitController.createGroup(id: gid, name: groupName, colorHex: colorHex, inPane: pane)
+            }
             bonsplitController.assignTab(tab.id, toGroup: gid)
         }
     }
