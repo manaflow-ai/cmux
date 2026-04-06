@@ -2859,6 +2859,24 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
     }
 
+    func testShellIntegrationDoesNotSpoofManagedTermWhenUserZshEnvDisablesIntegration() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}|${CMUX_SHELL_INTEGRATION:-unset}"
+            """,
+            userZshEnvContents: """
+            export CMUX_SHELL_INTEGRATION=0
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3309,6 +3327,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         cmuxLoadShellIntegration: Bool,
         command: String,
         extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
         userZshRCContents: String? = nil
     ) throws -> String {
         let fileManager = FileManager.default
@@ -3319,14 +3338,21 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         let userZdotdir = root.appendingPathComponent("zdotdir")
         try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
-        let userZshEnvContents: String = {
-            if let path = extraEnvironment["PATH"] {
-                let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
-                return "export PATH=\"\(escaped)\"\n"
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
             }
-            return "\n"
-        }()
-        try userZshEnvContents.write(
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
             to: userZdotdir.appendingPathComponent(".zshenv"),
             atomically: true,
             encoding: .utf8
