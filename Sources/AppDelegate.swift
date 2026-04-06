@@ -6676,8 +6676,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sendTextWhenReady(content, to: workspace)
     }
 
+    static func resolveTerminalPanelForTextSend(in tab: Tab, preferredPanelId: UUID? = nil) -> TerminalPanel? {
+        tab.focusedTerminalPanel
+    }
+
     private func sendTextWhenReady(_ text: String, to tab: Tab, beforeSend: (() -> Void)? = nil) {
-        if let terminalPanel = tab.focusedTerminalPanel, terminalPanel.surface.surface != nil {
+        if let terminalPanel = Self.resolveTerminalPanelForTextSend(in: tab),
+           terminalPanel.surface.surface != nil {
             beforeSend?()
             terminalPanel.sendText(text)
             return
@@ -6689,7 +6694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         func finishIfReady() {
             guard !resolved,
-                  let terminalPanel = tab.focusedTerminalPanel,
+                  let terminalPanel = Self.resolveTerminalPanelForTextSend(in: tab),
                   terminalPanel.surface.surface != nil else { return }
             resolved = true
             if let readyObserver {

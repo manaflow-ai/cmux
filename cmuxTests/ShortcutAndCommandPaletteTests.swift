@@ -118,6 +118,36 @@ final class ReactGrabShortcutRouteTests: XCTestCase {
 }
 
 
+@MainActor
+final class ReactGrabPastebackTargetTests: XCTestCase {
+    func testPrefersExplicitTerminalTargetWhenBrowserPanelIsFocused() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+        guard let browserPanel = workspace.newBrowserSplit(
+            from: terminalId,
+            orientation: .horizontal
+        ) else {
+            XCTFail("Expected browser split panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: terminalId
+            )?.id,
+            terminalId
+        )
+    }
+}
+
+
 final class FullScreenShortcutTests: XCTestCase {
     func testMatchesCommandControlF() {
         XCTAssertTrue(
