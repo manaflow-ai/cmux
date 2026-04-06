@@ -3346,10 +3346,16 @@ class TabManager: ObservableObject {
             workspace.focusPanel(browserPanel.id)
         }
 
-        guard browserPanel.requestExplicitWebViewFocus() else {
-            browserPanel.clearReactGrabRoundTrip(reason: "shortcut.focusRequestFailed")
-            return false
-        }
+        let didRequestExplicitWebViewFocus = browserPanel.requestExplicitWebViewFocus()
+#if DEBUG
+        dlog(
+            "reactGrab.pasteback h1.focusRequestResult " +
+            "workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "browser=\(browserPanel.id.uuidString.prefix(5)) " +
+            "return=\(route.returnTerminalPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "success=\(didRequestExplicitWebViewFocus ? 1 : 0)"
+        )
+#endif
 
         Task { @MainActor [weak browserPanel] in
             guard let browserPanel else { return }
@@ -3357,6 +3363,9 @@ class TabManager: ObservableObject {
                 await browserPanel.ensureReactGrabActive()
             } else {
                 await browserPanel.toggleOrInjectReactGrab()
+            }
+            if !didRequestExplicitWebViewFocus {
+                _ = browserPanel.requestExplicitWebViewFocus()
             }
         }
         return true
