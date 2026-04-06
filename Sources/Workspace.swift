@@ -336,7 +336,9 @@ extension Workspace {
         applyProcessTitle(snapshot.processTitle)
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
+        isRestoringSession = true
         setCustomColor(snapshot.customColor)
+        isRestoringSession = false
         isPinned = snapshot.isPinned
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -6532,6 +6534,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     /// Group ID for the auto-created workspace group (ties sidebar color to tab groups).
     var workspaceGroupId: UUID?
+    /// When true, syncWorkspaceGroup skips tab auto-assignment (set during session restore
+    /// to avoid clobbering saved per-tab group assignments).
+    private var isRestoringSession = false
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -7604,8 +7609,11 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceGroupId = stableId
             for paneId in bonsplitController.allPaneIds {
                 bonsplitController.createGroup(id: stableId, name: groupName, colorHex: colorHex, inPane: paneId)
-                for tab in bonsplitController.tabs(inPane: paneId) {
-                    bonsplitController.assignTab(tab.id, toGroup: stableId)
+                // Skip auto-assignment during restore — saved assignments take precedence
+                if !isRestoringSession {
+                    for tab in bonsplitController.tabs(inPane: paneId) {
+                        bonsplitController.assignTab(tab.id, toGroup: stableId)
+                    }
                 }
             }
         }
@@ -12280,7 +12288,8 @@ extension Workspace: BonsplitDelegate {
             let colors = ["4F46E5", "DC2626", "059669", "D97706", "7C3AED", "DB2777"]
             let existingCount = bonsplitController.groups(inPane: pane).count
             let color = colors[existingCount % colors.count]
-            let name = "Group \(existingCount + 1)"
+            let groupNumber = existingCount + 1
+            let name = String(localized: "tab.group.defaultName", defaultValue: "Group") + " \(groupNumber)"
             if let groupId = bonsplitController.createGroup(name: name, colorHex: color, inPane: pane) {
                 bonsplitController.assignTab(tab.id, toGroup: groupId)
             }

@@ -289,9 +289,9 @@ struct SessionTabGroupSnapshot: Codable, Sendable {
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
-    var groups: [SessionTabGroupSnapshot]?
+    var groups: [SessionTabGroupSnapshot]? = nil
     /// Maps panel ID → group ID for tabs assigned to a group.
-    var panelGroupAssignments: [UUID: UUID]?
+    var panelGroupAssignments: [UUID: UUID]? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {

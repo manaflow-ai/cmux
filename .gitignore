@@ -5,6 +5,9 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 
+# Development plans
+PLAN.md
+
 # macOS
 .DS_Store
 
