@@ -710,8 +710,8 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             return
         }
 
-        workspace.updatePanelDirectory(panelId: panelId, directory: repoURL.path)
-        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.updateSurfaceGitBranch(tabId: workspace.id, surfaceId: panelId, branch: "feature/sidebar-pr", isDirty: false)
         workspace.updatePanelPullRequest(
             panelId: panelId,
             number: 1052,
