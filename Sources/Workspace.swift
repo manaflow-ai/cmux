@@ -449,6 +449,7 @@ extension Workspace {
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
+        let textEditorSnapshot: SessionTextEditorPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminalPanel = panel as? TerminalPanel else { return nil }
@@ -472,6 +473,7 @@ extension Workspace {
             )
             browserSnapshot = nil
             markdownSnapshot = nil
+            textEditorSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
             terminalSnapshot = nil
@@ -486,11 +488,19 @@ extension Workspace {
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
             markdownSnapshot = nil
+            textEditorSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            textEditorSnapshot = nil
+        case .textEditor:
+            guard let textEditorPanel = panel as? TextEditorPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+            textEditorSnapshot = SessionTextEditorPanelSnapshot(filePath: textEditorPanel.filePath)
         }
 
         return SessionPanelSnapshot(
@@ -506,7 +516,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            textEditor: textEditorSnapshot
         )
     }
 
@@ -681,6 +692,17 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .textEditor:
+            guard let filePath = snapshot.textEditor?.filePath,
+                  let textEditorPanel = newTextEditorSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: textEditorPanel.id)
+            return textEditorPanel.id
         }
     }
 
@@ -6719,6 +6741,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let textEditor = "textEditor"
     }
 
     enum PanelShellActivityState: String {
@@ -7187,6 +7210,36 @@ final class Workspace: Identifiable, ObservableObject {
         panelSubscriptions[markdownPanel.id] = subscription
     }
 
+    private func installTextEditorPanelSubscription(_ textEditorPanel: TextEditorPanel) {
+        let subscription = Publishers.CombineLatest(
+            textEditorPanel.$displayTitle.removeDuplicates(),
+            textEditorPanel.$isDirty.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak textEditorPanel] newTitle, isDirty in
+            guard let self,
+                  let textEditorPanel,
+                  let tabId = self.surfaceIdFromPanelId(textEditorPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[textEditorPanel.id] != newTitle {
+                self.panelTitles[textEditorPanel.id] = newTitle
+            }
+            let resolvedTitle = self.resolvedPanelTitle(panelId: textEditorPanel.id, fallback: newTitle)
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let dirtyUpdate: Bool? = existing.isDirty == isDirty ? nil : isDirty
+
+            guard titleUpdate != nil || dirtyUpdate != nil else { return }
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                hasCustomTitle: self.panelCustomTitles[textEditorPanel.id] != nil,
+                isDirty: dirtyUpdate
+            )
+        }
+        panelSubscriptions[textEditorPanel.id] = subscription
+    }
+
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
         guard let target = remoteDisplayTarget else { return nil }
         return BrowserRemoteWorkspaceStatus(
@@ -7224,6 +7277,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? MarkdownPanel
     }
 
+    func textEditorPanel(for panelId: UUID) -> TextEditorPanel? {
+        panels[panelId] as? TextEditorPanel
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:
@@ -7232,6 +7289,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .textEditor:
+            return SurfaceKind.textEditor
         }
     }
 
@@ -9255,6 +9314,115 @@ final class Workspace: Identifiable, ObservableObject {
         return markdownPanel
     }
 
+    // MARK: - Text Editor panel factory methods
+
+    func newTextEditorSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        filePath: String,
+        focus: Bool = true
+    ) -> TextEditorPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let textEditorPanel = TextEditorPanel(workspaceId: id, filePath: filePath)
+        panels[textEditorPanel.id] = textEditorPanel
+        panelTitles[textEditorPanel.id] = textEditorPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: textEditorPanel.displayTitle,
+            icon: textEditorPanel.displayIcon,
+            kind: SurfaceKind.textEditor,
+            isDirty: textEditorPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = textEditorPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: textEditorPanel.id)
+            panelTitles.removeValue(forKey: textEditorPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(textEditorPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: textEditorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installTextEditorPanelSubscription(textEditorPanel)
+        return textEditorPanel
+    }
+
+    @discardableResult
+    func newTextEditorSurface(
+        inPane paneId: PaneID,
+        filePath: String,
+        focus: Bool? = nil
+    ) -> TextEditorPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let textEditorPanel = TextEditorPanel(workspaceId: id, filePath: filePath)
+        panels[textEditorPanel.id] = textEditorPanel
+        panelTitles[textEditorPanel.id] = textEditorPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: textEditorPanel.displayTitle,
+            icon: textEditorPanel.displayIcon,
+            kind: SurfaceKind.textEditor,
+            isDirty: textEditorPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: textEditorPanel.id)
+            panelTitles.removeValue(forKey: textEditorPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = textEditorPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: textEditorPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installTextEditorPanelSubscription(textEditorPanel)
+        return textEditorPanel
+    }
+
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
@@ -9745,6 +9913,10 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let markdownPanel = detached.panel as? MarkdownPanel {
+            installMarkdownPanelSubscription(markdownPanel)
+        } else if let textEditorPanel = detached.panel as? TextEditorPanel {
+            installTextEditorPanelSubscription(textEditorPanel)
         }
 
         if let directory = detached.directory {
@@ -10283,6 +10455,9 @@ final class Workspace: Identifiable, ObservableObject {
         for (panelId, panel) in panels {
             if let terminalPanel = panel as? TerminalPanel,
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
+                return true
+            }
+            if let textEditorPanel = panel as? TextEditorPanel, textEditorPanel.isDirty {
                 return true
             }
         }
@@ -11608,6 +11783,35 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
+        // Check if a dirty text editor needs close confirmation
+        if let panelId = panelIdFromSurfaceId(tab.id),
+           let textEditorPanel = panels[panelId] as? TextEditorPanel,
+           textEditorPanel.isDirty {
+            clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            if pendingCloseConfirmTabIds.contains(tab.id) {
+                return false
+            }
+
+            pendingCloseConfirmTabIds.insert(tab.id)
+            let tabId = tab.id
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    defer { self.pendingCloseConfirmTabIds.remove(tabId) }
+
+                    guard self.panelIdFromSurfaceId(tabId) != nil else { return }
+
+                    let confirmed = await self.confirmClosePanel(for: tabId)
+                    guard confirmed else { return }
+
+                    self.forceCloseTabIds.insert(tabId)
+                    self.bonsplitController.closeTab(tabId)
+                }
+            }
+
+            return false
+        }
+
         // Check if the panel needs close confirmation
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let terminalPanel = terminalPanel(for: panelId) else {
@@ -11905,6 +12109,22 @@ extension Workspace: BonsplitDelegate {
         let tabs = controller.tabs(inPane: pane)
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
+            if let panelId = panelIdFromSurfaceId(tab.id),
+               let textEditorPanel = panels[panelId] as? TextEditorPanel,
+               textEditorPanel.isDirty {
+                let tabId = tab.id
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        let confirmed = await self.confirmClosePanel(for: tabId)
+                        if confirmed {
+                            self.forceCloseTabIds.insert(tabId)
+                            self.bonsplitController.closePane(pane)
+                        }
+                    }
+                }
+                return false
+            }
             if let panelId = panelIdFromSurfaceId(tab.id),
                let terminalPanel = terminalPanel(for: panelId),
                panelNeedsConfirmClose(panelId: panelId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {

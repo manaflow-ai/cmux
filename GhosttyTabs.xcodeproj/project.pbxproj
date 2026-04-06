@@ -37,6 +37,11 @@
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		A5001420 /* MarkdownPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001418 /* MarkdownPanel.swift */; };
 		A5001421 /* MarkdownPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001419 /* MarkdownPanelView.swift */; };
+		FB200011 /* FileBrowserDrawerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB200001 /* FileBrowserDrawerState.swift */; };
+		FB200012 /* TextEditorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB200002 /* TextEditorPanel.swift */; };
+		FB200013 /* TextEditorPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB200003 /* TextEditorPanelView.swift */; };
+		FB200014 /* FileBrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB200004 /* FileBrowserView.swift */; };
+		FB200015 /* FileBrowserDrawerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB200005 /* FileBrowserDrawerView.swift */; };
 		A5001290 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = A5001291 /* MarkdownUI */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -240,6 +245,11 @@
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		A5001418 /* MarkdownPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanel.swift; sourceTree = "<group>"; };
 		A5001419 /* MarkdownPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelView.swift; sourceTree = "<group>"; };
+		FB200001 /* FileBrowserDrawerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserDrawerState.swift; sourceTree = "<group>"; };
+		FB200002 /* TextEditorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextEditorPanel.swift; sourceTree = "<group>"; };
+		FB200003 /* TextEditorPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TextEditorPanelView.swift; sourceTree = "<group>"; };
+		FB200004 /* FileBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserView.swift; sourceTree = "<group>"; };
+		FB200005 /* FileBrowserDrawerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileBrowserDrawerView.swift; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		A5001417 /* WorkspaceContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceContentView.swift; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -494,7 +504,11 @@
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5001418 /* MarkdownPanel.swift */,
 				A5001419 /* MarkdownPanelView.swift */,
+				FB200002 /* TextEditorPanel.swift */,
+				FB200003 /* TextEditorPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
+				FB200001 /* FileBrowserDrawerState.swift */,
+				FB200020 /* FileBrowser */,
 				A5001415 /* PanelContentView.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
@@ -518,6 +532,15 @@
 				A5001655 /* CmuxDirectoryTrust.swift */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		FB200020 /* FileBrowser */ = {
+			isa = PBXGroup;
+			children = (
+				FB200004 /* FileBrowserView.swift */,
+				FB200005 /* FileBrowserDrawerView.swift */,
+			);
+			path = FileBrowser;
 			sourceTree = "<group>";
 		};
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
@@ -640,6 +663,7 @@
 					A5001271 /* PostHog */,
 					A5001261 /* Bonsplit */,
 					A5001291 /* MarkdownUI */,
+					FB400001 /* CodeEditor */,
 				);
 			name = GhosttyTabs;
 			productName = GhosttyTabs;
@@ -760,6 +784,7 @@
 					A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 					A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
 					A5001260 /* XCLocalSwiftPackageReference "bonsplit" */,
+					FB400002 /* XCRemoteSwiftPackageReference "CodeEditor" */,
 				);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -818,6 +843,11 @@
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				A5001420 /* MarkdownPanel.swift in Sources */,
 				A5001421 /* MarkdownPanelView.swift in Sources */,
+				FB200011 /* FileBrowserDrawerState.swift in Sources */,
+				FB200012 /* TextEditorPanel.swift in Sources */,
+				FB200013 /* TextEditorPanelView.swift in Sources */,
+				FB200014 /* FileBrowserView.swift in Sources */,
+				FB200015 /* FileBrowserDrawerView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
@@ -1284,6 +1314,14 @@
 				isa = XCLocalSwiftPackageReference;
 				relativePath = vendor/bonsplit;
 			};
+			FB400002 /* XCRemoteSwiftPackageReference "CodeEditor" */ = {
+				isa = XCRemoteSwiftPackageReference;
+				repositoryURL = "https://github.com/tayl0r/CodeEditor.git";
+				requirement = {
+					kind = branch;
+					branch = develop;
+				};
+			};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1311,6 +1349,11 @@
 				isa = XCSwiftPackageProductDependency;
 				package = A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
 				productName = MarkdownUI;
+			};
+			FB400001 /* CodeEditor */ = {
+				isa = XCSwiftPackageProductDependency;
+				package = FB400002 /* XCRemoteSwiftPackageReference "CodeEditor" */;
+				productName = CodeEditor;
 			};
 /* End XCSwiftPackageProductDependency section */
 

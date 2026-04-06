@@ -1799,7 +1799,11 @@ struct ContentView: View {
     @EnvironmentObject var sidebarState: SidebarState
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
+    @EnvironmentObject var fileBrowserDrawerState: FileBrowserDrawerState
     @State private var sidebarWidth: CGFloat = 200
+    @State private var drawerWidth: CGFloat = 250
+    @State private var isDrawerResizerDragging = false
+    @State private var drawerDragStartWidth: CGFloat?
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
@@ -2358,7 +2362,7 @@ struct ContentView: View {
     private func releaseSidebarResizerCursorIfNeeded(force: Bool = false) {
         let isLeftMouseButtonDown = CGEventSource.buttonState(.combinedSessionState, button: .left)
         let shouldKeepCursor = !force
-            && (isResizerDragging || isResizerBandActive || !hoveredResizerHandles.isEmpty || isLeftMouseButtonDown)
+            && (isResizerDragging || isDrawerResizerDragging || isResizerBandActive || !hoveredResizerHandles.isEmpty || isLeftMouseButtonDown)
         guard !shouldKeepCursor else { return }
         guard isSidebarResizerCursorActive else { return }
         isSidebarResizerCursorActive = false
@@ -2386,9 +2390,18 @@ struct ContentView: View {
         return point.x >= minX && point.x <= maxX
     }
 
+    private func drawerDividerBandContains(pointInContent point: NSPoint, contentBounds: NSRect) -> Bool {
+        guard fileBrowserDrawerState.isVisible else { return false }
+        guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
+        let drawerHitWidth: CGFloat = 12
+        let drawerEdge = (sidebarState.isVisible ? sidebarWidth : 0) + drawerWidth
+        let minX = drawerEdge - drawerHitWidth
+        let maxX = drawerEdge + drawerHitWidth
+        return point.x >= minX && point.x <= maxX
+    }
+
     private func updateSidebarResizerBandState(using event: NSEvent? = nil) {
-        guard sidebarState.isVisible,
-              let window = observedWindow,
+        guard let window = observedWindow,
               let contentView = window.contentView else {
             isResizerBandActive = false
             scheduleSidebarResizerCursorRelease(force: true)
@@ -2400,10 +2413,11 @@ struct ContentView: View {
         // event locations during cursor updates, which causes visible cursor flicker.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
-        let isInDividerBand = dividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
-        isResizerBandActive = isInDividerBand
+        let isInSidebarDividerBand = sidebarState.isVisible && dividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
+        let isInDrawerDividerBand = drawerDividerBandContains(pointInContent: pointInContent, contentBounds: contentView.bounds)
+        isResizerBandActive = isInSidebarDividerBand || isInDrawerDividerBand
 
-        if isInDividerBand || isResizerDragging {
+        if isInSidebarDividerBand || isInDrawerDividerBand || isResizerDragging || isDrawerResizerDragging {
             activateSidebarResizerCursor()
             startSidebarResizerCursorStabilizer()
             // AppKit cursorUpdate handlers from overlapped portal/web views can run
@@ -2424,7 +2438,7 @@ struct ContentView: View {
         timer.schedule(deadline: .now(), repeating: .milliseconds(16), leeway: .milliseconds(2))
         timer.setEventHandler {
             updateSidebarResizerBandState()
-            if isResizerBandActive || isResizerDragging {
+            if isResizerBandActive || isResizerDragging || isDrawerResizerDragging {
                 Self.fixedSidebarResizeCursor.set()
             } else {
                 stopSidebarResizerCursorStabilizer()
@@ -2464,7 +2478,7 @@ struct ContentView: View {
                     return false
                 }
             }()
-            if shouldOverrideCursorEvent, (isResizerBandActive || isResizerDragging) {
+            if shouldOverrideCursorEvent, (isResizerBandActive || isResizerDragging || isDrawerResizerDragging) {
                 // Consume hover motion in divider band so overlapped views cannot
                 // continuously reassert their own cursor while we are resizing.
                 activateSidebarResizerCursor()
@@ -2600,6 +2614,152 @@ struct ContentView: View {
         )
         .frame(width: sidebarWidth)
         .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // MARK: - File browser drawer
+
+    private var fileBrowserDrawerContent: some View {
+        let directory: String? = {
+            guard let workspace = tabManager.selectedWorkspace else { return nil }
+            if let focusedPanelId = workspace.focusedPanelId,
+               let dir = workspace.panelDirectories[focusedPanelId], !dir.isEmpty {
+                return dir
+            }
+            let cwd = workspace.currentDirectory
+            return cwd.isEmpty ? nil : cwd
+        }()
+        return FileBrowserDrawerView(
+            directory: directory,
+            onFileSelected: { path in
+                openFileInTextEditor(path)
+            }
+        )
+    }
+
+    private func openFileInTextEditor(_ path: String) {
+        guard let workspace = tabManager.selectedWorkspace else { return }
+
+        // If this file is already open, just focus it.
+        for paneId in workspace.bonsplitController.allPaneIds {
+            for tab in workspace.bonsplitController.tabs(inPane: paneId) {
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id),
+                      let textEditor = workspace.textEditorPanel(for: panelId),
+                      textEditor.filePath == path else { continue }
+                workspace.bonsplitController.focusPane(paneId)
+                workspace.bonsplitController.selectTab(tab.id)
+                return
+            }
+        }
+
+        // If a text editor already exists in this workspace, open the new file
+        // as a tab in the same pane.
+        for paneId in workspace.bonsplitController.allPaneIds {
+            let tabs = workspace.bonsplitController.tabs(inPane: paneId)
+            let hasTextEditor = tabs.contains { tab in
+                guard let panelId = workspace.panelIdFromSurfaceId(tab.id) else { return false }
+                return workspace.textEditorPanel(for: panelId) != nil
+            }
+            if hasTextEditor {
+                _ = workspace.newTextEditorSurface(
+                    inPane: paneId,
+                    filePath: path,
+                    focus: true
+                )
+                return
+            }
+        }
+
+        // No existing text editor — split from the focused panel.
+        if let focusedPanelId = workspace.focusedPanelId,
+           workspace.newTextEditorSplit(
+               from: focusedPanelId,
+               orientation: .horizontal,
+               filePath: path,
+               focus: true
+           ) != nil {
+            // Split succeeded
+        } else if let paneId = workspace.bonsplitController.focusedPaneId {
+            _ = workspace.newTextEditorSurface(
+                inPane: paneId,
+                filePath: path,
+                focus: true
+            )
+        }
+    }
+
+    private func clampedDrawerWidth(_ candidate: CGFloat) -> CGFloat {
+        let minW = CGFloat(SessionPersistencePolicy.minimumDrawerWidth)
+        let maxW = CGFloat(SessionPersistencePolicy.maximumDrawerWidth)
+        guard candidate.isFinite else { return CGFloat(SessionPersistencePolicy.defaultDrawerWidth) }
+        return max(minW, min(maxW, candidate))
+    }
+
+    private var drawerResizerOverlay: some View {
+        GeometryReader { proxy in
+            let totalWidth = max(0, proxy.size.width)
+            let sidebarPortion = sidebarState.isVisible ? sidebarWidth : 0
+            let dividerX = min(max(sidebarPortion + drawerWidth, 0), totalWidth)
+            let drawerHitWidth: CGFloat = 12
+            let leadingWidth = max(0, dividerX - drawerHitWidth)
+
+            HStack(spacing: 0) {
+                Color.clear
+                    .frame(width: leadingWidth)
+                    .allowsHitTesting(false)
+
+                Color.clear
+                    .frame(width: drawerHitWidth * 2)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering {
+                            activateSidebarResizerCursor()
+                        } else {
+                            scheduleSidebarResizerCursorRelease()
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .onChanged { value in
+                                if !isDrawerResizerDragging {
+                                    TerminalWindowPortalRegistry.beginInteractiveGeometryResize()
+                                    isDrawerResizerDragging = true
+                                    drawerDragStartWidth = drawerWidth
+                                }
+                                activateSidebarResizerCursor()
+                                let startWidth = drawerDragStartWidth ?? drawerWidth
+                                let nextWidth = clampedDrawerWidth(startWidth + value.translation.width)
+                                withTransaction(Transaction(animation: nil)) {
+                                    drawerWidth = nextWidth
+                                }
+                            }
+                            .onEnded { _ in
+                                if isDrawerResizerDragging {
+                                    TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                                    isDrawerResizerDragging = false
+                                    drawerDragStartWidth = nil
+                                }
+                                fileBrowserDrawerState.persistedWidth = drawerWidth
+                                scheduleSidebarResizerCursorRelease()
+                            }
+                    )
+                    .modifier(SidebarResizerAccessibilityModifier(accessibilityIdentifier: "FileBrowserDrawerResizer"))
+                    .onDisappear {
+                        if isDrawerResizerDragging {
+                            TerminalWindowPortalRegistry.endInteractiveGeometryResize()
+                            isDrawerResizerDragging = false
+                            drawerDragStartWidth = nil
+                            fileBrowserDrawerState.persistedWidth = drawerWidth
+                        }
+                        scheduleSidebarResizerCursorRelease(force: true)
+                    }
+
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .allowsHitTesting(false)
+            }
+            .frame(width: totalWidth, height: proxy.size.height, alignment: .leading)
+        }
     }
 
     /// Space at top of content area for the titlebar. This must be at least the actual titlebar
@@ -2868,6 +3028,10 @@ struct ContentView: View {
         return dir.isEmpty ? nil : dir
     }
 
+    private var effectiveDrawerWidth: CGFloat {
+        fileBrowserDrawerState.isVisible ? drawerWidth : 0
+    }
+
     private var contentAndSidebarLayout: AnyView {
         let layout: AnyView
         // When matching terminal background, use HStack so both sidebar and terminal
@@ -2877,12 +3041,19 @@ struct ContentView: View {
         if useWithinWindow {
             // Overlay mode: terminal extends full width, sidebar on top
             // This allows withinWindow blur to see the terminal content
+            let leftPadding = (sidebarState.isVisible ? sidebarWidth : 0) + effectiveDrawerWidth
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     terminalContentWithSidebarDropOverlay
-                        .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                        .padding(.leading, leftPadding)
                     if sidebarState.isVisible {
                         sidebarView
+                    }
+                    if fileBrowserDrawerState.isVisible {
+                        fileBrowserDrawerContent
+                            .frame(width: drawerWidth)
+                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
+                            .transaction { $0.animation = nil }
                     }
                 }
             )
@@ -2892,6 +3063,11 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     if sidebarState.isVisible {
                         sidebarView
+                    }
+                    if fileBrowserDrawerState.isVisible {
+                        fileBrowserDrawerContent
+                            .frame(width: drawerWidth)
+                            .transaction { $0.animation = nil }
                     }
                     terminalContentWithSidebarDropOverlay
                 }
@@ -2904,6 +3080,10 @@ struct ContentView: View {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay
                             .zIndex(1000)
+                    }
+                    if fileBrowserDrawerState.isVisible {
+                        drawerResizerOverlay
+                            .zIndex(1001)
                     }
                 }
         )
@@ -2935,6 +3115,10 @@ struct ContentView: View {
             }
             if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
                 sidebarState.persistedWidth = restoredWidth
+            }
+            let restoredDrawerWidth = CGFloat(SessionPersistencePolicy.sanitizedDrawerWidth(Double(fileBrowserDrawerState.persistedWidth)))
+            if abs(drawerWidth - restoredDrawerWidth) > 0.5 {
+                drawerWidth = restoredDrawerWidth
             }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -3391,6 +3575,22 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
+        view = AnyView(view.onChange(of: drawerWidth) { _ in
+            if let observedWindow {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
+        })
+
+        view = AnyView(view.onChange(of: fileBrowserDrawerState.isVisible) { _ in
+            if let observedWindow {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
+        })
+
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
@@ -3496,7 +3696,8 @@ struct ContentView: View {
                 windowId: windowId,
                 tabManager: tabManager,
                 sidebarState: sidebarState,
-                sidebarSelectionState: sidebarSelectionState
+                sidebarSelectionState: sidebarSelectionState,
+                fileBrowserDrawerState: fileBrowserDrawerState
             )
             installFileDropOverlay(on: window, tabManager: tabManager)
         }))
@@ -6025,6 +6226,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .textEditor:
+            return String(localized: "textEditor.panel.kindLabel", defaultValue: "Text Editor")
         }
     }
 
@@ -6036,6 +6239,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .textEditor:
+            return ["editor", "text", "file"]
         }
     }
 

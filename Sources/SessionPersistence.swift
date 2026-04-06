@@ -19,10 +19,20 @@ enum SessionPersistencePolicy {
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
+    static let defaultDrawerWidth: Double = 250
+    static let minimumDrawerWidth: Double = 180
+    static let maximumDrawerWidth: Double = 500
+
     static func sanitizedSidebarWidth(_ candidate: Double?) -> Double {
         let fallback = defaultSidebarWidth
         guard let candidate, candidate.isFinite else { return fallback }
         return min(max(candidate, minimumSidebarWidth), maximumSidebarWidth)
+    }
+
+    static func sanitizedDrawerWidth(_ candidate: Double?) -> Double {
+        let fallback = defaultDrawerWidth
+        guard let candidate, candidate.isFinite else { return fallback }
+        return min(max(candidate, minimumDrawerWidth), maximumDrawerWidth)
     }
 
     static func truncatedScrollback(_ text: String?) -> String? {
@@ -240,6 +250,10 @@ struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
 
+struct SessionTextEditorPanelSnapshot: Codable, Sendable {
+    var filePath: String
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -254,6 +268,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
+    var textEditor: SessionTextEditorPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {
@@ -348,11 +363,17 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var workspaces: [SessionWorkspaceSnapshot]
 }
 
+struct SessionFileBrowserDrawerSnapshot: Codable, Sendable {
+    var isVisible: Bool
+    var width: Double?
+}
+
 struct SessionWindowSnapshot: Codable, Sendable {
     var frame: SessionRectSnapshot?
     var display: SessionDisplaySnapshot?
     var tabManager: SessionTabManagerSnapshot
     var sidebar: SessionSidebarSnapshot
+    var fileBrowserDrawer: SessionFileBrowserDrawerSnapshot?
 }
 
 struct AppSessionSnapshot: Codable, Sendable {

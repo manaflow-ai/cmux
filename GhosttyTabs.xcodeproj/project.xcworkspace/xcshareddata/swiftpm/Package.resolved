@@ -1,6 +1,24 @@
 {
-  "originHash" : "b66d812c506be67c70b46c63421ab2eb2db013613c74252ad1205f662ada079b",
+  "originHash" : "92cfd3ee05443bd8f26d9cd84c2995c3adece8e6a2deb6d7f8b3c1339e7e6849",
   "pins" : [
+    {
+      "identity" : "codeeditor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/tayl0r/CodeEditor.git",
+      "state" : {
+        "branch" : "develop",
+        "revision" : "0b14784dbe52c95d57ac39481bce18d3793e3ec9"
+      }
+    },
+    {
+      "identity" : "highlightr",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/helje5/Highlightr",
+      "state" : {
+        "revision" : "bd0358056ff1f12ea83833a9fc1b3b5a396a9da0",
+        "version" : "3.0.2"
+      }
+    },
     {
       "identity" : "networkimage",
       "kind" : "remoteSourceControl",

@@ -2150,6 +2150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let tabManager: TabManager
         let sidebarState: SidebarState
         let sidebarSelectionState: SidebarSelectionState
+        let fileBrowserDrawerState: FileBrowserDrawerState
         weak var window: NSWindow?
 
         init(
@@ -2157,12 +2158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: TabManager,
             sidebarState: SidebarState,
             sidebarSelectionState: SidebarSelectionState,
+            fileBrowserDrawerState: FileBrowserDrawerState,
             window: NSWindow?
         ) {
             self.windowId = windowId
             self.tabManager = tabManager
             self.sidebarState = sidebarState
             self.sidebarSelectionState = sidebarSelectionState
+            self.fileBrowserDrawerState = fileBrowserDrawerState
             self.window = window
         }
     }
@@ -3209,6 +3212,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        if let drawerSnapshot = snapshot.fileBrowserDrawer {
+            context.fileBrowserDrawerState.isVisible = drawerSnapshot.isVisible
+            context.fileBrowserDrawerState.persistedWidth = CGFloat(
+                SessionPersistencePolicy.sanitizedDrawerWidth(drawerSnapshot.width)
+            )
+        }
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -3691,6 +3700,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasher.combine(
                 Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
             )
+            hasher.combine(context.fileBrowserDrawerState.isVisible)
+            hasher.combine(
+                Int(SessionPersistencePolicy.sanitizedDrawerWidth(Double(context.fileBrowserDrawerState.persistedWidth)).rounded())
+            )
 
             switch context.sidebarSelectionState.selection {
             case .tabs:
@@ -3997,6 +4010,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+                    ),
+                    fileBrowserDrawer: SessionFileBrowserDrawerSnapshot(
+                        isVisible: context.fileBrowserDrawerState.isVisible,
+                        width: SessionPersistencePolicy.sanitizedDrawerWidth(Double(context.fileBrowserDrawerState.persistedWidth))
                     )
                 )
             }
@@ -4068,7 +4085,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager,
         sidebarState: SidebarState,
-        sidebarSelectionState: SidebarSelectionState
+        sidebarSelectionState: SidebarSelectionState,
+        fileBrowserDrawerState: FileBrowserDrawerState? = nil
     ) {
         tabManager.window = window
 
@@ -4087,6 +4105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 tabManager: tabManager,
                 sidebarState: sidebarState,
                 sidebarSelectionState: sidebarSelectionState,
+                fileBrowserDrawerState: fileBrowserDrawerState ?? FileBrowserDrawerState(),
                 window: window
             )
             NotificationCenter.default.addObserver(
@@ -5684,6 +5703,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return false
     }
 
+    @discardableResult
+    func toggleFileBrowserDrawerInActiveMainWindow() -> Bool {
+        if let activeManager = tabManager,
+           let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }) {
+            if let window = activeContext.window ?? windowForMainWindowId(activeContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            activeContext.fileBrowserDrawerState.toggle()
+            return true
+        }
+        if let keyContext = contextForMainWindow(NSApp.keyWindow) {
+            if let window = keyContext.window ?? windowForMainWindowId(keyContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            keyContext.fileBrowserDrawerState.toggle()
+            return true
+        }
+        if let mainContext = contextForMainWindow(NSApp.mainWindow) {
+            if let window = mainContext.window ?? windowForMainWindowId(mainContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            mainContext.fileBrowserDrawerState.toggle()
+            return true
+        }
+        if let fallbackContext = mainWindowContexts.values.first {
+            if let window = fallbackContext.window ?? windowForMainWindowId(fallbackContext.windowId) {
+                setActiveMainWindow(window)
+            }
+            fallbackContext.fileBrowserDrawerState.toggle()
+            return true
+        }
+        return false
+    }
+
     func sidebarVisibility(windowId: UUID) -> Bool? {
         mainWindowContexts.values.first(where: { $0.windowId == windowId })?.sidebarState.isVisible
     }
@@ -6239,6 +6292,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs
         )
+        let drawerWidth = sessionWindowSnapshot?.fileBrowserDrawer?.width
+            .map(SessionPersistencePolicy.sanitizedDrawerWidth)
+            ?? SessionPersistencePolicy.defaultDrawerWidth
+        let fileBrowserDrawerState = FileBrowserDrawerState(
+            isVisible: sessionWindowSnapshot?.fileBrowserDrawer?.isVisible ?? false,
+            persistedWidth: CGFloat(drawerWidth)
+        )
         let notificationStore = TerminalNotificationStore.shared
 
         let cmuxConfigStore = CmuxConfigStore()
@@ -6251,6 +6311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .environmentObject(sidebarState)
             .environmentObject(sidebarSelectionState)
             .environmentObject(cmuxConfigStore)
+            .environmentObject(fileBrowserDrawerState)
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
@@ -6330,7 +6391,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: sidebarState,
-            sidebarSelectionState: sidebarSelectionState
+            sidebarSelectionState: sidebarSelectionState,
+            fileBrowserDrawerState: fileBrowserDrawerState
         )
         installFileDropOverlay(on: window, tabManager: tabManager)
         if TerminalController.shouldSuppressSocketCommandActivation() {
@@ -9915,6 +9977,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
             _ = toggleSidebarInActiveMainWindow()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleFileBrowserDrawer) {
+            _ = toggleFileBrowserDrawerInActiveMainWindow()
             return true
         }
 
