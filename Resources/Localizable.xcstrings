@@ -85379,6 +85379,23 @@
         }
       }
     },
+    "terminalContextMenu.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開く"
+          }
+        }
+      }
+    },
     "terminalContextMenu.resetTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -85392,6 +85409,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルをリセット"
+          }
+        }
+      }
+    },
+    "terminalContextMenu.revealInFinder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal in Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finderで表示"
           }
         }
       }

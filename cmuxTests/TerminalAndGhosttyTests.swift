@@ -3645,6 +3645,16 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
 
 
 final class TerminalOpenURLTargetResolutionTests: XCTestCase {
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-open-url-target-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return try body(root)
+    }
+
     func testResolvesHTTPSAsEmbeddedBrowser() throws {
         let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/path?q=1"))
         switch target {
@@ -3670,24 +3680,36 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
     }
 
     func testResolvesFileSchemeAsExternal() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/cmux.txt"))
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-open-url-\(UUID().uuidString).txt"
+        )
+        try Data("hi".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget(fileURL.absoluteString))
         switch target {
-        case let .external(url):
+        case let .revealInFinder(url):
             XCTAssertTrue(url.isFileURL)
-            XCTAssertEqual(url.path, "/tmp/cmux.txt")
+            XCTAssertEqual(url.path, fileURL.path)
         default:
-            XCTFail("Expected file URL to open externally")
+            XCTFail("Expected file URL to reveal in Finder")
         }
     }
 
     func testResolvesAbsolutePathAsExternalFileURL() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/cmux-path.txt"))
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-absolute-path-\(UUID().uuidString).txt"
+        )
+        try Data("hi".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget(fileURL.path))
         switch target {
-        case let .external(url):
+        case let .revealInFinder(url):
             XCTAssertTrue(url.isFileURL)
-            XCTAssertEqual(url.path, "/tmp/cmux-path.txt")
+            XCTAssertEqual(url.path, fileURL.path)
         default:
-            XCTFail("Expected absolute file path to open externally")
+            XCTFail("Expected absolute file path to reveal in Finder")
         }
     }
 
@@ -3711,6 +3733,220 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         default:
             XCTFail("Expected hostless HTTPS URL to open externally")
         }
+    }
+
+    func testResolvesRelativePathAgainstCurrentDirectoryAsFinderReveal() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("preview.png")
+            try Data().write(to: imageURL)
+
+            let target = try XCTUnwrap(
+                resolveTerminalOpenURLTarget("preview.png", currentDirectory: root.path)
+            )
+            switch target {
+            case let .revealInFinder(url):
+                XCTAssertEqual(url.path, imageURL.path)
+            default:
+                XCTFail("Expected relative path to reveal in Finder when current directory is local")
+            }
+        }
+    }
+
+    func testBlocksAbsolutePathWhenLocalFileTargetsDisallowed() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("preview.png")
+            try Data().write(to: imageURL)
+
+            XCTAssertNil(
+                resolveTerminalOpenURLTarget(
+                    imageURL.path,
+                    allowLocalFileTargets: false
+                )
+            )
+        }
+    }
+
+    func testBlocksLocalFileURLWhenLocalFileTargetsDisallowed() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("preview.png")
+            try Data().write(to: imageURL)
+
+            XCTAssertNil(
+                resolveTerminalOpenURLTarget(
+                    imageURL.absoluteString,
+                    allowLocalFileTargets: false
+                )
+            )
+        }
+    }
+
+    func testLeavesNonLocalFileURLAsExternal() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "file://example.com/etc/hosts",
+                allowLocalFileTargets: false
+            )
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.host, "example.com")
+            XCTAssertEqual(url.path, "/etc/hosts")
+        default:
+            XCTFail("Expected non-local file URL to stay external")
+        }
+    }
+}
+
+
+final class TerminalLocalFileURLResolutionTests: XCTestCase {
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-terminal-file-url-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return try body(root)
+    }
+
+    func testResolvesRelativePathAgainstCurrentDirectory() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("preview.png")
+            try Data().write(to: imageURL)
+
+            let resolved = try XCTUnwrap(
+                resolveTerminalLocalFileURL("preview.png", currentDirectory: root.path)
+            )
+            XCTAssertEqual(resolved.path, imageURL.path)
+        }
+    }
+
+    func testResolvesAbsolutePathWithLineAndColumnSuffix() throws {
+        try withTemporaryDirectory { root in
+            let sourceURL = root.appendingPathComponent("Sample.swift")
+            try Data("print(1)\n".utf8).write(to: sourceURL)
+
+            let resolved = try XCTUnwrap(
+                resolveTerminalLocalFileURL("\(sourceURL.path):12:34")
+            )
+            XCTAssertEqual(resolved.path, sourceURL.path)
+        }
+    }
+
+    func testResolvesWrappedFileURLWithTrailingPunctuation() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("graph.png")
+            try Data().write(to: imageURL)
+
+            let resolved = try XCTUnwrap(
+                resolveTerminalLocalFileURL("(\(imageURL.absoluteString)),")
+            )
+            XCTAssertEqual(resolved.path, imageURL.path)
+        }
+    }
+
+    func testResolvesPathWithUnmatchedClosingDelimiter() throws {
+        try withTemporaryDirectory { root in
+            let sourceURL = root.appendingPathComponent("report.swift")
+            try Data("print(1)\n".utf8).write(to: sourceURL)
+
+            let resolved = try XCTUnwrap(resolveTerminalLocalFileURL("\(sourceURL.path))"))
+            XCTAssertEqual(resolved.path, sourceURL.path)
+        }
+    }
+
+    func testResolvesHoveredLineFilenameWithSpaces() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("Group 8.png")
+            try Data().write(to: imageURL)
+
+            XCTAssertEqual(
+                resolveTerminalLocalFileURL(
+                    inLine: "- Group 8.png",
+                    hoveredColumn: 2,
+                    currentDirectory: root.path
+                )?.path,
+                imageURL.path
+            )
+            XCTAssertEqual(
+                resolveTerminalLocalFileURL(
+                    inLine: "- Group 8.png",
+                    hoveredColumn: 7,
+                    currentDirectory: root.path
+                )?.path,
+                imageURL.path
+            )
+            XCTAssertEqual(
+                resolveTerminalLocalFileURL(
+                    inLine: "- Group 8.png",
+                    hoveredColumn: 9,
+                    currentDirectory: root.path
+                )?.path,
+                imageURL.path
+            )
+        }
+    }
+
+    func testResolvedLineTargetWithSpacesTracksFullColumnRange() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("Group 8.png")
+            try Data().write(to: imageURL)
+
+            let target = try XCTUnwrap(
+                resolveTerminalLocalFileTarget(
+                    inLine: "  - Group 8.png",
+                    hoveredWord: "Group",
+                    preferredColumn: 4,
+                    currentDirectory: root.path
+                )
+            )
+
+            XCTAssertEqual(target.url.path, imageURL.path)
+            XCTAssertTrue(target.columnRange.contains(4))
+            XCTAssertTrue(target.columnRange.contains(9))
+            XCTAssertTrue(target.columnRange.contains(14))
+        }
+    }
+
+    func testResolvesHoveredWordWithinFilenameWithSpaces() throws {
+        try withTemporaryDirectory { root in
+            let imageURL = root.appendingPathComponent("Group 8.png")
+            try Data().write(to: imageURL)
+
+            XCTAssertEqual(
+                resolveTerminalLocalFileURL(
+                    inLine: "- Group 8.png",
+                    hoveredWord: "Group",
+                    preferredColumn: 2,
+                    currentDirectory: root.path
+                )?.path,
+                imageURL.path
+            )
+
+            XCTAssertEqual(
+                resolveTerminalLocalFileURL(
+                    inLine: "- Group 8.png",
+                    hoveredWord: "8.png",
+                    preferredColumn: 8,
+                    currentDirectory: root.path
+                )?.path,
+                imageURL.path
+            )
+        }
+    }
+
+    func testRejectsFileURLWithNonLocalHost() {
+        XCTAssertNil(resolveTerminalLocalFileURL("file://example.com/etc/hosts"))
+    }
+
+    func testReturnsNilForMissingRelativePath() {
+        XCTAssertNil(
+            resolveTerminalLocalFileURL(
+                "missing.png",
+                currentDirectory: FileManager.default.temporaryDirectory.path
+            )
+        )
     }
 }
 
