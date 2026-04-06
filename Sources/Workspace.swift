@@ -1073,6 +1073,7 @@ enum WorkspaceRemoteSSHBatchCommandBuilder {
     private static let batchSSHControlOptionKeys: Set<String> = [
         "controlmaster",
         "controlpersist",
+        "controlpath",
     ]
 
     static func daemonTransportArguments(
@@ -4009,14 +4010,183 @@ final class WorkspaceRemoteSessionController {
     private func reverseRelayArguments(relayPort: Int, localRelayPort: Int) -> [String] {
         // Fallback standalone transport when dynamic forwarding through an existing
         // control master is unavailable.
-        var args: [String] = ["-N", "-T", "-S", "none"]
-        args += sshCommonArguments(batchMode: true)
+        //
+        // Uses -F /dev/null to bypass ~/.ssh/config entirely, preventing config-file
+        // LocalForward/DynamicForward/RemoteForward directives from conflicting with
+        // ports already bound by the primary SSH connection. Transport-critical options
+        // (ProxyJump, ProxyCommand, HostKeyAlgorithms, etc.) are resolved via ssh -G
+        // and passed explicitly so connectivity is preserved without config-file forwards.
+        var args: [String] = ["-N", "-T", "-S", "none", "-F", "/dev/null"]
+        args += resolvedRelayTransportOptions()
         args += [
+            "-o", "ConnectTimeout=6",
+            "-o", "ServerAliveInterval=20",
+            "-o", "ServerAliveCountMax=2",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
             "-o", "ExitOnForwardFailure=yes",
             "-o", "RequestTTY=no",
             "-R", "127.0.0.1:\(relayPort):127.0.0.1:\(localRelayPort)",
             configuration.destination,
         ]
+        return args
+    }
+
+    /// Resolve transport-critical SSH options for the relay by running `ssh -G`.
+    /// This extracts options like ProxyJump, ProxyCommand, IdentityFile, HostKeyAlgorithms,
+    /// etc. from the user's SSH config without carrying over forwarding directives.
+    private func resolvedRelayTransportOptions() -> [String] {
+        // Build the ssh -G probe command with the same port/identity/options as the
+        // primary connection so Host/Match blocks resolve identically.
+        var probeArgs: [String] = ["-G"]
+        if let port = configuration.port {
+            probeArgs += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            probeArgs += ["-i", identityFile]
+        }
+        for option in backgroundSSHOptions(configuration.sshOptions) {
+            probeArgs += ["-o", option]
+        }
+        probeArgs.append(configuration.destination)
+
+        guard let result = try? sshExec(arguments: probeArgs, timeout: 5),
+              result.status == 0 else {
+            debugLog("remote.relay.sshG.failed falling back to explicit config only")
+            // Fallback: use just the explicitly configured options without ssh -G resolution.
+            return explicitRelayTransportOptions()
+        }
+
+        return parseRelayTransportOptions(from: result.stdout)
+    }
+
+    /// Keys from `ssh -G` output that are needed for transport but NOT forwarding.
+    private static let relayTransportKeys: Set<String> = [
+        "hostname",
+        "user",
+        "port",
+        "proxyjump",
+        "proxycommand",
+        "identityfile",
+        "identitiesonly",
+        "hostkeyalgorithms",
+        "kexalgorithms",
+        "ciphers",
+        "macs",
+        "hostkeyalias",
+        "userknownhostsfile",
+        "globalknownhostsfile",
+        "pubkeyacceptedalgorithms",
+        "preferredauthentications",
+    ]
+
+    /// Parse `ssh -G` output and extract transport-critical options as `-o Key=Value` pairs.
+    private func parseRelayTransportOptions(from sshGOutput: String) -> [String] {
+        var args: [String] = []
+
+        for line in sshGOutput.split(separator: "\n") {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard Self.relayTransportKeys.contains(key), !value.isEmpty else { continue }
+
+            switch key {
+            case "hostname":
+                args += ["-o", "Hostname=\(value)"]
+            case "user":
+                args += ["-l", value]
+            case "port":
+                // Only add if not already set via configuration.port
+                if configuration.port == nil, let portNum = Int(value), portNum != 22 {
+                    args += ["-p", value]
+                }
+            case "identityfile":
+                // ssh -G may emit multiple identity files; include all that exist on disk.
+                let expanded = (value as NSString).expandingTildeInPath
+                if FileManager.default.fileExists(atPath: expanded) {
+                    args += ["-i", value]
+                }
+            case "proxyjump":
+                if value.lowercased() != "none" {
+                    // Resolve the ProxyJump chain so jump hosts don't need config-file
+                    // resolution (since -F /dev/null is propagated to jump connections).
+                    let resolved = resolveProxyJumpChain(value)
+                    args += ["-J", resolved]
+                }
+            case "proxycommand":
+                if value.lowercased() != "none" {
+                    args += ["-o", "ProxyCommand=\(value)"]
+                }
+            default:
+                args += ["-o", "\(parts[0])=\(value)"]
+            }
+        }
+
+        return args
+    }
+
+    /// Resolve a ProxyJump chain by running `ssh -G` on each hop to get its
+    /// actual hostname, user, and port. This is needed because `-F /dev/null`
+    /// is propagated to jump host SSH processes, preventing config-file Host
+    /// alias resolution.
+    ///
+    /// Input: "jumphost,bastion" (comma-separated hops, may be config aliases)
+    /// Output: "admin@jump.example.com:22,user@bastion.example.com:22" (resolved)
+    private func resolveProxyJumpChain(_ chain: String) -> String {
+        let hops = chain.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let resolved = hops.map { hop -> String in
+            // If the hop already contains @ or : it's likely already explicit
+            if hop.contains("@") && hop.contains(":") {
+                return hop
+            }
+            // Try to resolve via ssh -G
+            guard let result = try? sshExec(arguments: ["-G", hop], timeout: 5),
+                  result.status == 0 else {
+                return hop  // Can't resolve; pass through as-is
+            }
+            var hostname: String?
+            var user: String?
+            var port: String?
+            for line in result.stdout.split(separator: "\n") {
+                let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+                guard parts.count == 2 else { continue }
+                let key = parts[0].lowercased()
+                let val = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                switch key {
+                case "hostname": hostname = val
+                case "user": user = val
+                case "port": port = val
+                default: break
+                }
+            }
+            guard let resolvedHost = hostname else { return hop }
+            var resolved = ""
+            if let user { resolved += "\(user)@" }
+            resolved += resolvedHost
+            if let port, port != "22" { resolved += ":\(port)" }
+            return resolved
+        }
+
+        return resolved.joined(separator: ",")
+    }
+
+    /// Fallback transport options when ssh -G is unavailable. Uses only the
+    /// explicitly configured port and identity file.
+    private func explicitRelayTransportOptions() -> [String] {
+        var args: [String] = []
+        if let port = configuration.port {
+            args += ["-p", String(port)]
+        }
+        if let identityFile = configuration.identityFile,
+           !identityFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args += ["-i", identityFile]
+        }
         return args
     }
 
@@ -4119,6 +4289,7 @@ final class WorkspaceRemoteSessionController {
         let batchSSHControlOptionKeys: Set<String> = [
             "controlmaster",
             "controlpersist",
+            "controlpath",
         ]
         return normalizedSSHOptions(options).filter { option in
             guard let key = sshOptionKey(option) else { return false }
