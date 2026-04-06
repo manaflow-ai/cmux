@@ -209,7 +209,18 @@ extension BrowserPanel {
         pendingReactGrabReturnTargetPanelId = panelId
     }
 
-    func clearReactGrabRoundTrip() {
+    func clearReactGrabRoundTrip(reason: String = "unspecified") {
+#if DEBUG
+        let previousTarget = pendingReactGrabReturnTargetPanelId.map {
+            String($0.uuidString.prefix(5))
+        } ?? "nil"
+        dlog(
+            "reactGrab.pasteback h3.clear " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) previous=\(previousTarget)"
+        )
+#endif
         pendingReactGrabReturnTargetPanelId = nil
     }
 
@@ -247,7 +258,7 @@ extension BrowserPanel {
                 "return=\(returnPanelId.uuidString.prefix(5)) len=\(content.count)"
             )
 #endif
-            clearReactGrabRoundTrip()
+            clearReactGrabRoundTrip(reason: "copySuccess")
             NotificationCenter.default.post(
                 name: .reactGrabDidCopySelection,
                 object: nil,
@@ -352,8 +363,25 @@ extension BrowserPanel {
         await injectReactGrab()
     }
 
-    func resetReactGrabState() {
+    func resetReactGrabState(
+        preserveRoundTrip: Bool = false,
+        reason: String = "unspecified"
+    ) {
+#if DEBUG
+        let pendingTarget = pendingReactGrabReturnTargetPanelId.map {
+            String($0.uuidString.prefix(5))
+        } ?? "nil"
+        dlog(
+            "reactGrab.pasteback h3.reset " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) " +
+            "browser=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) preserve=\(preserveRoundTrip ? 1 : 0) " +
+            "pending=\(pendingTarget) active=\(isReactGrabActive ? 1 : 0)"
+        )
+#endif
         isReactGrabActive = false
-        clearReactGrabRoundTrip()
+        if !preserveRoundTrip {
+            clearReactGrabRoundTrip(reason: reason)
+        }
     }
 }

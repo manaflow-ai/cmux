@@ -3339,7 +3339,7 @@ class TabManager: ObservableObject {
         if let returnTerminalPanelId = route.returnTerminalPanelId {
             browserPanel.armReactGrabRoundTrip(returnTo: returnTerminalPanelId)
         } else {
-            browserPanel.clearReactGrabRoundTrip()
+            browserPanel.clearReactGrabRoundTrip(reason: "shortcut.noReturnTarget")
         }
 
         if workspace.focusedPanelId != browserPanel.id {
@@ -3347,7 +3347,7 @@ class TabManager: ObservableObject {
         }
 
         guard browserPanel.requestExplicitWebViewFocus() else {
-            browserPanel.clearReactGrabRoundTrip()
+            browserPanel.clearReactGrabRoundTrip(reason: "shortcut.focusRequestFailed")
             return false
         }
 
