@@ -371,10 +371,9 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
 
         _ = try await panel.evaluateJavaScript(
             """
-            window.__CMUX_REACT_GRAB_BRIDGE_STATE__ = {
-                beginSession: function(token) {
-                    window.__cmuxTestRoundTripToken = token;
-                }
+            window['\(panel.reactGrabBridgeSessionUpdaterName)'] = function(token) {
+                window.__cmuxTestRoundTripToken = token;
+                return true;
             };
             true;
             """

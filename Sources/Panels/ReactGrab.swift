@@ -209,12 +209,11 @@ extension BrowserPanel {
     private func reactGrabBridgeSessionRefreshScript() -> String {
         """
         (function() {
-            var bridgeState = window.__CMUX_REACT_GRAB_BRIDGE_STATE__;
-            if (!bridgeState || typeof bridgeState.beginSession !== 'function') {
+            var syncToken = window['\(reactGrabBridgeSessionUpdaterName)'];
+            if (typeof syncToken !== 'function') {
                 return false;
             }
-            bridgeState.beginSession(\(reactGrabSessionTokenLiteral()));
-            return true;
+            return !!syncToken(\(reactGrabSessionTokenLiteral()));
         })();
         """
     }
@@ -337,28 +336,31 @@ extension BrowserPanel {
         let combined = """
         (function() {
             var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
-            var bridgeState = window.__CMUX_REACT_GRAB_BRIDGE_STATE__;
-            if (!bridgeState) {
-                bridgeState = (function() {
-                    var activeToken = null;
-                    return {
-                        beginSession: function(token) {
-                            activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
-                        },
-                        currentToken: function() {
-                            return activeToken;
-                        },
-                        clearSession: function() {
-                            activeToken = null;
-                        }
-                    };
-                })();
-                window.__CMUX_REACT_GRAB_BRIDGE_STATE__ = bridgeState;
-            }
-            bridgeState.beginSession(\(sessionTokenLiteral));
+            var updaterName = '\(reactGrabBridgeSessionUpdaterName)';
+            var refreshSessionToken = function() {
+                var syncToken = window[updaterName];
+                if (typeof syncToken !== 'function') return false;
+                return !!syncToken(\(sessionTokenLiteral));
+            };
             var installBridge = function(api) {
                 if (!api || window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__) return;
                 window.__CMUX_REACT_GRAB_BRIDGE_INSTALLED__ = true;
+                var activeToken = null;
+                var syncSessionToken = function(token) {
+                    activeToken = (typeof token === 'string' && token.length > 0) ? token : null;
+                    return true;
+                };
+                try {
+                    Object.defineProperty(window, updaterName, {
+                        value: syncSessionToken,
+                        writable: false,
+                        configurable: false,
+                        enumerable: false
+                    });
+                } catch (_) {
+                    if (typeof window[updaterName] !== 'function') return;
+                }
+                refreshSessionToken();
                 var lastActive;
                 api.registerPlugin({
                     name: 'cmux-bridge',
@@ -369,15 +371,16 @@ extension BrowserPanel {
                             if (handler) handler.postMessage({ type: 'stateChange', isActive: state.isActive });
                         },
                         onCopySuccess: function(elements, content) {
-                            var token = bridgeState.currentToken();
+                            var token = activeToken;
+                            activeToken = null;
                             if (handler) handler.postMessage({ type: 'copySuccess', content: String(content || ''), token: token });
-                            bridgeState.clearSession();
                         }
                     }
                 });
-            };
+            }
             if (window.__REACT_GRAB__) {
                 installBridge(window.__REACT_GRAB__);
+                refreshSessionToken();
                 window.__REACT_GRAB__.activate();
                 return;
             }
@@ -385,6 +388,7 @@ extension BrowserPanel {
                 var api = e.detail;
                 if (!api) return;
                 installBridge(api);
+                refreshSessionToken();
                 api.activate();
             }, { once: true });
         })();
