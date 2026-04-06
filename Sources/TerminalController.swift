@@ -1838,6 +1838,9 @@ class TerminalController {
         case "report_shell_state":
             return reportShellState(args)
 
+        case "report_pr_action":
+            return reportPullRequestAction(args)
+
         case "report_pwd":
             return reportPwd(args)
 
@@ -11436,6 +11439,7 @@ class TerminalController {
           report_tty <tty_name> [--tab=X] [--panel=Y] - Register TTY for batched port scanning
           ports_kick [--tab=X] [--panel=Y] [--reason=command|refresh] - Request batched port scan for panel
           report_shell_state <prompt|running> [--tab=X] [--panel=Y] - Report whether the shell is idle at a prompt or running a command
+          report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
           sidebar_state [--tab=X] - Dump sidebar metadata
@@ -15382,6 +15386,34 @@ class TerminalController {
             tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
         }
         return result
+    }
+
+    private func reportPullRequestAction(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let rawAction = parsed.positional.first, !rawAction.isEmpty else {
+            return "ERROR: Missing PR action — usage: report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
+        }
+
+        let action = rawAction.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let validActions = Set(["merge", "close", "reopen", "create", "checkout", "ready", "edit", "view"])
+        guard validActions.contains(action) else {
+            return "ERROR: Invalid PR action '\(rawAction)'"
+        }
+
+        let target = normalizedOptionValue(parsed.options["target"])
+        return schedulePanelMetadataMutation(
+            args: args,
+            options: parsed.options,
+            missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
+        ) { tab, surfaceId in
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
+            tabManager.handleWorkspacePullRequestCommandHint(
+                tabId: tab.id,
+                surfaceId: surfaceId,
+                action: action,
+                target: target
+            )
+        }
     }
 
     private func clearPorts(_ args: String) -> String {

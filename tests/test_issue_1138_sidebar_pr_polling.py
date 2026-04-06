@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
 """
-Regression coverage for issue #1138.
+Regression coverage for shell-side sidebar PR refresh hints.
 
 Validates that shell integration:
-1) keeps polling PR state while idle and recovers after a transient gh failure
-2) resolves the current branch PR via `gh pr view` instead of repository-wide
-   branch-name matching
-3) clears stale PR state when the branch changes and the new probe fails
-4) recovers when a gh probe wedges longer than the async timeout
-5) keeps polling in bash after prompt-render helper commands run
-6) tears down the timed-out gh probe instead of leaking it in the background
-7) falls back to explicit branch lookup when implicit gh branch resolution fails
-8) does not clear an existing PR badge on the first prompt while establishing
-   the HEAD baseline
-9) stops parent-shell PR tracking before nested shells start in the same panel
-10) preserves ports polling throttling after an explicit ports kick
-11) preserves cached PR results across ordinary preexec cycles
+1) no longer polls GitHub directly while idle at a prompt
+2) emits PR action hints after successful `gh pr ...` commands
+3) does not emit PR action hints after failed commands or non-PR `gh` commands
+4) clears stale PR badges when the checked-out branch changes
 """
 
 from __future__ import annotations
@@ -76,6 +67,11 @@ def _git_stub() -> str:
           esac
         fi
 
+        if [ "$1" = "rev-parse" ] && [ "$2" = "--git-dir" ]; then
+          printf '%s/.git\\n' "$repo_path"
+          exit 0
+        fi
+
         if [ "$1" = "branch" ] && [ "$2" = "--show-current" ]; then
           if [ -n "$branch" ]; then
             printf '%s\\n' "$branch"
@@ -103,188 +99,56 @@ def _gh_stub() -> str:
         """\
         #!/bin/sh
         args_log="${CMUX_TEST_GH_ARGS_LOG:?}"
-        count_file="${CMUX_TEST_GH_COUNT_FILE:?}"
-        pid_file="${CMUX_TEST_GH_PID_FILE:-}"
-        scenario="${CMUX_TEST_SCENARIO:?}"
-        head_file="${CMUX_TEST_HEAD_FILE:?}"
-
         printf '%s\\n' "$*" >> "$args_log"
-
-        count=0
-        if [ -f "$count_file" ]; then
-          count="$(cat "$count_file")"
-        fi
-        count=$((count + 1))
-        printf '%s\\n' "$count" > "$count_file"
-
-        if [ "$1" != "pr" ] || [ "$2" != "view" ]; then
-          printf 'unexpected gh args: %s\\n' "$*" >&2
-          exit 9
-        fi
-
-        requested_branch=""
-        if [ $# -ge 3 ]; then
-          case "$3" in
-            --*)
-              ;;
-            *)
-              requested_branch="$3"
-              ;;
-          esac
-        fi
-
-        branch=""
-        if [ -f "$head_file" ]; then
-          head_line="$(cat "$head_file")"
-          case "$head_line" in
-            ref:\ refs/heads/*)
-              branch="${head_line#ref: refs/heads/}"
-              ;;
-          esac
-        fi
-
-        case "$scenario" in
-          prompt_helper_idle)
-            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
-            ;;
-          initial_prompt_preserves_pr_badge)
-            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
-            ;;
-          transient_same_context)
-            if [ "$count" -eq 1 ]; then
-              printf 'rate limit exceeded\\n' >&2
-              exit 1
-            fi
-            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
-            ;;
-          branch_switch_clear)
-            if [ "$branch" = "feature/old" ]; then
-              printf '111\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/111\\n'
-              exit 0
-            fi
-            if [ "$branch" = "feature/new" ]; then
-              printf 'network unavailable\\n' >&2
-              exit 1
-            fi
-            printf 'no pull requests found for branch "%s"\\n' "$branch" >&2
-            exit 1
-            ;;
-          timeout_recovery)
-            if [ "$count" -eq 1 ]; then
-              if [ -n "$pid_file" ]; then
-                printf '%s\\n' "$$" > "$pid_file"
-              fi
-              sleep "${CMUX_TEST_HANG_SECONDS:-4}"
-              exit 0
-            fi
-            printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
-            ;;
-          explicit_branch_fallback)
-            if [ -z "$requested_branch" ]; then
-              printf 'no pull requests found for branch "%s"\\n' "$branch" >&2
-              exit 1
-            fi
-            if [ "$requested_branch" = "$branch" ]; then
-              printf '1138\\tOPEN\\thttps://github.com/manaflow-ai/cmux/pull/1138\\n'
-              exit 0
-            fi
-            printf 'unexpected branch lookup: %s\\n' "$requested_branch" >&2
-            exit 8
-            ;;
-          *)
-            printf 'unknown scenario: %s\\n' "$scenario" >&2
-            exit 2
-            ;;
-        esac
+        exit 0
         """
     )
 
 
 def _shell_command(kind: str, scenario: str) -> str:
     shared = {
-        "prompt_helper_idle": (
+        "prompt_does_not_call_gh": (
             'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=1\n'
             '_cmux_prompt_entry\n'
-            ': "$(/bin/printf helper)"\n'
-            'sleep 3\n'
+            'sleep 1\n'
             '_cmux_cleanup\n'
         ),
-        "transient_same_context": (
+        "merge_action": (
             'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=1\n'
+            '_cmux_pr_command_entry "gh pr merge"\n'
             '_cmux_prompt_entry\n'
-            'sleep 3\n'
+            'sleep 1\n'
             '_cmux_cleanup\n'
         ),
-        "branch_switch_clear": (
+        "close_action_target": (
             'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
+            '_cmux_pr_command_entry "gh pr close 2580"\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_cleanup\n'
+        ),
+        "failed_merge_no_action": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_cmux_pr_command_entry "gh pr merge"\n'
+            'false\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_cleanup\n'
+        ),
+        "non_pr_gh_no_action": (
+            'cd "$CMUX_TEST_REPO"\n'
+            '_cmux_pr_command_entry "gh issue view 1"\n'
+            '_cmux_prompt_entry\n'
+            'sleep 1\n'
+            '_cmux_cleanup\n'
+        ),
+        "head_change_clears_pr": (
+            'cd "$CMUX_TEST_REPO"\n'
             '_cmux_prompt_entry\n'
             'sleep 1\n'
             'printf \'ref: refs/heads/feature/new\\n\' > "$CMUX_TEST_HEAD_FILE"\n'
             '_cmux_prompt_entry\n'
             'sleep 2\n'
-            '_cmux_cleanup\n'
-        ),
-        "timeout_recovery": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=1\n'
-            '_CMUX_ASYNC_JOB_TIMEOUT=1\n'
-            '_cmux_prompt_entry\n'
-            'sleep 4\n'
-            '_cmux_cleanup\n'
-        ),
-        "explicit_branch_fallback": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
-            '_cmux_prompt_entry\n'
-            'sleep 2\n'
-            '_cmux_cleanup\n'
-        ),
-        "initial_prompt_preserves_pr_badge": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
-            '_cmux_prompt_entry\n'
-            'sleep 2\n'
-            '_cmux_cleanup\n'
-        ),
-        "nested_shell_stops_parent_poll": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
-            '_cmux_prompt_entry\n'
-            'parent_pid="$_CMUX_PR_POLL_PID"\n'
-            '[ -n "$parent_pid" ] || { echo "missing parent poll pid" >&2; exit 41; }\n'
-            '_cmux_nested_shell_entry\n'
-            'sleep 1\n'
-            'if kill -0 "$parent_pid" 2>/dev/null; then\n'
-            '  echo "parent poller still running" >&2\n'
-            '  exit 42\n'
-            'fi\n'
-            'parent_watch_pid="${_CMUX_GIT_HEAD_WATCH_PID:-}"\n'
-            'if [ -n "$parent_watch_pid" ] && kill -0 "$parent_watch_pid" 2>/dev/null; then\n'
-            '  echo "parent HEAD watcher still running" >&2\n'
-            '  exit 43\n'
-            'fi\n'
-            '_cmux_cleanup\n'
-        ),
-        "ports_kick_throttle": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
-            '_cmux_ports_kick\n'
-            '_cmux_prompt_entry\n'
-            'sleep 1\n'
-            '_cmux_prompt_entry\n'
-            '_cmux_cleanup\n'
-        ),
-        "preexec_preserves_pr_cache": (
-            'cd "$CMUX_TEST_REPO"\n'
-            '_CMUX_PR_POLL_INTERVAL=10\n'
-            '_cmux_prompt_entry\n'
-            'sleep 1\n'
-            '_cmux_regular_command_entry\n'
-            '_cmux_prompt_entry\n'
-            'sleep 1\n'
             '_cmux_cleanup\n'
         ),
     }[scenario]
@@ -295,8 +159,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ print -r -- "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_precmd; }}
-            _cmux_nested_shell_entry() {{ _cmux_preexec zsh; }}
-            _cmux_regular_command_entry() {{ _cmux_preexec "echo hi"; }}
+            _cmux_pr_command_entry() {{ _cmux_preexec "$1"; }}
             _cmux_cleanup() {{ _cmux_zshexit; }}
             {shared}"""
         )
@@ -307,8 +170,7 @@ def _shell_command(kind: str, scenario: str) -> str:
             source "$CMUX_TEST_SCRIPT"
             _cmux_send() {{ printf '%s\\n' "$1" >> "$CMUX_TEST_SEND_LOG"; }}
             _cmux_prompt_entry() {{ _cmux_prompt_command; }}
-            _cmux_nested_shell_entry() {{ _cmux_bash_preexec_hook bash; }}
-            _cmux_regular_command_entry() {{ _cmux_bash_preexec_hook "echo hi"; }}
+            _cmux_pr_command_entry() {{ _cmux_bash_preexec_hook "$1"; }}
             _cmux_cleanup() {{ type _cmux_bash_cleanup >/dev/null 2>&1 && _cmux_bash_cleanup; }}
             {shared}"""
         )
@@ -322,38 +184,18 @@ def _read_lines(path: Path) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _report_line(number: int) -> str:
-    return (
-        f"report_pr {number} https://github.com/manaflow-ai/cmux/pull/{number} "
-        "--state=open --tab=00000000-0000-0000-0000-000000000001 "
-        "--panel=00000000-0000-0000-0000-000000000002"
-    )
-
-
-def _pid_exists(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
 def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, scenario: str) -> tuple[int, str]:
     bindir = base / "bin"
     repo = base / "repo"
     repo_git = repo / ".git"
     socket_path = base / "cmux.sock"
     send_log = base / f"{shell}-{scenario}-send.log"
-    gh_count_file = base / f"{shell}-{scenario}-gh-count.txt"
     gh_args_log = base / f"{shell}-{scenario}-gh-args.log"
-    gh_pid_file = base / f"{shell}-{scenario}-gh-pid.txt"
     head_file = repo_git / "HEAD"
 
     bindir.mkdir(parents=True, exist_ok=True)
     repo_git.mkdir(parents=True, exist_ok=True)
-    initial_branch = "feature/old" if scenario == "branch_switch_clear" else "feature/issue-1138"
+    initial_branch = "feature/old" if scenario == "head_change_clears_pr" else "feature/issue-1138"
     head_file.write_text(f"ref: refs/heads/{initial_branch}\n", encoding="utf-8")
     _write_executable(bindir / "git", _git_stub())
     _write_executable(bindir / "gh", _gh_stub())
@@ -366,12 +208,8 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
     env["CMUX_TEST_SCRIPT"] = str(script)
     env["CMUX_TEST_REPO"] = str(repo)
     env["CMUX_TEST_SEND_LOG"] = str(send_log)
-    env["CMUX_TEST_GH_COUNT_FILE"] = str(gh_count_file)
     env["CMUX_TEST_GH_ARGS_LOG"] = str(gh_args_log)
-    env["CMUX_TEST_GH_PID_FILE"] = str(gh_pid_file)
-    env["CMUX_TEST_SCENARIO"] = scenario
     env["CMUX_TEST_HEAD_FILE"] = str(head_file)
-    env["CMUX_TEST_HANG_SECONDS"] = "4"
 
     with BoundUnixSocket(socket_path):
         result = subprocess.run(
@@ -388,109 +226,43 @@ def _run_case(base: Path, *, shell: str, shell_args: list[str], script: Path, sc
 
     send_lines = _read_lines(send_log)
     gh_args_lines = _read_lines(gh_args_log)
-    gh_count = int((gh_count_file.read_text(encoding="utf-8").strip() or "0")) if gh_count_file.exists() else 0
+    pr_action_lines = [line for line in send_lines if line.startswith("report_pr_action ")]
 
-    scenarios_requiring_gh = {
-        "prompt_helper_idle",
-        "transient_same_context",
-        "branch_switch_clear",
-        "timeout_recovery",
-        "explicit_branch_fallback",
-        "initial_prompt_preserves_pr_badge",
-        "ports_kick_throttle",
-        "preexec_preserves_pr_cache",
-    }
-    if scenario in scenarios_requiring_gh:
-        if not gh_args_lines:
-            return (1, f"{shell}/{scenario}: expected at least one gh invocation")
-        if any(not line.startswith("pr view ") for line in gh_args_lines):
-            return (1, f"{shell}/{scenario}: expected gh pr view only\n" + "\n".join(gh_args_lines))
-
-    if scenario == "prompt_helper_idle":
-        if gh_count < 2:
-            return (1, f"{shell}/{scenario}: expected idle polling to survive prompt helpers, saw {gh_count}")
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+    if scenario == "prompt_does_not_call_gh":
+        if gh_args_lines:
+            return (1, f"{shell}/{scenario}: expected no gh invocations\n" + "\n".join(gh_args_lines))
         return (0, f"{shell}/{scenario}: ok")
 
-    if scenario == "transient_same_context":
-        if gh_count < 2:
-            return (1, f"{shell}/{scenario}: expected at least 2 gh probes while idle, saw {gh_count}")
-        if any(line.startswith("clear_pr ") for line in send_lines):
-            return (1, f"{shell}/{scenario}: transient failure should not clear PR state\n" + "\n".join(send_lines))
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: expected recovered report_pr payload\n" + "\n".join(send_lines))
+    if scenario == "merge_action":
+        expected = "report_pr_action merge --tab=00000000-0000-0000-0000-000000000001 --panel=00000000-0000-0000-0000-000000000002"
+        if expected not in pr_action_lines:
+            return (1, f"{shell}/{scenario}: missing merge action hint\n" + "\n".join(send_lines))
+        if gh_args_lines:
+            return (1, f"{shell}/{scenario}: expected no gh invocations\n" + "\n".join(gh_args_lines))
         return (0, f"{shell}/{scenario}: ok")
 
-    if scenario == "branch_switch_clear":
-        old_report = _report_line(111)
-        if old_report not in send_lines:
-            return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
-        try:
-            old_index = send_lines.index(old_report)
-        except ValueError:
-            return (1, f"{shell}/{scenario}: missing old-branch report\n" + "\n".join(send_lines))
-        clear_indices = [idx for idx, line in enumerate(send_lines) if line.startswith("clear_pr ")]
-        if not clear_indices:
-            return (1, f"{shell}/{scenario}: expected clear_pr after branch change\n" + "\n".join(send_lines))
-        if clear_indices[0] <= old_index:
-            return (1, f"{shell}/{scenario}: clear_pr happened before old report\n" + "\n".join(send_lines))
+    if scenario == "close_action_target":
+        expected = "report_pr_action close --tab=00000000-0000-0000-0000-000000000001 --panel=00000000-0000-0000-0000-000000000002 --target=\"2580\""
+        if expected not in pr_action_lines:
+            return (1, f"{shell}/{scenario}: missing close action hint\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
 
-    if scenario == "timeout_recovery":
-        if gh_count < 2:
-            return (1, f"{shell}/{scenario}: expected timed-out probe to be retried, saw {gh_count}")
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: missing report_pr after timeout recovery\n" + "\n".join(send_lines))
-        if gh_pid_file.exists():
-            gh_pid = int(gh_pid_file.read_text(encoding="utf-8").strip() or "0")
-            if gh_pid > 0 and _pid_exists(gh_pid):
-                return (1, f"{shell}/{scenario}: timed-out gh probe still running as pid {gh_pid}")
+    if scenario == "failed_merge_no_action":
+        if pr_action_lines:
+            return (1, f"{shell}/{scenario}: failed command should not emit PR action hint\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
 
-    if scenario == "explicit_branch_fallback":
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
-        if not any(line.startswith("pr view feature/issue-1138 ") for line in gh_args_lines):
-            return (
-                1,
-                f"{shell}/{scenario}: expected explicit branch fallback\n" + "\n".join(gh_args_lines),
-            )
+    if scenario == "non_pr_gh_no_action":
+        if pr_action_lines:
+            return (1, f"{shell}/{scenario}: non-PR gh command should not emit PR action hint\n" + "\n".join(send_lines))
         return (0, f"{shell}/{scenario}: ok")
 
-    if scenario == "initial_prompt_preserves_pr_badge":
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
-        if any(line.startswith("clear_pr ") for line in send_lines):
-            return (
-                1,
-                f"{shell}/{scenario}: initial prompt should not clear an existing PR badge\n"
-                + "\n".join(send_lines),
-            )
-        return (0, f"{shell}/{scenario}: ok")
-
-    if scenario == "ports_kick_throttle":
-        ports_kicks = [line for line in send_lines if line.startswith("ports_kick ")]
-        if len(ports_kicks) != 1:
-            return (
-                1,
-                f"{shell}/{scenario}: expected exactly one ports_kick across explicit kick + throttled prompts\n"
-                + "\n".join(send_lines),
-            )
-        return (0, f"{shell}/{scenario}: ok")
-
-    if scenario == "nested_shell_stops_parent_poll":
-        return (0, f"{shell}/{scenario}: ok")
-
-    if scenario == "preexec_preserves_pr_cache":
-        if gh_count != 1:
-            return (
-                1,
-                f"{shell}/{scenario}: expected cached PR result to survive ordinary preexec, saw {gh_count} gh calls\n"
-                + "\n".join(gh_args_lines),
-            )
-        if _report_line(1138) not in send_lines:
-            return (1, f"{shell}/{scenario}: missing report_pr payload\n" + "\n".join(send_lines))
+    if scenario == "head_change_clears_pr":
+        expected = "clear_pr --tab=00000000-0000-0000-0000-000000000001 --panel=00000000-0000-0000-0000-000000000002"
+        if expected not in send_lines:
+            return (1, f"{shell}/{scenario}: missing clear_pr after HEAD change\n" + "\n".join(send_lines))
+        if gh_args_lines:
+            return (1, f"{shell}/{scenario}: expected no gh invocations\n" + "\n".join(gh_args_lines))
         return (0, f"{shell}/{scenario}: ok")
 
     return (1, f"{shell}/{scenario}: unhandled scenario")
@@ -503,15 +275,12 @@ def main() -> int:
         ("bash", ["--noprofile", "--norc", "-c"], root / "Resources" / "shell-integration" / "cmux-bash-integration.bash"),
     ]
     scenarios = [
-        "prompt_helper_idle",
-        "transient_same_context",
-        "branch_switch_clear",
-        "timeout_recovery",
-        "explicit_branch_fallback",
-        "initial_prompt_preserves_pr_badge",
-        "nested_shell_stops_parent_poll",
-        "ports_kick_throttle",
-        "preexec_preserves_pr_cache",
+        "prompt_does_not_call_gh",
+        "merge_action",
+        "close_action_target",
+        "failed_merge_no_action",
+        "non_pr_gh_no_action",
+        "head_change_clears_pr",
     ]
 
     base = Path("/tmp") / f"cmux_issue_1138_pr_poll_{os.getpid()}"
@@ -541,7 +310,7 @@ def main() -> int:
                 print(failure)
             return 1
 
-        print("PASS: shell integrations poll PR state robustly across transient failures, branch changes, and timeouts")
+        print("PASS: shell integrations emit PR action hints locally and no longer poll GitHub directly")
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)
