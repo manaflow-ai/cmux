@@ -64669,6 +64669,40 @@
         }
       }
     },
+    "settings.workspaceColors.autoAssign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Assign Colors"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラーの自動割り当て"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.autoAssign.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically assign a unique color from the palette when creating a new workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースの作成時にパレットからユニークなカラーを自動的に割り当てます。"
+          }
+        }
+      }
+    },
     "settings.workspaceColors.indicator": {
       "extractionState": "manual",
       "localizations": {

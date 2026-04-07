@@ -3821,6 +3821,18 @@ enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
 
+enum AutoAssignWorkspaceColorSettings {
+    static let enabledKey = "autoAssignWorkspaceColor"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
+    }
+}
+
 enum TelemetrySettings {
     static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
     static let defaultSendAnonymousTelemetry = true
@@ -4112,6 +4124,8 @@ struct SettingsView: View {
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
+    @AppStorage(AutoAssignWorkspaceColorSettings.enabledKey)
+    private var autoAssignWorkspaceColor = AutoAssignWorkspaceColorSettings.defaultEnabled
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -5158,6 +5172,25 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
                     SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("workspaceColors.autoAssign"),
+                            String(
+                                localized: "settings.workspaceColors.autoAssign",
+                                defaultValue: "Auto-Assign Colors"
+                            ),
+                            subtitle: String(
+                                localized: "settings.workspaceColors.autoAssign.subtitle",
+                                defaultValue: "Automatically assign a unique color from the palette when creating a new workspace."
+                            )
+                        ) {
+                            Toggle("", isOn: $autoAssignWorkspaceColor)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsPickerRow(
                             configurationReview: .json("workspaceColors.indicatorStyle"),
                             String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"),

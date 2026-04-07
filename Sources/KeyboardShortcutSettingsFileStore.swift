@@ -57,6 +57,7 @@ final class CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
+        "workspaceColors.autoAssign",
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
@@ -529,6 +530,9 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        if let value = jsonBool(section["autoAssign"]) {
+            snapshot.managedUserDefaults[AutoAssignWorkspaceColorSettings.enabledKey] = .bool(value)
+        }
         if let raw = jsonString(section["indicatorStyle"]) {
             let normalized = SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: raw).rawValue
             let accepted = Set(SidebarActiveTabIndicatorStyle.allCases.map(\.rawValue)).union([
@@ -1353,6 +1357,7 @@ final class CmuxSettingsFileStore {
             ],
             [
                 "workspaceColors": [
+                    "autoAssign": AutoAssignWorkspaceColorSettings.defaultEnabled,
                     "indicatorStyle": SidebarActiveTabIndicatorSettings.defaultStyle.rawValue,
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
