@@ -157,6 +157,13 @@ def main() -> int:
         c.send_surface(s1, f"echo {capture_token}\n")
         _wait_for(lambda: _surface_has(c, ws, s1, capture_token))
 
+        show_extended_keys = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
+        _must(show_extended_keys.stdout.strip() == "off", f"show-options should default extended-keys to off, got {show_extended_keys.stdout!r}")
+        _run_cli(cli, ["set-option", "-sq", "extended-keys", "always"])
+        show_extended_keys = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
+        _must(show_extended_keys.stdout.strip() == "always", f"set-option should persist extended-keys, got {show_extended_keys.stdout!r}")
+        _run_cli(cli, ["set-option", "-sq", "extended-keys", "off"])
+
         cap = _run_cli(cli, ["capture-pane", "--workspace", ws, "--surface", s1, "--scrollback"])
         _must(capture_token in cap.stdout, f"capture-pane missing token: {cap.stdout!r}")
 
