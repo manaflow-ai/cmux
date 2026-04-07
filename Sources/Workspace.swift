@@ -9296,6 +9296,12 @@ final class Workspace: Identifiable, ObservableObject {
     /// Called before the workspace is removed from TabManager to ensure child
     /// processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels() {
+        // Hide portal-hosted content up front so a workspace being torn down
+        // cannot keep drawing above the next selected/restored workspace while
+        // panel close work is still unwinding.
+        hideAllTerminalPortalViews()
+        hideAllBrowserPortalViews()
+
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             panelSubscriptions.removeValue(forKey: panelId)
