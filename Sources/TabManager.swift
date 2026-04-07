@@ -874,16 +874,28 @@ enum WorkspaceTabColorSettings {
     }
 
     static func nextAutoAssignColor(
+        mode: AutoAssignWorkspaceColorMode,
         existingColors: Set<String>,
         defaults: UserDefaults = .standard
     ) -> String? {
         let available = palette(defaults: defaults)
-        for entry in available {
+        let ordered: [WorkspaceTabColorEntry]
+        switch mode {
+        case .off:
+            return nil
+        case .sequential:
+            ordered = available
+        case .reverseSequential:
+            ordered = available.reversed()
+        case .random:
+            ordered = available.shuffled()
+        }
+        for entry in ordered {
             if let hex = normalizedHex(entry.hex), !existingColors.contains(hex) {
                 return hex
             }
         }
-        return available.first.flatMap { normalizedHex($0.hex) }
+        return ordered.first.flatMap { normalizedHex($0.hex) }
     }
 
     static func removeColor(named name: String, defaults: UserDefaults = .standard) {
@@ -2225,9 +2237,11 @@ class TabManager: ObservableObject {
                 newWorkspace.setCustomTitle(title)
             }
             wireClosedBrowserTracking(for: newWorkspace)
-            if AutoAssignWorkspaceColorSettings.isEnabled() && newWorkspace.customColor == nil {
+            let autoAssignMode = AutoAssignWorkspaceColorSettings.resolvedMode()
+            if autoAssignMode != .off && newWorkspace.customColor == nil {
                 let existingColors = Set(tabs.compactMap { $0.customColor })
                 if let autoColor = WorkspaceTabColorSettings.nextAutoAssignColor(
+                    mode: autoAssignMode,
                     existingColors: existingColors
                 ) {
                     newWorkspace.setCustomColor(autoColor)

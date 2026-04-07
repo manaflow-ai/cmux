@@ -530,8 +530,12 @@ final class CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        if let value = jsonBool(section["autoAssign"]) {
-            snapshot.managedUserDefaults[AutoAssignWorkspaceColorSettings.enabledKey] = .bool(value)
+        if let raw = jsonString(section["autoAssign"]) {
+            guard AutoAssignWorkspaceColorMode(rawValue: raw) != nil else {
+                logInvalid("workspaceColors.autoAssign", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[AutoAssignWorkspaceColorSettings.modeKey] = .string(raw)
         }
         if let raw = jsonString(section["indicatorStyle"]) {
             let normalized = SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: raw).rawValue
@@ -1357,7 +1361,7 @@ final class CmuxSettingsFileStore {
             ],
             [
                 "workspaceColors": [
-                    "autoAssign": AutoAssignWorkspaceColorSettings.defaultEnabled,
+                    "autoAssign": AutoAssignWorkspaceColorSettings.defaultMode.rawValue,
                     "indicatorStyle": SidebarActiveTabIndicatorSettings.defaultStyle.rawValue,
                     "selectionColor": NSNull(),
                     "notificationBadgeColor": NSNull(),
