@@ -393,47 +393,20 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_ENTITLEMENTS="cmux.entitlements"
-          EMBEDDED_ENTITLEMENTS="cmux.embedded.entitlements"
+          ENTITLEMENTS="cmux.entitlements"
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
             CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
             HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
             if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$CLI_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
             fi
             if [ -f "$HELPER_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$HELPER_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
             fi
-            # Sign all nested bundles and executables deepest-first before the outer app.
-            # Three passes to guarantee correct ordering:
-            #   1) Nested .app/.xpc bundles inside frameworks (e.g. Sparkle's Updater.app)
-            #   2) Standalone Mach-O executables inside frameworks (e.g. Sparkle's Autoupdate)
-            #   3) Top-level .framework/.plugin/.appex bundles themselves
-            for DIR in "$APP_PATH/Contents/PlugIns" "$APP_PATH/Contents/Frameworks"; do
-              if [ -d "$DIR" ]; then
-                # Pass 1: nested .app and .xpc bundles (deepest-first)
-                while IFS= read -r -d '' bundle; do
-                  /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$bundle"
-                done < <(find "$DIR" -depth -type d \( -name '*.app' -o -name '*.xpc' \) -print0)
-
-                # Pass 2: standalone Mach-O executables & dylibs (skip those inside .app bundles)
-                while IFS= read -r -d '' f; do
-                  if file "$f" | grep -qE 'Mach-O'; then
-                    /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$f"
-                  fi
-                done < <(find "$DIR" \( -type d -name '*.app' -prune \) -o \( -type f -print0 \))
-
-                # Pass 3: .framework, .plugin, .appex bundles (deepest-first)
-                while IFS= read -r -d '' bundle; do
-                  /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$bundle"
-                done < <(find "$DIR" -depth -type d \( -name '*.framework' -o -name '*.plugin' -o -name '*.appex' \) -print0)
-              fi
-            done
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-            ./scripts/assert-passkey-entitlement.sh "$APP_PATH"
           done
 
       - name: Notarize apps and dmgs
