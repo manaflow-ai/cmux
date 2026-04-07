@@ -444,6 +444,7 @@
             "enum": [
               "openSettings",
               "reloadConfiguration",
+              "showHideAllWindows",
               "newWindow",
               "closeWindow",
               "toggleFullScreen",

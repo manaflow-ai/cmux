@@ -5829,6 +5829,8 @@ struct SettingsView: View {
                         }
                     }
 
+                    GlobalHotkeySection()
+
                     SettingsSectionHeader(title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"))
                         .id(SettingsNavigationTarget.keyboardShortcuts)
                         .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
@@ -5868,7 +5870,9 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        let actions = KeyboardShortcutSettings.Action.allCases
+                        let actions = KeyboardShortcutSettings.Action.allCases.filter {
+                            $0 != SystemWideHotkeySettings.action
+                        }
                         ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                             ShortcutSettingRow(action: action)
                                 .padding(.horizontal, 14)
@@ -6172,6 +6176,7 @@ struct SettingsView: View {
         socketPasswordStatusMessage = nil
         socketPasswordStatusIsError = false
         refreshDetectedImportBrowsers()
+        SystemWideHotkeySettings.reset()
         KeyboardShortcutSettings.resetAll()
         WorkspaceTabColorSettings.reset()
         reloadWorkspaceTabColorSettings()
@@ -6808,6 +6813,85 @@ private struct ShortcutSettingRow: View {
                     shortcut = latest
                 }
             }
+    }
+}
+
+private struct GlobalHotkeySection: View {
+    @AppStorage(SystemWideHotkeySettings.enabledKey) private var isEnabled = SystemWideHotkeySettings.defaultEnabled
+    @State private var shortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { isEnabled },
+            set: { newValue in
+                isEnabled = newValue
+            }
+        )
+    }
+
+    private var enableSubtitle: String {
+        if isEnabled {
+            return String(
+                localized: "settings.globalHotkey.enable.subtitleOn",
+                defaultValue: "Press the shortcut from any app to show or hide all cmux windows."
+            )
+        }
+        return String(
+            localized: "settings.globalHotkey.enable.subtitleOff",
+            defaultValue: "Turn this on to show or hide all cmux windows from any app."
+        )
+    }
+
+    var body: some View {
+        SettingsSectionHeader(title: String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey"))
+            .accessibilityIdentifier("SettingsGlobalHotkeySection")
+
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.globalHotkey.enable", defaultValue: "Enable System-Wide Hotkey"),
+                subtitle: enableSubtitle
+            ) {
+                Toggle("", isOn: enabledBinding)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsGlobalHotkeyToggle")
+            }
+
+            SettingsCardDivider()
+
+            KeyboardShortcutRecorder(
+                label: String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows"),
+                subtitle: KeyboardShortcutSettings.settingsFileManagedSubtitle(for: SystemWideHotkeySettings.action),
+                shortcut: $shortcut,
+                transformRecordedShortcut: { SystemWideHotkeySettings.action.normalizedRecordedShortcut($0) },
+                isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(SystemWideHotkeySettings.action)
+            )
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .accessibilityIdentifier("SettingsGlobalHotkeyRecorder")
+        }
+        .onChange(of: shortcut) { newValue in
+            KeyboardShortcutSettings.setShortcut(newValue, for: SystemWideHotkeySettings.action)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
+            syncFromDefaults()
+        }
+
+        SettingsCardNote(
+            String(
+                localized: "settings.globalHotkey.note",
+                defaultValue: "Use Command, Option, or Control with another key. No extra macOS permission is required."
+            )
+        )
+            .accessibilityIdentifier("SettingsGlobalHotkeyNote")
+    }
+
+    private func syncFromDefaults() {
+        let latestShortcut = KeyboardShortcutSettings.shortcut(for: SystemWideHotkeySettings.action)
+        if latestShortcut != shortcut {
+            shortcut = latestShortcut
+        }
     }
 }
 

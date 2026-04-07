@@ -205,6 +205,7 @@ typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
+typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -1064,7 +1065,9 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
-    _cmux_restore_terminal_identity_after_startup
+    if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
+        _cmux_restore_terminal_identity_after_startup
+    fi
     _cmux_tmux_sync_cmux_environment
     local cmd="${1## }"
 
@@ -1099,6 +1102,9 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
+        _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
+    fi
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
@@ -1277,6 +1283,7 @@ _cmux_restore_terminal_identity_after_startup() {
         builtin export TERM="$CMUX_ZSH_RESTORE_TERM"
         builtin unset CMUX_ZSH_RESTORE_TERM
     fi
+    _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
 }
 
 _cmux_zshexit() {

@@ -63003,6 +63003,23 @@
         }
       }
     },
+    "settings.section.globalHotkey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Hotkey"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        }
+      }
+    },
     "settings.section.keyboardShortcuts": {
       "extractionState": "manual",
       "localizations": {
@@ -63475,6 +63492,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Натисніть на значення комбінації, щоб записати нову."
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable System-Wide Hotkey"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム全体のホットキーを有効にする"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn this on to show or hide all cmux windows from any app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press the shortcut from any app to show or hide all cmux windows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Command, Option, or Control with another key. No extra macOS permission is required."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.shortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide All Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのウィンドウを表示/非表示"
           }
         }
       }
