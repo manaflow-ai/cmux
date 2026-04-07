@@ -3821,35 +3821,15 @@ enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
 
-enum AutoAssignWorkspaceColorMode: String, CaseIterable, Identifiable {
-    case off
-    case random
-    case sequential
-    case reverseSequential
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .off:
-            return String(localized: "settings.workspaceColors.autoAssign.off", defaultValue: "Off")
-        case .random:
-            return String(localized: "settings.workspaceColors.autoAssign.random", defaultValue: "Randomly")
-        case .sequential:
-            return String(localized: "settings.workspaceColors.autoAssign.sequential", defaultValue: "In Sequential Order")
-        case .reverseSequential:
-            return String(localized: "settings.workspaceColors.autoAssign.reverseSequential", defaultValue: "In Reverse Sequential Order")
-        }
-    }
-}
-
 enum AutoAssignWorkspaceColorSettings {
-    static let modeKey = "autoAssignWorkspaceColorMode"
-    static let defaultMode: AutoAssignWorkspaceColorMode = .off
+    static let enabledKey = "autoAssignWorkspaceColor"
+    static let defaultEnabled = false
 
-    static func resolvedMode(defaults: UserDefaults = .standard) -> AutoAssignWorkspaceColorMode {
-        guard let raw = defaults.string(forKey: modeKey) else { return defaultMode }
-        return AutoAssignWorkspaceColorMode(rawValue: raw) ?? defaultMode
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: enabledKey) == nil {
+            return defaultEnabled
+        }
+        return defaults.bool(forKey: enabledKey)
     }
 }
 
@@ -4144,8 +4124,8 @@ struct SettingsView: View {
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
-    @AppStorage(AutoAssignWorkspaceColorSettings.modeKey)
-    private var autoAssignWorkspaceColorMode = AutoAssignWorkspaceColorSettings.defaultMode.rawValue
+    @AppStorage(AutoAssignWorkspaceColorSettings.enabledKey)
+    private var autoAssignWorkspaceColor = AutoAssignWorkspaceColorSettings.defaultEnabled
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
@@ -5192,7 +5172,7 @@ struct SettingsView: View {
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
                     SettingsCard {
-                        SettingsPickerRow(
+                        SettingsCardRow(
                             configurationReview: .json("workspaceColors.autoAssign"),
                             String(
                                 localized: "settings.workspaceColors.autoAssign",
@@ -5201,13 +5181,12 @@ struct SettingsView: View {
                             subtitle: String(
                                 localized: "settings.workspaceColors.autoAssign.subtitle",
                                 defaultValue: "Automatically assign a unique color from the palette when creating a new workspace."
-                            ),
-                            controlWidth: pickerColumnWidth,
-                            selection: $autoAssignWorkspaceColorMode
+                            )
                         ) {
-                            ForEach(AutoAssignWorkspaceColorMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode.rawValue)
-                            }
+                            Toggle("", isOn: $autoAssignWorkspaceColor)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.small)
                         }
 
                         SettingsCardDivider()
