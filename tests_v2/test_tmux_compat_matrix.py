@@ -163,6 +163,20 @@ def main() -> int:
         show_extended_keys = _run_cli(cli, ["show-options", "-sv", "extended-keys"])
         _must(show_extended_keys.stdout.strip() == "always", f"set-option should persist extended-keys, got {show_extended_keys.stdout!r}")
         _run_cli(cli, ["set-option", "-sq", "extended-keys", "off"])
+        show_all_options = _run_cli(cli, ["show-options"])
+        _must("extended-keys off" in show_all_options.stdout, f"show-options should list default options, got {show_all_options.stdout!r}")
+
+        custom_option = f"@compat_probe_{stamp}"
+        _run_cli(cli, ["set-option", custom_option, "alpha"])
+        _run_cli(cli, ["set-option", "-o", custom_option, "beta"])
+        custom_value = _run_cli(cli, ["show-options", "-v", custom_option])
+        _must(custom_value.stdout.strip() == "alpha", f"set-option -o should keep the existing value, got {custom_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-a", custom_option, "gamma"])
+        custom_value = _run_cli(cli, ["show-options", "-v", custom_option])
+        _must(custom_value.stdout.strip() == "alphagamma", f"set-option -a should append to the existing value, got {custom_value.stdout!r}")
+        show_all_options = _run_cli(cli, ["show-options"])
+        _must(f"{custom_option} alphagamma" in show_all_options.stdout, f"show-options should list custom options, got {show_all_options.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", custom_option])
 
         cap = _run_cli(cli, ["capture-pane", "--workspace", ws, "--surface", s1, "--scrollback"])
         _must(capture_token in cap.stdout, f"capture-pane missing token: {cap.stdout!r}")
