@@ -5018,6 +5018,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
 
+    @MainActor
+    func isAlternateScreenActiveForScrollGeometry() -> Bool? {
+        guard let terminalSurface,
+              let surface = terminalSurface.liveSurfaceForGhosttyAccess(
+                  reason: "surface.scrollGeometryAlternateScreen"
+              ) else {
+            return nil
+        }
+        return ghostty_surface_is_alternate_screen(surface)
+    }
+
     /// Coalesce high-frequency scrollbar updates into a single main-thread
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
@@ -11147,35 +11158,47 @@ final class GhosttySurfaceScrollView: NSView {
             didChangeGeometry = true
         }
 
+        let alternateScreenActive = surfaceView.isAlternateScreenActiveForScrollGeometry() == true
         if !isLiveScrolling {
-            let cellHeight = surfaceView.cellSize.height
-            if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
-                let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
+            if alternateScreenActive {
+                userScrolledAwayFromBottom = false
+                lastSentRow = nil
+                let targetOrigin = CGPoint.zero
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
-
-                if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                if !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
                     didChangeGeometry = true
                 }
-                lastSentRow = Int(scrollbar.offset)
+            } else {
+                let cellHeight = scrollGeometryCellHeight()
+                if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
+                    let offsetY =
+                        CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                    let targetOrigin = CGPoint(x: 0, y: offsetY)
+
+                    // Check if we're currently at the bottom (with threshold for float drift)
+                    let currentOrigin = scrollView.contentView.bounds.origin
+                    let documentHeight = documentView.frame.height
+                    let viewportHeight = scrollView.contentView.bounds.height
+                    let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
+                    let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
+
+                    // Update userScrolledAwayFromBottom based on current position
+                    if isAtBottom {
+                        userScrolledAwayFromBottom = false
+                    }
+
+                    // Passive bottom packets should not override an explicit scrollback review,
+                    // but the first scrollbar packet caused by the user's own wheel input should
+                    // still move the viewport to the requested scrollback position.
+                    let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+
+                    if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
+                        scrollView.contentView.scroll(to: targetOrigin)
+                        didChangeGeometry = true
+                    }
+                    lastSentRow = Int(scrollbar.offset)
+                }
             }
         }
 
@@ -11191,7 +11214,13 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
-        let cellHeight = surfaceView.cellSize.height
+        if surfaceView.isAlternateScreenActiveForScrollGeometry() == true {
+            userScrolledAwayFromBottom = false
+            lastSentRow = nil
+            return
+        }
+
+        let cellHeight = scrollGeometryCellHeight()
         guard cellHeight > 0 else { return }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
@@ -11240,9 +11269,29 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeCoreSurface()
     }
 
+    private func scrollGeometryCellHeight() -> CGFloat {
+        let cellHeight = surfaceView.cellSize.height
+        guard cellHeight > 0 else { return 0 }
+
+        // Ghostty reports cell metrics in backing pixels, while scroll view
+        // geometry is maintained in AppKit points.
+        let scale = max(
+            1.0,
+            window?.backingScaleFactor
+                ?? surfaceView.layer?.contentsScale
+                ?? layer?.contentsScale
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 1.0
+        )
+        return cellHeight / scale
+    }
+
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
-        let cellHeight = surfaceView.cellSize.height
+        if surfaceView.isAlternateScreenActiveForScrollGeometry() == true {
+            return contentHeight
+        }
+        let cellHeight = scrollGeometryCellHeight()
         if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
             let documentGridHeight = CGFloat(scrollbar.total) * cellHeight
             let padding = contentHeight - (CGFloat(scrollbar.len) * cellHeight)

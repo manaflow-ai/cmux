@@ -1979,6 +1979,24 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
 @MainActor
 final class GhosttySurfaceOverlayTests: XCTestCase {
+    private final class FixedBackingScaleWindow: NSWindow {
+        let forcedBackingScaleFactor: CGFloat
+
+        init(contentRect: NSRect, forcedBackingScaleFactor: CGFloat) {
+            self.forcedBackingScaleFactor = forcedBackingScaleFactor
+            super.init(
+                contentRect: contentRect,
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+        }
+
+        override var backingScaleFactor: CGFloat {
+            forcedBackingScaleFactor
+        }
+    }
+
     private final class ScrollProbeSurfaceView: GhosttyNSView {
         private(set) var scrollWheelCallCount = 0
 
@@ -2001,6 +2019,27 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
+    private final class BindingCaptureSurfaceView: GhosttyNSView {
+        private(set) var bindingActions: [String] = []
+
+        override func performBindingAction(_ action: String) -> Bool {
+            bindingActions.append(action)
+            return true
+        }
+
+        func clearBindingActions() {
+            bindingActions.removeAll()
+        }
+    }
+
+    private final class AlternateScreenSurfaceView: GhosttyNSView {
+        var alternateScreenActive = false
+
+        override func isAlternateScreenActiveForScrollGeometry() -> Bool? {
+            alternateScreenActive
+        }
+    }
+
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -2009,6 +2048,39 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 len: len
             )
         )
+    }
+
+    private func makeHostedScrollView(
+        surfaceView: GhosttyNSView,
+        contentRect: NSRect = NSRect(x: 0, y: 0, width: 160, height: 100),
+        backingScaleFactor: CGFloat = 2
+    ) throws -> (window: NSWindow, scrollView: NSScrollView) {
+        let window = FixedBackingScaleWindow(
+            contentRect: contentRect,
+            forcedBackingScaleFactor: backingScaleFactor
+        )
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            throw NSError(domain: "GhosttySurfaceOverlayTests", code: 1)
+        }
+
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            throw NSError(domain: "GhosttySurfaceOverlayTests", code: 2)
+        }
+
+        return (window, scrollView)
     }
 
     private func findEditableTextField(in view: NSView) -> NSTextField? {
@@ -2191,6 +2263,120 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             500,
             accuracy: 0.01,
             "A passive bottom packet should not yank the viewport after an explicit wheel scroll into scrollback"
+        )
+    }
+
+    func testScrollbarGeometryUsesPointSizedCells() throws {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
+        surfaceView.cellSize = CGSize(width: 20, height: 20)
+
+        let (window, scrollView) = try makeHostedScrollView(surfaceView: surfaceView)
+        defer { window.orderOut(nil) }
+
+        let scrollbar = makeScrollbar(total: 12, offset: 0, len: 10)
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: scrollbar]
+        )
+
+        let pointCellHeight = surfaceView.cellSize.height / window.backingScaleFactor
+        let expectedScrollbackHeight = CGFloat(scrollbar.total - scrollbar.len) * pointCellHeight
+        let expectedDocumentHeight = scrollView.contentSize.height + expectedScrollbackHeight
+
+        XCTAssertTrue(
+            waitUntil(description: "point-space scrollbar geometry") {
+                let documentHeight = scrollView.documentView?.frame.height ?? 0
+                let originY = scrollView.contentView.bounds.origin.y
+                return abs(documentHeight - expectedDocumentHeight) < 0.01
+                    && abs(originY - expectedScrollbackHeight) < 0.01
+            }
+        )
+
+        XCTAssertEqual(
+            scrollView.documentView?.frame.height ?? 0,
+            expectedDocumentHeight,
+            accuracy: 0.01,
+            "Scrollbar-driven document height should use AppKit points, not backing pixels"
+        )
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            expectedScrollbackHeight,
+            accuracy: 0.01,
+            "Scrollbar-driven viewport origin should be derived from point-sized rows"
+        )
+    }
+
+    func testAlternateScreenIgnoresScrollbarDocumentGrowth() throws {
+        let surfaceView = AlternateScreenSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
+        surfaceView.cellSize = CGSize(width: 20, height: 20)
+        surfaceView.alternateScreenActive = true
+
+        let (window, scrollView) = try makeHostedScrollView(surfaceView: surfaceView)
+        defer { window.orderOut(nil) }
+
+        let expectedDocumentHeight = scrollView.contentSize.height
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 12, offset: 0, len: 10)]
+        )
+
+        XCTAssertTrue(
+            waitUntil(description: "alternate-screen ignores scrollbar growth") {
+                let documentHeight = scrollView.documentView?.frame.height ?? 0
+                let originY = scrollView.contentView.bounds.origin.y
+                return abs(documentHeight - expectedDocumentHeight) < 0.01
+                    && abs(originY) < 0.01
+            }
+        )
+        XCTAssertEqual(
+            scrollView.documentView?.frame.height ?? 0,
+            expectedDocumentHeight,
+            accuracy: 0.01,
+            "Alternate-screen scrollbar packets should not grow the document height"
+        )
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            0,
+            accuracy: 0.01,
+            "Alternate-screen scrollbar packets should not offset the viewport"
+        )
+    }
+
+    func testLiveScrollUsesPointSizedCellsForScrollToRow() throws {
+        let surfaceView = BindingCaptureSurfaceView(frame: NSRect(x: 0, y: 0, width: 160, height: 100))
+        surfaceView.cellSize = CGSize(width: 20, height: 20)
+
+        let (window, scrollView) = try makeHostedScrollView(surfaceView: surfaceView)
+        defer { window.orderOut(nil) }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 12, offset: 0, len: 10)]
+        )
+
+        let pointCellHeight = surfaceView.cellSize.height / window.backingScaleFactor
+        XCTAssertTrue(
+            waitUntil(description: "initial point-space scrollbar sync") {
+                abs(scrollView.contentView.bounds.origin.y - (pointCellHeight * 2)) < 0.01
+            }
+        )
+
+        surfaceView.clearBindingActions()
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: pointCellHeight))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        XCTAssertTrue(
+            waitUntil(description: "point-space live scroll binding") {
+                surfaceView.bindingActions.contains("scroll_to_row:1")
+            }
+        )
+        XCTAssertEqual(
+            surfaceView.bindingActions.last,
+            "scroll_to_row:1",
+            "Live scroll row bindings should use point-sized rows"
         )
     }
 
