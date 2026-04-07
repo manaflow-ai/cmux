@@ -9991,8 +9991,8 @@ struct VerticalTabsSidebar: View {
 
     var body: some View {
         let tabs = tabManager.tabs
-        // Read sectionRevision to trigger re-render when any section changes.
-        let _ = tabManager.sectionRevision
+        // sidebarLayout reads sectionRevision internally, establishing the
+        // SwiftUI dependency — no separate read needed here.
         let layout = tabManager.sidebarLayout
         let allOrdered = layout.allWorkspacesInOrder
         let workspaceCount = tabs.count

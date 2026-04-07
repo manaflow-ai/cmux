@@ -330,14 +330,17 @@ final class CmuxConfigStore: ObservableObject {
 
         // Separate observer for autoApply: fires on every workspace switch
         // (after a short delay so the workspace is fully visible).
+        // Captures the tab ID at emission time so a rapid B→C switch
+        // doesn't accidentally apply B's config to C.
         tabManager.$selectedTabId
             .dropFirst() // skip the initial value on subscribe
             .removeDuplicates()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] tabId in
+                guard let tabId else { return }
                 // Small delay so the config for the new directory loads first.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    self?.checkAutoApply()
+                    self?.checkAutoApply(forTabId: tabId)
                 }
             }
             .store(in: &cancellables)
@@ -419,15 +422,27 @@ final class CmuxConfigStore: ObservableObject {
     /// loaded command has `autoApply: true` with `target: "current"`, execute
     /// it automatically. Tracks applied workspaces so it only fires once per
     /// workspace per app session.
-    private func checkAutoApply() {
+    /// - Parameter forTabId: When provided, only applies if this tab is still
+    ///   selected, preventing stale delayed applications after rapid switching.
+    private func checkAutoApply(forTabId: UUID? = nil) {
         guard let tabManager = trackedTabManager,
               let workspace = tabManager.selectedWorkspace,
+              // If a specific tab ID was requested, verify it's still selected.
+              forTabId == nil || workspace.id == forTabId,
               !autoAppliedWorkspaceIds.contains(workspace.id),
               // Only auto-apply to workspaces with a single pane — don't tear
               // down user-customized layouts or restored split configurations.
-              workspace.panels.count <= 1,
-              let baseCwd = localConfigPath.map({ ($0 as NSString).deletingLastPathComponent })
+              workspace.panels.count <= 1
         else { return }
+
+        // Prefer local config directory; fall back to global config directory
+        // so that autoApply commands defined only in the global config still work.
+        let baseCwd: String
+        if let localPath = localConfigPath {
+            baseCwd = (localPath as NSString).deletingLastPathComponent
+        } else {
+            baseCwd = (globalConfigPath as NSString).deletingLastPathComponent
+        }
 
         guard let command = loadedCommands.first(where: {
             $0.autoApply == true && $0.workspace?.target == .current
