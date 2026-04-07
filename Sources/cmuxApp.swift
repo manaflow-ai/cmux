@@ -4627,8 +4627,7 @@ struct SettingsView: View {
 
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let _ = SettingsConfigurationReview.json("browser.insecureHttpHostsAllowedInEmbeddedBrowser")
-        let _ = SettingsConfigurationReview.json("browser.showImportHintOnBlankTabs")
+        let _ = Self.validateBypassedSettingsConfigurationReviews()
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
             ScrollView {
@@ -6072,6 +6071,11 @@ struct SettingsView: View {
             Text(notificationCustomSoundErrorAlertMessage)
         }
         }
+    }
+
+    private static func validateBypassedSettingsConfigurationReviews() {
+        SettingsConfigurationReview.json("browser.insecureHttpHostsAllowedInEmbeddedBrowser").validate()
+        SettingsConfigurationReview.json("browser.showImportHintOnBlankTabs").validate()
     }
 
     private func relaunchApp() {

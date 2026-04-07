@@ -255,7 +255,7 @@ enum KeyboardShortcutSettings {
                 // Safari default: Show JavaScript Console.
                 return StoredShortcut(key: "c", command: true, shift: false, option: true, control: false)
             case .toggleReactGrab:
-                return StoredShortcut(key: "g", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             }
         }
 
