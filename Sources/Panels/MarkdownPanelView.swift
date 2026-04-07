@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import MarkdownUI
+import WebKit
 
 /// SwiftUI view that renders a MarkdownPanel's content using MarkdownUI.
 struct MarkdownPanelView: View {
@@ -13,11 +14,15 @@ struct MarkdownPanelView: View {
     @State private var focusFlashOpacity: Double = 0.0
     @State private var focusFlashAnimationGeneration: Int = 0
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(MarkdownRendererSettings.useWebViewKey)
+    private var useWebView = MarkdownRendererSettings.defaultUseWebView
 
     var body: some View {
         Group {
             if panel.isFileUnavailable {
                 fileUnavailableView
+            } else if useWebView {
+                markdownWebViewContent
             } else {
                 markdownContentView
             }
@@ -43,7 +48,26 @@ struct MarkdownPanelView: View {
         }
     }
 
-    // MARK: - Content
+    // MARK: - WebView Content
+
+    private var markdownWebViewContent: some View {
+        VStack(spacing: 0) {
+            filePathHeader
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+
+            Divider()
+                .padding(.horizontal, 16)
+
+            MarkdownWebViewRepresentable(
+                content: panel.content,
+                colorScheme: colorScheme
+            )
+        }
+    }
+
+    // MARK: - Native MarkdownUI Content
 
     private var markdownContentView: some View {
         ScrollView {
@@ -289,6 +313,183 @@ struct MarkdownPanelView: View {
         }
     }
 }
+
+// MARK: - WebView-based Markdown Renderer
+
+/// Renders markdown as HTML in a WKWebView for full multi-line text selection support.
+struct MarkdownWebViewRepresentable: NSViewRepresentable {
+    let content: String
+    let colorScheme: ColorScheme
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var lastContent: String?
+        var lastIsDark: Bool?
+    }
+
+    func makeNSView(context: Context) -> CmuxWebView {
+        let config = WKWebViewConfiguration()
+        #if DEBUG
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        #endif
+        let webView = CmuxWebView(frame: .zero, configuration: config)
+        webView.setValue(false, forKey: "drawsBackground")
+        let isDark = colorScheme == .dark
+        context.coordinator.lastContent = content
+        context.coordinator.lastIsDark = isDark
+        loadHTML(into: webView, isDark: isDark)
+        return webView
+    }
+
+    func updateNSView(_ webView: CmuxWebView, context: Context) {
+        let isDark = colorScheme == .dark
+        let contentChanged = content != context.coordinator.lastContent
+        let themeChanged = isDark != context.coordinator.lastIsDark
+        guard contentChanged || themeChanged else { return }
+        context.coordinator.lastContent = content
+        context.coordinator.lastIsDark = isDark
+
+        if themeChanged {
+            // Theme change requires full HTML reload to update CSS variables.
+            loadHTML(into: webView, isDark: isDark)
+        } else {
+            // Content-only change: update in-place via JS to preserve scroll position
+            // and avoid WKWebView dropping rapid loadHTMLString calls.
+            let escaped = Self.escapeForJS(content)
+            let markdownContent = content
+            webView.evaluateJavaScript(
+                "document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);"
+            ) { _, error in
+                if error != nil {
+                    // JS evaluation failed (e.g., page not yet loaded); fall back to
+                    // a full HTML reload to guarantee the content is rendered.
+                    // Guard inside async to check staleness at execution time, not
+                    // scheduling time — a newer updateNSView may run between the two.
+                    DispatchQueue.main.async {
+                        guard context.coordinator.lastContent == markdownContent,
+                              context.coordinator.lastIsDark == isDark else { return }
+                        let html = Self.wrapInHTML(markdown: markdownContent, isDark: isDark)
+                        webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadHTML(into webView: WKWebView, isDark: Bool) {
+        let html = Self.wrapInHTML(markdown: content, isDark: isDark)
+        webView.loadHTMLString(html, baseURL: Bundle.main.resourceURL)
+    }
+
+    private static func escapeForJS(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "`", with: "\\`")
+            .replacingOccurrences(of: "$", with: "\\$")
+            .replacingOccurrences(of: "</", with: "<\\/")
+    }
+
+    static func wrapInHTML(markdown: String, isDark: Bool) -> String {
+        let escapedMarkdown = escapeForJS(markdown)
+        let bg = isDark ? "#1e1e1e" : "#fafafa"
+        let fg = isDark ? "rgba(255,255,255,0.9)" : "#1a1a1a"
+        let mutedFg = isDark ? "rgba(255,255,255,0.6)" : "#666"
+        let codeBg = isDark ? "#141414" : "#ededed"
+        let codeFg = isDark ? "#e6e6e6" : "#333"
+        let inlineCodeFg = isDark ? "rgb(217,153,242)" : "rgb(153,51,179)"
+        let inlineCodeBg = isDark ? "#2e2e2e" : "#eaeaea"
+        let borderColor = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.12)"
+        let tableBgEven = isDark ? "#1a1a1a" : "#fff"
+        let tableBgOdd = isDark ? "#242424" : "#f5f5f5"
+        let linkColor = isDark ? "#58a6ff" : "#0969da"
+        let blockquoteBorder = isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)"
+
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <meta name="color-scheme" content="\(isDark ? "dark" : "light")">
+        <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            color: \(fg);
+            background: \(bg);
+            padding: 16px 24px;
+            margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+        h1 { font-size: 28px; font-weight: 700; margin: 24px 0 16px; padding-bottom: 8px; border-bottom: 1px solid \(borderColor); }
+        h2 { font-size: 22px; font-weight: 700; margin: 20px 0 12px; padding-bottom: 6px; border-bottom: 1px solid \(borderColor); }
+        h3 { font-size: 18px; font-weight: 600; margin: 16px 0 8px; }
+        h4 { font-size: 16px; font-weight: 600; margin: 12px 0 6px; }
+        h5 { font-size: 14px; font-weight: 500; margin: 10px 0 4px; }
+        h6 { font-size: 13px; font-weight: 500; margin: 8px 0 4px; color: \(mutedFg); }
+        p { margin: 4px 0 8px; }
+        a { color: \(linkColor); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        strong { font-weight: 600; }
+        code {
+            font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+            font-size: 13px;
+            color: \(inlineCodeFg);
+            background: \(inlineCodeBg);
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        pre {
+            background: \(codeBg);
+            border-radius: 6px;
+            padding: 12px;
+            overflow-x: auto;
+            margin: 8px 0;
+        }
+        pre code {
+            color: \(codeFg);
+            background: none;
+            padding: 0;
+            font-size: 13px;
+        }
+        blockquote {
+            border-left: 3px solid \(blockquoteBorder);
+            margin: 8px 0;
+            padding-left: 12px;
+            color: \(mutedFg);
+        }
+        hr { border: none; border-top: 1px solid \(borderColor); margin: 16px 0; }
+        ul, ol { padding-left: 24px; }
+        li { margin: 4px 0; }
+        table { border-collapse: collapse; margin: 8px 0; width: 100%; }
+        th, td {
+            border: 1px solid \(borderColor);
+            padding: 6px 12px;
+            text-align: left;
+        }
+        tr:nth-child(odd) td { background: \(tableBgOdd); }
+        tr:nth-child(even) td { background: \(tableBgEven); }
+        th { font-weight: 600; background: \(tableBgOdd); }
+        img { max-width: 100%; }
+        input[type="checkbox"] { margin-right: 6px; }
+        </style>
+        <script src="marked.min.js"></script>
+        </head>
+        <body>
+        <div id="content"></div>
+        <script>
+        const md = `\(escapedMarkdown)`;
+        marked.setOptions({ gfm: true, breaks: false });
+        document.getElementById('content').innerHTML = marked.parse(md);
+        </script>
+        </body>
+        </html>
+        """
+    }
+}
+
+// MARK: - Pointer Observer
 
 private struct MarkdownPointerObserver: NSViewRepresentable {
     let onPointerDown: () -> Void
