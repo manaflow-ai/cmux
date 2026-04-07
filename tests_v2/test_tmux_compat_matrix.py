@@ -178,6 +178,24 @@ def main() -> int:
         _must(f"{custom_option} alphagamma" in show_all_options.stdout, f"show-options should list custom options, got {show_all_options.stdout!r}")
         _run_cli(cli, ["set-option", "-u", custom_option])
 
+        show_help = _run_cli(cli, ["show-options", "--help"])
+        _must("Usage: cmux show-options" in show_help.stdout, f"show-options --help should print usage, got {show_help.stdout!r}")
+        set_help = _run_cli(cli, ["set-option", "--help"])
+        _must("Usage: cmux set-option" in set_help.stdout, f"set-option --help should print usage, got {set_help.stdout!r}")
+
+        empty_option = f"@empty_probe_{stamp}"
+        _run_cli(cli, ["set-option", empty_option, ""])
+        empty_value = _run_cli(cli, ["show-options", "-v", empty_option])
+        _must(empty_value.stdout == "\n", f"set-option should preserve explicit empty values, got {empty_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", empty_option])
+
+        spaced_option = f"@space_probe_{stamp}"
+        spaced_value = "  padded value  "
+        _run_cli(cli, ["set-option", spaced_option, spaced_value])
+        shown_spaced_value = _run_cli(cli, ["show-options", "-v", spaced_option])
+        _must(shown_spaced_value.stdout == spaced_value + "\n", f"set-option should preserve leading/trailing whitespace, got {shown_spaced_value.stdout!r}")
+        _run_cli(cli, ["set-option", "-u", spaced_option])
+
         cap = _run_cli(cli, ["capture-pane", "--workspace", ws, "--surface", s1, "--scrollback"])
         _must(capture_token in cap.stdout, f"capture-pane missing token: {cap.stdout!r}")
 
