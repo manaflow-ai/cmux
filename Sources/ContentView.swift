@@ -9923,12 +9923,84 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
+    @ViewBuilder
+    private func tabItemViewForWorkspace(
+        _ tab: Workspace,
+        index: Int,
+        workspaceCount: Int,
+        canCloseWorkspace: Bool,
+        workspaceNumberShortcut: StoredShortcut,
+        tabItemSettings: SidebarTabItemSettingsSnapshot,
+        selectedContextTargetIds: [UUID],
+        selectedRemoteContextMenuWorkspaceIds: [UUID],
+        allSelectedRemoteContextMenuTargetsConnecting: Bool,
+        allSelectedRemoteContextMenuTargetsDisconnected: Bool
+    ) -> some View {
+        let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
+        let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
+            ? selectedContextTargetIds
+            : [tab.id]
+        let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
+            ? selectedRemoteContextMenuWorkspaceIds
+            : (tab.isRemoteWorkspace ? [tab.id] : [])
+        let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
+            ? allSelectedRemoteContextMenuTargetsConnecting
+            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
+        let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
+            ? allSelectedRemoteContextMenuTargetsDisconnected
+            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+        TabItemView(
+            tabManager: tabManager,
+            notificationStore: notificationStore,
+            tab: tab,
+            index: index,
+            isActive: tabManager.selectedTabId == tab.id,
+            workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
+                at: index,
+                workspaceCount: workspaceCount
+            ),
+            workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
+            canCloseWorkspace: canCloseWorkspace,
+            accessibilityWorkspaceCount: workspaceCount,
+            unreadCount: notificationStore.unreadCount(forTabId: tab.id),
+            latestNotificationText: {
+                guard showsSidebarNotificationMessage,
+                      let notification = notificationStore.latestNotification(forTabId: tab.id) else {
+                    return nil
+                }
+                let text = notification.body.isEmpty ? notification.title : notification.body
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }(),
+            rowSpacing: tabRowSpacing,
+            setSelectionToTabs: { selection = .tabs },
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
+            dragAutoScrollController: dragAutoScrollController,
+            draggedTabId: $draggedTabId,
+            dropIndicator: $dropIndicator,
+            contextMenuWorkspaceIds: contextMenuWorkspaceIds,
+            remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
+            allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+            allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+            settings: tabItemSettings
+        )
+        .equatable()
+    }
+
     var body: some View {
         let tabs = tabManager.tabs
+        // sidebarLayout reads sectionRevision internally, establishing the
+        // SwiftUI dependency — no separate read needed here.
+        let layout = tabManager.sidebarLayout
+        let allOrdered = layout.allWorkspacesInOrder
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
+        // Index by flat tabs order (not section order) so shift-selection
+        // ranges and moveBy(_:) work against tabManager.tabs correctly.
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
@@ -9952,59 +10024,64 @@ struct VerticalTabsSidebar: View {
                         // Workspaces are bounded, so prefer a non-lazy stack here.
                         // LazyVStack + drag-state invalidations can recurse through layout.
                         VStack(spacing: tabRowSpacing) {
-                            ForEach(tabs, id: \.id) { tab in
-                                let index = tabIndexById[tab.id] ?? 0
-                                let usesSelectedContextMenuTargets = selectedTabIds.contains(tab.id)
-                                let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedContextTargetIds
-                                    : [tab.id]
-                                let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
-                                    ? selectedRemoteContextMenuWorkspaceIds
-                                    : (tab.isRemoteWorkspace ? [tab.id] : [])
-                                let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsConnecting
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
-                                let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
-                                    ? allSelectedRemoteContextMenuTargetsDisconnected
-                                    : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
-                                TabItemView(
-                                    tabManager: tabManager,
-                                    notificationStore: notificationStore,
-                                    tab: tab,
-                                    index: index,
-                                    isActive: tabManager.selectedTabId == tab.id,
-                                    workspaceShortcutDigit: WorkspaceShortcutMapper.digitForWorkspace(
-                                        at: index,
-                                        workspaceCount: workspaceCount
-                                    ),
-                                    workspaceShortcutModifierSymbol: workspaceNumberShortcut.numberedDigitHintPrefix,
+                            // Pinned workspaces always render first
+                            ForEach(layout.pinnedWorkspaces, id: \.id) { tab in
+                                tabItemViewForWorkspace(
+                                    tab, index: tabIndexById[tab.id] ?? 0,
+                                    workspaceCount: workspaceCount,
                                     canCloseWorkspace: canCloseWorkspace,
-                                    accessibilityWorkspaceCount: workspaceCount,
-                                    unreadCount: notificationStore.unreadCount(forTabId: tab.id),
-                                    latestNotificationText: {
-                                        guard showsSidebarNotificationMessage,
-                                              let notification = notificationStore.latestNotification(forTabId: tab.id) else {
-                                            return nil
-                                        }
-                                        let text = notification.body.isEmpty ? notification.title : notification.body
-                                        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        return trimmed.isEmpty ? nil : trimmed
-                                    }(),
-                                    rowSpacing: tabRowSpacing,
-                                    setSelectionToTabs: { selection = .tabs },
-                                    selectedTabIds: $selectedTabIds,
-                                    lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-                                    showsModifierShortcutHints: modifierKeyMonitor.isModifierPressed,
-                                    dragAutoScrollController: dragAutoScrollController,
-                                    draggedTabId: $draggedTabId,
-                                    dropIndicator: $dropIndicator,
-                                    contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
-                                    allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
-                                    allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
-                                    settings: tabItemSettings
+                                    workspaceNumberShortcut: workspaceNumberShortcut,
+                                    tabItemSettings: tabItemSettings,
+                                    selectedContextTargetIds: selectedContextTargetIds,
+                                    selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
+                                    allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
+                                    allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected
                                 )
-                                .equatable()
+                            }
+
+                            // Ungrouped (not in any section) unpinned workspaces
+                            ForEach(layout.ungroupedWorkspaces, id: \.id) { tab in
+                                tabItemViewForWorkspace(
+                                    tab, index: tabIndexById[tab.id] ?? 0,
+                                    workspaceCount: workspaceCount,
+                                    canCloseWorkspace: canCloseWorkspace,
+                                    workspaceNumberShortcut: workspaceNumberShortcut,
+                                    tabItemSettings: tabItemSettings,
+                                    selectedContextTargetIds: selectedContextTargetIds,
+                                    selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
+                                    allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
+                                    allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected
+                                )
+                            }
+
+                            // Collapsible user-defined sections
+                            ForEach(layout.sectionGroups, id: \.section.id) { group in
+                                VStack(spacing: 0) {
+                                    SidebarSectionHeaderView(
+                                        section: group.section,
+                                        tabManager: tabManager,
+                                        workspaceCount: group.workspaces.count
+                                    )
+
+                                    if !group.section.isCollapsed {
+                                        VStack(spacing: tabRowSpacing) {
+                                            ForEach(group.workspaces, id: \.id) { tab in
+                                                tabItemViewForWorkspace(
+                                                    tab, index: tabIndexById[tab.id] ?? 0,
+                                                    workspaceCount: workspaceCount,
+                                                    canCloseWorkspace: canCloseWorkspace,
+                                                    workspaceNumberShortcut: workspaceNumberShortcut,
+                                                    tabItemSettings: tabItemSettings,
+                                                    selectedContextTargetIds: selectedContextTargetIds,
+                                                    selectedRemoteContextMenuWorkspaceIds: selectedRemoteContextMenuWorkspaceIds,
+                                                    allSelectedRemoteContextMenuTargetsConnecting: allSelectedRemoteContextMenuTargetsConnecting,
+                                                    allSelectedRemoteContextMenuTargetsDisconnected: allSelectedRemoteContextMenuTargetsDisconnected
+                                                )
+                                                .padding(.leading, 8)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         .padding(.vertical, 8)
@@ -12222,6 +12299,143 @@ private final class SidebarScrollViewResolverView: NSView {
     }
 }
 
+// MARK: - Sidebar Section View
+
+private struct SidebarSectionHeaderView: View {
+    @ObservedObject var section: SidebarSection
+    let tabManager: TabManager
+    let workspaceCount: Int
+    @State private var isEditing = false
+    @State private var editedName = ""
+    @FocusState private var isTextFieldFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(section.isCollapsed ? 0 : 90))
+                .animation(.easeInOut(duration: 0.15), value: section.isCollapsed)
+                .frame(width: 12, height: 12)
+
+            if isEditing {
+                TextField("", text: $editedName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, weight: .semibold))
+                    .focused($isTextFieldFocused)
+                    .onSubmit {
+                        commitRename()
+                    }
+                    .onExitCommand {
+                        isEditing = false
+                        isTextFieldFocused = false
+                    }
+                    .onAppear {
+                        // Delay focus slightly so the TextField is mounted first
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            isTextFieldFocused = true
+                        }
+                    }
+                    .onChange(of: isTextFieldFocused) { focused in
+                        // Commit when focus leaves the field
+                        if !focused && isEditing {
+                            commitRename()
+                        }
+                    }
+            } else {
+                Text(section.name)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if !section.isCollapsed {
+                Text("\(workspaceCount)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard !isEditing else { return }
+            section.toggleCollapsed()
+        }
+        .onReceive(tabManager.$pendingRenameSectionId) { pendingId in
+            guard pendingId == section.id else { return }
+            tabManager.pendingRenameSectionId = nil
+            editedName = section.name
+            isEditing = true
+        }
+        .contextMenu {
+            Button(section.isCollapsed
+                ? String(localized: "contextMenu.expandSection", defaultValue: "Expand Section")
+                : String(localized: "contextMenu.collapseSection", defaultValue: "Collapse Section")
+            ) {
+                section.toggleCollapsed()
+            }
+
+            Button(String(localized: "contextMenu.renameSection", defaultValue: "Rename Section…")) {
+                editedName = section.name
+                isEditing = true
+            }
+
+            Divider()
+
+            Button(String(localized: "contextMenu.moveSectionUp", defaultValue: "Move Section Up")) {
+                guard let idx = tabManager.sections.firstIndex(where: { $0.id == section.id }), idx > 0 else { return }
+                tabManager.reorderSection(sectionId: section.id, toIndex: idx - 1)
+            }
+            .disabled(tabManager.sections.first?.id == section.id)
+
+            Button(String(localized: "contextMenu.moveSectionDown", defaultValue: "Move Section Down")) {
+                guard let idx = tabManager.sections.firstIndex(where: { $0.id == section.id }),
+                      idx < tabManager.sections.count - 1 else { return }
+                tabManager.reorderSection(sectionId: section.id, toIndex: idx + 1)
+            }
+            .disabled(tabManager.sections.last?.id == section.id)
+
+            Divider()
+
+            Button(String(localized: "contextMenu.deleteSection", defaultValue: "Delete Section"), role: .destructive) {
+                tabManager.deleteSection(sectionId: section.id)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(section.name)
+        .accessibilityHint(section.isCollapsed
+            ? String(localized: "accessibility.sectionCollapsed", defaultValue: "Collapsed. Double-tap to expand.")
+            : String(localized: "accessibility.sectionExpanded", defaultValue: "Expanded. Double-tap to collapse."))
+        .accessibilityAddTraits(.isButton)
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, isTargeted: nil) { providers in
+            guard let provider = providers.first else { return false }
+            provider.loadDataRepresentation(forTypeIdentifier: SidebarTabDragPayload.typeIdentifier) { data, _ in
+                guard let data, let str = String(data: data, encoding: .utf8) else { return }
+                let prefix = "cmux.sidebar-tab."
+                guard str.hasPrefix(prefix),
+                      let tabId = UUID(uuidString: String(str.dropFirst(prefix.count))) else { return }
+                Task { @MainActor in
+                    tabManager.moveWorkspaceToSection(tabId: tabId, sectionId: section.id)
+                }
+            }
+            return true
+        }
+    }
+
+    private func commitRename() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            tabManager.renameSection(sectionId: section.id, name: trimmed)
+        }
+        isEditing = false
+        isTextFieldFocused = false
+    }
+}
+
 private struct SidebarEmptyArea: View {
     @EnvironmentObject var tabManager: TabManager
     let rowSpacing: CGFloat
@@ -13287,6 +13501,43 @@ private struct TabItemView: View, Equatable {
             }
         }
         .disabled(targetIds.isEmpty)
+
+        if !tabManager.sections.isEmpty {
+            let sections = tabManager.sections
+            let currentSection = tabManager.sectionForWorkspace(tab.id)
+            Menu(String(localized: "contextMenu.moveToSection", defaultValue: "Move to Section")) {
+                Button(String(localized: "contextMenu.noSection", defaultValue: "No Section")) {
+                    for id in targetIds {
+                        tabManager.removeWorkspaceFromSection(tabId: id)
+                    }
+                }
+                .disabled(currentSection == nil)
+
+                if !sections.isEmpty {
+                    Divider()
+                }
+
+                ForEach(sections, id: \.id) { section in
+                    Button(section.name) {
+                        for id in targetIds {
+                            tabManager.moveWorkspaceToSection(tabId: id, sectionId: section.id)
+                        }
+                    }
+                    .disabled(currentSection?.id == section.id)
+                }
+
+                Divider()
+
+                Button(String(localized: "contextMenu.newSection", defaultValue: "New Section…")) {
+                    let section = tabManager.createSection(
+                        name: String(localized: "sidebar.newSectionDefaultName", defaultValue: "New Section")
+                    )
+                    for id in targetIds {
+                        tabManager.moveWorkspaceToSection(tabId: id, sectionId: section.id)
+                    }
+                }
+            }
+        }
 
         Divider()
 
@@ -14815,10 +15066,29 @@ private struct SidebarTabDropDelegate: DropDelegate {
             return true
         }
 
+        // If both dragged and target are in the same section, reorder within
+        // the section's workspaceIds so the visual order updates correctly.
+        if let targetTabId,
+           let section = tabManager.sectionForWorkspace(draggedTabId),
+           section.contains(targetTabId) {
+            let insertAfter = dropIndicator?.edge == .bottom
+            // Remove first so indices are stable for the insert.
+            section.workspaceIds.removeAll { $0 == draggedTabId }
+            if let targetIdx = section.workspaceIds.firstIndex(of: targetTabId) {
+                let insertIdx = insertAfter ? targetIdx + 1 : targetIdx
+                section.workspaceIds.insert(draggedTabId, at: min(insertIdx, section.workspaceIds.count))
+            } else {
+                section.workspaceIds.append(draggedTabId)
+            }
 #if DEBUG
-        dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+            dlog("sidebar.drop.section tab=\(draggedTabId.uuidString.prefix(5)) section=\(section.name)")
 #endif
-        _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        } else {
+#if DEBUG
+            dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
+#endif
+            _ = tabManager.reorderWorkspace(tabId: draggedTabId, toIndex: targetIndex)
+        }
         if let selectedId = tabManager.selectedTabId {
             selectedTabIds = [selectedId]
             syncSidebarSelection(preferredSelectedTabId: selectedId)
@@ -15444,6 +15714,30 @@ private struct SidebarBackdrop: View {
                     // When using liquidGlass + behindWindow, window handles glass + tint
                     // Sidebar is fully transparent
                     if !useWindowLevelGlass {
+                        #if compiler(>=6.2)
+                        if #available(macOS 26.0, *), useLiquidGlass {
+                            // Native SwiftUI Liquid Glass on macOS 26+
+                            Color.clear
+                                .glassEffect(
+                                    .regular.tint(Color(nsColor: tintColor)),
+                                    in: .rect(cornerRadius: cornerRadius)
+                                )
+                                .opacity(sidebarBlurOpacity)
+                        } else {
+                            SidebarVisualEffectBackground(
+                                material: material,
+                                blendingMode: blendingMode,
+                                state: state,
+                                opacity: sidebarBlurOpacity,
+                                tintColor: tintColor,
+                                cornerRadius: cornerRadius,
+                                preferLiquidGlass: false
+                            )
+                            if !useLiquidGlass {
+                                Color(nsColor: tintColor)
+                            }
+                        }
+                        #else
                         SidebarVisualEffectBackground(
                             material: material,
                             blendingMode: blendingMode,
@@ -15457,6 +15751,7 @@ private struct SidebarBackdrop: View {
                         if !useLiquidGlass {
                             Color(nsColor: tintColor)
                         }
+                        #endif
                     }
                 }
                 // When material is none or useWindowLevelGlass, render nothing

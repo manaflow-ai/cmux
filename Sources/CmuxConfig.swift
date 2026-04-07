@@ -11,6 +11,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
     var description: String?
     var keywords: [String]?
     var restart: CmuxRestartBehavior?
+    var autoApply: Bool?
     var workspace: CmuxWorkspaceDefinition?
     var command: String?
     var confirm: Bool?
@@ -24,6 +25,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         description: String? = nil,
         keywords: [String]? = nil,
         restart: CmuxRestartBehavior? = nil,
+        autoApply: Bool? = nil,
         workspace: CmuxWorkspaceDefinition? = nil,
         command: String? = nil,
         confirm: Bool? = nil
@@ -32,6 +34,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         self.description = description
         self.keywords = keywords
         self.restart = restart
+        self.autoApply = autoApply
         self.workspace = workspace
         self.command = command
         self.confirm = confirm
@@ -43,6 +46,7 @@ struct CmuxCommandDefinition: Codable, Sendable, Identifiable {
         description = try container.decodeIfPresent(String.self, forKey: .description)
         keywords = try container.decodeIfPresent([String].self, forKey: .keywords)
         restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
+        autoApply = try container.decodeIfPresent(Bool.self, forKey: .autoApply)
         workspace = try container.decodeIfPresent(CmuxWorkspaceDefinition.self, forKey: .workspace)
         command = try container.decodeIfPresent(String.self, forKey: .command)
         confirm = try container.decodeIfPresent(Bool.self, forKey: .confirm)
@@ -90,16 +94,25 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
     case confirm
 }
 
+enum CmuxWorkspaceTarget: String, Codable, Sendable {
+    /// Apply the layout to the currently selected workspace.
+    case current
+    /// Create a new workspace (default).
+    case new
+}
+
 struct CmuxWorkspaceDefinition: Codable, Sendable {
     var name: String?
     var cwd: String?
     var color: String?
+    var target: CmuxWorkspaceTarget?
     var layout: CmuxLayoutNode?
 
-    init(name: String? = nil, cwd: String? = nil, color: String? = nil, layout: CmuxLayoutNode? = nil) {
+    init(name: String? = nil, cwd: String? = nil, color: String? = nil, target: CmuxWorkspaceTarget? = nil, layout: CmuxLayoutNode? = nil) {
         self.name = name
         self.cwd = cwd
         self.color = color
+        self.target = target
         self.layout = layout
     }
 
@@ -107,6 +120,7 @@ struct CmuxWorkspaceDefinition: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         name = try container.decodeIfPresent(String.self, forKey: .name)
         cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
+        target = try container.decodeIfPresent(CmuxWorkspaceTarget.self, forKey: .target)
         layout = try container.decodeIfPresent(CmuxLayoutNode.self, forKey: .layout)
 
         if let rawColor = try container.decodeIfPresent(String.self, forKey: .color) {
@@ -270,6 +284,8 @@ final class CmuxConfigStore: ObservableObject {
         return (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
     }()
 
+    private weak var trackedTabManager: TabManager?
+    private var autoAppliedWorkspaceIds = Set<UUID>()
     private var cancellables = Set<AnyCancellable>()
     private var localFileWatchSource: DispatchSourceFileSystemObject?
     private var localFileDescriptor: Int32 = -1
@@ -292,6 +308,7 @@ final class CmuxConfigStore: ObservableObject {
     // MARK: - Public API
 
     func wireDirectoryTracking(tabManager: TabManager) {
+        trackedTabManager = tabManager
         cancellables.removeAll()
 
         tabManager.$selectedTabId
@@ -308,6 +325,23 @@ final class CmuxConfigStore: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] directory in
                 self?.updateLocalConfigPath(directory)
+            }
+            .store(in: &cancellables)
+
+        // Separate observer for autoApply: fires on every workspace switch
+        // (after a short delay so the workspace is fully visible).
+        // Captures the tab ID at emission time so a rapid B→C switch
+        // doesn't accidentally apply B's config to C.
+        tabManager.$selectedTabId
+            .dropFirst() // skip the initial value on subscribe
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] tabId in
+                guard let tabId else { return }
+                // Small delay so the config for the new directory loads first.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self?.checkAutoApply(forTabId: tabId)
+                }
             }
             .store(in: &cancellables)
 
@@ -381,6 +415,47 @@ final class CmuxConfigStore: ObservableObject {
         loadedCommands = commands
         commandSourcePaths = sourcePaths
         configRevision &+= 1
+        checkAutoApply()
+    }
+
+    /// If the selected workspace hasn't been auto-applied this session and a
+    /// loaded command has `autoApply: true` with `target: "current"`, execute
+    /// it automatically. Tracks applied workspaces so it only fires once per
+    /// workspace per app session.
+    /// - Parameter forTabId: When provided, only applies if this tab is still
+    ///   selected, preventing stale delayed applications after rapid switching.
+    private func checkAutoApply(forTabId: UUID? = nil) {
+        guard let tabManager = trackedTabManager,
+              let workspace = tabManager.selectedWorkspace,
+              // If a specific tab ID was requested, verify it's still selected.
+              forTabId == nil || workspace.id == forTabId,
+              !autoAppliedWorkspaceIds.contains(workspace.id),
+              // Only auto-apply to workspaces with a single pane — don't tear
+              // down user-customized layouts or restored split configurations.
+              workspace.panels.count <= 1
+        else { return }
+
+        // Prefer local config directory; fall back to global config directory
+        // so that autoApply commands defined only in the global config still work.
+        let baseCwd: String
+        if let localPath = localConfigPath {
+            baseCwd = (localPath as NSString).deletingLastPathComponent
+        } else {
+            baseCwd = (globalConfigPath as NSString).deletingLastPathComponent
+        }
+
+        guard let command = loadedCommands.first(where: {
+            $0.autoApply == true && $0.workspace?.target == .current
+        }) else { return }
+
+        autoAppliedWorkspaceIds.insert(workspace.id)
+        CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: tabManager,
+            baseCwd: baseCwd,
+            configSourcePath: commandSourcePaths[command.id],
+            globalConfigPath: globalConfigPath
+        )
     }
 
     // MARK: - Parsing
