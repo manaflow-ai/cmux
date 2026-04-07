@@ -6039,12 +6039,6 @@ enum SidebarPullRequestStatus: String {
     case closed
 }
 
-enum SidebarPullRequestChecksStatus: String {
-    case pass
-    case fail
-    case pending
-}
-
 private func normalizedSidebarBranchName(_ branch: String?) -> String? {
     guard let branch else { return nil }
     let trimmed = branch.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6057,7 +6051,7 @@ struct SidebarPullRequestState: Equatable {
     let url: URL
     let status: SidebarPullRequestStatus
     let branch: String?
-    let checks: SidebarPullRequestChecksStatus?
+    let isStale: Bool
 
     init(
         number: Int,
@@ -6065,14 +6059,14 @@ struct SidebarPullRequestState: Equatable {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        checks: SidebarPullRequestChecksStatus? = nil
+        isStale: Bool = false
     ) {
         self.number = number
         self.label = label
         self.url = url
         self.status = status
         self.branch = normalizedSidebarBranchName(branch)
-        self.checks = checks
+        self.isStale = isStale
     }
 }
 
@@ -6317,13 +6311,8 @@ enum SidebarBranchOrdering {
             }
         }
 
-        func checksPriority(_ checks: SidebarPullRequestChecksStatus?) -> Int {
-            switch checks {
-            case .fail: return 3
-            case .pending: return 2
-            case .pass: return 1
-            case nil: return 0
-            }
+        func freshnessPriority(_ isStale: Bool) -> Int {
+            isStale ? 0 : 1
         }
 
         func normalizedReviewURLKey(for url: URL) -> String {
@@ -6360,10 +6349,10 @@ enum SidebarBranchOrdering {
                 continue
             }
             guard let existing = pullRequestsByKey[key] else { continue }
-            if statusPriority(state.status) > statusPriority(existing.status) {
+            if freshnessPriority(state.isStale) > freshnessPriority(existing.isStale) {
                 pullRequestsByKey[key] = state
-            } else if state.status == existing.status,
-                      checksPriority(state.checks) > checksPriority(existing.checks) {
+            } else if freshnessPriority(state.isStale) == freshnessPriority(existing.isStale),
+                      statusPriority(state.status) > statusPriority(existing.status) {
                 pullRequestsByKey[key] = state
             }
         }
@@ -7653,7 +7642,7 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        checks: SidebarPullRequestChecksStatus? = nil
+        isStale: Bool = false
     ) {
         let existing = panelPullRequests[panelId]
         let normalizedBranch = normalizedSidebarBranchName(branch)
@@ -7674,26 +7663,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return existing.branch
         }()
-        let resolvedChecks: SidebarPullRequestChecksStatus? = {
-            if let checks {
-                return checks
-            }
-            guard let existing,
-                  existing.number == number,
-                  existing.label == label,
-                  existing.url == url,
-                  existing.status == status else {
-                return nil
-            }
-            return existing.checks
-        }()
         let state = SidebarPullRequestState(
             number: number,
             label: label,
             url: url,
             status: status,
             branch: resolvedBranch,
-            checks: resolvedChecks
+            isStale: isStale
         )
         if existing != state {
             panelPullRequests[panelId] = state

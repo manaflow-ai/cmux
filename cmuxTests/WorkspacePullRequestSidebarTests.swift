@@ -56,7 +56,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             url: url,
             status: .open,
             branch: "feature/work",
-            checks: .pass
+            isStale: true
         )
         workspace.panelPullRequests[secondPanelId] = SidebarPullRequestState(
             number: 1640,

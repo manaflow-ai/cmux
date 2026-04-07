@@ -388,7 +388,8 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     number: 42,
                     label: "PR",
                     url: "https://github.com/manaflow-ai/cmux/pull/42",
-                    status: .open
+                    status: .open,
+                    isStale: true
                 ),
                 second: pullRequestState(
                     number: 42,
@@ -417,7 +418,8 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     number: 42,
                     label: "PR",
                     url: "https://github.com/manaflow-ai/cmux/pull/42",
-                    status: .open
+                    status: .open,
+                    isStale: true
                 ),
                 second: pullRequestState(
                     number: 42,
@@ -438,7 +440,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         )
     }
 
-    func testOrderedUniquePullRequestsPrefersEntryWithChecksWhenStatusesMatch() {
+    func testOrderedUniquePullRequestsPrefersFreshEntryWhenStatusesMatch() {
         let first = UUID()
         let second = UUID()
 
@@ -449,25 +451,26 @@ final class SidebarBranchOrderingTests: XCTestCase {
                     number: 42,
                     label: "PR",
                     url: "https://github.com/manaflow-ai/cmux/pull/42",
-                    status: .open
+                    status: .open,
+                    isStale: true
                 ),
                 second: pullRequestState(
                     number: 42,
                     label: "PR",
                     url: "https://github.com/manaflow-ai/cmux/pull/42",
                     status: .open,
-                    checks: .pass
+                    isStale: false
                 )
             ],
             fallbackPullRequest: nil
         )
 
         XCTAssertEqual(pullRequests.count, 1)
-        XCTAssertEqual(pullRequests.first?.checks, .pass)
+        XCTAssertEqual(pullRequests.first?.isStale, false)
     }
 
     @MainActor
-    func testUpdatePanelPullRequestPreservesExistingChecksWhenUpdateOmitsThem() {
+    func testUpdatePanelPullRequestClearsStaleFlagOnFreshUpdate() {
         let workspace = Workspace(title: "Tests", workingDirectory: FileManager.default.currentDirectoryPath, portOrdinal: 0)
         guard let panelId = workspace.focusedPanelId else {
             XCTFail("Expected focused panel for new workspace")
@@ -480,7 +483,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             label: "PR",
             url: URL(string: "https://github.com/manaflow-ai/cmux/pull/42")!,
             status: .open,
-            checks: .pass
+            isStale: true
         )
         workspace.updatePanelPullRequest(
             panelId: panelId,
@@ -490,8 +493,8 @@ final class SidebarBranchOrderingTests: XCTestCase {
             status: .open
         )
 
-        XCTAssertEqual(workspace.panelPullRequests[panelId]?.checks, .pass)
-        XCTAssertEqual(workspace.pullRequest?.checks, .pass)
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.isStale, false)
+        XCTAssertEqual(workspace.pullRequest?.isStale, false)
     }
 
     func testOrderedUniquePullRequestsUsesFallbackWhenNoPanelPullRequestsExist() {
@@ -561,7 +564,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
         url: String,
         status: SidebarPullRequestStatus,
         branch: String? = nil,
-        checks: SidebarPullRequestChecksStatus? = nil
+        isStale: Bool = false
     ) -> SidebarPullRequestState {
         SidebarPullRequestState(
             number: number,
@@ -569,7 +572,7 @@ final class SidebarBranchOrderingTests: XCTestCase {
             url: URL(string: url)!,
             status: status,
             branch: branch,
-            checks: checks
+            isStale: isStale
         )
     }
 }
@@ -916,6 +919,29 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
             TerminalController.shouldReplacePorts(
                 current: [9229, 3000],
                 next: [3000]
+            )
+        )
+    }
+
+    func testShouldReplacePullRequestReturnsTrueWhenCurrentStateIsStale() throws {
+        let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/42"))
+        let current = SidebarPullRequestState(
+            number: 42,
+            label: "PR",
+            url: url,
+            status: .open,
+            branch: "feature/work",
+            isStale: true
+        )
+
+        XCTAssertTrue(
+            TerminalController.shouldReplacePullRequest(
+                current: current,
+                number: 42,
+                label: "PR",
+                url: url,
+                status: .open,
+                branch: "feature/work"
             )
         )
     }

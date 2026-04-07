@@ -12961,12 +12961,13 @@ private struct TabItemView: View, Equatable {
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status, checks: pullRequest.checks))
+                                Text(pullRequestStatusLabel(pullRequest.status))
                                     .lineLimit(1)
                                 Spacer(minLength: 0)
                             }
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundColor(pullRequestForegroundColor)
+                            .opacity(pullRequest.isStale ? 0.5 : 1)
                         }
                         .buttonStyle(.plain)
                         .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
@@ -13769,7 +13770,7 @@ private struct TabItemView: View, Equatable {
         let label: String
         let url: URL
         let status: SidebarPullRequestStatus
-        let checks: SidebarPullRequestChecksStatus?
+        let isStale: Bool
     }
 
     private func pullRequestDisplays(orderedPanelIds: [UUID]) -> [PullRequestDisplay] {
@@ -13780,7 +13781,7 @@ private struct TabItemView: View, Equatable {
                 label: pullRequest.label,
                 url: pullRequest.url,
                 status: pullRequest.status,
-                checks: pullRequest.checks
+                isStale: pullRequest.isStale
             )
         }
     }
@@ -13822,10 +13823,7 @@ private struct TabItemView: View, Equatable {
         NSWorkspace.shared.open(url)
     }
 
-    private func pullRequestStatusLabel(
-        _ status: SidebarPullRequestStatus,
-        checks _: SidebarPullRequestChecksStatus?
-    ) -> String {
+    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
         switch status {
         case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
         case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
