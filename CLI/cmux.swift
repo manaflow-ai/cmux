@@ -12286,6 +12286,11 @@ struct CMUXCLI {
                 print(message)
             }
 
+        case "show-options":
+            // Stub: omx queries `tmux show-options -sv extended-keys` to check
+            // terminal key mode. cmux handles keys natively, so return empty.
+            print("")
+
         default:
             throw CLIError(message: "Unsupported tmux compatibility command: \(command)")
         }
