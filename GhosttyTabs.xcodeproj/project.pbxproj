@@ -25,6 +25,10 @@
 		A5001501 /* UITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001511 /* UITestRecorder.swift */; };
 		A5001226 /* SocketControlSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlSettings.swift */; };
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
+		A5001602 /* SentrySymbolizerStub.c in Sources */ = {isa = PBXBuildFile; fileRef = A5001603 /* SentrySymbolizerStub.c */; };
+		A5001604 /* TmuxSessionPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001605 /* TmuxSessionPickerSheet.swift */; };
+		A5001606 /* TmuxControlParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001607 /* TmuxControlParser.swift */; };
+		A5001608 /* TmuxLayoutReconciler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001609 /* TmuxLayoutReconciler.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		D1320AA0D1320AA0D1320AA1 /* AppIconDockTilePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -122,6 +126,8 @@
 					1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */; };
 					46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */; };
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */; };
+				F5ADBBF1059E95176B66E842 /* TmuxControlParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3176B9EF001F07720476B3CE /* TmuxControlParserTests.swift */; };
+				E816ABB9D0A581FCAD1BAF19 /* TmuxLayoutReconcilerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657304DC9CA7CF79E3E9463E /* TmuxLayoutReconcilerTests.swift */; };
 					063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */; };
 					1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */; };
 					CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */; };
@@ -225,6 +231,10 @@
 		A5001018 /* cmux-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "cmux-Bridging-Header.h"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
+		A5001603 /* SentrySymbolizerStub.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = SentrySymbolizerStub.c; sourceTree = "<group>"; };
+		A5001605 /* TmuxSessionPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TmuxSessionPickerSheet.swift; sourceTree = "<group>"; };
+		A5001607 /* TmuxControlParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxControlParser.swift; sourceTree = "<group>"; };
+		A5001609 /* TmuxLayoutReconciler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxLayoutReconciler.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconDockTilePlugin.swift; sourceTree = "<group>"; };
 		A5001510 /* CmuxWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebView.swift; sourceTree = "<group>"; };
@@ -320,6 +330,8 @@
 				58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelTests.swift; sourceTree = "<group>"; };
 				02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAndGhosttyTests.swift; sourceTree = "<group>"; };
 				71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceUnitTests.swift; sourceTree = "<group>"; };
+				3176B9EF001F07720476B3CE /* TmuxControlParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxControlParserTests.swift; sourceTree = "<group>"; };
+				657304DC9CA7CF79E3E9463E /* TmuxLayoutReconcilerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxLayoutReconcilerTests.swift; sourceTree = "<group>"; };
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAndDragTests.swift; sourceTree = "<group>"; };
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAndCommandPaletteTests.swift; sourceTree = "<group>"; };
 				BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarOrderingTests.swift; sourceTree = "<group>"; };
@@ -479,6 +491,10 @@
 				A5001545 /* TerminalSSHSessionDetector.swift */,
 				A5001225 /* SocketControlSettings.swift */,
 				A5001600 /* SentryHelper.swift */,
+				A5001603 /* SentrySymbolizerStub.c */,
+				A5001605 /* TmuxSessionPickerSheet.swift */,
+				A5001607 /* TmuxControlParser.swift */,
+				A5001609 /* TmuxLayoutReconciler.swift */,
 				A5001620 /* AppleScriptSupport.swift */,
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
@@ -600,6 +616,8 @@
 					58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */,
 					02FC74F2C27127CC565B3E8C /* TerminalAndGhosttyTests.swift */,
 					71F8ED91A4B55D34BE6A0668 /* WorkspaceUnitTests.swift */,
+					3176B9EF001F07720476B3CE /* TmuxControlParserTests.swift */,
+					657304DC9CA7CF79E3E9463E /* TmuxLayoutReconcilerTests.swift */,
 					BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
 					6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
 					BC39DE4B96D1931C52AF7D68 /* SidebarOrderingTests.swift */,
@@ -805,6 +823,10 @@
 				A5001543 /* TerminalSSHSessionDetector.swift in Sources */,
 				A5001226 /* SocketControlSettings.swift in Sources */,
 				A5001601 /* SentryHelper.swift in Sources */,
+				A5001602 /* SentrySymbolizerStub.c in Sources */,
+				A5001604 /* TmuxSessionPickerSheet.swift in Sources */,
+				A5001606 /* TmuxControlParser.swift in Sources */,
+				A5001608 /* TmuxLayoutReconciler.swift in Sources */,
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				A5001094 /* NotificationsPage.swift in Sources */,
@@ -900,6 +922,8 @@
 					1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */,
 					46F6AC15863EC84DCD3770A2 /* TerminalAndGhosttyTests.swift in Sources */,
 					6B524A0BA34FD46A771335AB /* WorkspaceUnitTests.swift in Sources */,
+					F5ADBBF1059E95176B66E842 /* TmuxControlParserTests.swift in Sources */,
+					E816ABB9D0A581FCAD1BAF19 /* TmuxLayoutReconcilerTests.swift in Sources */,
 					063BC42CEE257D6213A2E30C /* WindowAndDragTests.swift in Sources */,
 					1521D55DC63D5E5FC4955E31 /* ShortcutAndCommandPaletteTests.swift in Sources */,
 					CB23911D7E131E8FBC9B82B6 /* SidebarOrderingTests.swift in Sources */,

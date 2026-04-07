@@ -87289,6 +87289,158 @@
           }
         }
       }
+    },
+    "tmux.picker.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to tmux Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmuxセッションに接続"
+          }
+        }
+      }
+    },
+    "tmux.picker.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This remote host has tmux. Select a session to attach to, or create a new one. Your shells will survive network disconnects."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このリモートホストはtmuxが使えます。接続するセッションを選択するか、新規作成してください。シェルはネットワーク切断後も維持されます。"
+          }
+        }
+      }
+    },
+    "tmux.picker.existing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Existing sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "既存のセッション"
+          }
+        }
+      }
+    },
+    "tmux.picker.windows.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": { "state": "translated", "value": "1 window" }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "1ウィンドウ" }
+        }
+      }
+    },
+    "tmux.picker.windows.many": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": { "state": "translated", "value": "%lld windows" }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": "%lldウィンドウ" }
+        }
+      }
+    },
+    "tmux.picker.attached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": { "state": "translated", "value": " · attached" }
+        },
+        "ja": {
+          "stringUnit": { "state": "translated", "value": " · 接続中" }
+        }
+      }
+    },
+    "tmux.picker.new": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create new session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規セッションを作成"
+          }
+        }
+      }
+    },
+    "tmux.picker.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
+          }
+        }
+      }
+    },
+    "tmux.picker.skip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        }
+      }
+    },
+    "tmux.picker.invalid_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session names may only contain letters, digits, - and _."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション名には英数字、-、_のみ使用できます。"
+          }
+        }
+      }
     }
   }
 }

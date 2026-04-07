@@ -317,6 +317,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.socks5",
 					"proxy.stream",
 					"proxy.stream.push",
+					"tmux.adapter",
 				},
 			},
 		}
@@ -348,6 +349,18 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	case "tmux.probe":
+		return s.handleTmuxProbe(req)
+	case "tmux.session.list":
+		return s.handleTmuxSessionList(req)
+	case "tmux.session.ensure":
+		return s.handleTmuxSessionEnsure(req)
+	case "tmux.pane.new":
+		return s.handleTmuxPaneNew(req)
+	case "tmux.pane.list":
+		return s.handleTmuxPaneList(req)
+	case "tmux.pane.exists":
+		return s.handleTmuxPaneExists(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -989,6 +1002,7 @@ func (s *rpcServer) closeAll() {
 	for _, conn := range streams {
 		_ = conn.Close()
 	}
+
 }
 
 func (s *rpcServer) streamPump(streamID string, conn net.Conn) {

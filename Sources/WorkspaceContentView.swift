@@ -385,6 +385,9 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
+        .sheet(isPresented: $workspace.showTmuxSessionPicker) {
+            TmuxSessionPickerSheet(workspace: workspace)
+        }
     }
 
     private func syncBonsplitNotificationBadges() {

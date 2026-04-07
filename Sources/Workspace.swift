@@ -1643,6 +1643,19 @@ private final class WorkspaceRemoteDaemonRPCClient {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    /// JSON-encode a string value (with quotes). Safe for embedding in RPC JSON.
+    private static func jsonString(_ value: String) -> String {
+        if let data = try? JSONSerialization.data(withJSONObject: value),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        // Safe fallback: manually escape backslashes and quotes.
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
+    }
+
     private static func bestErrorLine(stderr: String) -> String? {
         let lines = stderr
             .split(separator: "\n")
@@ -3378,16 +3391,50 @@ final class WorkspaceRemoteSessionController {
     private var reverseRelayRestartWorkItem: DispatchWorkItem?
     private var reverseRelayStderrBuffer = ""
     private var reconnectRetryCount = 0
+    /// The tmux session name selected for this connection.
+    ///
+    /// This is the controller's authoritative copy, used to auto-reattach on
+    /// reconnect (see `provisionTmuxSessionLocked`). It is set immediately
+    /// when the user picks a session (`ensureTmuxSessionLocked`) and must stay
+    /// in sync with `Workspace.remoteTmuxSessionName`, which is the @Published
+    /// copy used by the UI layer. Both are written together via the
+    /// `applyRemoteTmuxSession` → main-thread path.
+    private var remoteTmuxSessionName: String?
+    /// tmux version string returned by the remote probe (e.g. "3.4").
+    /// Stored so `startTmuxControlModeLocked` can version-gate exact-match `=` targets.
+    private var tmuxProbeVersion: String?
+    private var tmuxControlProcess: Process?
+    /// Stdin pipe for the tmux -CC SSH process. Kept open so tmux does not see EOF.
+    private var tmuxControlStdinPipe: Pipe?
+    /// Raw byte buffer for incoming tmux -CC output. Kept as Data so multibyte UTF-8
+    /// characters that arrive split across pipe reads are reassembled before decoding.
+    private var tmuxControlDataBuffer: Data = Data()
+    /// Last time a line was received from the tmux -CC process (used by watchdog).
+    private var tmuxControlLastActivity: Date?
+    /// Watchdog timer: fires if no tmux control output arrives for too long.
+    private var tmuxControlWatchdogTimer: DispatchSourceTimer?
     private var reconnectWorkItem: DispatchWorkItem?
     private var heartbeatCount: Int = 0
     private var connectionAttemptStartedAt: Date?
 
     private static let reverseRelayStartupGracePeriod: TimeInterval = 0.5
 
-    init(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, controllerID: UUID) {
+    init(
+        workspace: Workspace,
+        configuration: WorkspaceRemoteConfiguration,
+        controllerID: UUID,
+        existingTmuxSessionName: String? = nil,
+        existingTmuxProbeVersion: String? = nil
+    ) {
         self.workspace = workspace
         self.configuration = configuration
         self.controllerID = controllerID
+        // Seed the session name from a previous controller so `provisionTmuxSessionLocked`
+        // can auto-reattach on reconnect without re-showing the picker.
+        self.remoteTmuxSessionName = existingTmuxSessionName
+        // Carry the probed tmux version so `tmuxExactTarget` can version-gate
+        // exact-match targets on reconnect (reconnect skips the probe path).
+        self.tmuxProbeVersion = existingTmuxProbeVersion
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -3489,6 +3536,7 @@ final class WorkspaceRemoteSessionController {
         bootstrapRemoteTTYFetchInFlight = false
         bootstrapRemoteTTYRetryCount = 0
 
+        stopTmuxControlProcessLocked()
         proxyLease?.release()
         proxyLease = nil
         proxyEndpoint = nil
@@ -3546,6 +3594,9 @@ final class WorkspaceRemoteSessionController {
                 remotePath: hello.remotePath
             )
             recordHeartbeatActivityLocked()
+            if hello.capabilities.contains("tmux.adapter") {
+                provisionTmuxSessionLocked(remotePath: hello.remotePath)
+            }
             startReverseRelayLocked(remotePath: hello.remotePath)
             requestBootstrapRemoteTTYIfNeededLocked()
             startProxyLocked()
@@ -3559,6 +3610,374 @@ final class WorkspaceRemoteSessionController {
             publishDaemonStatus(.error, detail: detail)
             publishState(.error, detail: detail)
         }
+    }
+
+    // MARK: - Tmux session provisioning
+
+    private func provisionTmuxSessionLocked(remotePath: String) {
+        // On reconnect, if a session was already selected, auto-reattach without showing the picker.
+        if let existingSession = remoteTmuxSessionName {
+            ensureTmuxSessionLocked(existingSession, remotePath: remotePath)
+            return
+        }
+
+        // First connect: probe + list sessions, then show picker.
+        // Batch two RPC calls: probe + session list.
+        let probeReq = #"{"id":1,"method":"tmux.probe","params":{}}"#
+        let listReq  = #"{"id":2,"method":"tmux.session.list","params":{}}"#
+        let input = probeReq + "\n" + listReq + "\n"
+        let script = "printf '%s' \(Self.shellSingleQuoted(input)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let arguments = sshCommonArguments(batchMode: true) + [configuration.destination, command]
+
+        do {
+            let result = try sshExec(arguments: arguments, timeout: 8)
+            guard result.status == 0 else { return }
+            let lines = result.stdout.split(separator: "\n").map(String.init)
+            var tmuxAvailable = false
+            var tmuxVersion: String?
+            var tmuxUTF8OK = true
+            var sessions: [RemoteTmuxSession] = []
+            for line in lines {
+                guard let data = line.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let ok = payload["ok"] as? Bool, ok,
+                      let resultObj = payload["result"] as? [String: Any] else { continue }
+                if let avail = resultObj["available"] as? Bool {
+                    tmuxAvailable = avail
+                    if let v = resultObj["version"] as? String, !v.isEmpty {
+                        tmuxVersion = v
+                    }
+                    if let utf8 = resultObj["utf8"] as? Bool {
+                        tmuxUTF8OK = utf8
+                    }
+                }
+                if let rawSessions = resultObj["sessions"] as? [[String: Any]] {
+                    sessions = rawSessions.compactMap { obj -> RemoteTmuxSession? in
+                        guard let name = obj["name"] as? String else { return nil }
+                        let windows = obj["windows"] as? Int ?? 0
+                        let attached = obj["attached"] as? Bool ?? false
+                        return RemoteTmuxSession(name: name, windows: windows, attached: attached)
+                    }
+                }
+            }
+            guard tmuxAvailable else {
+                debugLog("remote.tmux.unavailable")
+                return
+            }
+            debugLog("remote.tmux.available version=\(tmuxVersion ?? "?") utf8=\(tmuxUTF8OK) sessions=\(sessions.map(\.name))")
+            // Persist version for version-gated target syntax in startTmuxControlModeLocked.
+            tmuxProbeVersion = tmuxVersion
+            publishTmuxDiscovery(available: true, sessions: sessions, version: tmuxVersion, utf8OK: tmuxUTF8OK)
+        } catch {
+            // Non-fatal: tmux probe failure falls back to bare shells.
+            debugLog("remote.tmux.probeFailed detail=\(error.localizedDescription)")
+        }
+    }
+
+    private func publishTmuxDiscovery(
+        available: Bool,
+        sessions: [RemoteTmuxSession],
+        version: String? = nil,
+        utf8OK: Bool = true
+    ) {
+        DispatchQueue.main.async { [weak workspace] in
+            guard let workspace else { return }
+            workspace.applyRemoteTmuxDiscovery(
+                available: available,
+                sessions: sessions,
+                version: version,
+                utf8OK: utf8OK
+            )
+        }
+    }
+
+    /// Re-lists tmux sessions and publishes the updated list to the workspace.
+    /// Called when a `%sessions-changed` control event is received.
+    func refreshTmuxSessionList() {
+        queue.async { [weak self] in
+            guard let self, let remotePath = self.daemonRemotePath else { return }
+            let listReq = #"{"id":1,"method":"tmux.session.list","params":{}}"#
+            let input = listReq + "\n"
+            let script = "printf '%s' \(Self.shellSingleQuoted(input)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
+            let command = "sh -c \(Self.shellSingleQuoted(script))"
+            let arguments = self.sshCommonArguments(batchMode: true) + [self.configuration.destination, command]
+            guard let result = try? self.sshExec(arguments: arguments, timeout: 8),
+                  result.status == 0 else { return }
+            let lines = result.stdout.split(separator: "\n").map(String.init)
+            var sessions: [RemoteTmuxSession] = []
+            for line in lines {
+                guard let data = line.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let ok = payload["ok"] as? Bool, ok,
+                      let resultObj = payload["result"] as? [String: Any],
+                      let rawSessions = resultObj["sessions"] as? [[String: Any]] else { continue }
+                sessions = rawSessions.compactMap { obj -> RemoteTmuxSession? in
+                    guard let name = obj["name"] as? String else { return nil }
+                    let windows = obj["windows"] as? Int ?? 0
+                    let attached = obj["attached"] as? Bool ?? false
+                    return RemoteTmuxSession(name: name, windows: windows, attached: attached)
+                }
+            }
+            self.debugLog("remote.tmux.sessionsRefreshed count=\(sessions.count)")
+            DispatchQueue.main.async { [weak workspace = self.workspace] in
+                workspace?.remoteTmuxSessions = sessions
+            }
+        }
+    }
+
+    /// Updates the stored session name (called when tmux sends `%session-renamed`).
+    func updateTmuxSessionName(_ newName: String) {
+        queue.async { [weak self] in
+            self?.remoteTmuxSessionName = newName
+        }
+    }
+
+    private func ensureTmuxSessionLocked(_ sessionName: String, remotePath: String) {
+        let ensureReq = """
+        {"id":1,"method":"tmux.session.ensure","params":{"session":\(Self.jsonString(sessionName))}}
+        """
+        let input = ensureReq + "\n"
+        let script = "printf '%s' \(Self.shellSingleQuoted(input)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let arguments = sshCommonArguments(batchMode: true) + [configuration.destination, command]
+        do {
+            let result = try sshExec(arguments: arguments, timeout: 8)
+            guard result.status == 0 else {
+                debugLog("remote.tmux.ensureFailed status=\(result.status)")
+                publishDaemonStatus(.error, detail: "Failed to attach tmux session \"\(sessionName)\" (exit \(result.status))")
+                return
+            }
+            // Parse the JSON response. The daemon may return ok:false even when the
+            // SSH process exits 0 (e.g. tmux new-session failed on the remote). In that
+            // case the payload contains an error message; bail out to keep the picker open.
+            var sessionId: String?
+            var rpcOK = false
+            var rpcErrorMsg: String?
+            for line in result.stdout.split(separator: "\n").map(String.init) {
+                guard let data = line.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else { continue }
+                if let ok = payload["ok"] as? Bool {
+                    rpcOK = ok
+                    if !ok, let errObj = payload["error"] as? [String: Any] {
+                        rpcErrorMsg = errObj["message"] as? String
+                    }
+                }
+                if let resultObj = payload["result"] as? [String: Any],
+                   let sid = resultObj["session_id"] as? String, !sid.isEmpty {
+                    sessionId = sid
+                }
+                break
+            }
+            guard rpcOK else {
+                let detail = rpcErrorMsg ?? "unknown error"
+                debugLog("remote.tmux.ensureFailed rpc_error=\(detail)")
+                publishDaemonStatus(.error, detail: "Failed to attach tmux session \"\(sessionName)\": \(detail)")
+                return
+            }
+            debugLog("remote.tmux.ensured session=\(sessionName) id=\(sessionId ?? "?")")
+            // Persist the chosen session so that reconnects can auto-reattach
+            // without showing the picker again.
+            remoteTmuxSessionName = sessionName
+            let sid = sessionId
+            // IMPORTANT: initialize workspace state (reconciler, notification guard) on the
+            // main thread BEFORE starting the control-mode SSH process. The initial tmux -CC
+            // burst can deliver %layout-change events immediately; applyTmuxControlEvent drops
+            // events until tmuxNotificationsEnabled is set inside applyRemoteTmuxSession. Both
+            // operations are dispatched as async blocks to the main queue — FIFO ordering
+            // guarantees applyRemoteTmuxSession runs before any control-mode events arrive.
+            DispatchQueue.main.async { [weak workspace] in
+                workspace?.applyRemoteTmuxSession(sessionName, sessionId: sid)
+            }
+            // Dispatch control-mode start as a SECOND main-queue block so it runs after the
+            // applyRemoteTmuxSession block above has already executed and enabled the guard.
+            let sessionNameCopy = sessionName
+            DispatchQueue.main.async { [weak self] in
+                self?.queue.async { self?.startTmuxControlModeLocked(sessionName: sessionNameCopy) }
+            }
+        } catch {
+            debugLog("remote.tmux.ensureFailed detail=\(error.localizedDescription)")
+            publishDaemonStatus(.error, detail: "Failed to attach tmux session \"\(sessionName)\": \(error.localizedDescription)")
+        }
+    }
+
+    func selectTmuxSession(_ sessionName: String) {
+        queue.async { [weak self] in
+            guard let self, let remotePath = self.daemonRemotePath else { return }
+            self.ensureTmuxSessionLocked(sessionName, remotePath: remotePath)
+        }
+    }
+
+    // MARK: - Tmux control mode (tmux -CC)
+
+    /// Start a persistent SSH subprocess running `tmux -CC attach-session` and stream
+    /// its output through `TmuxControlParser` → `Workspace.applyTmuxControlEvent`.
+    private func startTmuxControlModeLocked(sessionName: String) {
+        guard !isStopping else { return }
+        stopTmuxControlProcessLocked()
+
+        var args = sshCommonArguments(batchMode: true)
+        args.append(configuration.destination)
+        // Prefix "=" forces exact-match semantics in tmux target resolution (tmux ≥2.5).
+        // Without it, a session name containing ":" or "." is parsed as a
+        // "session:window(.pane)" target, causing attach to fail or hit the wrong session.
+        // Only use the prefix when the probed remote version supports it.
+        let controlTarget = tmuxExactTarget(sessionName)
+        args.append("tmux -CC attach-session -t " + Self.shellSingleQuoted(controlTarget))
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = args
+        // Use a Pipe for stdin rather than /dev/null. tmux -CC reads commands from
+        // its client stdin; presenting EOF immediately (as /dev/null does) causes the
+        // control-mode session to terminate or stop emitting events right after attach.
+        // We keep the pipe open but write nothing — this gives tmux a non-EOF stdin
+        // for the lifetime of the process.
+        let inPipe = Pipe()
+        process.standardInput = inPipe
+
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = FileHandle.nullDevice
+
+        // Capture `process` by value so the handler can guard against stale callbacks.
+        // If startTmuxControlModeLocked runs again before this process exits (e.g. session
+        // switch or reconnect), tmuxControlProcess will point to the new process. Checking
+        // identity prevents the old process's termination from clobbering the new session.
+        process.terminationHandler = { [weak self, process] proc in
+            self?.queue.async {
+                guard let self else { return }
+                guard self.tmuxControlProcess === process else { return }
+                let exitStatus = proc.terminationStatus
+                self.tmuxControlProcess = nil
+                self.stopTmuxControlWatchdogLocked()
+                self.debugLog("remote.tmux.control.exited status=\(exitStatus)")
+                let ws = self.workspace
+                // Disable notification guard on the workspace so stale events
+                // from a previous session don't bleed into the next attach.
+                // If the process exited with a non-zero status (tmux attach failed —
+                // e.g. session renamed or deleted between ensure and attach), publish
+                // an error so the user can see the failure and retry via reconnect.
+                if exitStatus != 0 {
+                    self.publishDaemonStatus(
+                        .error,
+                        detail: "tmux control mode exited (status \(exitStatus)) — session may have been deleted or renamed"
+                    )
+                    DispatchQueue.main.async { ws?.tmuxNotificationsEnabled = false }
+                } else {
+                    DispatchQueue.main.async { ws?.tmuxNotificationsEnabled = false }
+                }
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            debugLog("remote.tmux.control.startFailed detail=\(error.localizedDescription)")
+            // Disable the notification guard so the workspace doesn't stay in a
+            // half-attached state (tmuxNotificationsEnabled=true but no control stream).
+            let ws = workspace
+            DispatchQueue.main.async { ws?.tmuxNotificationsEnabled = false }
+            return
+        }
+
+        tmuxControlProcess = process
+        tmuxControlStdinPipe = inPipe
+        tmuxControlLastActivity = Date()
+        startTmuxControlWatchdogLocked()
+        debugLog("remote.tmux.control.started session=\(sessionName)")
+
+        outPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            // Pass raw bytes to the consumer so that multibyte UTF-8 characters split
+            // across pipe read boundaries are buffered intact and decoded only once a
+            // complete newline-terminated line has accumulated.
+            self?.queue.async { self?.consumeTmuxControlData(data) }
+        }
+    }
+
+    private func consumeTmuxControlData(_ chunk: Data) {
+        tmuxControlLastActivity = Date()
+        tmuxControlDataBuffer.append(chunk)
+        // Split on newline bytes (0x0A). Each complete line is decoded independently
+        // so that a multibyte UTF-8 character split across pipe reads is not decoded
+        // until all its bytes have arrived.
+        while let nlOffset = tmuxControlDataBuffer.firstIndex(of: 0x0A) {
+            let lineData = tmuxControlDataBuffer[..<nlOffset]
+            tmuxControlDataBuffer = tmuxControlDataBuffer[tmuxControlDataBuffer.index(after: nlOffset)...]
+            // Attempt UTF-8 decode; non-decodable lines (malformed) are dropped.
+            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+            guard let event = TmuxControlParser.parseLine(line) else { continue }
+            let ws = workspace
+            DispatchQueue.main.async { ws?.applyTmuxControlEvent(event) }
+        }
+    }
+
+    private func stopTmuxControlProcessLocked() {
+        stopTmuxControlWatchdogLocked()
+        guard let proc = tmuxControlProcess else {
+            tmuxControlDataBuffer = Data()
+            return
+        }
+        // Clear the readability handler before terminating so the readabilityHandler
+        // closure cannot fire after we nil out tmuxControlProcess.
+        if let pipe = proc.standardOutput as? Pipe {
+            pipe.fileHandleForReading.readabilityHandler = nil
+        }
+        // Close stdin pipe so tmux -CC sees EOF and detaches cleanly before SIGTERM.
+        let stdinPipe = tmuxControlStdinPipe
+        tmuxControlProcess = nil
+        tmuxControlStdinPipe = nil
+        tmuxControlDataBuffer = Data()
+        // Terminate and reap off-queue to avoid blocking the controller queue.
+        DispatchQueue.global(qos: .utility).async {
+            stdinPipe?.fileHandleForWriting.closeFile()
+            proc.terminate()
+            proc.waitUntilExit()
+        }
+    }
+
+    private static let tmuxWatchdogInterval: TimeInterval = 60
+    private static let tmuxWatchdogTimeout: TimeInterval = 120
+
+    private func startTmuxControlWatchdogLocked() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + Self.tmuxWatchdogInterval,
+                       repeating: Self.tmuxWatchdogInterval)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            let silence = Date().timeIntervalSince(self.tmuxControlLastActivity ?? .distantPast)
+            if silence > Self.tmuxWatchdogTimeout {
+                // tmux -CC is event-driven: a healthy session is silent whenever the user
+                // is just typing in panes. Extended silence is unusual but not impossible
+                // during idle periods. After a second watchdog interval with no activity
+                // (i.e., 3× the interval = 3 minutes total), treat it as a probable stall
+                // and surface an error so the user can reconnect.
+                let escalate = silence > Self.tmuxWatchdogTimeout * 1.5
+                self.debugLog("remote.tmux.control.watchdog silence=\(Int(silence))s — \(escalate ? "escalating to error" : "monitoring")")
+                if escalate {
+                    DispatchQueue.main.async { [weak workspace = self.workspace] in
+                        guard let workspace, workspace.tmuxNotificationsEnabled else { return }
+                        // Only escalate if we are still nominally "connected" to avoid
+                        // double-firing when a disconnect is already in progress.
+                        workspace.tmuxNotificationsEnabled = false
+                        workspace.remoteConnectionState = .disconnected
+                    }
+                }
+            }
+        }
+        tmuxControlWatchdogTimer = timer
+        timer.resume()
+    }
+
+    private func stopTmuxControlWatchdogLocked() {
+        tmuxControlWatchdogTimer?.cancel()
+        tmuxControlWatchdogTimer = nil
     }
 
     private func startProxyLocked() {
@@ -4094,6 +4513,12 @@ final class WorkspaceRemoteSessionController {
             args += ["-o", option]
         }
         return args
+    }
+
+    /// SSH arguments suitable for an interactive terminal connection (adds `-t`).
+    /// Used by `Workspace.buildTmuxSSHStartupScript` to avoid duplicating option assembly.
+    fileprivate func terminalSSHArguments() -> [String] {
+        return ["-t"] + sshCommonArguments(batchMode: false)
     }
 
     private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
@@ -4928,6 +5353,30 @@ final class WorkspaceRemoteSessionController {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    /// Returns `=<name>` when the probed remote tmux version supports exact-match targets
+    /// (tmux ≥2.5), or the bare `<name>` otherwise. Defaults to exact-match when version
+    /// is unknown (nil) so newer servers — the common case — get correct targeting.
+    private func tmuxExactTarget(_ name: String) -> String {
+        guard let version = tmuxProbeVersion else { return "=" + name }
+        let parts = version.split(separator: ".").map { $0.prefix(while: { $0.isNumber }) }
+        guard parts.count >= 2,
+              let major = Int(parts[0]),
+              let minor = Int(parts[1]) else { return "=" + name }
+        return (major, minor) >= (2, 5) ? "=" + name : name
+    }
+
+    private static func jsonString(_ value: String) -> String {
+        if let data = try? JSONSerialization.data(withJSONObject: value),
+           let str = String(data: data, encoding: .utf8) {
+            return str
+        }
+        // Safe fallback: manually escape backslashes and quotes.
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 
     static func remoteCLIWrapperScript() -> String {
@@ -6051,6 +6500,14 @@ private func normalizedSidebarBranchName(_ branch: String?) -> String? {
     return trimmed.isEmpty ? nil : trimmed
 }
 
+/// A tmux session discovered on a remote host.
+struct RemoteTmuxSession: Identifiable, Equatable {
+    var id: String { name }
+    let name: String
+    let windows: Int
+    let attached: Bool
+}
+
 struct SidebarPullRequestState: Equatable {
     let number: Int
     let label: String
@@ -6584,6 +7041,51 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
+    /// The active tmux session name, published for UI bindings.
+    ///
+    /// Written only by `applyRemoteTmuxSession(_:)` on the main thread.
+    /// The controller keeps a parallel private copy (`WorkspaceRemoteSessionController
+    /// .remoteTmuxSessionName`) for reconnect logic; both are always set together
+    /// through that path so they stay in sync.
+    @Published var remoteTmuxSessionName: String?
+    /// The stable tmux session ID (e.g. "$3") for the attached session.
+    /// Used to filter `%session-renamed` events — only updates that carry this ID
+    /// are applied; renames of other sessions on the same server are ignored.
+    fileprivate var remoteTmuxSessionId: String?
+    /// tmux version string returned by the initial probe (e.g. "3.4"). nil until probed.
+    @Published private(set) var remoteTmuxVersion: String?
+    /// False if tmux reported UTF-8 mode is disabled; shown as a warning in the picker.
+    @Published private(set) var remoteTmuxUTF8OK: Bool = true
+    /// Whether the remote host has tmux available (set after probe).
+    @Published fileprivate(set) var remoteTmuxAvailable: Bool = false
+    /// Existing tmux sessions on the remote (populated before showing picker).
+    @Published fileprivate(set) var remoteTmuxSessions: [RemoteTmuxSession] = []
+    /// Whether the tmux session picker sheet should be shown.
+    @Published var showTmuxSessionPicker: Bool = false
+    /// True when the user explicitly dismissed the picker with Skip. Prevents
+    /// `trackRemoteTerminalSurface` from re-showing the picker on subsequent
+    /// terminal lifecycle events within the same connection.
+    private var userSkippedTmuxPicker: Bool = false
+    /// Panels created by user-initiated splits in tmux mode that have not yet been
+    /// associated with a specific tmux pane ID. When the tmux control-mode
+    /// `%layout-change` event fires for the resulting new pane, the reconciler
+    /// claims the best-matching pending panel rather than opening a duplicate split.
+    ///
+    /// Each entry carries an optional `windowHint` (tmux window ID of the source
+    /// panel at split time). The reconciler prefers a window-matched entry when
+    /// claiming, then falls back to any untagged entry. This prevents a remote
+    /// pane creation from racing with a user-initiated split and claiming the
+    /// wrong pending panel.
+    var pendingTmuxPanelIds: [(panelId: UUID, windowHint: String?)] = []
+    /// Panels that existed before a tmux session was selected (plain SSH shells).
+    /// Cleared and closed lazily after the first %layout-change creates tmux-backed
+    /// replacements so that the remote connection is never dropped prematurely.
+    private var preTmuxTerminalIds: Set<UUID> = []
+    /// Reconciles live tmux pane changes with cmux panels. Created when a session is selected.
+    private var tmuxLayoutReconciler: TmuxLayoutReconciler?
+    /// Guard flag: tmux control events are ignored until the reconciler is ready.
+    /// Set to true by applyRemoteTmuxSession; reset on disconnect/session change.
+    fileprivate var tmuxNotificationsEnabled: Bool = false
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?
     @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
@@ -8084,7 +8586,27 @@ final class Workspace: Identifiable, ObservableObject {
 
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
+        // Preserve tmux session state across reconnects to the same destination so that
+        // (a) the new controller can auto-reattach without showing the picker again, and
+        // (b) existing pane→panel mappings stay valid for the reconnect reconciliation pass.
+        // Clear everything for fresh connects (different destination) so stale tmux state
+        // from the previous host does not contaminate the new connection.
+        let isSameDestination = remoteConfiguration?.destination == configuration.destination
+        let existingTmuxSessionName = isSameDestination ? remoteTmuxSessionName : nil
+        let existingReconciler = isSameDestination ? tmuxLayoutReconciler : nil
         remoteConfiguration = configuration
+        remoteTmuxSessionName = isSameDestination ? remoteTmuxSessionName : nil
+        remoteTmuxSessionId = isSameDestination ? remoteTmuxSessionId : nil
+        remoteTmuxVersion = isSameDestination ? remoteTmuxVersion : nil
+        remoteTmuxUTF8OK = isSameDestination ? remoteTmuxUTF8OK : true
+        remoteTmuxAvailable = false
+        remoteTmuxSessions = []
+        showTmuxSessionPicker = false
+        userSkippedTmuxPicker = false
+        pendingTmuxPanelIds.removeAll()
+        preTmuxTerminalIds.removeAll()
+        tmuxLayoutReconciler = existingReconciler
+        tmuxNotificationsEnabled = false
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -8126,7 +8648,9 @@ final class Workspace: Identifiable, ObservableObject {
         let controller = WorkspaceRemoteSessionController(
             workspace: self,
             configuration: configuration,
-            controllerID: controllerID
+            controllerID: controllerID,
+            existingTmuxSessionName: existingTmuxSessionName,
+            existingTmuxProbeVersion: isSameDestination ? remoteTmuxVersion : nil
         )
         activeRemoteSessionControllerID = controllerID
         remoteSessionController = controller
@@ -8234,6 +8758,14 @@ final class Workspace: Identifiable, ObservableObject {
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
+        // For workspaces that had no terminal panels during the initial tmux discovery
+        // (e.g. browser-only/proxy-only workspaces), the picker was suppressed because
+        // no split source existed yet. Re-evaluate now that a terminal is available —
+        // but only if the user has not already explicitly skipped the picker this session.
+        if remoteTmuxAvailable, !showTmuxSessionPicker, remoteTmuxSessionName == nil,
+           !userSkippedTmuxPicker {
+            showTmuxSessionPicker = true
+        }
     }
 
     private func untrackRemoteTerminalSurface(_ panelId: UUID) {
@@ -8311,6 +8843,255 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    fileprivate func applyRemoteTmuxSession(_ sessionName: String, sessionId: String? = nil) {
+        let trimmed = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        remoteTmuxSessionName = trimmed
+        showTmuxSessionPicker = false
+        pendingTmuxPanelIds.removeAll()
+
+        // On a fresh attach (first time picking a session): record which terminal panels
+        // exist RIGHT NOW so they can be cleaned up after the first %layout-change creates
+        // tmux-backed replacements. These are "bare SSH shell" panels, not yet attached to
+        // any tmux pane.
+        //
+        // On reconnect (tmuxLayoutReconciler already had tracked panels): skip this step.
+        // The existing panels are already tmux-backed; marking them as pre-tmux would cause
+        // the reconciler to recreate and then close panels that already have valid sessions,
+        // losing scrollback and panel state after every reconnect.
+        //
+        // We cannot close pre-tmux panels here because:
+        //   1. closePanel() would drive activeRemoteTerminalSurfaceIds to zero,
+        //      triggering disconnectRemoteConnection before tmux attach completes.
+        //   2. newTerminalSplitForTmuxPane() needs a live terminal as a split source.
+        let existingReconciler = tmuxLayoutReconciler
+        let existingTracked = existingReconciler?.allTrackedPanelIds() ?? []
+
+        // Determine whether this is a true reconnect (same tmux session, panels still valid)
+        // or a session recreation (new session ID means all pane IDs are fresh). Use the
+        // session ID ($N) to distinguish: if both old and new IDs are known and they differ,
+        // the tmux server/session was recreated while disconnected and the old mapping is stale.
+        // IMPORTANT: read remoteTmuxSessionId BEFORE overwriting it below so the comparison
+        // uses the previous session's ID, not the incoming one.
+        let sessionRecreated: Bool = {
+            guard let newId = sessionId, !newId.isEmpty,
+                  let oldId = remoteTmuxSessionId, !oldId.isEmpty else { return false }
+            return newId != oldId
+        }()
+        // Now safe to update the session ID.
+        remoteTmuxSessionId = sessionId
+        let isTrueReconnect = !existingTracked.isEmpty && !sessionRecreated
+
+        if isTrueReconnect {
+            // Reconnect to the same live session — panels are already tmux-backed.
+            // Keep the existing reconciler WITH its pane→panel mapping intact.
+            // The first %layout-change after reconnect will diff the live pane list
+            // against the pre-disconnect mapping:
+            //   - panes still alive → panels unchanged (no create, no close)
+            //   - panes that died while disconnected → panels closed
+            //   - new panes that appeared while disconnected → new panels created
+            // This gives correct incremental reconciliation without duplicate panels or
+            // loss of scrollback/panel state.
+            preTmuxTerminalIds.removeAll()
+        } else {
+            // Fresh attach or session recreation: start with a clean reconciler.
+            // Record all current remote terminal panels for lazy cleanup — after the
+            // first %layout-change creates new pane-backed replacements, the old ones
+            // will be closed. DO NOT close panels here: closing tracked panels
+            // immediately drives activeRemoteTerminalSurfaceIds to zero in terminal-only
+            // workspaces, which triggers workspace disconnection before replacement panels
+            // are created. Let the reconciler handle cleanup naturally via %layout-change.
+            preTmuxTerminalIds = Set(
+                panels.values
+                    .compactMap { $0 as? TerminalPanel }
+                    .map(\.id)
+                    .filter { activeRemoteTerminalSurfaceIds.contains($0) }
+            )
+            // Create a fresh reconciler — no previous tmux pane state to preserve.
+            let newReconciler = TmuxLayoutReconciler()
+            newReconciler.attach(to: self)
+            tmuxLayoutReconciler = newReconciler
+        }
+
+        // Enable the notification guard now that the reconciler is ready.
+        tmuxNotificationsEnabled = true
+    }
+
+    @MainActor
+    fileprivate func applyRemoteTmuxDiscovery(
+        available: Bool,
+        sessions: [RemoteTmuxSession],
+        version: String? = nil,
+        utf8OK: Bool = true
+    ) {
+        remoteTmuxAvailable = available
+        remoteTmuxSessions = sessions
+        if let v = version { remoteTmuxVersion = v }
+        remoteTmuxUTF8OK = utf8OK
+        // Only show the tmux session picker when this workspace has at least one remote
+        // terminal panel. Browser-only or proxy-only workspaces have no TerminalPanel to
+        // use as a split source in `newTerminalSplitForTmuxPane`, so the picker would lead
+        // to a non-functional tmux attachment with no pane displayed.
+        // Also suppress the picker if the user already explicitly skipped it this session.
+        showTmuxSessionPicker = available && activeRemoteTerminalSessionCount > 0
+            && !userSkippedTmuxPicker
+    }
+
+    /// Called by the remote session controller when a tmux control mode event arrives.
+    @MainActor
+    func applyTmuxControlEvent(_ event: TmuxControlEvent) {
+        // Drop events until the reconciler is ready (notification guard).
+        guard tmuxNotificationsEnabled, let reconciler = tmuxLayoutReconciler else { return }
+
+        switch event {
+        case .sessionRenamed(let renamedId, let newName):
+            // Only update if the renamed session is the one we're attached to.
+            // Match by session ID ($N) when available; other sessions on the same
+            // tmux server may also be renamed and must not corrupt our stored name.
+            let isOurSession: Bool
+            if let myId = remoteTmuxSessionId, !myId.isEmpty {
+                isOurSession = renamedId == myId
+            } else {
+                // No ID tracked (e.g. old daemon) — fall back to any rename while attached.
+                isOurSession = remoteTmuxSessionName != nil
+            }
+            if isOurSession {
+                remoteSessionController?.updateTmuxSessionName(newName)
+                remoteTmuxSessionName = newName
+                // Session ID is stable across renames; keep remoteTmuxSessionId unchanged.
+            }
+
+        case .sessionsChanged:
+            // One or more sessions changed — refresh the list so the picker stays current
+            // if it's still open, and so future reconnects see the correct session names.
+            remoteSessionController?.refreshTmuxSessionList()
+
+        case .windowRenamed:
+            // Window name changes are not currently surfaced in the cmux UI.
+            break
+
+        case .sessionWindowChanged:
+            // Active window in session changed. Future: sync window focus.
+            break
+
+        case .windowPaneChanged(_, let paneId):
+            // Active pane in a window changed. Focus the corresponding panel if tracked.
+            if let panelId = reconciler.panelId(forTmuxPane: paneId) {
+                requestFocusPanel(panelId)
+            }
+
+        case .exit:
+            // Control mode exited. Disable notifications until re-attach.
+            tmuxNotificationsEnabled = false
+            reconciler.apply(event)
+
+        case .layoutChange(let layout):
+            reconciler.apply(event)
+            // After the first successful layout sync, close any pre-tmux terminal panels
+            // (plain SSH shells that existed before the session was selected). They cannot
+            // be repurposed as tmux-backed panels; the reconciler just created proper
+            // replacements. We defer the close until here so the new tmux panels are already
+            // tracked in activeRemoteTerminalSurfaceIds — preventing a spurious disconnect.
+            // Guard on !tmuxTracked.isEmpty to ensure at least one tmux panel was created
+            // (reconciliation can be a no-op if the pane list didn't change).
+            if !preTmuxTerminalIds.isEmpty {
+                let tmuxTracked = reconciler.allTrackedPanelIds()
+                guard !tmuxTracked.isEmpty else { break }
+                let toClose = preTmuxTerminalIds.filter { !tmuxTracked.contains($0) }
+                preTmuxTerminalIds.removeAll()
+                for panelId in toClose {
+                    closePanel(panelId, force: true)
+                }
+            }
+            _ = layout // suppresses "unused let" warning; layout is consumed by reconciler
+
+        case .paneModeChanged, .pasteBufferChanged, .clientSessionChanged:
+            // Parsed but not yet acted on. Stubs allow future handling without
+            // dropping these messages into the .default nil-parse path.
+            break
+
+        default:
+            reconciler.apply(event)
+        }
+    }
+
+    /// Focus the panel with the given ID. Called when tmux signals an active-pane change.
+    @MainActor
+    private func requestFocusPanel(_ panelId: UUID) {
+#if DEBUG
+        dlog("tmux.windowPaneChanged requesting focus panelId=\(panelId.uuidString.prefix(8))")
+#endif
+        focusPanel(panelId)
+    }
+
+    /// Create a new terminal split attached to a specific tmux pane ID.
+    /// Implements `TmuxReconcilerWorkspace`. Used by `TmuxLayoutReconciler`
+    /// when a new pane appears in the tmux session.
+    ///
+    /// Pending-panel claim order:
+    ///  1. A pending panel tagged with `windowHint` (user split inside this window)
+    ///  2. A pending panel with no window tag (older code path or unknown window)
+    ///  3. Create a fresh split if no pending panel matches
+    @MainActor
+    @discardableResult
+    func newTerminalSplitForTmuxPane(_ paneId: String, windowHint: String) -> UUID? {
+        // Prefer a pending panel tagged for this specific tmux window.
+        if let idx = pendingTmuxPanelIds.firstIndex(where: { $0.windowHint == windowHint }),
+           let panel = panels[pendingTmuxPanelIds[idx].panelId] as? TerminalPanel {
+            pendingTmuxPanelIds.remove(at: idx)
+            return panel.id
+        }
+        // Fall back to any untagged pending panel.
+        if let idx = pendingTmuxPanelIds.firstIndex(where: { $0.windowHint == nil }),
+           let panel = panels[pendingTmuxPanelIds[idx].panelId] as? TerminalPanel {
+            pendingTmuxPanelIds.remove(at: idx)
+            return panel.id
+        }
+
+        // No pending panel — create a fresh split. Only use a remote terminal as the
+        // split source. In mixed workspaces, picking a local terminal would attach the
+        // tmux-backed panel to the wrong subtree. Prefer the focused panel if it is
+        // tracked as a remote terminal; fall back to any remote terminal panel.
+        let sourcePanelId: UUID?
+        if let focused = focusedPanelId,
+           panels[focused] is TerminalPanel,
+           activeRemoteTerminalSurfaceIds.contains(focused) {
+            sourcePanelId = focused
+        } else {
+            sourcePanelId = activeRemoteTerminalSurfaceIds.first {
+                panels[$0] is TerminalPanel
+            }
+        }
+        guard let sourcePanelId else { return nil }
+        return newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false,
+            tmuxPaneId: paneId
+        )?.id
+    }
+
+    /// Called by the tmux session picker when the user selects or creates a session.
+    /// Ensures the session exists on the remote (creates if needed) then activates it.
+    ///
+    /// The picker sheet is NOT dismissed here — it is dismissed only after the controller
+    /// confirms a successful attach via `applyRemoteTmuxSession`. This prevents leaving
+    /// the user stranded (picker gone, no tmux session) when the async attach fails.
+    func selectTmuxSession(_ sessionName: String) {
+        let trimmed = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let controller = remoteSessionController else { return }
+        controller.selectTmuxSession(trimmed)
+    }
+
+    /// Called when the user explicitly dismisses the tmux picker with "Skip".
+    /// Records the choice so the picker is not re-shown on subsequent terminal
+    /// lifecycle events within the same connection.
+    @MainActor func skipTmuxPicker() {
+        showTmuxSessionPicker = false
+        userSkippedTmuxPicker = true
+    }
+
     fileprivate func applyBootstrapRemoteTTY(_ ttyName: String) {
         let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTTY.isEmpty else { return }
@@ -8782,7 +9563,8 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         orientation: SplitOrientation,
         insertFirst: Bool = false,
-        focus: Bool = true
+        focus: Bool = true,
+        tmuxPaneId: String? = nil
     ) -> TerminalPanel? {
         // Find the pane containing the source panel
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -8797,7 +9579,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommand(tmuxPaneId: tmuxPaneId)
 
         // Inherit working directory: prefer the source panel's reported cwd,
         // then its requested startup cwd if shell integration has not reported
@@ -8839,6 +9621,17 @@ final class Workspace: Identifiable, ObservableObject {
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
+        // If this is a user-initiated split in tmux mode (no specific pane ID provided),
+        // register the panel as pending so the reconciler can claim it when the ensuing
+        // %layout-change event reports the newly created tmux pane, instead of opening a
+        // duplicate cmux split for the same remote pane.
+        // Tag the entry with the source panel's tmux window so the reconciler can prefer
+        // it over remote-pane-triggered panels created concurrently in the same event burst.
+        if tmuxPaneId == nil, remoteTmuxSessionName != nil {
+            let windowHint = tmuxLayoutReconciler?.windowId(forPanel: panelId)
+            pendingTmuxPanelIds.append((panelId: newPanel.id, windowHint: windowHint))
+        }
+
         // Pre-generate the bonsplit tab ID so we can install the panel mapping before bonsplit
         // mutates layout state (avoids transient "Empty Panel" flashes during split).
         let newTab = Bonsplit.Tab(
@@ -8865,6 +9658,8 @@ final class Workspace: Identifiable, ObservableObject {
             if remoteTerminalStartupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
+            // Remove from pending list if the split creation failed.
+            pendingTmuxPanelIds.removeAll { $0.panelId == newPanel.id }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
@@ -8915,7 +9710,12 @@ final class Workspace: Identifiable, ObservableObject {
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
-        let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
+        // In tmux mode, create a simple SSH+tmux-attach terminal rather than the
+        // `tmux new-window` command used by split creation. This keeps the surface
+        // remote without mutating the tmux session layout (no extra window is created
+        // and the reconciler is not involved). The user lands on the session's active
+        // pane, which is acceptable for a new tab.
+        let remoteTerminalStartupCommand = remoteTerminalStartupCommandForSurface()
 
         // Create new terminal panel
         let newPanel = TerminalPanel(
@@ -8979,13 +9779,131 @@ final class Workspace: Identifiable, ObservableObject {
         return newPanel
     }
 
-    private func remoteTerminalStartupCommand() -> String? {
+    /// Startup command for `newTerminalSurface` in a tmux-backed remote workspace.
+    /// Unlike `remoteTerminalStartupCommand(tmuxPaneId:)` which creates a new tmux window,
+    /// this attaches to the existing session without mutating its layout. The user lands
+    /// on the session's currently active pane, which is suitable for a new tab.
+    private func remoteTerminalStartupCommandForSurface() -> String? {
+        if let sessionName = remoteTmuxSessionName,
+           let config = remoteConfiguration {
+            let exactTarget = remoteTmuxSupportsExactTarget ? "=" + sessionName : sessionName
+            let remoteCmd = "exec tmux attach-session -t \(shellSingleQuote(exactTarget))"
+            return buildTmuxSSHStartupScript(config: config, remoteCommand: remoteCmd, tmuxPaneId: nil)
+        }
+        // Non-tmux remote: use the configured startup command (e.g. plain ssh).
         guard let command = remoteConfiguration?.terminalStartupCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !command.isEmpty else {
             return nil
         }
         return command
+    }
+
+    private func remoteTerminalStartupCommand(tmuxPaneId: String? = nil) -> String? {
+        // If a tmux session has been selected, generate an SSH+tmux startup script.
+        if let sessionName = remoteTmuxSessionName,
+           let config = remoteConfiguration {
+            let remoteCmd: String
+            // Use `=<name>` exact-match prefix (tmux ≥2.5) so that session names
+            // containing `:` or `.` are not mis-parsed as `session:window.pane` targets.
+            // Fall back to bare name on older tmux (pre-2.5) that doesn't support the prefix.
+            let exactTarget = remoteTmuxSupportsExactTarget ? "=" + sessionName : sessionName
+            if let paneId = tmuxPaneId {
+                // Attach to the session and immediately focus the specific pane.
+                // `attach-session` only accepts session/window targets, not pane IDs,
+                // so we attach first and then select the pane within that client.
+                // `-As` with an exact target: `-A` attaches if session exists (name lookup),
+                // `-s` names the new session if it must be created.
+                remoteCmd = "exec tmux new-session -As \(shellSingleQuote(exactTarget)) \\; select-pane -t \(shellSingleQuote(paneId))"
+            } else {
+                // User-initiated split: create a new tmux window in the session and
+                // attach to it. This gives the user a distinct remote pane rather than
+                // re-attaching to the same existing active pane. The control-mode
+                // subscriber will observe the resulting %layout-change event and
+                // reconcile the new pane with the cmux split.
+                remoteCmd = "exec tmux new-window -t \(shellSingleQuote(exactTarget)) \\; attach-session -t \(shellSingleQuote(exactTarget))"
+            }
+            return buildTmuxSSHStartupScript(config: config, remoteCommand: remoteCmd, tmuxPaneId: tmuxPaneId)
+        }
+        guard let command = remoteConfiguration?.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !command.isEmpty else {
+            return nil
+        }
+        return command
+    }
+
+    /// Build a local shell script (written to a temp file) that opens an
+    /// interactive SSH session and runs `remoteCommand` on the remote.
+    private func buildTmuxSSHStartupScript(
+        config: WorkspaceRemoteConfiguration,
+        remoteCommand: String,
+        tmuxPaneId: String? = nil
+    ) -> String? {
+        guard let controller = remoteSessionController else { return nil }
+        let sshArgs = controller.terminalSSHArguments() + [config.destination]
+
+        // Build the ssh invocation with the remote command appended.
+        let sshInvocation = (["ssh"] + sshArgs + [remoteCommand])
+            .map { shellSingleQuote($0) }
+            .joined(separator: " ")
+
+        // Self-delete before exec replaces the shell process so temp files do not
+        // accumulate across sessions. `rm -f -- "$0"` removes the script file
+        // immediately after the shell reads it. The kernel keeps the open inode
+        // alive until exec completes (the fd remains valid through the exec call
+        // itself since the script is already loaded into the shell's memory).
+        let script = """
+        #!/bin/sh
+        rm -f -- "$0"
+        exec \(sshInvocation)
+        """
+
+        do {
+            let tempDir = FileManager.default.temporaryDirectory
+            // Build a unique suffix so concurrent script creations each get their own
+            // file. For reconciler-driven splits, use the pane ID (e.g. "3" from "%3").
+            // For user-initiated splits (tmuxPaneId == nil), use a random UUID so that
+            // two rapid manual splits don't share a path — the self-deleting script
+            // would be removed by the first SSH exec before the second one starts.
+            let uniqueSuffix: String
+            if let pid = tmuxPaneId {
+                uniqueSuffix = "-" + pid.dropFirst()
+            } else {
+                uniqueSuffix = "-" + UUID().uuidString.prefix(8).lowercased()
+            }
+            let scriptURL = tempDir.appendingPathComponent(
+                "cmux-tmux-ssh-\(id.uuidString.lowercased())\(uniqueSuffix).sh"
+            )
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: scriptURL.path
+            )
+            return scriptURL.path
+        } catch {
+#if DEBUG
+            dlog("tmux.startupScript.failed error=\(error)")
+#endif
+            return nil
+        }
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    /// Returns true when the remote tmux version supports exact-match session targets
+    /// (the `=<name>` prefix, added in tmux 2.5). Defaults to true when the version
+    /// is unknown so that newer servers (the common case) get correct targeting.
+    private var remoteTmuxSupportsExactTarget: Bool {
+        guard let version = remoteTmuxVersion else { return true }
+        // Version string is e.g. "3.4" or "2.5a". Parse major.minor numerically.
+        let parts = version.split(separator: ".").map { $0.prefix(while: { $0.isNumber }) }
+        guard parts.count >= 2,
+              let major = Int(parts[0]),
+              let minor = Int(parts[1]) else { return true }
+        return (major, minor) >= (2, 5)
     }
 
     /// Create a new browser panel split
@@ -11125,6 +12043,14 @@ final class Workspace: Identifiable, ObservableObject {
 
 // MARK: - BonsplitDelegate
 
+// MARK: - TmuxReconcilerWorkspace conformance
+
+extension Workspace: TmuxReconcilerWorkspace {
+    // newTerminalSplitForTmuxPane(_:windowHint:) is defined in the main class body above.
+    // closePanel(_:force:) matches the existing func closePanel(_ panelId: UUID, force: Bool).
+    // Swift satisfies the protocol via those existing implementations.
+}
+
 extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
@@ -11724,6 +12650,12 @@ extension Workspace: BonsplitDelegate {
         surfaceTTYNames.removeValue(forKey: panelId)
         syncRemotePortScanTTYs()
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+        // Remove any pending tmux pane assignment for this panel so the reconciler
+        // does not attempt to claim a destroyed panel for an incoming %layout-change.
+        pendingTmuxPanelIds.removeAll { $0.panelId == panelId }
+        // Remove any tmux pane tracking so a user-closed tmux-backed split is not
+        // re-opened by the next %layout-change (the tmux pane may still be running).
+        tmuxLayoutReconciler?.removeTracking(forPanel: panelId)
         PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
         terminalInheritanceFontPointsByPanelId.removeValue(forKey: panelId)
         if lastTerminalConfigInheritancePanelId == panelId {
@@ -11877,6 +12809,7 @@ extension Workspace: BonsplitDelegate {
                 surfaceTTYNames.removeValue(forKey: panelId)
                 surfaceListeningPorts.removeValue(forKey: panelId)
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
+                pendingTmuxPanelIds.removeAll { $0.panelId == panelId }
                 PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
             }
 
