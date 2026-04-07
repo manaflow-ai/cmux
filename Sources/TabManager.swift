@@ -883,7 +883,7 @@ enum WorkspaceTabColorSettings {
                 return hex
             }
         }
-        return available.first.flatMap { normalizedHex($0.hex) }
+        return nil
     }
 
     static func removeColor(named name: String, defaults: UserDefaults = .standard) {

@@ -6184,6 +6184,7 @@ struct SettingsView: View {
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil
+        autoAssignWorkspaceColor = AutoAssignWorkspaceColorSettings.defaultEnabled
         sidebarShowBranchDirectory = true
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
