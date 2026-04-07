@@ -25,7 +25,7 @@ RELAY_LOG="/tmp/cmux-desktop-ios-anchormux-${SANITIZED_TAG}-relay.log"
 TEST_LOG="/tmp/cmux-desktop-ios-anchormux-${SANITIZED_TAG}-ios.log"
 RELOAD_LOG="/tmp/cmux-desktop-ios-anchormux-${SANITIZED_TAG}-reload.log"
 CONFIG_PATH="/tmp/cmux-live-anchormux-${SANITIZED_TAG}.json"
-DAEMON_BIN="$ROOT/daemon/remote/zig/zig-out/bin/cmuxd-remote"
+DAEMON_BIN="$ROOT/daemon/remote/rust/target/debug/cmuxd-remote"
 
 RELAY_PID=""
 TEST_PID=""

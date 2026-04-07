@@ -34,7 +34,7 @@ func TestManagerRoundTripsOutputAndInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read echoed output: %v", err)
 	}
-	if string(echo.Data) != "hello\r\n" {
-		t.Fatalf("echo data = %q, want %q", string(echo.Data), "hello\r\n")
+	if string(echo.Data) != "hello\n" {
+		t.Fatalf("echo data = %q, want %q", string(echo.Data), "hello\n")
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 var (
 	ErrSessionNotFound    = errors.New("session not found")
+	ErrSessionExists      = errors.New("session already exists")
 	ErrAttachmentNotFound = errors.New("attachment not found")
 	ErrInvalidSize        = errors.New("cols and rows must be greater than zero")
 )
@@ -59,11 +60,15 @@ func NewManager() *Manager {
 	}
 }
 
-func (m *Manager) Open(cols, rows int) (sessionID, attachmentID string) {
+func (m *Manager) Open(sessionID string, cols, rows int) (resolvedSessionID, attachmentID string, err error) {
+	cols, rows = normalizeSize(cols, rows)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	sessionID, state := m.ensureLocked("")
+	resolvedSessionID, state, err := m.openLocked(sessionID)
+	if err != nil {
+		return "", "", err
+	}
 	attachmentID = m.nextAttachmentIDLocked()
 	state.attachments[attachmentID] = attachmentState{
 		cols:      cols,
@@ -72,7 +77,7 @@ func (m *Manager) Open(cols, rows int) (sessionID, attachmentID string) {
 	}
 	recomputeSessionSize(state)
 
-	return sessionID, attachmentID
+	return resolvedSessionID, attachmentID, nil
 }
 
 func (m *Manager) Ensure(sessionID string) SessionStatus {
@@ -98,6 +103,7 @@ func (m *Manager) Attach(sessionID, attachmentID string, cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return ErrInvalidSize
 	}
+	cols, rows = normalizeSize(cols, rows)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -120,6 +126,7 @@ func (m *Manager) Resize(sessionID, attachmentID string, cols, rows int) error {
 	if cols <= 0 || rows <= 0 {
 		return ErrInvalidSize
 	}
+	cols, rows = normalizeSize(cols, rows)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -170,10 +177,32 @@ func (m *Manager) Status(sessionID string) (SessionStatus, error) {
 	return snapshotLocked(sessionID, state), nil
 }
 
+func (m *Manager) List() []SessionStatus {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	sessionIDs := make([]string, 0, len(m.sessions))
+	for sessionID := range m.sessions {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	sort.Strings(sessionIDs)
+
+	out := make([]SessionStatus, 0, len(sessionIDs))
+	for _, sessionID := range sessionIDs {
+		out = append(out, snapshotLocked(sessionID, m.sessions[sessionID]))
+	}
+	return out
+}
+
 func (m *Manager) ensureLocked(sessionID string) (string, *sessionState) {
 	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", m.nextSessionID)
-		m.nextSessionID++
+		for {
+			sessionID = fmt.Sprintf("sess-%d", m.nextSessionID)
+			m.nextSessionID++
+			if _, exists := m.sessions[sessionID]; !exists {
+				break
+			}
+		}
 	}
 
 	state, ok := m.sessions[sessionID]
@@ -185,6 +214,21 @@ func (m *Manager) ensureLocked(sessionID string) (string, *sessionState) {
 	}
 
 	return sessionID, state
+}
+
+func (m *Manager) openLocked(sessionID string) (string, *sessionState, error) {
+	if sessionID == "" {
+		resolvedSessionID, state := m.ensureLocked("")
+		return resolvedSessionID, state, nil
+	}
+	if _, exists := m.sessions[sessionID]; exists {
+		return "", nil, ErrSessionExists
+	}
+	state := &sessionState{
+		attachments: map[string]attachmentState{},
+	}
+	m.sessions[sessionID] = state
+	return sessionID, state, nil
 }
 
 func (m *Manager) nextAttachmentIDLocked() string {
@@ -215,6 +259,16 @@ func recomputeSessionSize(state *sessionState) {
 	state.effectiveRows = minRows
 	state.lastKnownCols = minCols
 	state.lastKnownRows = minRows
+}
+
+func normalizeSize(cols, rows int) (int, int) {
+	if cols > 0 && cols < 2 {
+		cols = 2
+	}
+	if rows > 0 && rows < 1 {
+		rows = 1
+	}
+	return cols, rows
 }
 
 func snapshotLocked(sessionID string, state *sessionState) SessionStatus {

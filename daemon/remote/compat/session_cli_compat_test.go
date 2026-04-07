@@ -322,6 +322,88 @@ func TestSessionCLIListShowsMultipleAttachments(t *testing.T) {
 	}
 }
 
+func TestSessionCLIAttachDetachesIfRawModeSetupFails(t *testing.T) {
+	t.Parallel()
+
+	bin := daemonBinary(t)
+	socketPath := startUnixDaemon(t, bin)
+	openAndSeedCatSession(t, socketPath, "attach-cleanup", "")
+
+	attachCmd := exec.Command(bin, "session", "attach", "attach-cleanup", "--socket", socketPath)
+	attachCmd.Dir = daemonRemoteRoot()
+	attachOutput, err := attachCmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("session attach without a tty should fail, output=%s", attachOutput)
+	}
+
+	client := newUnixJSONRPCClient(t, socketPath)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Fatalf("close unix client: %v", err)
+		}
+	}()
+
+	status := client.Call(t, map[string]any{
+		"id":     "1",
+		"method": "session.status",
+		"params": map[string]any{
+			"session_id": "attach-cleanup",
+		},
+	})
+	if ok, _ := status["ok"].(bool); !ok {
+		t.Fatalf("session.status should succeed: %+v", status)
+	}
+	attachments := status["result"].(map[string]any)["attachments"].([]any)
+	if len(attachments) != 1 {
+		t.Fatalf("expected only the bootstrap attachment after failed attach, got %+v", attachments)
+	}
+	attachmentID := attachments[0].(map[string]any)["attachment_id"].(string)
+	if strings.HasPrefix(attachmentID, "cli-") {
+		t.Fatalf("failed attach left a cli attachment behind: %+v", attachments)
+	}
+}
+
+func TestSessionCLIAttachExitsWhenRemotePaneHasReachedEOF(t *testing.T) {
+	t.Parallel()
+
+	bin := daemonBinary(t)
+	socketPath := startUnixDaemon(t, bin)
+	client := newUnixJSONRPCClient(t, socketPath)
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Fatalf("close unix client: %v", err)
+		}
+	}()
+
+	open := client.Call(t, map[string]any{
+		"id":     "1",
+		"method": "terminal.open",
+		"params": map[string]any{
+			"session_id": "attach-exit",
+			"command":    "printf DONE",
+			"cols":       80,
+			"rows":       24,
+		},
+	})
+	if ok, _ := open["ok"].(bool); !ok {
+		t.Fatalf("terminal.open should succeed: %+v", open)
+	}
+
+	cmd := exec.Command(bin, "session", "attach", "attach-exit", "--socket", socketPath)
+	cmd.Dir = daemonRemoteRoot()
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 90, Rows: 24})
+	if err != nil {
+		t.Fatalf("pty start session attach: %v", err)
+	}
+	defer ptmx.Close()
+
+	output := readUntilContains(t, ptmx, "DONE", 3*time.Second)
+	if !strings.Contains(output, "DONE") {
+		t.Fatalf("session attach output missing DONE: %q", output)
+	}
+	waitForCommandExit(t, cmd, 5*time.Second)
+}
+
 func openAndSeedCatSession(t *testing.T, socketPath, sessionID, text string) {
 	t.Helper()
 

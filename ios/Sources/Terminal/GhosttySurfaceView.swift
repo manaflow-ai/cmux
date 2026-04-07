@@ -777,7 +777,7 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface else { return }
         cursorBlinkVisible = true
         lastBlinkToggle = CACurrentMediaTime()
-        ghostty_surface_set_cursor_blink_visible(surface, true)
+        ghostty_surface_refresh(surface)
     }
 
     @objc func handleDisplayLinkFire() {
@@ -787,12 +787,11 @@ final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if now - lastBlinkToggle >= 0.5 {
             cursorBlinkVisible.toggle()
             lastBlinkToggle = now
-            ghostty_surface_set_cursor_blink_visible(surface, cursorBlinkVisible)
             blinkChanged = true
         }
         if needsDraw || blinkChanged {
             needsDraw = false
-            ghostty_surface_update_and_draw(surface)
+            ghostty_surface_refresh(surface)
         }
     }
 

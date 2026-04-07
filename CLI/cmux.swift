@@ -1680,6 +1680,9 @@ struct CMUXCLI {
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
             }
 
+        case "pty":
+            try runPty(commandArgs: commandArgs, client: client, windowOverride: windowId, jsonOutput: jsonOutput)
+
         case "new-split":
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
@@ -2774,6 +2777,349 @@ struct CMUXCLI {
         return nil
     }
 
+    private func uint64FromAny(_ value: Any?) -> UInt64? {
+        if let value = value as? UInt64 { return value }
+        if let value = value as? Int { return value >= 0 ? UInt64(value) : nil }
+        if let value = value as? NSNumber { return value.uint64Value }
+        if let value = value as? String { return UInt64(value) }
+        return nil
+    }
+
+    private struct PTYSurfaceDaemonInfo {
+        let socketPath: String
+        let sessionID: String
+        let workspaceID: String
+        let surfaceID: String
+
+        init(payload: [String: Any]) throws {
+            guard let socketPath = payload["socket_path"] as? String,
+                  !socketPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let sessionID = payload["session_id"] as? String,
+                  !sessionID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let workspaceID = payload["workspace_id"] as? String,
+                  let surfaceID = payload["surface_id"] as? String else {
+                throw CLIError(message: "surface.daemon_info returned an incomplete daemon payload")
+            }
+            self.socketPath = socketPath
+            self.sessionID = sessionID
+            self.workspaceID = workspaceID
+            self.surfaceID = surfaceID
+        }
+    }
+
+    private struct PTYWindowSize: Equatable {
+        let cols: Int
+        let rows: Int
+    }
+
+    private struct PTYTerminalReadResult {
+        let offset: UInt64
+        let eof: Bool
+        let data: Data
+    }
+
+    private enum PTYDaemonRPCError: LocalizedError {
+        case invalidResponse(String)
+        case rpc(code: String, message: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidResponse(let message):
+                return message
+            case .rpc(_, let message):
+                return message
+            }
+        }
+    }
+
+    private struct PTYDaemonClient {
+        let socketPath: String
+
+        func sessionAttach(sessionID: String, attachmentID: String, size: PTYWindowSize) throws {
+            _ = try call(
+                method: "session.attach",
+                params: [
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                    "cols": max(1, size.cols),
+                    "rows": max(1, size.rows),
+                ]
+            )
+        }
+
+        func sessionResize(sessionID: String, attachmentID: String, size: PTYWindowSize) throws {
+            _ = try call(
+                method: "session.resize",
+                params: [
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                    "cols": max(1, size.cols),
+                    "rows": max(1, size.rows),
+                ]
+            )
+        }
+
+        func sessionDetach(sessionID: String, attachmentID: String) throws {
+            _ = try call(
+                method: "session.detach",
+                params: [
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                ]
+            )
+        }
+
+        func terminalWrite(sessionID: String, data: Data) throws {
+            _ = try call(
+                method: "terminal.write",
+                params: [
+                    "session_id": sessionID,
+                    "data": data.base64EncodedString(),
+                ]
+            )
+        }
+
+        func terminalRead(
+            sessionID: String,
+            offset: UInt64,
+            maxBytes: Int = 64 * 1024,
+            timeoutMilliseconds: Int = 250
+        ) throws -> PTYTerminalReadResult {
+                let result = try call(
+                    method: "terminal.read",
+                    params: [
+                        "session_id": sessionID,
+                        "offset": offset,
+                    "max_bytes": maxBytes,
+                    "timeout_ms": timeoutMilliseconds,
+                ]
+            )
+            guard let nextOffset = Self.uint64FromAny(result["offset"]),
+                  let eof = result["eof"] as? Bool,
+                  let encoded = result["data"] as? String,
+                  let data = Data(base64Encoded: encoded) else {
+                throw PTYDaemonRPCError.invalidResponse("terminal.read returned malformed output")
+            }
+            return PTYTerminalReadResult(offset: nextOffset, eof: eof, data: data)
+        }
+
+        private func call(method: String, params: [String: Any]) throws -> [String: Any] {
+            let requestData = try JSONSerialization.data(
+                withJSONObject: [
+                    "id": 1,
+                    "method": method,
+                    "params": params,
+                ],
+                options: []
+            ) + Data([0x0A])
+            let responseData = try roundTripUnixSocket(socketPath: socketPath, request: requestData)
+            guard let responseLine = String(data: responseData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !responseLine.isEmpty,
+                  let lineData = responseLine.data(using: .utf8),
+                  let envelope = try JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+                throw PTYDaemonRPCError.invalidResponse("daemon returned invalid JSON")
+            }
+
+            if let ok = envelope["ok"] as? Bool, ok == true {
+                guard let result = envelope["result"] as? [String: Any] else {
+                    throw PTYDaemonRPCError.invalidResponse("daemon response was missing a result payload")
+                }
+                return result
+            }
+
+            let errorPayload = envelope["error"] as? [String: Any]
+            let code = (errorPayload?["code"] as? String) ?? "unknown"
+            let message = (errorPayload?["message"] as? String) ?? "daemon request failed"
+            throw PTYDaemonRPCError.rpc(code: code, message: message)
+        }
+
+        private func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                throw PTYDaemonRPCError.invalidResponse("failed to create daemon socket")
+            }
+            defer { Darwin.close(fd) }
+
+            var timeout = timeval(tv_sec: 15, tv_usec: 0)
+            withUnsafePointer(to: &timeout) { pointer in
+                _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+                _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            }
+
+            var address = sockaddr_un()
+            address.sun_family = sa_family_t(AF_UNIX)
+            let pathBytes = Array(socketPath.utf8CString)
+            guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+                throw PTYDaemonRPCError.invalidResponse("daemon socket path is too long")
+            }
+            let sunPathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            withUnsafeMutableBytes(of: &address) { rawBuffer in
+                let destination = rawBuffer.baseAddress!.advanced(by: sunPathOffset)
+                pathBytes.withUnsafeBytes { pathBuffer in
+                    destination.copyMemory(from: pathBuffer.baseAddress!, byteCount: pathBytes.count)
+                }
+            }
+
+            let addressLength = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
+            let connectResult = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(fd, $0, addressLength)
+                }
+            }
+            guard connectResult == 0 else {
+                throw PTYDaemonRPCError.invalidResponse("failed to connect to daemon socket")
+            }
+
+            try request.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var bytesRemaining = rawBuffer.count
+                var pointer = baseAddress
+                while bytesRemaining > 0 {
+                    let written = Darwin.write(fd, pointer, bytesRemaining)
+                    if written <= 0 {
+                        throw PTYDaemonRPCError.invalidResponse("failed to write daemon request")
+                    }
+                    bytesRemaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+            }
+            _ = shutdown(fd, SHUT_WR)
+
+            var response = Data()
+            var scratch = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(fd, &scratch, scratch.count)
+                if count > 0 {
+                    response.append(scratch, count: count)
+                    continue
+                }
+                if count == 0 {
+                    break
+                }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw PTYDaemonRPCError.invalidResponse("timed out waiting for daemon response")
+                }
+                throw PTYDaemonRPCError.invalidResponse("failed to read daemon response")
+            }
+            return response
+        }
+
+        private static func uint64FromAny(_ value: Any?) -> UInt64? {
+            switch value {
+            case let value as UInt64:
+                return value
+            case let value as Int:
+                return value >= 0 ? UInt64(value) : nil
+            case let value as NSNumber:
+                return value.uint64Value
+            case let value as String:
+                return UInt64(value)
+            default:
+                return nil
+            }
+        }
+    }
+
+    private final class PTYRawModeGuard {
+        private let fd: Int32
+        private let original: termios
+        private var restored = false
+
+        init(fd: Int32 = STDIN_FILENO) throws {
+            self.fd = fd
+            var original = termios()
+            guard tcgetattr(fd, &original) == 0 else {
+                throw CLIError(message: "Failed to read terminal attributes: \(String(cString: strerror(errno)))")
+            }
+            var raw = original
+            cfmakeraw(&raw)
+            guard tcsetattr(fd, TCSANOW, &raw) == 0 else {
+                throw CLIError(message: "Failed to enable raw terminal mode: \(String(cString: strerror(errno)))")
+            }
+            self.original = original
+        }
+
+        func restore() {
+            guard !restored else { return }
+            restored = true
+            var original = self.original
+            _ = tcsetattr(fd, TCSANOW, &original)
+        }
+
+        deinit {
+            restore()
+        }
+    }
+
+    private final class PTYInputPump {
+        private let queue = DispatchQueue(label: "cmux.pty.stdin", qos: .userInitiated)
+        private let stateLock = NSLock()
+        private let writeHandler: (Data) throws -> Void
+        private var running = true
+
+        init(writeHandler: @escaping (Data) throws -> Void) {
+            self.writeHandler = writeHandler
+        }
+
+        func start() {
+            queue.async { [weak self] in
+                self?.run()
+            }
+        }
+
+        func stop() {
+            stateLock.lock()
+            running = false
+            stateLock.unlock()
+        }
+
+        private func isRunning() -> Bool {
+            stateLock.lock()
+            let current = running
+            stateLock.unlock()
+            return current
+        }
+
+        private func run() {
+            var pollDescriptor = pollfd(fd: STDIN_FILENO, events: Int16(POLLIN), revents: 0)
+            var buffer = [UInt8](repeating: 0, count: 8192)
+
+            while isRunning() {
+                let pollResult = Darwin.poll(&pollDescriptor, 1, 200)
+                if pollResult < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    return
+                }
+                if pollResult == 0 || (pollDescriptor.revents & Int16(POLLIN)) == 0 {
+                    continue
+                }
+
+                let readCount = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+                if readCount > 0 {
+                    do {
+                        try writeHandler(Data(buffer.prefix(readCount)))
+                    } catch {
+                        stop()
+                        return
+                    }
+                    continue
+                }
+                if readCount == 0 {
+                    stop()
+                    return
+                }
+                if errno == EINTR {
+                    continue
+                }
+                stop()
+                return
+            }
+        }
+    }
+
     private func parseBoolString(_ raw: String) -> Bool? {
         switch raw.lowercased() {
         case "1", "true", "yes", "on":
@@ -2959,6 +3305,151 @@ struct CMUXCLI {
             workspaceHandle: workspaceHandle,
             allowFocused: false
         )
+    }
+
+    private func runPty(
+        commandArgs: [String],
+        client: SocketClient,
+        windowOverride: String?,
+        jsonOutput: Bool
+    ) throws {
+        guard !jsonOutput else {
+            throw CLIError(message: "cmux pty is interactive only and does not support --json")
+        }
+        guard isatty(STDIN_FILENO) == 1, isatty(STDOUT_FILENO) == 1 else {
+            throw CLIError(message: "cmux pty requires a TTY on stdin and stdout")
+        }
+
+        let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
+        let explicitSurfaceArg = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
+        let workspaceHandle = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            allowCurrent: workspaceArg == nil
+        )
+        let surfaceHandle: String = try {
+            if let explicitSurfaceArg {
+                guard let resolved = try normalizeSurfaceHandle(
+                    explicitSurfaceArg,
+                    client: client,
+                    workspaceHandle: workspaceHandle,
+                    allowFocused: false
+                ) else {
+                    throw CLIError(message: "Unable to resolve surface handle")
+                }
+                return resolved
+            }
+            var params: [String: Any] = [:]
+            if let workspaceHandle {
+                params["workspace_id"] = workspaceHandle
+            }
+            let currentPayload = try client.sendV2(method: "surface.current", params: params)
+            if let resolved = (currentPayload["surface_ref"] as? String) ?? (currentPayload["surface_id"] as? String) {
+                return resolved
+            }
+            throw CLIError(message: "No focused terminal surface")
+        }()
+
+        var daemonInfoParams: [String: Any] = ["surface_id": surfaceHandle]
+        if let workspaceHandle {
+            daemonInfoParams["workspace_id"] = workspaceHandle
+        }
+        let daemonInfoPayload = try client.sendV2(method: "surface.daemon_info", params: daemonInfoParams)
+        let daemonInfo = try PTYSurfaceDaemonInfo(payload: daemonInfoPayload)
+        let daemonClient = PTYDaemonClient(socketPath: daemonInfo.socketPath)
+        let attachmentID = UUID().uuidString
+        let initialSize = currentPTYWindowSize()
+
+        try daemonClient.sessionAttach(
+            sessionID: daemonInfo.sessionID,
+            attachmentID: attachmentID,
+            size: initialSize
+        )
+
+        let rawMode = try PTYRawModeGuard()
+        defer {
+            rawMode.restore()
+        }
+
+        signal(SIGWINCH, SIG_IGN)
+        let resizeSource = DispatchSource.makeSignalSource(signal: SIGWINCH, queue: DispatchQueue.global(qos: .userInitiated))
+        resizeSource.setEventHandler {
+            let nextSize = self.currentPTYWindowSize()
+            try? daemonClient.sessionResize(
+                sessionID: daemonInfo.sessionID,
+                attachmentID: attachmentID,
+                size: nextSize
+            )
+        }
+        resizeSource.resume()
+        defer {
+            resizeSource.cancel()
+            try? daemonClient.sessionDetach(sessionID: daemonInfo.sessionID, attachmentID: attachmentID)
+        }
+
+        let inputPump = PTYInputPump { data in
+            try daemonClient.terminalWrite(sessionID: daemonInfo.sessionID, data: data)
+        }
+        inputPump.start()
+        defer {
+            inputPump.stop()
+        }
+
+        var nextOffset: UInt64 = 0
+        while true {
+            do {
+                let readResult = try daemonClient.terminalRead(
+                    sessionID: daemonInfo.sessionID,
+                    offset: nextOffset
+                )
+                nextOffset = readResult.offset
+                if !readResult.data.isEmpty {
+                    try writePTYOutput(readResult.data)
+                }
+                if readResult.eof {
+                    break
+                }
+            } catch let error as PTYDaemonRPCError {
+                if case .rpc(let code, _) = error, code == "deadline_exceeded" {
+                    continue
+                }
+                if case .rpc(let code, _) = error, code == "not_found" {
+                    break
+                }
+                throw CLIError(message: error.localizedDescription)
+            } catch {
+                throw CLIError(message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func currentPTYWindowSize(fd: Int32 = STDOUT_FILENO) -> PTYWindowSize {
+        var windowSize = winsize()
+        if ioctl(fd, TIOCGWINSZ, &windowSize) == 0 {
+            let cols = max(Int(windowSize.ws_col), 1)
+            let rows = max(Int(windowSize.ws_row), 1)
+            return PTYWindowSize(cols: cols, rows: rows)
+        }
+        return PTYWindowSize(cols: 80, rows: 24)
+    }
+
+    private func writePTYOutput(_ data: Data) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var bytesRemaining = rawBuffer.count
+            var pointer = baseAddress
+            while bytesRemaining > 0 {
+                let written = Darwin.write(STDOUT_FILENO, pointer, bytesRemaining)
+                if written < 0 {
+                    if errno == EINTR {
+                        continue
+                    }
+                    throw CLIError(message: "Failed to write PTY output: \(String(cString: strerror(errno)))")
+                }
+                bytesRemaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+        }
     }
 
     private func displayTabHandle(_ raw: String?) -> String? {
@@ -6301,6 +6792,21 @@ struct CMUXCLI {
               cmux new-workspace
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
+            """
+        case "pty":
+            return """
+            Usage: cmux pty [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+
+            Attach the current terminal to the Rust-backed PTY session for a local cmux surface.
+
+            Flags:
+              --workspace <id|ref>   Workspace context (default: current workspace)
+              --surface <id|ref>     Surface to mirror (default: current focused surface)
+              --panel <id|ref>       Alias for --surface
+
+            Example:
+              cmux pty
+              cmux pty --workspace workspace:2 --surface surface:3
             """
         case "list-workspaces":
             return """
@@ -11378,6 +11884,7 @@ struct CMUXCLI {
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <#hex|name>]
           list-workspaces
           new-workspace [--cwd <path>] [--command <text>]
+          pty [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]

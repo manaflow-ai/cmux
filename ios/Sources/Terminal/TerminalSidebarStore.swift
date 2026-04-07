@@ -1204,6 +1204,8 @@ final class TerminalSessionController: ObservableObject {
                 liveAnchormuxLog("controller.event notice message=\(message)")
             case .trustedHostKey(let hostKey):
                 liveAnchormuxLog("controller.event trusted_host_key key=\(hostKey)")
+            case .remotePlatform(let platform):
+                liveAnchormuxLog("controller.event remote_platform os=\(platform.goOS) arch=\(platform.goArch)")
             }
         }
         switch event {
@@ -1235,6 +1237,8 @@ final class TerminalSessionController: ObservableObject {
             setStatusMessage(message)
         case .trustedHostKey(let hostKey):
             onUpdate?(.trustedHostKey(hostKey))
+        case .remotePlatform(let platform):
+            terminalSurface?.updateRemotePlatform(platform)
         }
     }
 

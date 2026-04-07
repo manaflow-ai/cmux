@@ -54,6 +54,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 		fs.SetOutput(stderr)
 		stdio := fs.Bool("stdio", false, "serve over stdin/stdout")
+		unixMode := fs.Bool("unix", false, "serve over a Unix socket")
+		socketPath := fs.String("socket", "", "Unix socket path")
 		tlsMode := fs.Bool("tls", false, "serve over TLS")
 		listenAddr := fs.String("listen", "", "TLS listen address")
 		serverID := fs.String("server-id", "", "server identifier for ticket verification")
@@ -63,12 +65,29 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
-		if *stdio == *tlsMode {
-			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio or --tls")
+		modeCount := 0
+		if *stdio {
+			modeCount++
+		}
+		if *unixMode {
+			modeCount++
+		}
+		if *tlsMode {
+			modeCount++
+		}
+		if modeCount != 1 {
+			_, _ = fmt.Fprintln(stderr, "serve requires exactly one of --stdio, --unix, or --tls")
 			return 2
 		}
 		if *stdio {
 			if err := runStdioServer(stdin, stdout); err != nil {
+				_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
+				return 1
+			}
+			return 0
+		}
+		if *unixMode {
+			if err := runUnixServer(*socketPath); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve failed: %v\n", err)
 				return 1
 			}
@@ -85,8 +104,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
+	case "session":
+		return runSessionCLI(args[1:])
 	case "cli":
 		return runCLI(args[1:])
+	case "list", "ls", "attach", "status", "history", "kill", "new":
+		return runSessionCLI(args)
 	default:
 		usage(stderr)
 		return 2
@@ -97,7 +120,9 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "Usage:")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote version")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --unix --socket <path>")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --tls --listen <addr> --server-id <id> --ticket-secret <secret> --cert-file <path> --key-file <path>")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote session <command> [args...]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
 }
 
@@ -105,6 +130,42 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 	server := newDaemonServer()
 	defer server.closeAll()
 	return rpc.NewServer(server.handleRequest).Serve(stdin, stdout)
+}
+
+func runUnixServer(socketPath string) error {
+	if socketPath == "" {
+		return errors.New("unix server requires --socket")
+	}
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(socketPath)
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = listener.Close()
+		_ = os.Remove(socketPath)
+	}()
+
+	server := newDaemonServer()
+	defer server.closeAll()
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return nil
+			}
+			return err
+		}
+		go func(conn net.Conn) {
+			defer conn.Close()
+			_ = rpc.NewServer(server.handleRequest).Serve(conn, conn)
+		}(conn)
+	}
 }
 
 func runTLSServer(cfg direct.Config) error {
@@ -181,6 +242,10 @@ func (s *daemonServer) handleRequest(req rpc.Request) rpc.Response {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	case "session.list":
+		return s.handleSessionList(req)
+	case "session.history":
+		return s.handleSessionHistory(req)
 	case "terminal.open":
 		return s.handleTerminalOpen(req)
 	case "terminal.read":
@@ -699,6 +764,52 @@ func (s *daemonServer) handleSessionStatus(req rpc.Request) rpc.Response {
 	}
 }
 
+func (s *daemonServer) handleSessionList(req rpc.Request) rpc.Response {
+	sessions := s.sessions.List()
+	result := make([]map[string]any, 0, len(sessions))
+	for _, status := range sessions {
+		result = append(result, map[string]any{
+			"session_id":       status.SessionID,
+			"attachment_count": len(status.Attachments),
+			"effective_cols":   status.EffectiveCols,
+			"effective_rows":   status.EffectiveRows,
+		})
+	}
+	return rpc.Response{
+		ID:     req.ID,
+		OK:     true,
+		Result: map[string]any{"sessions": result},
+	}
+}
+
+func (s *daemonServer) handleSessionHistory(req rpc.Request) rpc.Response {
+	sessionID, ok := getStringParam(req.Params, "session_id")
+	if !ok || sessionID == "" {
+		return rpc.Response{
+			ID: req.ID,
+			OK: false,
+			Error: &rpc.Error{
+				Code:    "invalid_params",
+				Message: "session.history requires session_id",
+			},
+		}
+	}
+
+	history, err := s.terminals.History(sessionID)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: terminalError(err),
+		}
+	}
+	return rpc.Response{
+		ID:     req.ID,
+		OK:     true,
+		Result: map[string]any{"session_id": sessionID, "history": string(history)},
+	}
+}
+
 func (s *daemonServer) handleTerminalOpen(req rpc.Request) rpc.Response {
 	command, ok := getStringParam(req.Params, "command")
 	if !ok || command == "" {
@@ -735,7 +846,15 @@ func (s *daemonServer) handleTerminalOpen(req rpc.Request) rpc.Response {
 		}
 	}
 
-	sessionID, attachmentID := s.sessions.Open(cols, rows)
+	requestedSessionID, _ := getStringParam(req.Params, "session_id")
+	sessionID, attachmentID, err := s.sessions.Open(requestedSessionID, cols, rows)
+	if err != nil {
+		return rpc.Response{
+			ID:    req.ID,
+			OK:    false,
+			Error: sessionError(err),
+		}
+	}
 	status, err := s.sessions.Status(sessionID)
 	if err != nil {
 		return rpc.Response{ID: req.ID, OK: false, Error: sessionError(err)}
@@ -937,6 +1056,8 @@ func sessionError(err error) *rpc.Error {
 		return nil
 	case session.ErrSessionNotFound:
 		return &rpc.Error{Code: "not_found", Message: "session not found"}
+	case session.ErrSessionExists:
+		return &rpc.Error{Code: "already_exists", Message: err.Error()}
 	case session.ErrAttachmentNotFound:
 		return &rpc.Error{Code: "not_found", Message: "attachment not found"}
 	case session.ErrInvalidSize:

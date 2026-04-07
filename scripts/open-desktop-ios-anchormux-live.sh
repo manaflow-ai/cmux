@@ -158,7 +158,7 @@ if [[ -z "$WORKSPACE_ID" || -z "$SURFACE_ID" ]]; then
   exit 1
 fi
 
-DAEMON_BIN="$ROOT/daemon/remote/zig/zig-out/bin/cmuxd-remote"
+DAEMON_BIN="$ROOT/daemon/remote/rust/target/debug/cmuxd-remote"
 if ! "$DAEMON_BIN" amux status "$SURFACE_ID" --socket "$DAEMON_SOCKET" >/dev/null 2>&1; then
   deadline=$((SECONDS + 20))
   while (( SECONDS < deadline )); do

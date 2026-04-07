@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -15,9 +16,13 @@ pub fn build(b: *std.Build) void {
     });
     mod.addOptions("build_options", build_options);
 
+    const disable_ghostty_simd =
+        !builtin.os.tag.isDarwin() and target.result.os.tag.isDarwin();
+
     if (b.lazyDependency("ghostty", .{
         .target = target,
         .optimize = optimize,
+        .simd = !disable_ghostty_simd,
     })) |dep| {
         mod.addImport("ghostty-vt", dep.module("ghostty-vt"));
     }

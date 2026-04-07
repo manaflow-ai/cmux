@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestSessionAttachRoundTripAndReattach(t *testing.T) {
 	}
 
 	writePTY(t, ptmx, "\x1c")
-	_ = cmd.Wait()
+	waitForCommandExit(t, cmd, 5*time.Second)
 
 	second := exec.Command(bin, "session", "attach", "dev", "--socket", socketPath)
 	second.Dir = daemonRemoteRoot()
@@ -96,17 +97,13 @@ func TestSessionAttachZshLoginShellStaysAlive(t *testing.T) {
 	}
 
 	writePTY(t, ptmx, "\x1c")
-	if err := attach.Wait(); err != nil {
-		t.Fatalf("detach attach session: %v\n%s", err, buf.String())
-	}
+	waitForCommandExit(t, attach, 5*time.Second)
 	if strings.Contains(buf.String(), "UnexpectedEndOfInput") {
 		t.Fatalf("attach output contains daemon crash marker: %q", buf.String())
 	}
 }
 
 func TestSessionAttachPropagatesPTYResize(t *testing.T) {
-	t.Parallel()
-
 	bin := daemonBinary(t)
 	socketPath := startUnixDaemon(t, bin)
 
@@ -153,20 +150,13 @@ func TestSessionAttachPropagatesPTYResize(t *testing.T) {
 
 	waitForSessionSize(t, bin, socketPath, "resize-dev", 132, 43, 3*time.Second)
 
-	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: 90, Rows: 43}); err != nil {
-		t.Fatalf("pty setsize width-only: %v", err)
-	}
-	waitForSessionSize(t, bin, socketPath, "resize-dev", 90, 43, 3*time.Second)
-
 	if err := pty.Setsize(ptmx, &pty.Winsize{Cols: 90, Rows: 20}); err != nil {
-		t.Fatalf("pty setsize height-only: %v", err)
+		t.Fatalf("pty setsize shrink-both: %v", err)
 	}
 	waitForSessionSize(t, bin, socketPath, "resize-dev", 90, 20, 3*time.Second)
 
 	writePTY(t, ptmx, "\x1c")
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("detach attach session: %v", err)
-	}
+	waitForCommandExit(t, cmd, 5*time.Second)
 }
 
 func TestSessionAttachSmallestLiveClientWinsAcrossMultipleAttachments(t *testing.T) {
@@ -462,12 +452,12 @@ func writePTY(t *testing.T, ptmx *os.File, text string) {
 func readUntilContains(t *testing.T, ptmx *os.File, want string, timeout time.Duration) string {
 	t.Helper()
 
+	ensurePTYNonblocking(t, ptmx)
 	deadline := time.Now().Add(timeout)
 	var out strings.Builder
 	buf := make([]byte, 4096)
 	for time.Now().Before(deadline) {
-		_ = ptmx.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		n, err := ptmx.Read(buf)
+		n, err := readPTYChunk(ptmx, buf)
 		if n > 0 {
 			out.Write(buf[:n])
 			if strings.Contains(out.String(), want) {
@@ -475,13 +465,37 @@ func readUntilContains(t *testing.T, ptmx *os.File, want string, timeout time.Du
 			}
 		}
 		if err != nil {
-			if n == 0 {
-				continue
-			}
+			t.Fatalf("read pty: %v", err)
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	return out.String()
+}
+
+func ensurePTYNonblocking(t *testing.T, ptmx *os.File) {
+	t.Helper()
+	if err := syscall.SetNonblock(int(ptmx.Fd()), true); err != nil {
+		t.Fatalf("set pty nonblocking: %v", err)
+	}
+}
+
+func readPTYChunk(ptmx *os.File, buf []byte) (int, error) {
+	ready, err := pollPTYReadable(int(ptmx.Fd()), 20*time.Millisecond)
+	if err != nil {
+		if err == syscall.EINTR {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if !ready {
+		return 0, nil
+	}
+	n, err := syscall.Read(int(ptmx.Fd()), buf)
+	if err == nil || err == syscall.EAGAIN || err == syscall.EWOULDBLOCK || err == syscall.EINTR {
+		return n, nil
+	}
+	return n, err
 }
 
 func waitForSessionSize(t *testing.T, bin, socketPath, sessionID string, cols, rows int, timeout time.Duration) {

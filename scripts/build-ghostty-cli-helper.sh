@@ -99,6 +99,7 @@ build_helper() {
     -Dapp-runtime=none
     -Demit-macos-app=true
     -Demit-xcframework=false
+    -Dxcframework-target=native
     -Doptimize=ReleaseFast
     --prefix
     "$prefix"

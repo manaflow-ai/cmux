@@ -281,9 +281,11 @@ if [[ -n "$TAG" ]]; then
   fi
 fi
 
-LOCAL_REMOTE_DAEMON_BIN="$PWD/daemon/remote/zig/zig-out/bin/cmuxd-remote"
-if [[ -n "${TAG_SLUG:-}" && -d "$PWD/daemon/remote/zig" ]]; then
-  (cd "$PWD/daemon/remote/zig" && cmux_run_zig build -Doptimize=ReleaseFast)
+LOCAL_REMOTE_DAEMON_MANIFEST="$PWD/daemon/remote/rust/Cargo.toml"
+LOCAL_REMOTE_DAEMON_BIN="$PWD/daemon/remote/rust/target/debug/cmuxd-remote"
+if [[ -f "$LOCAL_REMOTE_DAEMON_MANIFEST" ]]; then
+  GHOSTTY_SOURCE_DIR="${GHOSTTY_SOURCE_DIR:-$PWD/ghostty}" \
+    cargo build --manifest-path "$LOCAL_REMOTE_DAEMON_MANIFEST"
 fi
 
 XCODEBUILD_ARGS=(

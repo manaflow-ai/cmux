@@ -989,7 +989,10 @@ final class BonsplitZoomCompatibilityTests: XCTestCase {
             receivedPaneId = incomingPaneId
         }
 
-        let paneId = controller.allPaneIds.first
+        guard let paneId = controller.allPaneIds.first else {
+            XCTFail("Expected a default Bonsplit pane")
+            return
+        }
         controller.onTabCloseRequest?(tabId, paneId)
 
         XCTAssertEqual(receivedTabId?.uuid, tabId.uuid)

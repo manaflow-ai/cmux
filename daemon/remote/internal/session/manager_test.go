@@ -6,7 +6,10 @@ func TestSessionManagerReattachKeepsExistingSessionState(t *testing.T) {
 	t.Parallel()
 
 	mgr := NewManager()
-	sessionID, attachmentID := mgr.Open(120, 40)
+	sessionID, attachmentID, err := mgr.Open("", 120, 40)
+	if err != nil {
+		t.Fatalf("open session: %v", err)
+	}
 
 	if err := mgr.Resize(sessionID, attachmentID, 100, 30); err != nil {
 		t.Fatalf("resize existing attachment: %v", err)
@@ -27,5 +30,46 @@ func TestSessionManagerReattachKeepsExistingSessionState(t *testing.T) {
 	}
 	if status.EffectiveRows != 24 {
 		t.Fatalf("effective rows = %d, want 24", status.EffectiveRows)
+	}
+}
+
+func TestSessionManagerOpenRejectsDuplicateExplicitSessionID(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager()
+	if _, _, err := mgr.Open("demo", 120, 40); err != nil {
+		t.Fatalf("open first session: %v", err)
+	}
+	if _, _, err := mgr.Open("demo", 80, 24); err != ErrSessionExists {
+		t.Fatalf("duplicate open error = %v, want %v", err, ErrSessionExists)
+	}
+
+	status, err := mgr.Status("demo")
+	if err != nil {
+		t.Fatalf("status after duplicate open: %v", err)
+	}
+	if len(status.Attachments) != 1 {
+		t.Fatalf("attachments = %d, want 1", len(status.Attachments))
+	}
+}
+
+func TestSessionManagerGeneratedIDsSkipExistingCustomIDs(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewManager()
+	firstSessionID, _, err := mgr.Open("sess-1", 120, 40)
+	if err != nil {
+		t.Fatalf("open custom session: %v", err)
+	}
+	secondSessionID, _, err := mgr.Open("", 80, 24)
+	if err != nil {
+		t.Fatalf("open generated session: %v", err)
+	}
+
+	if firstSessionID != "sess-1" {
+		t.Fatalf("first session id = %q, want %q", firstSessionID, "sess-1")
+	}
+	if secondSessionID != "sess-2" {
+		t.Fatalf("generated session id = %q, want %q", secondSessionID, "sess-2")
 	}
 }

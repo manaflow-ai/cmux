@@ -1,7 +1,9 @@
 package compat
 
 import (
+	"bufio"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -325,6 +327,144 @@ func TestDirectTLSValidAttachTicketCanAttachQueryStatusAndDetach(t *testing.T) {
 	})
 	if ok, _ := detachResp["ok"].(bool); !ok {
 		t.Fatalf("session.detach should succeed: %+v", detachResp)
+	}
+}
+
+func TestDirectTLSRejectsUnscopedAttachTickets(t *testing.T) {
+	t.Parallel()
+
+	server := startTLSServer(t, daemonBinary(t))
+	openToken, err := auth.SignTicket(auth.TicketClaims{
+		ServerID:     server.ServerID,
+		Capabilities: []string{"session.open"},
+		ExpiresAt:    time.Now().Add(time.Minute).Unix(),
+		Nonce:        "unscoped-open-nonce",
+	}, server.TicketSecret)
+	if err != nil {
+		t.Fatalf("sign open ticket: %v", err)
+	}
+
+	openConn := dialTLSServer(t, server)
+	handshake := writeAndReadJSON(t, openConn, map[string]any{
+		"ticket": openToken,
+	})
+	if ok, _ := handshake["ok"].(bool); !ok {
+		t.Fatalf("open handshake should succeed: %+v", handshake)
+	}
+	openResp := writeAndReadJSON(t, openConn, map[string]any{
+		"id":     1,
+		"method": "terminal.open",
+		"params": map[string]any{
+			"command": "cat",
+			"cols":    120,
+			"rows":    40,
+		},
+	})
+	if ok, _ := openResp["ok"].(bool); !ok {
+		t.Fatalf("terminal.open should succeed: %+v", openResp)
+	}
+	sessionID := openResp["result"].(map[string]any)["session_id"].(string)
+	_ = openConn.Close()
+
+	attachToken, err := auth.SignTicket(auth.TicketClaims{
+		ServerID:     server.ServerID,
+		Capabilities: []string{"session.attach"},
+		ExpiresAt:    time.Now().Add(time.Minute).Unix(),
+		Nonce:        "unscoped-attach-nonce",
+	}, server.TicketSecret)
+	if err != nil {
+		t.Fatalf("sign attach ticket: %v", err)
+	}
+
+	conn := dialTLSServer(t, server)
+	defer conn.Close()
+
+	attachHandshake := writeAndReadJSON(t, conn, map[string]any{
+		"ticket": attachToken,
+	})
+	if ok, _ := attachHandshake["ok"].(bool); !ok {
+		t.Fatalf("attach handshake should succeed: %+v", attachHandshake)
+	}
+
+	attachResp := writeAndReadJSON(t, conn, map[string]any{
+		"id":     2,
+		"method": "session.attach",
+		"params": map[string]any{
+			"session_id":    sessionID,
+			"attachment_id": "cli-unscoped",
+			"cols":          100,
+			"rows":          30,
+		},
+	})
+	if ok, _ := attachResp["ok"].(bool); ok {
+		t.Fatalf("unscoped attach ticket should fail: %+v", attachResp)
+	}
+	errObj := attachResp["error"].(map[string]any)
+	if got := errObj["message"].(string); got != "direct session.attach tickets require session and attachment scope" {
+		t.Fatalf("session.attach error = %q, want scope failure", got)
+	}
+}
+
+func TestDirectTLSKeepsPipelinedRequestAfterHandshake(t *testing.T) {
+	t.Parallel()
+
+	server := startTLSServer(t, daemonBinary(t))
+	token, err := auth.SignTicket(auth.TicketClaims{
+		ServerID:     server.ServerID,
+		Capabilities: []string{"session.open"},
+		ExpiresAt:    time.Now().Add(time.Minute).Unix(),
+		Nonce:        "pipelined-open-nonce",
+	}, server.TicketSecret)
+	if err != nil {
+		t.Fatalf("sign open ticket: %v", err)
+	}
+
+	conn := dialTLSServer(t, server)
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set conn deadline: %v", err)
+	}
+
+	handshakePayload, err := json.Marshal(map[string]any{"ticket": token})
+	if err != nil {
+		t.Fatalf("marshal handshake: %v", err)
+	}
+	requestPayload, err := json.Marshal(map[string]any{
+		"id":     1,
+		"method": "hello",
+		"params": map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	if _, err := conn.Write(append(append(handshakePayload, '\n'), append(requestPayload, '\n')...)); err != nil {
+		t.Fatalf("write pipelined payloads: %v", err)
+	}
+
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read handshake response: %v", err)
+	}
+	var handshakeResp map[string]any
+	if err := json.Unmarshal([]byte(line), &handshakeResp); err != nil {
+		t.Fatalf("decode handshake response %q: %v", line, err)
+	}
+	if ok, _ := handshakeResp["ok"].(bool); !ok {
+		t.Fatalf("handshake should succeed: %+v", handshakeResp)
+	}
+
+	line, err = reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read pipelined response: %v", err)
+	}
+	var requestResp map[string]any
+	if err := json.Unmarshal([]byte(line), &requestResp); err != nil {
+		t.Fatalf("decode pipelined response %q: %v", line, err)
+	}
+	if ok, _ := requestResp["ok"].(bool); !ok {
+		t.Fatalf("pipelined hello should succeed: %+v", requestResp)
 	}
 }
 

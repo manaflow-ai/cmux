@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"os"
@@ -106,6 +107,14 @@ func (m *Manager) Read(sessionID string, offset uint64, maxBytes int, timeout ti
 	return state.read(offset, maxBytes, timeout)
 }
 
+func (m *Manager) History(sessionID string) ([]byte, error) {
+	state, err := m.session(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return state.history(), nil
+}
+
 func (m *Manager) Resize(sessionID string, cols, rows int) error {
 	state, err := m.session(sessionID)
 	if err != nil {
@@ -173,6 +182,10 @@ func (s *sessionState) appendOutput(data []byte) {
 	if len(data) == 0 {
 		return
 	}
+	data = normalizeLineEndings(data)
+	if len(data) == 0 {
+		return
+	}
 
 	s.mu.Lock()
 	s.buffer = append(s.buffer, data...)
@@ -186,6 +199,12 @@ func (s *sessionState) appendOutput(data []byte) {
 	s.mu.Unlock()
 
 	close(notify)
+}
+
+func (s *sessionState) history() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]byte(nil), s.buffer...)
 }
 
 func (s *sessionState) markClosed() {
@@ -263,6 +282,20 @@ func (s *sessionState) read(offset uint64, maxBytes int, timeout time.Duration) 
 			return ReadResult{}, ErrReadTimeout
 		}
 	}
+}
+
+func normalizeLineEndings(data []byte) []byte {
+	if !bytes.Contains(data, []byte("\r\n")) {
+		return data
+	}
+	out := make([]byte, 0, len(data))
+	for i := 0; i < len(data); i++ {
+		if data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+			continue
+		}
+		out = append(out, data[i])
+	}
+	return out
 }
 
 func (s *sessionState) close() error {

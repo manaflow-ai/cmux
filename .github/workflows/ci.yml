@@ -40,9 +40,118 @@ jobs:
 
   remote-daemon-tests:
     runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+
+      - name: Install zig
+        run: |
+          set -euo pipefail
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-x86_64-linux-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mv /tmp/zig-x86_64-linux-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo rm -rf /usr/local/lib/zig
+            sudo mv /tmp/zig-x86_64-linux-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            zig version
+          fi
+
+      - name: Prepare Ghostty shim dependency
+        working-directory: daemon/remote/rust/ghostty-shim
+        run: ln -sfn ../../../../ghostty ghostty
+
+      - name: Run Ghostty shim tests
+        working-directory: daemon/remote/rust/ghostty-shim
+        run: zig build test
+
+      - name: Run remote daemon tests
+        working-directory: daemon/remote
+        run: go test ./...
+
+      - name: Validate remote daemon release assets
+        run: ./tests/test_remote_daemon_release_assets.sh
+
+  remote-daemon-tmux-parity:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      CMUX_REMOTE_TEST_ARTIFACT_DIR: /tmp/remote-daemon-tmux-parity
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux
+
+      - name: Install zig
+        run: |
+          set -euo pipefail
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-x86_64-linux-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mv /tmp/zig-x86_64-linux-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo rm -rf /usr/local/lib/zig
+            sudo mv /tmp/zig-x86_64-linux-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            zig version
+          fi
+
+      - name: Prepare Ghostty shim dependency
+        working-directory: daemon/remote/rust/ghostty-shim
+        run: ln -sfn ../../../../ghostty ghostty
+
+      - name: Run tmux parity regression
+        working-directory: daemon/remote
+        run: go test ./compat -run TestTmuxParityCommonCommands -count=1 -v
+
+      - name: Upload tmux parity artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remote-daemon-tmux-parity-artifacts
+          path: /tmp/remote-daemon-tmux-parity
+          if-no-files-found: ignore
+
+  remote-daemon-tui-resize:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      CMUX_REMOTE_TEST_ARTIFACT_DIR: /tmp/remote-daemon-tui-resize
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          submodules: recursive
 
       - name: Setup Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
@@ -65,12 +174,21 @@ jobs:
             zig version
           fi
 
-      - name: Run remote daemon tests
-        working-directory: daemon/remote
-        run: go test ./...
+      - name: Prepare Ghostty shim dependency
+        working-directory: daemon/remote/rust/ghostty-shim
+        run: ln -sfn ../../../../ghostty ghostty
 
-      - name: Validate remote daemon release assets
-        run: ./tests/test_remote_daemon_release_assets.sh
+      - name: Run TUI and resize regression
+        working-directory: daemon/remote
+        run: go test ./compat -run 'TestSessionAttachPropagatesPTYResize|TestSessionAttachTUIResizeAndReattach' -count=1 -v
+
+      - name: Upload TUI and resize artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remote-daemon-tui-resize-artifacts
+          path: /tmp/remote-daemon-tui-resize
+          if-no-files-found: ignore
 
   web-typecheck:
     runs-on: ubuntu-latest
@@ -92,6 +210,8 @@ jobs:
 
   tests:
     runs-on: warp-macos-15-arm64-6x
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -130,6 +250,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: env.CMUX_SKIP_ZIG_BUILD != '1'
         run: |
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
@@ -250,12 +371,78 @@ jobs:
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
+      - name: Run cmux pty bridge regression
+        run: |
+          set -euo pipefail
+
+          if ! command -v zig >/dev/null 2>&1; then
+            ZIG_REQUIRED="0.15.2"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+          fi
+
+          CLI_BIN=""
+          while IFS= read -r candidate; do
+            if "$candidate" help 2>/dev/null | grep -q '^  pty'; then
+              CLI_BIN="$candidate"
+              break
+            fi
+          done < <(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | cut -d' ' -f2-
+          )
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary with pty command not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_CLI_BIN="$CLI_BIN" ./tests/test_cmux_pty_cli_bridge.sh
+
+      - name: Run cmux pty tmux parity regression
+        run: |
+          set -euo pipefail
+
+          if ! command -v tmux >/dev/null 2>&1; then
+            if command -v brew >/dev/null 2>&1; then
+              brew install tmux
+            else
+              echo "tmux is required but Homebrew is unavailable" >&2
+              exit 1
+            fi
+          fi
+
+          CLI_BIN=""
+          while IFS= read -r candidate; do
+            if "$candidate" help 2>/dev/null | grep -q '^  pty'; then
+              CLI_BIN="$candidate"
+              break
+            fi
+          done < <(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | cut -d' ' -f2-
+          )
+          if [ -z "${CLI_BIN:-}" ] || [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary with pty command not found in DerivedData" >&2
+            exit 1
+          fi
+
+          chmod +x ./tests/test_cmux_pty_tmux_parity.sh
+          CMUX_CLI_BIN="$CLI_BIN" ./tests/test_cmux_pty_tmux_parity.sh
+
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
     # Keep lag validation separate from UI regressions so functional UI failures
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -294,6 +481,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: env.CMUX_SKIP_ZIG_BUILD != '1'
         run: |
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
@@ -418,6 +606,8 @@ jobs:
 
   ui-regressions:
     runs-on: warp-macos-15-arm64-6x
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
     timeout-minutes: 25
     steps:
       - name: Checkout
@@ -448,6 +638,7 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: env.CMUX_SKIP_ZIG_BUILD != '1'
         run: |
           ZIG_REQUIRED="0.15.2"
           if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then

@@ -65,6 +65,18 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DAEMON_ROOT="${REPO_ROOT}/daemon/remote/zig"
+
+for required_path in \
+  "${REPO_ROOT}/ghostty/build.zig.zon" \
+  "${REPO_ROOT}/vendor/tls.zig/build.zig.zon"
+do
+  if [[ ! -f "$required_path" ]]; then
+    echo "error: missing build dependency at $required_path" >&2
+    echo "hint: initialize submodules with 'git submodule update --init --recursive'" >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(cd "$OUTPUT_DIR" && pwd)"
 rm -f "$OUTPUT_DIR"/cmuxd-remote-* "$OUTPUT_DIR"/cmuxd-remote-checksums.txt "$OUTPUT_DIR"/cmuxd-remote-manifest.json

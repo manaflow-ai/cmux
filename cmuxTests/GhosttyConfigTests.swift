@@ -1486,52 +1486,43 @@ final class LocalTerminalDaemonBridgeTests: XCTestCase {
         XCTAssertEqual(configuration.daemonBinaryPath, fakeDaemonBinary.path)
     }
 
-    func testWorkspaceInitialTerminalUsesLocalDaemonStartupCommandWhenConfigured() throws {
+    func testBootstrapSessionBuildsDirectRustSessionCommandWhenConfigured() throws {
         LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
             socketPath: "/tmp/cmuxd-test.sock",
             daemonBinaryPath: "/tmp/cmuxd-remote-test"
         )
 
+        let sessionID = UUID()
+        let workspaceID = UUID()
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-local-daemon-workspace")
             .path
-        let workspace = Workspace(
-            workingDirectory: workingDirectory,
-            initialTerminalEnvironment: ["EXPLICIT_ENV": "present"]
+        let bootstrap = try XCTUnwrap(
+            LocalTerminalDaemonBridge.bootstrapSession(
+                sessionID: sessionID,
+                workspaceID: workspaceID,
+                portOrdinal: 0,
+                workingDirectory: workingDirectory,
+                intendedCommand: nil,
+                initialEnvironmentOverrides: ["EXPLICIT_ENV": "present"],
+                additionalEnvironment: [:]
+            )
         )
 
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let terminalPanel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
-        let command = try XCTUnwrap(terminalPanel.surface.debugInitialCommand())
+        XCTAssertEqual(bootstrap.configuration.socketPath, "/tmp/cmuxd-test.sock")
+        XCTAssertEqual(bootstrap.configuration.daemonBinaryPath, "/tmp/cmuxd-remote-test")
+        XCTAssertEqual(bootstrap.sessionID, sessionID.uuidString)
 
+        let command = bootstrap.command
         XCTAssertTrue(
-            command.hasPrefix("sh -c '"),
-            "Expected local daemon startup command to be shell wrapped, got: \(command)"
+            command.contains("exec "),
+            "Expected shell exec in daemon command, got: \(command)"
         )
-        XCTAssertTrue(
-            command.contains("/tmp/cmuxd-remote-test"),
-            "Expected local daemon binary path in startup command, got: \(command)"
-        )
-        XCTAssertTrue(
-            command.contains("session new"),
-            "Expected daemon session creation in startup command, got: \(command)"
-        )
-        XCTAssertTrue(
-            command.contains("--quiet"),
-            "Expected app daemon startup command to suppress session UUID output, got: \(command)"
-        )
-        XCTAssertTrue(
-            command.contains(terminalPanel.id.uuidString),
-            "Expected panel UUID in startup command, got: \(command)"
-        )
-        XCTAssertTrue(
-            command.contains("/tmp/cmuxd-test.sock"),
-            "Expected local daemon startup command, got: \(command)"
-        )
+        XCTAssertFalse(command.contains("amux new"), "Local bootstrap should not shell out to amux new, got: \(command)")
         XCTAssertTrue(command.contains("CMUX_SURFACE_ID="), "Expected surface export in daemon command, got: \(command)")
-        XCTAssertTrue(command.contains(terminalPanel.id.uuidString), "Expected surface UUID in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains(sessionID.uuidString), "Expected surface UUID in daemon command, got: \(command)")
         XCTAssertTrue(command.contains("CMUX_WORKSPACE_ID="), "Expected workspace export in daemon command, got: \(command)")
-        XCTAssertTrue(command.contains(workspace.id.uuidString), "Expected workspace UUID in daemon command, got: \(command)")
+        XCTAssertTrue(command.contains(workspaceID.uuidString), "Expected workspace UUID in daemon command, got: \(command)")
         XCTAssertTrue(command.contains("EXPLICIT_ENV="), "Expected initial environment export in daemon command, got: \(command)")
         XCTAssertTrue(command.contains("present"), "Expected initial environment value in daemon command, got: \(command)")
         XCTAssertTrue(command.contains("cd "), "Expected working-directory hop in daemon command, got: \(command)")
@@ -1545,7 +1536,7 @@ final class LocalTerminalDaemonBridgeTests: XCTestCase {
         XCTAssertTrue(command.contains("TERM_PROGRAM="), "Expected daemon command to export TERM_PROGRAM, got: \(command)")
     }
 
-    func testWorkspaceInitialTerminalPreservesRequestedInitialCommandInsideLocalDaemonSession() throws {
+    func testWorkspaceInitialTerminalUsesDirectLocalDaemonBootstrapWhenConfigured() throws {
         LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
             socketPath: "/tmp/cmuxd-test.sock",
             daemonBinaryPath: "/tmp/cmuxd-remote-test"
@@ -1554,12 +1545,36 @@ final class LocalTerminalDaemonBridgeTests: XCTestCase {
         let workspace = Workspace(initialTerminalCommand: "printf READY")
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let terminalPanel = try XCTUnwrap(workspace.panels[panelId] as? TerminalPanel)
-        let command = try XCTUnwrap(terminalPanel.surface.debugInitialCommand())
+        XCTAssertNil(terminalPanel.surface.debugInitialCommand())
 
-        XCTAssertTrue(command.contains("printf READY"), "Expected initial command inside daemon launch, got: \(command)")
+        let daemonInfo = try XCTUnwrap(terminalPanel.surface.localDaemonInfoPayload())
+        XCTAssertEqual(daemonInfo["socket_path"] as? String, "/tmp/cmuxd-test.sock")
+        XCTAssertEqual(daemonInfo["daemon_binary_path"] as? String, "/tmp/cmuxd-remote-test")
+        XCTAssertEqual(daemonInfo["session_id"] as? String, terminalPanel.id.uuidString)
     }
 
-    func testStartupCommandStartsManagedDaemonWhenSocketIsConfiguredButOffline() throws {
+    func testBootstrapSessionPreservesRequestedInitialCommandInsideLocalDaemonSession() throws {
+        LocalTerminalDaemonBridge.testingConfiguration = LocalTerminalDaemonConfiguration(
+            socketPath: "/tmp/cmuxd-test.sock",
+            daemonBinaryPath: "/tmp/cmuxd-remote-test"
+        )
+
+        let bootstrap = try XCTUnwrap(
+            LocalTerminalDaemonBridge.bootstrapSession(
+                sessionID: UUID(),
+                workspaceID: UUID(),
+                portOrdinal: 0,
+                workingDirectory: nil,
+                intendedCommand: "printf READY",
+                initialEnvironmentOverrides: [:],
+                additionalEnvironment: [:]
+            )
+        )
+
+        XCTAssertTrue(bootstrap.command.contains("printf READY"), "Expected initial command inside daemon session command, got: \(bootstrap.command)")
+    }
+
+    func testBootstrapSessionStartsManagedDaemonWhenSocketIsConfiguredButOffline() throws {
         let temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
@@ -1581,8 +1596,8 @@ final class LocalTerminalDaemonBridgeTests: XCTestCase {
 
         let sessionID = UUID()
         let workspaceID = UUID()
-        let command = try XCTUnwrap(
-            LocalTerminalDaemonBridge.startupCommand(
+        let bootstrap = try XCTUnwrap(
+            LocalTerminalDaemonBridge.bootstrapSession(
                 sessionID: sessionID,
                 workspaceID: workspaceID,
                 portOrdinal: 0,
@@ -1606,10 +1621,10 @@ final class LocalTerminalDaemonBridgeTests: XCTestCase {
                 daemonBinaryPath: fakeDaemonBinary.path
             )
         )
-        XCTAssertTrue(command.contains(fakeDaemonBinary.path), "Expected daemon binary path in startup command, got: \(command)")
-        XCTAssertTrue(command.contains(socketPath), "Expected daemon socket path in startup command, got: \(command)")
-        XCTAssertTrue(command.contains(sessionID.uuidString), "Expected session ID in startup command, got: \(command)")
-        XCTAssertTrue(command.contains(workspaceID.uuidString), "Expected workspace ID in startup command, got: \(command)")
+        XCTAssertEqual(bootstrap.configuration.daemonBinaryPath, fakeDaemonBinary.path)
+        XCTAssertEqual(bootstrap.configuration.socketPath, socketPath)
+        XCTAssertEqual(bootstrap.sessionID, sessionID.uuidString)
+        XCTAssertTrue(bootstrap.command.contains(workspaceID.uuidString), "Expected workspace ID in daemon command, got: \(bootstrap.command)")
     }
 
     private func makeListeningUnixSocket(at path: String) throws -> Int32 {

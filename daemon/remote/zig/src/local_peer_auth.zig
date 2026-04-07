@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const c = @cImport({
+    @cDefine("_GNU_SOURCE", "1");
     @cInclude("sys/types.h");
     @cInclude("sys/socket.h");
     @cInclude("unistd.h");

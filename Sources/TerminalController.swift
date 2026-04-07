@@ -2101,6 +2101,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceList(params: params))
         case "surface.current":
             return v2Result(id: id, self.v2SurfaceCurrent(params: params))
+        case "surface.daemon_info":
+            return v2Result(id: id, self.v2SurfaceDaemonInfo(params: params))
         case "surface.focus":
             return v2Result(id: id, self.v2SurfaceFocus(params: params))
         case "surface.split":
@@ -2460,6 +2462,7 @@ class TerminalController {
             "feedback.submit",
             "surface.list",
             "surface.current",
+            "surface.daemon_info",
             "surface.focus",
             "surface.split",
             "surface.create",
@@ -4560,6 +4563,49 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         return .ok(payload)
+    }
+
+    private func v2SurfaceDaemonInfo(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "Surface not found", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            let surfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+            guard let surfaceId else {
+                result = .err(code: "not_found", message: "No focused surface", data: nil)
+                return
+            }
+            guard let terminalPanel = ws.panels[surfaceId] as? TerminalPanel else {
+                result = .err(code: "unsupported", message: "Surface is not a terminal", data: nil)
+                return
+            }
+            guard var payload = terminalPanel.surface.localDaemonInfoPayload() else {
+                result = .err(
+                    code: "unsupported",
+                    message: "Surface is not backed by the local Rust daemon",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            let paneId = ws.paneId(forPanelId: surfaceId)?.id
+            payload["workspace_id"] = ws.id.uuidString
+            payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: ws.id)
+            payload["pane_id"] = v2OrNull(paneId?.uuidString)
+            payload["pane_ref"] = v2Ref(kind: .pane, uuid: paneId)
+            payload["surface_id"] = surfaceId.uuidString
+            payload["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+            result = .ok(payload)
+        }
+
+        return result
     }
 
     private func v2SurfaceFocus(params: [String: Any]) -> V2CallResult {

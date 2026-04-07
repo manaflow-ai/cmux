@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/zig-build-env.sh"
-DAEMON_DIR="$ROOT/daemon/remote/zig"
+DAEMON_MANIFEST="$ROOT/daemon/remote/rust/Cargo.toml"
+DAEMON_BIN="$ROOT/daemon/remote/rust/target/debug/cmuxd-remote"
 
 if ! command -v expect >/dev/null 2>&1; then
   echo "ERROR: expect is required"
@@ -31,13 +31,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== Build Zig daemon ==="
-(
-  cd "$DAEMON_DIR"
-  cmux_run_zig build -Doptimize=ReleaseFast >/dev/null
-)
+echo "=== Build Rust daemon ==="
+GHOSTTY_SOURCE_DIR="${GHOSTTY_SOURCE_DIR:-$ROOT/ghostty}" \
+  cargo build --manifest-path "$DAEMON_MANIFEST" >/dev/null
 
-BIN="$DAEMON_DIR/zig-out/bin/cmuxd-remote"
+BIN="$DAEMON_BIN"
 if [[ ! -x "$BIN" ]]; then
   echo "ERROR: daemon binary missing at $BIN"
   exit 1

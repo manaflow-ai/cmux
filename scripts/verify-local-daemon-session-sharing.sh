@@ -5,7 +5,7 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/verify-local-daemon-session-sharing.sh <tag>
 
-Builds the Zig daemon, launches the tagged cmux app with local-daemon wiring
+Builds the Rust daemon, launches the tagged cmux app with local-daemon wiring
 enabled, and verifies the app auto-starts cmuxd-remote when a local terminal
 session is created.
 EOF
@@ -18,7 +18,6 @@ fi
 
 TAG="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-source "$ROOT/scripts/zig-build-env.sh"
 SANITIZED_TAG="$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
 BUNDLE_ID="com.cmuxterm.app.debug.$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\\.+//; s/\\.+$//; s/\\.+/./g')"
 APP_PROCESS_NAME="cmux DEV ${TAG}"
@@ -26,7 +25,8 @@ APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
 APP_SOCKET="/tmp/cmux-debug-${SANITIZED_TAG}.sock"
 DAEMON_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${SANITIZED_TAG}.sock"
 DAEMON_LOG="/tmp/cmuxd-local-${SANITIZED_TAG}.log"
-DAEMON_BIN="$ROOT/daemon/remote/zig/zig-out/bin/cmuxd-remote"
+DAEMON_MANIFEST="$ROOT/daemon/remote/rust/Cargo.toml"
+DAEMON_BIN="$ROOT/daemon/remote/rust/target/debug/cmuxd-remote"
 CLI_BIN="$HOME/Library/Developer/Xcode/DerivedData/cmux-${SANITIZED_TAG}/Build/Products/Debug/cmux"
 APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-${SANITIZED_TAG}/Build/Products/Debug/cmux DEV ${TAG}.app"
 APP_LOG="/tmp/cmux-local-daemon-${SANITIZED_TAG}.log"
@@ -40,9 +40,8 @@ cleanup() {
 
 trap cleanup EXIT
 
-cd "$ROOT/daemon/remote/zig"
-cmux_run_zig build -Doptimize=ReleaseFast
-cd "$ROOT"
+GHOSTTY_SOURCE_DIR="${GHOSTTY_SOURCE_DIR:-$ROOT/ghostty}" \
+  cargo build --manifest-path "$DAEMON_MANIFEST" >/dev/null
 
 pkill -f "cmuxd-remote serve --unix --socket ${DAEMON_SOCKET}" >/dev/null 2>&1 || true
 rm -f "$DAEMON_SOCKET" "$DAEMON_LOG"
@@ -143,6 +142,7 @@ if not workspace_ready:
     raise SystemExit(f"error: app never reached workspace-ready state: {last}")
 
 probe_deadline = time.time() + 10.0
+fresh_workspace_ready = False
 while time.time() < probe_deadline:
     probe = None
     try:
@@ -150,6 +150,12 @@ while time.time() < probe_deadline:
         probe.connect()
         if not probe.ping():
             raise RuntimeError("ping returned false")
+        try:
+            probe.activate_app()
+        except Exception:
+            pass
+        _ = probe.current_workspace()
+        fresh_workspace_ready = True
         print("ready")
         break
     except Exception as e:
@@ -161,7 +167,7 @@ while time.time() < probe_deadline:
                 probe.close()
             except Exception:
                 pass
-else:
+if not fresh_workspace_ready:
     raise SystemExit(f"error: app ready-check reconnect/ping failed: {last}")
 
 if client is not None:

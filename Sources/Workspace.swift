@@ -224,28 +224,6 @@ struct WorkspaceRemoteDaemonManifest: Decodable, Equatable {
     }
 }
 
-private struct BonsplitCompatibilityTabIDPayload: Codable {
-    let id: UUID
-}
-
-extension TabID {
-    var uuid: UUID {
-        if let id = Mirror(reflecting: self).children.first(where: { $0.label == "id" })?.value as? UUID {
-            return id
-        }
-
-        let decoder = JSONDecoder()
-        let encoder = JSONEncoder()
-
-        do {
-            let data = try encoder.encode(self)
-            return try decoder.decode(BonsplitCompatibilityTabIDPayload.self, from: data).id
-        } catch {
-            preconditionFailure("Failed to read Bonsplit TabID compatibility payload: \(error)")
-        }
-    }
-}
-
 extension Workspace {
     private static var compatibilityToggleZoomContextAction: TabContextAction? {
         TabContextAction(rawValue: "toggleZoom")
@@ -316,7 +294,7 @@ extension Workspace {
             context: context,
             configTemplate: configTemplate,
             workingDirectory: workingDirectory,
-            initialCommand: startupCommandOverride ?? intendedInitialCommand,
+            initialCommand: startupCommandOverride,
             initialEnvironmentOverrides: initialEnvironmentOverrides,
             additionalEnvironment: additionalEnvironment
         )
@@ -331,7 +309,7 @@ extension Workspace {
         )
 #endif
         if startupCommandOverride == nil,
-           let localDaemonStartupCommand = LocalTerminalDaemonBridge.startupCommand(
+           let localDaemonBootstrap = LocalTerminalDaemonBridge.bootstrapSession(
                sessionID: surface.id,
                workspaceID: workspaceId,
                portOrdinal: portOrdinal,
@@ -342,17 +320,29 @@ extension Workspace {
            ) {
 #if DEBUG
             dlog(
-                "localDaemon.panel.command " +
+                "localDaemon.panel.bootstrap " +
                 "surface=\(surface.id.uuidString.prefix(8)) " +
                 "workspace=\(workspaceId.uuidString.prefix(8)) " +
                 "applied=1"
             )
 #endif
-            surface.setInitialCommand(localDaemonStartupCommand)
+            surface.configureLocalDaemonBootstrap(localDaemonBootstrap)
+        } else if startupCommandOverride == nil {
+#if DEBUG
+            dlog(
+                "localDaemon.panel.bootstrap " +
+                "surface=\(surface.id.uuidString.prefix(8)) " +
+                "workspace=\(workspaceId.uuidString.prefix(8)) " +
+                "applied=0"
+            )
+#endif
+            if LocalTerminalDaemonBridge.requiresBootstrap() {
+                preconditionFailure("Local Rust daemon bootstrap is unavailable for surface \(surface.id.uuidString)")
+            }
         } else {
 #if DEBUG
             dlog(
-                "localDaemon.panel.command " +
+                "localDaemon.panel.bootstrap " +
                 "surface=\(surface.id.uuidString.prefix(8)) " +
                 "workspace=\(workspaceId.uuidString.prefix(8)) " +
                 "applied=0"
@@ -5495,14 +5485,22 @@ enum LocalTerminalDaemonBridge {
         if config == nil,
            let repoRoot = environment["CMUXTERM_REPO_ROOT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !repoRoot.isEmpty {
-            let candidate = URL(fileURLWithPath: repoRoot, isDirectory: true)
-                .appendingPathComponent("daemon/remote/zig/zig-out/bin/cmuxd-remote", isDirectory: false)
-                .path
-            if fileManager.isExecutableFile(atPath: candidate) {
-                config = LocalTerminalDaemonConfiguration(
-                    socketPath: rawSocketPath,
-                    daemonBinaryPath: candidate
-                )
+            let repoRootURL = URL(fileURLWithPath: repoRoot, isDirectory: true)
+            let relativePaths = [
+                "daemon/remote/rust/target/debug/cmuxd-remote",
+                "daemon/remote/zig/zig-out/bin/cmuxd-remote",
+            ]
+            for relativePath in relativePaths {
+                let candidate = repoRootURL
+                    .appendingPathComponent(relativePath, isDirectory: false)
+                    .path
+                if fileManager.isExecutableFile(atPath: candidate) {
+                    config = LocalTerminalDaemonConfiguration(
+                        socketPath: rawSocketPath,
+                        daemonBinaryPath: candidate
+                    )
+                    break
+                }
             }
         }
 
@@ -5523,6 +5521,12 @@ enum LocalTerminalDaemonBridge {
         config?.wsSecret = resolveWebSocketSecret(environment: environment)
 
         return config
+    }
+
+    static func requiresBootstrap(
+        environment: [String: String] = cmuxCurrentProcessEnvironment()
+    ) -> Bool {
+        !SessionRestorePolicy.isRunningUnderAutomatedTests(environment: environment)
     }
 
     private static func resolveWebSocketSecret(environment: [String: String]) -> String {
@@ -5736,7 +5740,7 @@ enum LocalTerminalDaemonBridge {
             .appendingPathComponent("cmuxd-\(baseName).log", isDirectory: false)
     }
 
-    static func startupCommand(
+    static func bootstrapSession(
         sessionID: UUID,
         workspaceID: UUID,
         portOrdinal: Int,
@@ -5747,7 +5751,7 @@ enum LocalTerminalDaemonBridge {
         environment: [String: String] = cmuxCurrentProcessEnvironment(),
         bundle: Bundle = .main,
         fileManager: FileManager = .default
-    ) -> String? {
+    ) -> LocalTerminalDaemonSurfaceBootstrap? {
         guard let configuration = ensureReachableConfiguration(
             environment: environment,
             bundle: bundle,
@@ -5775,7 +5779,7 @@ enum LocalTerminalDaemonBridge {
 
 #if DEBUG
         dlog(
-            "localDaemon.startup " +
+            "localDaemon.bootstrap " +
             "socket=\(configuration.socketPath) " +
             "binary=\(configuration.daemonBinaryPath) " +
             "cmuxBundle=\(managedEnvironment["CMUX_BUNDLE_ID"] ?? "nil") " +
@@ -5787,10 +5791,11 @@ enum LocalTerminalDaemonBridge {
         )
 #endif
 
-        let startupScript = """
-        exec \(shellSingleQuoted(configuration.daemonBinaryPath)) amux new \(shellSingleQuoted(sessionID.uuidString)) --quiet --socket \(shellSingleQuoted(configuration.socketPath)) -- \(shellSingleQuoted(daemonCommand))
-        """
-        return "sh -c \(shellSingleQuoted(startupScript))"
+        return LocalTerminalDaemonSurfaceBootstrap(
+            configuration: configuration,
+            sessionID: sessionID.uuidString,
+            command: daemonCommand
+        )
     }
 
     private static func daemonSessionCommand(
@@ -5838,6 +5843,483 @@ enum LocalTerminalDaemonBridge {
 
     fileprivate static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+}
+
+struct LocalTerminalDaemonSurfaceBootstrap {
+    let configuration: LocalTerminalDaemonConfiguration
+    let sessionID: String
+    let command: String
+}
+
+struct LocalTerminalDaemonGridSize: Equatable {
+    let columns: Int
+    let rows: Int
+}
+
+enum LocalTerminalDaemonControllerEvent {
+    case output(Data)
+    case exited
+    case failed(String)
+}
+
+private enum LocalTerminalDaemonRPCError: LocalizedError {
+    case invalidResponse(String)
+    case rpc(code: String, message: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse(let message):
+            return message
+        case .rpc(_, let message):
+            return message
+        }
+    }
+}
+
+private struct LocalTerminalDaemonTerminalOpenResult {
+    let attachmentID: String
+    let offset: UInt64
+}
+
+private struct LocalTerminalDaemonTerminalReadResult {
+    let offset: UInt64
+    let eof: Bool
+    let data: Data
+}
+
+private struct LocalTerminalDaemonRPCClient {
+    let socketPath: String
+
+    func terminalOpen(
+        sessionID: String,
+        command: String,
+        cols: Int,
+        rows: Int
+    ) throws -> LocalTerminalDaemonTerminalOpenResult {
+        let result = try call(
+            method: "terminal.open",
+            params: [
+                "session_id": sessionID,
+                "command": command,
+                "cols": cols,
+                "rows": rows,
+            ]
+        )
+        guard let attachmentID = result["attachment_id"] as? String,
+              let offset = uint64FromAny(result["offset"]) else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("terminal.open did not return attachment state")
+        }
+        return LocalTerminalDaemonTerminalOpenResult(attachmentID: attachmentID, offset: offset)
+    }
+
+    func terminalWrite(sessionID: String, data: Data) throws {
+        _ = try call(
+            method: "terminal.write",
+            params: [
+                "session_id": sessionID,
+                "data": data.base64EncodedString(),
+            ]
+        )
+    }
+
+    func terminalRead(
+        sessionID: String,
+        offset: UInt64,
+        maxBytes: Int,
+        timeoutMilliseconds: Int
+    ) throws -> LocalTerminalDaemonTerminalReadResult {
+        let result = try call(
+            method: "terminal.read",
+            params: [
+                "session_id": sessionID,
+                "offset": offset,
+                "max_bytes": maxBytes,
+                "timeout_ms": timeoutMilliseconds,
+            ]
+        )
+        guard let nextOffset = uint64FromAny(result["offset"]),
+              let eof = result["eof"] as? Bool,
+              let encoded = result["data"] as? String,
+              let data = Data(base64Encoded: encoded) else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("terminal.read returned malformed payload")
+        }
+        return LocalTerminalDaemonTerminalReadResult(offset: nextOffset, eof: eof, data: data)
+    }
+
+    func sessionResize(
+        sessionID: String,
+        attachmentID: String,
+        size: LocalTerminalDaemonGridSize
+    ) throws {
+        _ = try call(
+            method: "session.resize",
+            params: [
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "cols": size.columns,
+                "rows": size.rows,
+            ]
+        )
+    }
+
+    func sessionDetach(sessionID: String, attachmentID: String) throws {
+        _ = try call(
+            method: "session.detach",
+            params: [
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ]
+        )
+    }
+
+    func sessionClose(sessionID: String) throws {
+        _ = try call(
+            method: "session.close",
+            params: ["session_id": sessionID]
+        )
+    }
+
+    private func call(method: String, params: [String: Any]) throws -> [String: Any] {
+        let requestData = try JSONSerialization.data(
+            withJSONObject: [
+                "id": 1,
+                "method": method,
+                "params": params,
+            ],
+            options: []
+        ) + Data([0x0A])
+        let responseData = try Self.roundTripUnixSocket(socketPath: socketPath, request: requestData)
+        guard let responseLine = String(data: responseData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !responseLine.isEmpty,
+              let lineData = responseLine.data(using: .utf8),
+              let envelope = try JSONSerialization.jsonObject(with: lineData) as? [String: Any]
+        else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("daemon returned invalid JSON")
+        }
+
+        if let ok = envelope["ok"] as? Bool, ok == true {
+            guard let result = envelope["result"] as? [String: Any] else {
+                throw LocalTerminalDaemonRPCError.invalidResponse("daemon response was missing result payload")
+            }
+            return result
+        }
+
+        let errorPayload = envelope["error"] as? [String: Any]
+        let code = (errorPayload?["code"] as? String) ?? "unknown"
+        let message = (errorPayload?["message"] as? String) ?? "daemon request failed"
+        throw LocalTerminalDaemonRPCError.rpc(code: code, message: message)
+    }
+
+    private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("failed to create local daemon socket")
+        }
+        defer { Darwin.close(fd) }
+
+        var timeout = timeval(tv_sec: 15, tv_usec: 0)
+        withUnsafePointer(to: &timeout) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("daemon socket path is too long")
+        }
+        let sunPathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        withUnsafeMutableBytes(of: &address) { rawBuffer in
+            let destination = rawBuffer.baseAddress!.advanced(by: sunPathOffset)
+            pathBytes.withUnsafeBytes { pathBuffer in
+                destination.copyMemory(from: pathBuffer.baseAddress!, byteCount: pathBytes.count)
+            }
+        }
+
+        let addressLength = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
+        let connectResult = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, addressLength)
+            }
+        }
+        guard connectResult == 0 else {
+            throw LocalTerminalDaemonRPCError.invalidResponse("failed to connect to local daemon socket")
+        }
+
+        try request.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var bytesRemaining = rawBuffer.count
+            var pointer = baseAddress
+            while bytesRemaining > 0 {
+                let written = Darwin.write(fd, pointer, bytesRemaining)
+                if written <= 0 {
+                    throw LocalTerminalDaemonRPCError.invalidResponse("failed to write daemon request")
+                }
+                bytesRemaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+        }
+        _ = shutdown(fd, SHUT_WR)
+
+        var response = Data()
+        var scratch = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &scratch, scratch.count)
+            if count > 0 {
+                response.append(scratch, count: count)
+                continue
+            }
+            if count == 0 {
+                break
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                throw LocalTerminalDaemonRPCError.invalidResponse("timed out waiting for daemon response")
+            }
+            throw LocalTerminalDaemonRPCError.invalidResponse("failed to read daemon response")
+        }
+        return response
+    }
+
+    private func uint64FromAny(_ value: Any?) -> UInt64? {
+        Self.uint64FromAny(value)
+    }
+
+    private static func uint64FromAny(_ value: Any?) -> UInt64? {
+        switch value {
+        case let number as NSNumber:
+            return number.uint64Value
+        case let string as String:
+            return UInt64(string)
+        default:
+            return nil
+        }
+    }
+}
+
+final class LocalTerminalDaemonSessionController {
+    private let bootstrap: LocalTerminalDaemonSurfaceBootstrap
+    private let rpcClient: LocalTerminalDaemonRPCClient
+    private let eventHandler: @Sendable (LocalTerminalDaemonControllerEvent) -> Void
+    private let stateLock = NSLock()
+    private let readQueue = DispatchQueue(label: "cmux.local-daemon.read", qos: .userInitiated)
+    private let writeQueue = DispatchQueue(label: "cmux.local-daemon.write", qos: .userInitiated)
+    private let readTimeoutMilliseconds = 250
+    private let maxReadBytes = 64 * 1024
+
+    private var latestSize = LocalTerminalDaemonGridSize(columns: 80, rows: 24)
+    private var attachmentID: String?
+    private var nextOffset: UInt64 = 0
+    private var pendingWrites: [Data] = []
+    private var started = false
+    private var stopped = false
+    private var finished = false
+
+    init(
+        bootstrap: LocalTerminalDaemonSurfaceBootstrap,
+        eventHandler: @escaping @Sendable (LocalTerminalDaemonControllerEvent) -> Void
+    ) {
+        self.bootstrap = bootstrap
+        self.rpcClient = LocalTerminalDaemonRPCClient(socketPath: bootstrap.configuration.socketPath)
+        self.eventHandler = eventHandler
+    }
+
+    func start(initialSize: LocalTerminalDaemonGridSize) {
+        let shouldStart = withStateLock { () -> Bool in
+            latestSize = initialSize
+            guard !started, !stopped else { return false }
+            started = true
+            return true
+        }
+        guard shouldStart else { return }
+        readQueue.async { [weak self] in
+            self?.runReadLoop(initialSize: initialSize)
+        }
+    }
+
+    func send(_ data: Data) {
+        guard !data.isEmpty else { return }
+        writeQueue.async { [weak self] in
+            self?.write(data)
+        }
+    }
+
+    func resize(_ size: LocalTerminalDaemonGridSize) {
+        let activeAttachmentID = withStateLock { () -> String? in
+            latestSize = size
+            guard !stopped else { return nil }
+            return self.attachmentID
+        }
+        guard let activeAttachmentID else { return }
+        writeQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.rpcClient.sessionResize(
+                    sessionID: self.bootstrap.sessionID,
+                    attachmentID: activeAttachmentID,
+                    size: size
+                )
+            } catch {
+                self.finishFailureIfNeeded(message: error.localizedDescription)
+            }
+        }
+    }
+
+    func stop(closeSession: Bool) {
+        let attachmentSnapshot = withStateLock { () -> String? in
+            guard !stopped else { return nil }
+            stopped = true
+            return attachmentID
+        }
+        writeQueue.async { [weak self] in
+            guard let self else { return }
+            guard self.withStateLock({ !self.finished }) else { return }
+            if closeSession {
+                try? self.rpcClient.sessionClose(sessionID: self.bootstrap.sessionID)
+            } else if let attachmentSnapshot {
+                try? self.rpcClient.sessionDetach(
+                    sessionID: self.bootstrap.sessionID,
+                    attachmentID: attachmentSnapshot
+                )
+            }
+        }
+    }
+
+    private func write(_ data: Data) {
+        let activeAttachmentID = withStateLock { () -> String? in
+            guard !stopped else { return nil }
+            guard let currentAttachmentID = self.attachmentID else {
+                pendingWrites.append(data)
+                return nil
+            }
+            return currentAttachmentID
+        }
+        guard activeAttachmentID != nil else { return }
+        do {
+            try rpcClient.terminalWrite(sessionID: bootstrap.sessionID, data: data)
+        } catch {
+            finishFailureIfNeeded(message: error.localizedDescription)
+        }
+    }
+
+    private func runReadLoop(initialSize: LocalTerminalDaemonGridSize) {
+        do {
+            let openResult = try rpcClient.terminalOpen(
+                sessionID: bootstrap.sessionID,
+                command: bootstrap.command,
+                cols: max(1, initialSize.columns),
+                rows: max(1, initialSize.rows)
+            )
+
+            let (queuedWrites, resizedSize, shouldAbort) = withStateLock { () -> ([Data], LocalTerminalDaemonGridSize?, Bool) in
+                if stopped {
+                    finished = true
+                    return ([], nil, true)
+                }
+                attachmentID = openResult.attachmentID
+                nextOffset = openResult.offset
+                let writes = self.pendingWrites
+                self.pendingWrites.removeAll(keepingCapacity: false)
+                let resizedSize = latestSize == initialSize ? nil : latestSize
+                return (writes, resizedSize, false)
+            }
+
+            if shouldAbort {
+                try? rpcClient.sessionClose(sessionID: bootstrap.sessionID)
+                return
+            }
+
+            if let resizedSize {
+                try? rpcClient.sessionResize(
+                    sessionID: bootstrap.sessionID,
+                    attachmentID: openResult.attachmentID,
+                    size: resizedSize
+                )
+            }
+
+            for chunk in queuedWrites {
+                try rpcClient.terminalWrite(sessionID: bootstrap.sessionID, data: chunk)
+            }
+
+            while !isStopped() {
+                let offset = withStateLock { nextOffset }
+                do {
+                    let readResult = try rpcClient.terminalRead(
+                        sessionID: bootstrap.sessionID,
+                        offset: offset,
+                        maxBytes: maxReadBytes,
+                        timeoutMilliseconds: readTimeoutMilliseconds
+                    )
+
+                    withStateLock {
+                        nextOffset = readResult.offset
+                    }
+
+                    if !readResult.data.isEmpty {
+                        eventHandler(.output(readResult.data))
+                    }
+
+                    if readResult.eof {
+                        let shouldEmit = withStateLock { () -> Bool in
+                            guard !finished else { return false }
+                            finished = true
+                            stopped = true
+                            attachmentID = nil
+                            return true
+                        }
+                        if shouldEmit {
+                            eventHandler(.exited)
+                        }
+                        return
+                    }
+                } catch let error as LocalTerminalDaemonRPCError {
+                    if case .rpc(let code, _) = error, code == "deadline_exceeded" {
+                        continue
+                    }
+                    if isStopped() {
+                        return
+                    }
+                    finishFailureIfNeeded(message: error.localizedDescription)
+                    return
+                } catch {
+                    if isStopped() {
+                        return
+                    }
+                    finishFailureIfNeeded(message: error.localizedDescription)
+                    return
+                }
+            }
+        } catch {
+            if isStopped() {
+                return
+            }
+            finishFailureIfNeeded(message: error.localizedDescription)
+        }
+    }
+
+    private func finishFailureIfNeeded(message: String) {
+        let shouldEmit = withStateLock { () -> Bool in
+            guard !finished else { return false }
+            finished = true
+            stopped = true
+            attachmentID = nil
+            return true
+        }
+        if shouldEmit {
+            eventHandler(.failed(message))
+        }
+    }
+
+    private func isStopped() -> Bool {
+        withStateLock { stopped }
+    }
+
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
     }
 }
 

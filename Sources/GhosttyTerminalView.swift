@@ -10,6 +10,14 @@ import Bonsplit
 import IOSurface
 import UniformTypeIdentifiers
 
+// Ghostty still exports these embedded-surface helpers, but the current
+// generated public header in this branch no longer declares them.
+@_silgen_name("ghostty_surface_clear_selection")
+private func cmuxGhosttySurfaceClearSelection(_ surface: ghostty_surface_t) -> Bool
+
+@_silgen_name("ghostty_surface_select_cursor_cell")
+private func cmuxGhosttySurfaceSelectCursorCell(_ surface: ghostty_surface_t) -> Bool
+
 #if os(macOS)
 func cmuxShouldUseTransparentBackgroundWindow() -> Bool {
     let defaults = UserDefaults.standard
@@ -1868,10 +1876,10 @@ class GhosttyApp {
 
     private func bellAudioPath() -> String? {
         guard let config else { return nil }
-        var value = ghostty_config_path_s()
+        var value: UnsafePointer<Int8>?
         let key = "bell-audio-path"
         guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let rawPath = value.path else {
+              let rawPath = value else {
             return nil
         }
         let path = String(cString: rawPath)
@@ -2714,6 +2722,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private let configTemplate: ghostty_surface_config_s?
     private let workingDirectory: String?
     private var initialCommand: String?
+    private var localDaemonBootstrap: LocalTerminalDaemonSurfaceBootstrap?
+    private var localDaemonSessionController: LocalTerminalDaemonSessionController?
     private let initialEnvironmentOverrides: [String: String]
     var requestedWorkingDirectory: String? { workingDirectory }
     private var additionalEnvironment: [String: String]
@@ -2822,6 +2832,15 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Surface is created when attached to a view
         hostedView.attachSurface(self)
         TerminalSurfaceRegistry.shared.register(self)
+    }
+
+    func configureLocalDaemonBootstrap(_ bootstrap: LocalTerminalDaemonSurfaceBootstrap) {
+        localDaemonBootstrap = bootstrap
+        localDaemonSessionController = LocalTerminalDaemonSessionController(bootstrap: bootstrap) { [weak self] event in
+            DispatchQueue.main.async {
+                self?.handleLocalDaemonEvent(event)
+            }
+        }
     }
 
 
@@ -3057,6 +3076,79 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         dlog("surface.initialCommand.set surface=\(id.uuidString.prefix(8)) command=\(summary)")
 #endif
+    }
+
+    func localDaemonInfoPayload() -> [String: Any]? {
+        guard let localDaemonBootstrap else { return nil }
+        return [
+            "backend": "rust_local_daemon",
+            "socket_path": localDaemonBootstrap.configuration.socketPath,
+            "daemon_binary_path": localDaemonBootstrap.configuration.daemonBinaryPath,
+            "session_id": localDaemonBootstrap.sessionID,
+        ]
+    }
+
+    func processOutput(_ data: Data) {
+        guard let surface = surface, !data.isEmpty else { return }
+        data.withUnsafeBytes { buffer in
+            guard let baseAddress = buffer.baseAddress else { return }
+            let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
+            ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+        }
+    }
+
+    private func currentGridSize() -> LocalTerminalDaemonGridSize? {
+        guard let surface = surface else { return nil }
+        let size = ghostty_surface_size(surface)
+        let columns = max(Int(size.columns), 1)
+        let rows = max(Int(size.rows), 1)
+        guard columns > 0, rows > 0 else { return nil }
+        return LocalTerminalDaemonGridSize(columns: columns, rows: rows)
+    }
+
+    private func startLocalDaemonSessionIfNeeded() {
+        guard let localDaemonSessionController,
+              let gridSize = currentGridSize() else {
+            return
+        }
+        localDaemonSessionController.start(initialSize: gridSize)
+    }
+
+    private func resizeLocalDaemonSessionIfNeeded() {
+        guard let localDaemonSessionController,
+              let gridSize = currentGridSize() else {
+            return
+        }
+        localDaemonSessionController.resize(gridSize)
+    }
+
+    private func stopLocalDaemonSession(closeSession: Bool) {
+        localDaemonSessionController?.stop(closeSession: closeSession)
+    }
+
+    private func handleLocalDaemonInput(_ data: Data) {
+        localDaemonSessionController?.send(data)
+    }
+
+    private func handleLocalDaemonEvent(_ event: LocalTerminalDaemonControllerEvent) {
+        switch event {
+        case .output(let data):
+            processOutput(data)
+        case .failed(let message):
+            NSLog("local daemon session failed for surface %@: %@", id.uuidString, message)
+        case .exited:
+            let workspaceID = tabId
+            let surfaceID = id
+            Task { @MainActor in
+                guard let app = AppDelegate.shared,
+                      let manager = app.tabManagerFor(tabId: workspaceID) ?? app.tabManager,
+                      let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+                      workspace.panels[surfaceID] != nil else {
+                    return
+                }
+                manager.closePanelAfterChildExited(tabId: workspaceID, surfaceId: surfaceID)
+            }
+        }
     }
 
     func isAttached(to view: GhosttyNSView) -> Bool {
@@ -3302,6 +3394,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// before deinit; deinit will skip the free if already torn down.
     @MainActor
     func teardownSurface() {
+        stopLocalDaemonSession(closeSession: true)
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
 
@@ -3495,6 +3588,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
         surfaceCallbackContext = callbackContext
         surfaceConfig.scale_factor = scaleFactors.layer
         surfaceConfig.context = surfaceContext
+        if localDaemonSessionController != nil {
+            surfaceConfig.io_mode = GHOSTTY_SURFACE_IO_MANUAL
+            surfaceConfig.io_write_cb = { userdata, data, len in
+                guard let userdata, let data, len > 0 else { return }
+                let callbackContext = Unmanaged<GhosttySurfaceCallbackContext>
+                    .fromOpaque(userdata)
+                    .takeUnretainedValue()
+                let outboundBytes = Data(bytes: data, count: Int(len))
+                if Thread.isMainThread {
+                    callbackContext.terminalSurface?.handleLocalDaemonInput(outboundBytes)
+                } else {
+                    DispatchQueue.main.async {
+                        callbackContext.terminalSurface?.handleLocalDaemonInput(outboundBytes)
+                    }
+                }
+            }
+            surfaceConfig.io_write_userdata = callbackContext.toOpaque()
+        }
 #if DEBUG
         let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
         dlog(
@@ -3558,6 +3669,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         let createWithCommandAndWorkingDirectory = { [self] in
+            if localDaemonSessionController != nil {
+                createSurface()
+                return
+            }
             if let initialCommand, !initialCommand.isEmpty {
                 initialCommand.withCString { cCommand in
                     surfaceConfig.command = cCommand
@@ -3633,6 +3748,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             lastXScale = scaleFactors.x
             lastYScale = scaleFactors.y
         }
+        startLocalDaemonSessionIfNeeded()
 
         // Some GhosttyKit builds can drop inherited font_size during post-create
         // config/scale reconciliation. If runtime points don't match the inherited
@@ -3730,6 +3846,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             ghostty_surface_set_size(surface, wpx, hpx)
             lastPixelWidth = wpx
             lastPixelHeight = hpx
+            resizeLocalDaemonSessionIfNeeded()
         }
 
         // Let Ghostty continue rendering on its own wakeups for steady-state frames.
@@ -3964,6 +4081,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 #endif
 
     deinit {
+        stopLocalDaemonSession(closeSession: true)
         markPortalLifecycleClosed(reason: "deinit")
 
         let callbackContext = surfaceCallbackContext
@@ -4679,7 +4797,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard surface != nil else { return false }
         setKeyboardCopyModeActive(!keyboardCopyModeActive)
         if !keyboardCopyModeActive, let surface {
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
         }
         return true
     }
@@ -4690,13 +4808,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeActive = active
         if active, let surface {
             keyboardCopyModeViewportRow = keyboardCopyModeSelectionAnchor(surface: surface)?.row
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
             if keyboardCopyModeViewportRow == nil {
                 keyboardCopyModeViewportRow = keyboardCopyModeImeViewportRow(surface: surface)
             }
             // Create a 1-cell selection at the terminal cursor to serve as a
             // visible cursor indicator in copy mode.
-            _ = ghostty_surface_select_cursor_cell(surface)
+            _ = cmuxGhosttySurfaceSelectCursorCell(surface)
         } else {
             keyboardCopyModeViewportRow = nil
         }
@@ -4733,7 +4851,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func keyboardCopyModeSelectionAnchor(surface: ghostty_surface_t) -> (row: Int, y: Double)? {
         let size = ghostty_surface_size(surface)
         guard size.rows > 0, size.columns > 0 else { return nil }
-        guard ghostty_surface_select_cursor_cell(surface) else { return nil }
+        guard cmuxGhosttySurfaceSelectCursorCell(surface) else { return nil }
 
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
@@ -4754,7 +4872,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else { return }
         keyboardCopyModeViewportRow = anchor.row
         // Preserve the visible cursor indicator.
-        _ = ghostty_surface_select_cursor_cell(surface)
+        _ = cmuxGhosttySurfaceSelectCursorCell(surface)
     }
 
     private func copyCurrentViewportLinesToClipboard(
@@ -4769,7 +4887,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let anchor = keyboardCopyModeSelectionAnchor(surface: surface) else {
             return false
         }
-        _ = ghostty_surface_clear_selection(surface)
+        _ = cmuxGhosttySurfaceClearSelection(surface)
 
         var imeX: Double = 0
         var imeY: Double = 0
@@ -4825,18 +4943,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         switch action {
         case .exit:
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
             setKeyboardCopyModeActive(false)
         case .startSelection:
             keyboardCopyModeVisualActive = true
         case .clearSelection:
             keyboardCopyModeVisualActive = false
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
             // Re-create 1-cell cursor at terminal cursor position.
-            _ = ghostty_surface_select_cursor_cell(surface)
+            _ = cmuxGhosttySurfaceSelectCursorCell(surface)
         case .copyAndExit:
             _ = performBindingAction("copy_to_clipboard")
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
             setKeyboardCopyModeActive(false)
         case .copyLineAndExit:
             let startRow = currentKeyboardCopyModeViewportRow(surface: surface)
@@ -4845,7 +4963,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 startRow: startRow,
                 lineCount: count
             )
-            _ = ghostty_surface_clear_selection(surface)
+            _ = cmuxGhosttySurfaceClearSelection(surface)
             setKeyboardCopyModeActive(false)
         case let .scrollLines(delta):
             _ = performBindingAction("scroll_page_lines:\(delta * count)")

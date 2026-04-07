@@ -1,0 +1,4 @@
+/target/
+/ghostty-shim/.zig-cache/
+/ghostty-shim/ghostty
+/vendor/

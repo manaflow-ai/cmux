@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$SCRIPT_DIR/zig-build-env.sh"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -125,15 +125,17 @@ BID="com.cmuxterm.app.debug.${TAG_ID}"
 SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
 DSOCK="$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock"
 LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-DAEMON_BIN="$PWD/daemon/remote/zig/zig-out/bin/cmuxd-remote"
+DAEMON_MANIFEST="$ROOT/daemon/remote/rust/Cargo.toml"
+DAEMON_BIN="$ROOT/daemon/remote/rust/target/debug/cmuxd-remote"
 
 if [[ ! -d "$APP" ]]; then
   echo "error: tagged app not found at $APP" >&2
   exit 1
 fi
 
-if [[ -d "$PWD/daemon/remote/zig" ]]; then
-  (cd "$PWD/daemon/remote/zig" && cmux_run_zig build -Doptimize=ReleaseFast)
+if [[ -f "$DAEMON_MANIFEST" ]]; then
+  GHOSTTY_SOURCE_DIR="${GHOSTTY_SOURCE_DIR:-$ROOT/ghostty}" \
+    cargo build --manifest-path "$DAEMON_MANIFEST" >/dev/null
 fi
 
 /usr/bin/osascript -e "tell application id \"${BID}\" to quit" >/dev/null 2>&1 || true

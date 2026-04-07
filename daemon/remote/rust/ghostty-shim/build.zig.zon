@@ -1,0 +1,14 @@
+.{
+    .name = .cmux_ghostty_shim,
+    .version = "0.0.0",
+    .fingerprint = 0x5ab27c4ebe6da4dd,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{
+        .ghostty = .{ .path = "ghostty" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
