@@ -267,29 +267,12 @@ jobs:
           if [ -f "$HELPER_PATH" ]; then
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$HELPER_PATH"
           fi
-          # Sign all nested bundles and executables deepest-first before the outer app.
-          # Three passes to guarantee correct ordering:
-          #   1) Nested .app/.xpc bundles inside frameworks (e.g. Sparkle's Updater.app)
-          #   2) Standalone Mach-O executables inside frameworks (e.g. Sparkle's Autoupdate)
-          #   3) Top-level .framework/.plugin/.appex bundles themselves
+          # Sign nested bundles (plugins, frameworks, appex, xpc) deepest-first before the outer app
           for DIR in "$APP_PATH/Contents/PlugIns" "$APP_PATH/Contents/Frameworks"; do
             if [ -d "$DIR" ]; then
-              # Pass 1: nested .app and .xpc bundles (deepest-first)
               while IFS= read -r -d '' bundle; do
                 /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$bundle"
-              done < <(find "$DIR" -depth -type d \( -name '*.app' -o -name '*.xpc' \) -print0)
-
-              # Pass 2: standalone Mach-O executables & dylibs (skip those inside .app bundles)
-              while IFS= read -r -d '' f; do
-                if file "$f" | grep -qE 'Mach-O'; then
-                  /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$f"
-                fi
-              done < <(find "$DIR" -type f \( -perm +111 -o -name '*.dylib' \) -not -path '*.app/*' -print0)
-
-              # Pass 3: .framework, .plugin, .appex bundles (deepest-first)
-              while IFS= read -r -d '' bundle; do
-                /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$bundle"
-              done < <(find "$DIR" -depth -type d \( -name '*.framework' -o -name '*.plugin' -o -name '*.appex' \) -print0)
+              done < <(find "$DIR" -depth -type d \( -name '*.plugin' -o -name '*.appex' -o -name '*.framework' -o -name '*.xpc' \) -print0)
             fi
           done
           /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
