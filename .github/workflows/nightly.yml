@@ -406,6 +406,14 @@ jobs:
             if [ -f "$HELPER_PATH" ]; then
               /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$HELPER_PATH"
             fi
+            # Sign nested bundles (plugins, frameworks, appex, xpc) deepest-first before the outer app
+            for DIR in "$APP_PATH/Contents/PlugIns" "$APP_PATH/Contents/Frameworks"; do
+              if [ -d "$DIR" ]; then
+                while IFS= read -r -d '' bundle; do
+                  /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$bundle"
+                done < <(find "$DIR" -depth -type d \( -name '*.plugin' -o -name '*.appex' -o -name '*.framework' -o -name '*.xpc' \) -print0)
+              fi
+            done
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
             ./scripts/assert-passkey-entitlement.sh "$APP_PATH"
