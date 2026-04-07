@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import AuthenticationServices
 import WebKit
 import AppKit
 import Bonsplit
@@ -1726,164 +1725,6 @@ final class BrowserPortalAnchorView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
-    }
-}
-
-// WKWebView handles WebAuthn itself for browser apps; this support code only
-// determines when cmux should request browser passkey access from macOS.
-enum BrowserPasskeyAuthorizationSupport {
-    static let remoteLoopbackAliasHost = "cmux-loopback.localtest.me"
-
-    static func isPotentiallyTrustworthy(url: URL?) -> Bool {
-        guard let url,
-              let scheme = url.scheme?.lowercased() else {
-            return false
-        }
-        if scheme == "https" {
-            return true
-        }
-        guard scheme == "http",
-              let host = url.host else {
-            return false
-        }
-        return isLoopbackHost(host)
-    }
-
-    static func shouldRequestAuthorization(
-        for url: URL?,
-        authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-        hasPendingRequest: Bool,
-        didPromptThisSession: Bool
-    ) -> Bool {
-        guard isPotentiallyTrustworthy(url: url) else { return false }
-        guard authorizationState == .notDetermined else { return false }
-        guard !hasPendingRequest else { return false }
-        guard !didPromptThisSession else { return false }
-        return true
-    }
-
-    /// Returns a host/origin string suitable for debug logs without leaking
-    /// query parameters, paths, OIDC state, or auth codes.
-    static func redactedURLDescription(for url: URL?) -> String {
-        guard let url else { return "nil" }
-        let scheme = url.scheme?.lowercased() ?? "?"
-        let host = url.host ?? "?"
-        return "\(scheme)://\(host)"
-    }
-
-    private static func isLoopbackHost(_ host: String) -> Bool {
-        let normalized = normalizedHost(host)
-        let octets = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        let is127Loopback = octets.count == 4
-            && octets[0] == "127"
-            && octets.allSatisfy { component in
-                guard let value = Int(component) else { return false }
-                return (0...255).contains(value)
-            }
-
-        return normalized == "localhost"
-            || normalized.hasSuffix(".localhost")
-            || normalized == "::1"
-            || is127Loopback
-            || normalized == remoteLoopbackAliasHost
-            || normalized.hasSuffix("." + remoteLoopbackAliasHost)
-    }
-
-    private static func normalizedHost(_ host: String) -> String {
-        var normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if normalized.hasPrefix("[") && normalized.hasSuffix("]") {
-            normalized.removeFirst()
-            normalized.removeLast()
-        }
-        if normalized.hasSuffix(".") {
-            normalized.removeLast()
-        }
-        return normalized
-    }
-}
-
-private extension ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState {
-    var cmuxDebugName: String {
-        switch self {
-        case .authorized:
-            return "authorized"
-        case .denied:
-            return "denied"
-        case .notDetermined:
-            return "notDetermined"
-        @unknown default:
-            return "unknown"
-        }
-    }
-}
-
-@MainActor
-final class BrowserPasskeyAuthorizationManager {
-    static let shared = BrowserPasskeyAuthorizationManager()
-
-    private let credentialManager = ASAuthorizationWebBrowserPublicKeyCredentialManager()
-    private var authorizationTask: Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never>?
-    private var didPromptThisSession = false
-
-    private init() {}
-
-    func requestAuthorizationIfNeeded(for url: URL?, source: String) {
-        // Skip the system passkey authorization prompt when running under
-        // automated UI tests; the dialog blocks the main thread and breaks
-        // unrelated keyboard regressions on CI.
-        if SessionRestorePolicy.isRunningUnderAutomatedTests() {
-            return
-        }
-
-        let state = credentialManager.authorizationStateForPlatformCredentials
-        let redactedURL = BrowserPasskeyAuthorizationSupport.redactedURLDescription(for: url)
-        guard BrowserPasskeyAuthorizationSupport.shouldRequestAuthorization(
-            for: url,
-            authorizationState: state,
-            hasPendingRequest: authorizationTask != nil,
-            didPromptThisSession: didPromptThisSession
-        ) else {
-#if DEBUG
-            dlog(
-                "browser.passkey.authorization.skip " +
-                "source=\(source) origin=\(redactedURL) state=\(state.cmuxDebugName) " +
-                "pending=\(authorizationTask == nil ? 0 : 1) prompted=\(didPromptThisSession ? 1 : 0)"
-            )
-#endif
-            return
-        }
-
-        didPromptThisSession = true
-#if DEBUG
-        dlog(
-            "browser.passkey.authorization.begin " +
-            "source=\(source) origin=\(redactedURL) state=\(state.cmuxDebugName)"
-        )
-#endif
-
-        let task = Task<ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState, Never> { [credentialManager] in
-            await withCheckedContinuation { continuation in
-                credentialManager.requestAuthorizationForPublicKeyCredentials { authorizationState in
-                    continuation.resume(returning: authorizationState)
-                }
-            }
-        }
-        authorizationTask = task
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let result = await task.value
-            self.authorizationTask = nil
-            if result == .notDetermined {
-                self.didPromptThisSession = false
-            }
-#if DEBUG
-            dlog(
-                "browser.passkey.authorization.end " +
-                "source=\(source) origin=\(redactedURL) result=\(result.cmuxDebugName)"
-            )
-#endif
-        }
     }
 }
 
@@ -6346,13 +6187,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             openInNewTab?(url)
             decisionHandler(.cancel)
             return
-        }
-
-        if navigationAction.targetFrame?.isMainFrame != false {
-            BrowserPasskeyAuthorizationManager.shared.requestAuthorizationIfNeeded(
-                for: navigationAction.request.url,
-                source: "browser.navigation.mainFrame"
-            )
         }
 
 #if DEBUG

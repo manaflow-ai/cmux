@@ -393,22 +393,20 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          APP_ENTITLEMENTS="cmux.entitlements"
-          EMBEDDED_ENTITLEMENTS="cmux.embedded.entitlements"
+          ENTITLEMENTS="cmux.entitlements"
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
             CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
             HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
             if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$CLI_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
             fi
             if [ -f "$HELPER_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$HELPER_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
             fi
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$APP_ENTITLEMENTS" "$APP_PATH"
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-            ./scripts/assert-passkey-entitlement.sh "$APP_PATH"
           done
 
       - name: Notarize apps and dmgs
