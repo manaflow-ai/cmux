@@ -8583,15 +8583,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
-        let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
+        // Wait for a terminal surface to become first responder before signaling
+        // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
+        var observer: NSObjectProtocol?
+        let deadline = Date().addingTimeInterval(6.0)
 
-        writeGotoSplitTestData([
-            "paneCount": String(allPaneIds.count),
-            "allPaneIds": allPaneIds.joined(separator: ","),
-            "focusedPaneId": focusedPaneId,
-            "setupComplete": "true",
-        ])
+        func checkAndSignal() {
+            guard Date() < deadline else {
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
+                return
+            }
+            guard let focusedPanelId = tab.focusedPanelId,
+                  tab.terminalPanel(for: focusedPanelId) != nil,
+                  let window = NSApp.mainWindow ?? NSApp.keyWindow,
+                  window.firstResponder is NSView else {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { checkAndSignal() }
+                return
+            }
+
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+
+            let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
+            let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
+
+            self.writeGotoSplitTestData([
+                "paneCount": String(allPaneIds.count),
+                "allPaneIds": allPaneIds.joined(separator: ","),
+                "focusedPaneId": focusedPaneId,
+                "setupComplete": "true",
+            ])
+        }
+
+        observer = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidFocusSurface,
+            object: nil,
+            queue: .main
+        ) { _ in checkAndSignal() }
+
+        // Also poll in case the notification already fired before we observed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { checkAndSignal() }
     }
 
     private func setupBonsplitTabDragUITestIfNeeded() {
