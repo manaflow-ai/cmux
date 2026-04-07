@@ -2836,10 +2836,11 @@ class GhosttyApp {
                 guard let tabId = surfaceView.tabId else { return false }
                 let forward = gotoDirection == GHOSTTY_GOTO_SPLIT_NEXT
                 return performOnMain {
-                    guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                    guard let app = AppDelegate.shared,
+                          let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
-                    AppDelegate.shared?.recordGotoSplitCycleMoveIfNeeded(forward: forward)
+                    app.recordGotoSplitCycleMoveIfNeeded(forward: forward)
 #endif
                     return result
                 }
