@@ -1181,6 +1181,11 @@ private final class GhosttySurfaceCallbackContext {
 // MARK: - Ghostty App Singleton
 
 class GhosttyApp {
+    enum ScrollbarVisibility: String {
+        case system
+        case never
+    }
+
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
@@ -2466,6 +2471,17 @@ class GhosttyApp {
         let keyLength = UInt(key.lengthOfBytes(using: .utf8))
         let found = ghostty_config_get(config, &enabled, key, keyLength)
         return found && enabled
+    }
+
+    func scrollbarVisibility() -> ScrollbarVisibility {
+        guard let config else { return .system }
+        var value: UnsafePointer<Int8>?
+        let key = "scrollbar"
+        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+              let value else {
+            return .system
+        }
+        return ScrollbarVisibility(rawValue: String(cString: value)) ?? .system
     }
 
     func appleScriptAutomationEnabled() -> Bool {
@@ -8532,6 +8548,7 @@ final class GhosttySurfaceScrollView: NSView {
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
     private var windowObservers: [NSObjectProtocol] = []
+    private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
@@ -8777,6 +8794,7 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = initialTerminalBackground.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
+        synchronizeScrollbarAppearance()
         inactiveOverlayView.wantsLayer = true
         inactiveOverlayView.layer?.backgroundColor = NSColor.clear.cgColor
         inactiveOverlayView.isHidden = true
@@ -9071,6 +9089,37 @@ final class GhosttySurfaceScrollView: NSView {
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
     override var acceptsFirstResponder: Bool { false }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard scrollView.hasVerticalScroller,
+              NSScroller.preferredScrollerStyle == .legacy else { return }
+        scrollView.flashScrollers()
+    }
+
+    override func updateTrackingAreas() {
+        if let scrollbarTrackingArea {
+            removeTrackingArea(scrollbarTrackingArea)
+            self.scrollbarTrackingArea = nil
+        }
+
+        super.updateTrackingAreas()
+
+        guard scrollView.hasVerticalScroller,
+              let scroller = scrollView.verticalScroller else { return }
+
+        let trackingArea = NSTrackingArea(
+            rect: convert(scroller.bounds, from: scroller),
+            options: [
+                .mouseMoved,
+                .activeInKeyWindow,
+            ],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        scrollbarTrackingArea = trackingArea
+    }
 
     override func layout() {
         super.layout()
@@ -9769,6 +9818,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func refreshHostBackgroundAfterGhosttyConfigReload() {
+        synchronizeScrollbarAppearance()
         surfaceView.applySurfaceBackground()
         surfaceView.applyWindowBackgroundIfActive()
     }
@@ -11225,6 +11275,16 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
     }
 
+    private func synchronizeScrollbarAppearance() {
+        scrollView.hasVerticalScroller = GhosttyApp.shared.scrollbarVisibility() != .never
+        // Mirror upstream Ghostty: keep overlay scrollers even when the
+        // system preference is legacy so terminal content never sits beneath a
+        // permanently reserved scrollbar gutter.
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .overlay
+        updateTrackingAreas()
+    }
+
     private func handlePreferredScrollerStyleChange() {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
@@ -11232,6 +11292,8 @@ final class GhosttySurfaceScrollView: NSView {
             }
             return
         }
+
+        synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
         // scrollbar mode without perturbing viewport origin or hosted view
