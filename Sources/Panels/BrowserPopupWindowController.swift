@@ -577,6 +577,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        BrowserPasskeyAuthorizationManager.shared.requestAuthorizationIfNeeded(
+            for: url,
+            source: "browser.popup.navigation.mainFrame"
+        )
+
         decisionHandler(.allow)
     }
 
