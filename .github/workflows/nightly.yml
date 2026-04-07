@@ -423,7 +423,7 @@ jobs:
                   if file "$f" | grep -qE 'Mach-O'; then
                     /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$EMBEDDED_ENTITLEMENTS" "$f"
                   fi
-                done < <(find "$DIR" -type f -not -path '*.app/*' -print0)
+                done < <(find "$DIR" \( -type d -name '*.app' -prune \) -o \( -type f -print0 \))
 
                 # Pass 3: .framework, .plugin, .appex bundles (deepest-first)
                 while IFS= read -r -d '' bundle; do
