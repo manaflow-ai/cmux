@@ -11741,20 +11741,25 @@ struct CMUXCLI {
         init() {}
     }
 
-    private func tmuxCompatDefaultOptionValue(_ name: String) -> String? {
-        switch name.lowercased() {
-        case "extended-keys":
+    private func tmuxCompatDefaultOptions() -> [String: String] {
+        [
             // cmux is not a tmux server, but OMX expects the tmux compatibility
             // shim to answer lease-management probes for extended-keys.
-            return "off"
-        default:
-            return nil
-        }
+            "extended-keys": "off"
+        ]
+    }
+
+    private func tmuxCompatDefaultOptionValue(_ name: String) -> String? {
+        tmuxCompatDefaultOptions()[name.lowercased()]
+    }
+
+    private func tmuxCompatMergedOptions(store: TmuxCompatStore) -> [String: String] {
+        tmuxCompatDefaultOptions().merging(store.options) { _, stored in stored }
     }
 
     private func tmuxCompatOptionValue(_ name: String, store: TmuxCompatStore) -> String? {
         let normalizedName = name.lowercased()
-        return store.options[normalizedName] ?? tmuxCompatDefaultOptionValue(normalizedName)
+        return tmuxCompatMergedOptions(store: store)[normalizedName]
     }
 
     private func tmuxCompatStoreURL() -> URL {
@@ -12235,23 +12240,38 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-p", "-q", "-s", "-v", "-w"]
             )
             let store = loadTmuxCompatStore()
-            guard let optionName = parsed.positional.first?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !optionName.isEmpty else {
-                throw CLIError(message: "\(command) requires an option name")
+            let optionName = parsed.positional.first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let optionName, !optionName.isEmpty {
+                guard let value = tmuxCompatOptionValue(optionName, store: store) else {
+                    if parsed.hasFlag("-q") {
+                        return
+                    }
+                    throw CLIError(message: "Unsupported tmux compatibility option: \(optionName)")
+                }
+
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(optionName) \(value)")
+                }
+                return
             }
 
-            guard let value = tmuxCompatOptionValue(optionName, store: store) else {
+            let allOptions = tmuxCompatMergedOptions(store: store)
+            if allOptions.isEmpty {
                 if parsed.hasFlag("-q") {
                     return
                 }
-                throw CLIError(message: "Unsupported tmux compatibility option: \(optionName)")
+                throw CLIError(message: "No tmux compatibility options are set")
             }
-
-            if parsed.hasFlag("-v") {
-                print(value)
-            } else {
-                print("\(optionName) \(value)")
+            for (name, value) in allOptions.sorted(by: { $0.key < $1.key }) {
+                if parsed.hasFlag("-v") {
+                    print(value)
+                } else {
+                    print("\(name) \(value)")
+                }
             }
 
         case "set-option", "set", "set-window-option", "setw":
@@ -12280,7 +12300,16 @@ struct CMUXCLI {
                 throw CLIError(message: "\(command) requires an option value")
             }
 
-            store.options[normalizedName] = value
+            if parsed.hasFlag("-o"), tmuxCompatOptionValue(normalizedName, store: store) != nil {
+                return
+            }
+
+            if parsed.hasFlag("-a") {
+                let existing = tmuxCompatOptionValue(normalizedName, store: store) ?? ""
+                store.options[normalizedName] = existing + value
+            } else {
+                store.options[normalizedName] = value
+            }
             try saveTmuxCompatStore(store)
 
         case "popup":
@@ -14472,8 +14501,8 @@ struct CMUXCLI {
           last-pane [--workspace <id|ref>]
           find-window [--content] [--select] <query>
           clear-history [--workspace <id|ref>] [--surface <id|ref>]
-          show-options [-sv] <name>
-          set-option [-sq] <name> <value>
+          show-options [-sv] [name]
+          set-option [-asq] <name> <value>
           set-hook [--list] [--unset <event>] | <event> <command>
           popup
           bind-key | unbind-key | copy-mode
