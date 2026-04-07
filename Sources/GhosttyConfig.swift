@@ -13,6 +13,7 @@ struct GhosttyConfig {
 
     var fontFamily: String = "Menlo"
     var fontSize: CGFloat = 12
+    var surfaceTabBarFontSize: CGFloat = 11
     var theme: String?
     var workingDirectory: String?
     var scrollbackLimit: Int = 10000
@@ -241,6 +242,10 @@ struct GhosttyConfig {
                 case "font-size":
                     if let size = Double(value) {
                         fontSize = CGFloat(size)
+                    }
+                case "surface-tab-bar-font-size":
+                    if let size = Double(value) {
+                        surfaceTabBarFontSize = CGFloat(size)
                     }
                 case "theme":
                     theme = value

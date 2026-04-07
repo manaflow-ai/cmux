@@ -6755,7 +6755,8 @@ final class Workspace: Identifiable, ObservableObject {
     private static func bonsplitAppearance(from config: GhosttyConfig) -> BonsplitConfiguration.Appearance {
         bonsplitAppearance(
             from: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity
+            backgroundOpacity: config.backgroundOpacity,
+            tabTitleFontSize: config.surfaceTabBarFontSize
         )
     }
 
@@ -6776,9 +6777,11 @@ final class Workspace: Identifiable, ObservableObject {
 
     private static func bonsplitAppearance(
         from backgroundColor: NSColor,
-        backgroundOpacity: Double
+        backgroundOpacity: Double,
+        tabTitleFontSize: CGFloat = 11
     ) -> BonsplitConfiguration.Appearance {
         BonsplitConfiguration.Appearance(
+            tabTitleFontSize: tabTitleFontSize,
             splitButtonTooltips: Self.currentSplitButtonTooltips(),
             enableAnimations: false,
             chromeColors: .init(
@@ -6791,11 +6794,43 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyGhosttyChrome(from config: GhosttyConfig, reason: String = "unspecified") {
-        applyGhosttyChrome(
+        let nextHex = Self.bonsplitChromeHex(
             backgroundColor: config.backgroundColor,
-            backgroundOpacity: config.backgroundOpacity,
-            reason: reason
+            backgroundOpacity: config.backgroundOpacity
         )
+        let nextTabTitleFontSize = config.surfaceTabBarFontSize
+        let currentAppearance = bonsplitController.configuration.appearance
+        let currentBackgroundHex = currentAppearance.chromeColors.backgroundHex
+        let currentTabTitleFontSize = currentAppearance.tabTitleFontSize
+        let backgroundChanged = currentBackgroundHex != nextHex
+        let fontSizeChanged = abs(currentTabTitleFontSize - nextTabTitleFontSize) > 0.0001
+        let isNoOp = !backgroundChanged && !fontSizeChanged
+
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme apply workspace=\(id.uuidString) reason=\(reason) " +
+                "currentBg=\(currentBackgroundHex ?? "nil") nextBg=\(nextHex) " +
+                "currentTabFont=\(String(format: "%.3f", currentTabTitleFontSize)) " +
+                "nextTabFont=\(String(format: "%.3f", nextTabTitleFontSize)) noop=\(isNoOp)"
+            )
+        }
+
+        guard !isNoOp else { return }
+
+        if backgroundChanged {
+            bonsplitController.configuration.appearance.chromeColors.backgroundHex = nextHex
+        }
+        if fontSizeChanged {
+            bonsplitController.configuration.appearance.tabTitleFontSize = nextTabTitleFontSize
+        }
+
+        if GhosttyApp.shared.backgroundLogEnabled {
+            GhosttyApp.shared.logBackground(
+                "theme applied workspace=\(id.uuidString) reason=\(reason) " +
+                "resultingBg=\(bonsplitController.configuration.appearance.chromeColors.backgroundHex ?? "nil") " +
+                "resultingTabFont=\(String(format: "%.3f", bonsplitController.configuration.appearance.tabTitleFontSize))"
+            )
+        }
     }
 
     func applyGhosttyChrome(backgroundColor: NSColor, backgroundOpacity: Double, reason: String = "unspecified") {
@@ -6847,11 +6882,13 @@ final class Workspace: Identifiable, ObservableObject {
 
         // Configure bonsplit with keepAllAlive to preserve terminal state
         // and keep split entry instantaneous.
-        // Avoid re-reading/parsing Ghostty config on every new workspace; this hot path
-        // runs for socket/CLI workspace creation and can cause visible typing lag.
+        // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
+        // without paying repeated parse costs on the workspace-creation hot path.
+        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
-            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+            backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
+            tabTitleFontSize: initialSurfaceTabBarFontSize
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
