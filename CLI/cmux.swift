@@ -2698,7 +2698,9 @@ struct CMUXCLI {
              "paste-buffer",
              "list-buffers",
              "respawn-pane",
-             "display-message":
+             "display-message",
+             "show-options",
+             "show-option":
             try runTmuxCompatCommand(
                 command: command,
                 commandArgs: commandArgs,
@@ -11688,6 +11690,11 @@ struct CMUXCLI {
                 // future splits don't incorrectly redirect to the old column.
                 try tmuxPruneCompatWorkspaceState(workspaceId: workspaceId)
             }
+
+        case "show-options", "show-option":
+            // Stub: omx queries `tmux show-options -sv extended-keys` to check
+            // terminal key mode. cmux handles keys natively, so return empty.
+            print("")
 
         case "set-option", "set", "set-window-option", "setw", "source-file", "refresh-client", "attach-session", "detach-client":
             return
