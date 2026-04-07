@@ -6877,6 +6877,37 @@ struct CMUXCLI {
               cmux omc team 3:claude "implement feature"
               cmux omc --watch
             """)
+        case "show-option", "show-options":
+            return """
+            Usage: cmux show-options [-svq] [name]
+
+            Show tmux-compat option values. Without a name, list all known values.
+
+            Flags:
+              -s   Server option scope compatibility flag
+              -v   Print only the option value
+              -q   Suppress errors for missing or unsupported options
+
+            Examples:
+              cmux show-options
+              cmux show-options -sv extended-keys
+            """
+        case "set", "set-option", "set-window-option", "setw":
+            return """
+            Usage: cmux set-option [-aouq] <name> <value>
+
+            Persist a tmux-compat option value.
+
+            Flags:
+              -a   Append to the existing value
+              -o   Only set if the option is not already set
+              -u   Unset the option
+              -q   Suppress errors for unknown options
+
+            Examples:
+              cmux set-option extended-keys always
+              cmux set-option -u extended-keys
+            """
         case "identify":
             return """
             Usage: cmux identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
@@ -12294,11 +12325,11 @@ struct CMUXCLI {
                 return
             }
 
-            let value = parsed.positional.dropFirst().joined(separator: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !value.isEmpty else {
+            let valueParts = Array(parsed.positional.dropFirst())
+            guard !valueParts.isEmpty else {
                 throw CLIError(message: "\(command) requires an option value")
             }
+            let value = valueParts.joined(separator: " ")
 
             if parsed.hasFlag("-o"), tmuxCompatOptionValue(normalizedName, store: store) != nil {
                 return
