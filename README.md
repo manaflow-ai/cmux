@@ -82,6 +82,16 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>VNC Remote Desktop</h3>
+Connect to remote machines via VNC directly inside a cmux panel. View and interact with remote desktops alongside your terminal — no separate VNC app needed.
+</td>
+<td width="60%">
+<!-- <img src="./docs/assets/vnc-panel.png" alt="VNC Remote Desktop" width="100%" /> -->
+<em>Screenshot coming soon</em>
+</td>
+</tr>
 </table>
 
 - **Browser import** — Import cookies, history, and sessions from Chrome, Firefox, Arc, and 20+ browsers so browser panes start authenticated
@@ -200,6 +210,12 @@ Browser developer-tool shortcuts follow Safari defaults and are customizable in 
 | ⌘ I | Show notifications panel |
 | ⌘ ⇧ U | Jump to latest unread |
 
+### VNC
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘ ⇧ V | Open VNC panel in split |
+
 ### Find
 
 | Shortcut | Action |
@@ -245,6 +261,77 @@ On relaunch, cmux currently restores app layout and metadata only:
 - Browser URL and navigation history
 
 cmux does **not** restore live process state inside terminal apps. For example, active Claude Code/tmux/vim sessions are not resumed after restart yet.
+
+## VNC Remote Desktop
+
+cmux includes a built-in VNC client that lets you view and control remote desktops directly inside a terminal panel. This is useful for interacting with remote Linux machines, Raspberry Pis, or headless VMs without leaving cmux.
+
+<details>
+<summary><strong>Step 1: Set up VNC on the remote machine</strong></summary>
+
+Run the one-line installer on any Linux machine (Debian, Ubuntu, Fedora, Arch, Raspberry Pi):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/scripts/setup-vnc-server.sh | bash
+```
+
+This will:
+- Detect your OS and architecture
+- Install TigerVNC server (required — RealVNC uses proprietary auth that isn't compatible)
+- Optionally install a lightweight desktop environment (XFCE or LXDE)
+- Prompt you to set a VNC password
+- Configure display resolution
+- Optionally create a systemd service for auto-start on boot
+
+**macOS remote machines** already have Screen Sharing built in — the script will guide you through enabling it in System Settings.
+
+**Manual setup** (if you prefer not to use the script):
+
+```bash
+# Debian/Ubuntu
+sudo apt install -y tigervnc-standalone-server tigervnc-common
+
+# Set VNC password
+vncpasswd
+
+# Start VNC server on display :1 (port 5901), accepting remote connections
+vncserver :1 -localhost no -geometry 1920x1080 -depth 24
+```
+
+</details>
+
+<details>
+<summary><strong>Step 2: Connect from cmux</strong></summary>
+
+1. Open cmux and split a new pane (`Cmd+D` for right split, `Cmd+Shift+D` for down split)
+2. Open a VNC panel via the CLI:
+   ```bash
+   cmux vnc open <hostname>:<port>
+   ```
+   For example: `cmux vnc open raspberrypi:5901`
+3. Enter your VNC password when prompted
+4. The remote desktop renders directly in the cmux panel — mouse and keyboard input are forwarded automatically
+
+**Connection tips:**
+- Default VNC port is `5900 + display number` (display `:1` = port `5901`)
+- Use TigerVNC on the remote side — RealVNC uses proprietary auth that isn't compatible
+- Start TigerVNC with `-localhost no` to accept remote connections
+- Credentials are saved in macOS Keychain for quick reconnection
+
+</details>
+
+<details>
+<summary><strong>Step 3: Troubleshooting</strong></summary>
+
+| Issue | Fix |
+|-------|-----|
+| "Incompatible security type" | Remote is running RealVNC. Switch to TigerVNC |
+| Connection refused | Check VNC is running: `ss -tlnp \| grep 590` |
+| Black screen | Ensure a desktop environment is installed (XFCE/LXDE) |
+| Can't connect remotely | Start with `-localhost no`: `vncserver :1 -localhost no` |
+| Firewall blocking | Open the port: `sudo ufw allow 5901/tcp` |
+
+</details>
 
 ## Star History
 
