@@ -14319,91 +14319,109 @@ struct CMUXCLI {
           --password takes precedence, then CMUX_SOCKET_PASSWORD env var, then password saved in Settings.
 
         Commands:
-          welcome
-          shortcuts
-          feedback [--email <email> --body <text> [--image <path> ...]]
-          themes [list|set|clear]
-          claude-teams [claude-args...]
-          omo [opencode-args...]
-          omx [omx-args...]
-          omc [omc-args...]
-          codex <install-hooks|uninstall-hooks>
-          ping
-          version
+
+          # General
           capabilities
-          rpc <method> [json-params]
+          help
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]
-          list-windows
-          current-window
-          new-window
-          focus-window --window <id>
-          close-window --window <id>
-          move-workspace-to-window --workspace <id|ref> --window <id|ref>
-          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
-          list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
-          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
-          remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
-          list-panes [--workspace <id|ref>]
-          list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
-          tree [--all] [--workspace <id|ref|index>]
-          focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
-          close-surface [--surface <id|ref>] [--workspace <id|ref>]
-          move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
-          reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
-          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
-          rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
-          drag-surface-to-split --surface <id|ref> <left|right|up|down>
+          ping
+          rpc <method> [json-params]
+          version
+
+          # App
+          feedback [--email <email> --body <text> [--image <path> ...]]
           refresh-surfaces
           reload-config
-          surface-health [--workspace <id|ref>]
-          trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
-          list-panels [--workspace <id|ref>]
-          focus-panel --panel <id|ref> [--workspace <id|ref>]
+          shortcuts
+          themes [list|set|clear]
+          welcome
+
+          # Windows
+          close-window --window <id>
+          current-window
+          focus-window --window <id>
+          list-windows
+          new-window
+
+          # Workspaces
           close-workspace --workspace <id|ref>
-          select-workspace --workspace <id|ref>
-          rename-workspace [--workspace <id|ref>] <title>
-          rename-window [--workspace <id|ref>] <title>
           current-workspace
+          list-workspaces
+          move-workspace-to-window --workspace <id|ref> --window <id|ref>
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
+          rename-window [--workspace <id|ref>] <title>
+          rename-workspace [--workspace <id|ref>] <title>
+          reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
+          select-workspace --workspace <id|ref>
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+
+          # Panes & Splits
+          drag-surface-to-split --surface <id|ref> <left|right|up|down>
+          focus-pane --pane <id|ref> [--workspace <id|ref>]
+          focus-panel --panel <id|ref> [--workspace <id|ref>]
+          list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
+          list-panes [--workspace <id|ref>]
+          list-panels [--workspace <id|ref>]
+          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
+          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
+          tree [--all] [--workspace <id|ref|index>]
+
+          # Tabs & Surfaces
+          close-surface [--surface <id|ref>] [--workspace <id|ref>]
+          move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
+          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
+          rename-tab [--workspace <id|ref>] [--tab <id|ref>] [--surface <id|ref>] <title>
+          reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
+          tab-action --action <name> [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--url <url>]
+
+          # Terminal I/O
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
           send [--workspace <id|ref>] [--surface <id|ref>] <text>
           send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
-          send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
-          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
-          list-notifications
+          send-panel --panel <id|ref> [--workspace <id|ref>] <text>
+
+          # Notifications
           clear-notifications
+          list-notifications
+          notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
+
+          # Sidebar: Status, Progress & Logs
+          clear-log [--workspace <id|ref>]
+          clear-progress [--workspace <id|ref>]
+          clear-status <key> [--workspace <id|ref>]
+          list-log [--limit <n>] [--workspace <id|ref>]
+          list-status [--workspace <id|ref>]
+          log [--level <level>] [--source <name>] [--workspace <id|ref>] [--] <message>
+          set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
+          set-status <key> <value> [--icon <name>] [--color <hex>] [--workspace <id|ref>]
+          sidebar-state [--workspace <id|ref>]
+
+          # SSH & Remote
+          remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
+          ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          ssh-session-end --relay-port <port> --workspace <id|ref> --surface <id|ref>
+
+          # Hooks & Integrations
           claude-hook <session-start|stop|notification> [--workspace <id|ref>] [--surface <id|ref>]
+          claude-teams [claude-args...]
+          codex <install-hooks|uninstall-hooks>
+          codex-hook <session-start|prompt-submit|stop> [--workspace <id|ref>] [--surface <id|ref>]
+          omc [omc-args...]
+          omo [opencode-args...]
+          omx [omx-args...]
           set-app-focus <active|inactive|clear>
           simulate-app-active
 
-          # tmux compatibility commands
-          capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
-          resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
-          pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
-          wait-for [-S|--signal] <name> [--timeout <seconds>]
-          swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
-          break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
-          join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
-          next-window | previous-window | last-window
-          last-pane [--workspace <id|ref>]
-          find-window [--content] [--select] <query>
-          clear-history [--workspace <id|ref>] [--surface <id|ref>]
-          set-hook [--list] [--unset <event>] | <event> <command>
-          popup
-          bind-key | unbind-key | copy-mode
-          set-buffer [--name <name>] <text>
-          list-buffers
-          paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
-          respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
-          display-message [-p|--print] <text>
+          # Diagnostics
+          debug-terminals
+          surface-health [--workspace <id|ref>]
+          trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
 
-          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
+          # Markdown
+          markdown [open] <path>
 
+          # Browser
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
           browser open-split [url]
@@ -14437,6 +14455,27 @@ struct CMUXCLI {
           browser addscript <script>
           browser addstyle <css>
           browser identify [--surface <id|ref|index>]
+
+          # tmux Compatibility
+          bind-key | unbind-key | copy-mode
+          break-pane [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          capture-pane [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
+          clear-history [--workspace <id|ref>] [--surface <id|ref>]
+          display-message [-p|--print] <text>
+          find-window [--content] [--select] <query>
+          join-pane --target-pane <id|ref> [--workspace <id|ref>] [--pane <id|ref>] [--surface <id|ref>] [--no-focus]
+          last-pane [--workspace <id|ref>]
+          list-buffers
+          next-window | previous-window | last-window
+          paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
+          pipe-pane --command <shell-command> [--workspace <id|ref>] [--surface <id|ref>]
+          popup
+          resize-pane --pane <id|ref> [--workspace <id|ref>] (-L|-R|-U|-D) [--amount <n>]
+          respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
+          set-buffer [--name <name>] <text>
+          set-hook [--list] [--unset <event>] | <event> <command>
+          swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
+          wait-for [-S|--signal] <name> [--timeout <seconds>]
           help
 
         Environment:
