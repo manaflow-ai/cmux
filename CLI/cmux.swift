@@ -14337,22 +14337,22 @@ struct CMUXCLI {
           welcome
 
           # Windows
-          close-window --window <id>
+          close-window --window <id|ref|index>
           current-window
-          focus-window --window <id>
+          focus-window --window <id|ref|index>
           list-windows
           new-window
+          rename-window [--workspace <id|ref>] <title>
 
           # Workspaces
-          close-workspace --workspace <id|ref>
+          close-workspace --workspace <id|ref|index>
           current-workspace
           list-workspaces
-          move-workspace-to-window --workspace <id|ref> --window <id|ref>
+          move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
-          rename-window [--workspace <id|ref>] <title>
           rename-workspace [--workspace <id|ref>] <title>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          select-workspace --workspace <id|ref>
+          select-workspace --workspace <id|ref|index>
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
 
           # Panes & Splits
@@ -14419,7 +14419,7 @@ struct CMUXCLI {
           trigger-flash [--workspace <id|ref>] [--surface <id|ref>]
 
           # Markdown
-          markdown [open] <path>
+          markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           # Browser
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
@@ -14476,7 +14476,6 @@ struct CMUXCLI {
           set-hook [--list] [--unset <event>] | <event> <command>
           swap-pane --pane <id|ref> --target-pane <id|ref> [--workspace <id|ref>]
           wait-for [-S|--signal] <name> [--timeout <seconds>]
-          help
 
         Environment:
           CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
