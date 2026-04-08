@@ -1827,6 +1827,52 @@ struct CMUXCLI {
             }
         }
 
+        // Cursor hooks management (no socket needed)
+        if command == "cursor" {
+            let sub = commandArgs.first?.lowercased() ?? "help"
+            if sub == "install-hooks" {
+                try runCursorInstallHooks()
+                return
+            } else if sub == "uninstall-hooks" {
+                try runCursorUninstallHooks()
+                return
+            }
+        }
+
+        // Cursor hook handler: gracefully no-op when not inside cmux
+        if command == "cursor-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+                print("{}")
+                return
+            }
+        }
+
+        // Gemini hooks management (no socket needed)
+        if command == "gemini" {
+            let sub = commandArgs.first?.lowercased() ?? "help"
+            if sub == "install-hooks" {
+                try runGeminiInstallHooks()
+                return
+            } else if sub == "uninstall-hooks" {
+                try runGeminiUninstallHooks()
+                return
+            }
+        }
+
+        // Gemini hook handler: gracefully no-op when not inside cmux
+        if command == "gemini-hook" {
+            guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] != nil else {
+                print("{}")
+                return
+            }
+        }
+
+        // Unified hook setup for all agents
+        if command == "setup-hooks" {
+            try runSetupHooks()
+            return
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -2655,6 +2701,28 @@ struct CMUXCLI {
             } catch {
                 cliTelemetry.breadcrumb("codex-hook.failure")
                 cliTelemetry.captureError(stage: "codex_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "cursor-hook":
+            cliTelemetry.breadcrumb("cursor-hook.dispatch")
+            do {
+                try runCursorHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("cursor-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("cursor-hook.failure")
+                cliTelemetry.captureError(stage: "cursor_hook_dispatch", error: error)
+                throw error
+            }
+
+        case "gemini-hook":
+            cliTelemetry.breadcrumb("gemini-hook.dispatch")
+            do {
+                try runGeminiHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+                cliTelemetry.breadcrumb("gemini-hook.completed")
+            } catch {
+                cliTelemetry.breadcrumb("gemini-hook.failure")
+                cliTelemetry.captureError(stage: "gemini_hook_dispatch", error: error)
                 throw error
             }
 
@@ -13940,6 +14008,416 @@ struct CMUXCLI {
             return nil
         }
         return URL(fileURLWithPath: output).lastPathComponent.lowercased()
+    }
+
+    // MARK: - Cursor hooks
+
+    private static func cursorHookCommand(_ event: String) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CURSOR_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux cursor-hook \(event) || true"
+    }
+
+    private static let cursorHookCommandMarker = "cmux cursor-hook"
+
+    // Cursor hooks.json uses a flat format: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
+    private static let cursorHooksDict: [String: Any] = [
+        "beforeSubmitPrompt": [["command": cursorHookCommand("prompt-submit")]],
+        "stop": [["command": cursorHookCommand("stop")]],
+        "afterAgentResponse": [["command": cursorHookCommand("agent-response")]],
+        "beforeShellExecution": [["command": cursorHookCommand("shell-exec")]],
+        "afterShellExecution": [["command": cursorHookCommand("shell-done")]],
+    ]
+
+    private func runCursorInstallHooks() throws {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let configDir = "\(home)/.cursor"
+        let hooksPath = "\(configDir)/hooks.json"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        guard fm.fileExists(atPath: configDir) else {
+            print("~/.cursor/ does not exist. Install Cursor first.")
+            return
+        }
+
+        var existing: [String: Any] = [:]
+        if let data = fm.contents(atPath: hooksPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            existing = json
+        }
+
+        var hooks = existing["hooks"] as? [String: Any] ?? [:]
+
+        // Remove existing cmux-owned entries
+        for (event, value) in hooks {
+            guard var entries = value as? [[String: Any]] else { continue }
+            entries.removeAll { entry in
+                guard let cmd = entry["command"] as? String else { return false }
+                return cmd.contains(Self.cursorHookCommandMarker)
+            }
+            hooks[event] = entries.isEmpty ? nil : entries
+        }
+
+        // Add cmux entries
+        for (event, value) in Self.cursorHooksDict {
+            var entries = hooks[event] as? [[String: Any]] ?? []
+            if let newEntries = value as? [[String: Any]] {
+                entries.append(contentsOf: newEntries)
+            }
+            hooks[event] = entries
+        }
+
+        existing["hooks"] = hooks
+        existing["version"] = 1
+
+        let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+        let newJSON = String(data: newData, encoding: .utf8) ?? "{}"
+
+        if !skipConfirm {
+            print("Will write to \(hooksPath):")
+            print(newJSON)
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+
+        try newData.write(to: URL(fileURLWithPath: hooksPath))
+        print("Cursor hooks installed at \(hooksPath)")
+    }
+
+    private func runCursorUninstallHooks() throws {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let hooksPath = "\(home)/.cursor/hooks.json"
+
+        guard let data = fm.contents(atPath: hooksPath),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("No hooks.json found at \(hooksPath)")
+            return
+        }
+
+        var hooks = json["hooks"] as? [String: Any] ?? [:]
+        var removed = 0
+
+        for (event, value) in hooks {
+            guard var entries = value as? [[String: Any]] else { continue }
+            let before = entries.count
+            entries.removeAll { entry in
+                guard let cmd = entry["command"] as? String else { return false }
+                return cmd.contains(Self.cursorHookCommandMarker)
+            }
+            removed += before - entries.count
+            hooks[event] = entries.isEmpty ? nil : entries
+        }
+
+        json["hooks"] = hooks
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: URL(fileURLWithPath: hooksPath))
+        print("Removed \(removed) cmux hook(s) from \(hooksPath)")
+    }
+
+    private func runCursorHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? ""
+        telemetry.breadcrumb("\(subcommand).start")
+
+        let env = ProcessInfo.processInfo.environment
+        let workspaceId = env["CMUX_WORKSPACE_ID"] ?? ""
+        let surfaceId = env["CMUX_SURFACE_ID"] ?? ""
+
+        guard !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            print("{}")
+            return
+        }
+
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let input = parseClaudeHookInput(rawInput: rawInput)
+
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": "~/.cmuxterm/cursor-hook-sessions.json"],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        let sessionId = input.sessionId ?? surfaceId
+
+        switch subcommand {
+        case "prompt-submit", "shell-exec":
+            let cursorPid = inferredCodexAgentPID()
+            try store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: input.cwd, pid: cursorPid)
+            _ = try? sendV1Command("clear_notifications \(workspaceId) \(surfaceId)", client: client)
+            if let pid = cursorPid {
+                _ = try? sendV1Command("set_agent_pid cursor.\(sessionId) \(pid) --tab=\(workspaceId)", client: client)
+            }
+            _ = try? sendV1Command("set_status cursor Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
+            print("{}")
+
+        case "stop", "agent-response":
+            let mapped = try? store.lookup(sessionId: sessionId)
+            let ws = mapped?.workspaceId ?? workspaceId
+            let sf = mapped?.surfaceId ?? surfaceId
+
+            let lastMsg = input.object?["last_assistant_message"] as? String
+                ?? input.object?["lastAssistantMessage"] as? String
+            let projectName = (input.cwd ?? mapped?.cwd ?? "").split(separator: "/").last.map(String.init) ?? "Cursor"
+            let subtitle = "Completed in \(projectName)"
+            let body = lastMsg ?? ""
+            try store.upsert(sessionId: sessionId, workspaceId: ws, surfaceId: sf, cwd: input.cwd, lastSubtitle: subtitle, lastBody: body)
+
+            let notifyPayload = "Cursor|\(subtitle)|\(body)".replacingOccurrences(of: "\n", with: " ")
+            _ = try? sendV1Command("notify_target \(ws) \(sf) \(notifyPayload)", client: client)
+            _ = try? sendV1Command("set_status cursor Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(ws)", client: client)
+            print("{}")
+
+        case "shell-done":
+            // After shell execution completes, keep status as-is (agent is still running)
+            print("{}")
+
+        default:
+            print("{}")
+        }
+    }
+
+    // MARK: - Gemini hooks
+
+    private static func geminiHookCommand(_ event: String) -> String {
+        "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_GEMINI_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux gemini-hook \(event) || echo '{}'"
+    }
+
+    private static let geminiHookCommandMarker = "cmux gemini-hook"
+
+    // Gemini settings.json uses nested format like Codex, with ms timeouts
+    private static let geminiHooksDict: [String: Any] = [
+        "SessionStart": [["hooks": [["type": "command", "command": geminiHookCommand("session-start"), "timeout": 10000] as [String: Any]]] as [String: Any]],
+        "BeforeAgent": [["hooks": [["type": "command", "command": geminiHookCommand("prompt-submit"), "timeout": 10000] as [String: Any]]] as [String: Any]],
+        "AfterAgent": [["hooks": [["type": "command", "command": geminiHookCommand("stop"), "timeout": 10000] as [String: Any]]] as [String: Any]],
+        "SessionEnd": [["hooks": [["type": "command", "command": geminiHookCommand("session-end"), "timeout": 1000] as [String: Any]]] as [String: Any]],
+    ]
+
+    private func runGeminiInstallHooks() throws {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let configDir = "\(home)/.gemini"
+        let settingsPath = "\(configDir)/settings.json"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        guard fm.fileExists(atPath: configDir) else {
+            print("~/.gemini/ does not exist. Install Gemini CLI first.")
+            return
+        }
+
+        var existing: [String: Any] = [:]
+        if let data = fm.contents(atPath: settingsPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            existing = json
+        }
+
+        var hooks = existing["hooks"] as? [String: Any] ?? [:]
+
+        // Remove existing cmux-owned entries
+        for (event, value) in hooks {
+            guard var groups = value as? [[String: Any]] else { continue }
+            groups.removeAll { group in
+                guard let hookList = group["hooks"] as? [[String: Any]] else { return false }
+                return hookList.allSatisfy { hook in
+                    (hook["command"] as? String)?.contains(Self.geminiHookCommandMarker) == true
+                }
+            }
+            hooks[event] = groups.isEmpty ? nil : groups
+        }
+
+        // Add cmux entries
+        for (event, value) in Self.geminiHooksDict {
+            var groups = hooks[event] as? [[String: Any]] ?? []
+            if let newGroups = value as? [[String: Any]] {
+                groups.append(contentsOf: newGroups)
+            }
+            hooks[event] = groups
+        }
+
+        existing["hooks"] = hooks
+
+        let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+        let newJSON = String(data: newData, encoding: .utf8) ?? "{}"
+
+        if !skipConfirm {
+            print("Will write to \(settingsPath):")
+            print(newJSON)
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+
+        try newData.write(to: URL(fileURLWithPath: settingsPath))
+        print("Gemini hooks installed at \(settingsPath)")
+    }
+
+    private func runGeminiUninstallHooks() throws {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let settingsPath = "\(home)/.gemini/settings.json"
+
+        guard let data = fm.contents(atPath: settingsPath),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("No settings.json found at \(settingsPath)")
+            return
+        }
+
+        var hooks = json["hooks"] as? [String: Any] ?? [:]
+        var removed = 0
+
+        for (event, value) in hooks {
+            guard var groups = value as? [[String: Any]] else { continue }
+            let before = groups.count
+            groups.removeAll { group in
+                guard let hookList = group["hooks"] as? [[String: Any]] else { return false }
+                return hookList.allSatisfy { hook in
+                    (hook["command"] as? String)?.contains(Self.geminiHookCommandMarker) == true
+                }
+            }
+            removed += before - groups.count
+            hooks[event] = groups.isEmpty ? nil : groups
+        }
+
+        json["hooks"] = hooks
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: URL(fileURLWithPath: settingsPath))
+        print("Removed \(removed) cmux hook group(s) from \(settingsPath)")
+    }
+
+    private func runGeminiHook(commandArgs: [String], client: SocketClient, telemetry: CLISocketSentryTelemetry) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? ""
+        telemetry.breadcrumb("\(subcommand).start")
+
+        let env = ProcessInfo.processInfo.environment
+        let workspaceId = env["CMUX_WORKSPACE_ID"] ?? ""
+        let surfaceId = env["CMUX_SURFACE_ID"] ?? ""
+
+        guard !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            print("{}")
+            return
+        }
+
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let input = parseClaudeHookInput(rawInput: rawInput)
+
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": "~/.cmuxterm/gemini-hook-sessions.json"],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        let sessionId = input.sessionId ?? surfaceId
+
+        switch subcommand {
+        case "session-start":
+            let geminiPid = inferredCodexAgentPID()
+            try store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: input.cwd, pid: geminiPid)
+            if let pid = geminiPid {
+                _ = try? sendV1Command("set_agent_pid gemini.\(sessionId) \(pid) --tab=\(workspaceId)", client: client)
+            }
+            print("{}")
+
+        case "prompt-submit":
+            let geminiPid = inferredCodexAgentPID()
+            try store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: input.cwd, pid: geminiPid)
+            _ = try? sendV1Command("clear_notifications \(workspaceId) \(surfaceId)", client: client)
+            if let pid = geminiPid {
+                _ = try? sendV1Command("set_agent_pid gemini.\(sessionId) \(pid) --tab=\(workspaceId)", client: client)
+            }
+            _ = try? sendV1Command("set_status gemini Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)", client: client)
+            print("{}")
+
+        case "stop":
+            let mapped = try? store.lookup(sessionId: sessionId)
+            let ws = mapped?.workspaceId ?? workspaceId
+            let sf = mapped?.surfaceId ?? surfaceId
+
+            let lastMsg = input.object?["last_assistant_message"] as? String
+                ?? input.object?["lastAssistantMessage"] as? String
+            let projectName = (input.cwd ?? mapped?.cwd ?? "").split(separator: "/").last.map(String.init) ?? "Gemini"
+            let subtitle = "Completed in \(projectName)"
+            let body = lastMsg ?? ""
+            try store.upsert(sessionId: sessionId, workspaceId: ws, surfaceId: sf, cwd: input.cwd, lastSubtitle: subtitle, lastBody: body)
+
+            let notifyPayload = "Gemini|\(subtitle)|\(body)".replacingOccurrences(of: "\n", with: " ")
+            _ = try? sendV1Command("notify_target \(ws) \(sf) \(notifyPayload)", client: client)
+            _ = try? sendV1Command("set_status gemini Idle --icon=pause.circle.fill --color=#8E8E93 --tab=\(ws)", client: client)
+            print("{}")
+
+        case "session-end":
+            if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                let ws = mapped.workspaceId
+                _ = try? sendV1Command("clear_status gemini --tab=\(ws)", client: client)
+                _ = try? sendV1Command("clear_agent_pid gemini.\(sessionId) --tab=\(ws)", client: client)
+            }
+            print("{}")
+
+        default:
+            print("{}")
+        }
+    }
+
+    // MARK: - Unified setup-hooks
+
+    private func runSetupHooks() throws {
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let agentFilter = optionValue(ProcessInfo.processInfo.arguments, name: "--agent")
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+
+        struct AgentEntry {
+            let name: String
+            let configDir: String
+        }
+
+        let agents: [AgentEntry] = [
+            AgentEntry(name: "codex", configDir: "\(home)/.codex"),
+            AgentEntry(name: "cursor", configDir: "\(home)/.cursor"),
+            AgentEntry(name: "gemini", configDir: "\(home)/.gemini"),
+        ]
+
+        print("cmux setup-hooks: installing agent hooks")
+        print("  (Claude Code hooks are injected automatically via the claude wrapper)")
+        print("")
+
+        var installed = 0
+        var skipped = 0
+
+        for agent in agents {
+            if let filter = agentFilter, filter.lowercased() != agent.name {
+                continue
+            }
+
+            if !fm.fileExists(atPath: agent.configDir) {
+                print("  \(agent.name): skipped (~/.\(agent.name)/ not found)")
+                skipped += 1
+                continue
+            }
+
+            print("  \(agent.name):")
+            switch agent.name {
+            case "codex":
+                try runCodexInstallHooks()
+            case "cursor":
+                try runCursorInstallHooks()
+            case "gemini":
+                try runGeminiInstallHooks()
+            default:
+                break
+            }
+            installed += 1
+            print("")
+        }
+
+        print("Done: \(installed) installed, \(skipped) skipped")
     }
 
     private func versionSummary() -> String {
