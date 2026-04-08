@@ -38,6 +38,7 @@ final class CmuxSettingsFileStore {
         "app.warnBeforeQuit",
         "app.renameSelectsExistingName",
         "app.commandPaletteSearchesAllSurfaces",
+        "terminal.showScrollBar",
         "notifications.dockBadge",
         "notifications.showInMenuBar",
         "notifications.unreadPaneRing",
@@ -348,6 +349,9 @@ final class CmuxSettingsFileStore {
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let terminalSection = root["terminal"] as? [String: Any] {
+            parseTerminalSection(terminalSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let notificationsSection = root["notifications"] as? [String: Any] {
             parseNotificationsSection(notificationsSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -471,6 +475,18 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["command"]) {
             snapshot.managedUserDefaults[NotificationSoundSettings.customCommandKey] = .string(raw)
+        }
+    }
+
+    private func parseTerminalSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["showScrollBar"]) {
+            snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
+        } else if section.keys.contains("showScrollBar") {
+            logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
         }
     }
 
@@ -1322,6 +1338,11 @@ final class CmuxSettingsFileStore {
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,
                     "renameSelectsExistingName": CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus,
                     "commandPaletteSearchesAllSurfaces": CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces,
+                ],
+            ],
+            [
+                "terminal": [
+                    "showScrollBar": TerminalScrollBarSettings.defaultShowScrollBar,
                 ],
             ],
             [

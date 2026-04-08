@@ -13275,6 +13275,20 @@ private struct TabItemView: View, Equatable {
             .disabled(allRemoteContextMenuTargetsDisconnected)
         }
 
+        Menu(String(localized: "contextMenu.workspaceSettings", defaultValue: "Workspace Settings")) {
+            Button {
+                toggleWorkspaceTerminalScrollBarHidden(targetIds: targetIds)
+            } label: {
+                Label {
+                    Text(String(localized: "contextMenu.workspaceSettings.hideTerminalScrollBar", defaultValue: "Hide Terminal Scroll Bar"))
+                } icon: {
+                    if allTargetWorkspacesHideTerminalScrollBar(in: targetIds) {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+        }
+
         Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
             if tab.customColor != nil {
                 Button {
@@ -13975,6 +13989,21 @@ private struct TabItemView: View, Equatable {
     private func applyTabColor(_ hex: String?, targetIds: [UUID]) {
         for targetId in targetIds {
             tabManager.setTabColor(tabId: targetId, color: hex)
+        }
+    }
+
+    private func allTargetWorkspacesHideTerminalScrollBar(in targetIds: [UUID]) -> Bool {
+        let workspaces = targetIds.compactMap { targetId in
+            tabManager.tabs.first(where: { $0.id == targetId })
+        }
+        guard !workspaces.isEmpty else { return false }
+        return workspaces.allSatisfy { $0.terminalScrollBarHidden }
+    }
+
+    private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
+        let hideScrollBar = !allTargetWorkspacesHideTerminalScrollBar(in: targetIds)
+        for targetId in targetIds {
+            tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
         }
     }
 

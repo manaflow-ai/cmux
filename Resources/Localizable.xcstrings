@@ -87391,6 +87391,108 @@
           }
         }
       }
+    },
+    "contextMenu.workspaceSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース設定"
+          }
+        }
+      }
+    },
+    "contextMenu.workspaceSettings.hideTerminalScrollBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Terminal Scroll Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバーを隠す"
+          }
+        }
+      }
+    },
+    "settings.section.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal Scroll Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバーを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端のターミナルスクロールバーを全体で非表示にします。変更はすぐに反映され、再起動後も保持されます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
+          }
+        }
+      }
     }
   }
 }
