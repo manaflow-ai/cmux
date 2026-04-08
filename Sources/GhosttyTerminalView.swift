@@ -7188,11 +7188,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
         }
         _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
     }
@@ -7939,18 +7938,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
         ghostty_surface_mouse_pos(
             surface,
-            point.x,
-            bounds.height - point.y,
+            eventPoint.x,
+            bounds.height - eventPoint.y,
             hoverModsFromFlags(
                 event.modifierFlags,
                 suppressCommandPathHover: suppressCommandPathHover
             )
         )
         updateWordPathHover(
-            at: point,
+            at: eventPoint,
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
@@ -7963,18 +7961,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
         ghostty_surface_mouse_pos(
             surface,
-            point.x,
-            bounds.height - point.y,
+            eventPoint.x,
+            bounds.height - eventPoint.y,
             hoverModsFromFlags(
                 event.modifierFlags,
                 suppressCommandPathHover: suppressCommandPathHover
             )
         )
         updateWordPathHover(
-            at: point,
+            at: eventPoint,
             cmdHeld: event.modifierFlags.contains(.command),
             suppressPathHover: suppressCommandPathHover
         )
@@ -8013,8 +8010,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
-        let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, modsFromEvent(event))
+        // Forward the raw drag coordinates, including out-of-bounds positions.
+        // Selection auto-scroll depends on libghostty observing the pointer leave
+        // the viewport rather than a cached in-bounds hover point.
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
     }
 
     override func scrollWheel(with event: NSEvent) {
