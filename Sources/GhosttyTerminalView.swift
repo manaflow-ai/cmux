@@ -708,10 +708,11 @@ private func cmuxResolveVisibleLinePath(
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
+    case markdownViewer(URL)
 
     var url: URL {
         switch self {
-        case let .embeddedBrowser(url), let .external(url):
+        case let .embeddedBrowser(url), let .external(url), let .markdownViewer(url):
             return url
         }
     }
