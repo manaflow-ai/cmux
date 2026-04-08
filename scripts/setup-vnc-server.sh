@@ -212,6 +212,7 @@ setup_linux() {
     echo ""
     info "Set your VNC password (this is what you'll enter in cmux):"
     mkdir -p "$HOME/.vnc"
+    chmod 700 "$HOME/.vnc"
 
     if command -v tigervncpasswd &>/dev/null; then
         tigervncpasswd "$HOME/.vnc/passwd"
@@ -238,13 +239,28 @@ XSTARTUP
     echo ""
     read -rp "VNC display number [1]: " display_num
     display_num="${display_num:-1}"
+    if ! [[ "$display_num" =~ ^[0-9]+$ ]] || [ "$display_num" -lt 1 ] || [ "$display_num" -gt 99 ]; then
+        err "Invalid display number: must be 1-99"
+        exit 1
+    fi
     VNC_PORT=$((5900 + display_num))
 
     read -rp "Resolution [1920x1080]: " resolution
     resolution="${resolution:-1920x1080}"
+    if ! [[ "$resolution" =~ ^[0-9]+x[0-9]+$ ]]; then
+        err "Invalid resolution: must be WIDTHxHEIGHT (e.g. 1920x1080)"
+        exit 1
+    fi
 
     read -rp "Color depth [24]: " depth
     depth="${depth:-24}"
+    if ! [[ "$depth" =~ ^(8|16|24|32)$ ]]; then
+        err "Invalid color depth: must be 8, 16, 24, or 32"
+        exit 1
+    fi
+
+    # ── Security warning ──
+    warn "VNC password auth uses DES encryption (8-char max). For production use, prefer SSH tunneling."
 
     # ── Kill existing server on this display ──
     tigervncserver -kill ":$display_num" 2>/dev/null || true

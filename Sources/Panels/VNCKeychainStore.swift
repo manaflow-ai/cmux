@@ -49,6 +49,7 @@ enum VNCKeychainStore {
             kSecAttrService: service,
             kSecAttrAccount: account,
             kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
         ]
 
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)

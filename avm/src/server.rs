@@ -83,11 +83,18 @@ pub fn default_socket_path() -> PathBuf {
 
 /// Start the UDS listener and handle incoming connections.
 pub async fn serve(socket_path: &Path, state: Arc<Mutex<DaemonState>>) -> Result<()> {
-    // Ensure parent directory exists.
+    // Ensure parent directory exists with owner-only permissions.
     if let Some(parent) = socket_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
             .context("creating socket parent directory")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))
+                .await
+                .context("setting socket directory permissions")?;
+        }
     }
 
     // Remove stale socket.
@@ -98,6 +105,14 @@ pub async fn serve(socket_path: &Path, state: Arc<Mutex<DaemonState>>) -> Result
     }
 
     let listener = UnixListener::bind(socket_path).context("binding UDS")?;
+
+    // Restrict socket to owner-only access.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
+            .context("setting socket permissions")?;
+    }
 
     tracing::info!(path = %socket_path.display(), "avmd listening");
 

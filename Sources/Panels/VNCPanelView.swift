@@ -404,6 +404,16 @@ final class VNCFramebufferContainer: NSView {
         renderTimer?.invalidate()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            renderTimer?.invalidate()
+            renderTimer = nil
+        } else if currentFBView != nil, renderTimer == nil {
+            startRenderTimer()
+        }
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {

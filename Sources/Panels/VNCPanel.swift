@@ -123,7 +123,7 @@ final class VNCPanel: Panel, ObservableObject {
             isScalingEnabled: true,
             useDisplayLink: false,
             inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
-            isClipboardRedirectionEnabled: true,
+            isClipboardRedirectionEnabled: false,
             colorDepth: selectedColorDepth,
             frameEncodings: [.tight, .zrle, .copyRect, .zlib, .hextile, .raw]
         )
