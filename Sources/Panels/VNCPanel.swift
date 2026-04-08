@@ -116,7 +116,7 @@ final class VNCPanel: Panel, ObservableObject {
         errorMessage = nil
 
         let settings = VNCConnection.Settings(
-            isDebugLoggingEnabled: true,
+            isDebugLoggingEnabled: false,
             hostname: hostname,
             port: port,
             isShared: true,

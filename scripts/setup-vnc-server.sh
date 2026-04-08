@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# setup-vnc-server.sh — Install and configure a VNC server compatible with arya-cmux
+# setup-vnc-server.sh — Install and configure a VNC server compatible with cmux
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/aryateja2106/cmux/phase3-vnc-spec/scripts/setup-vnc-server.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/manaflow-ai/cmux/main/scripts/setup-vnc-server.sh | bash
 #
 # Or download and run manually:
 #   chmod +x setup-vnc-server.sh
@@ -86,7 +86,7 @@ setup_macos() {
     echo "  3. Click the (i) button and enable 'VNC viewers may control screen with password'"
     echo "  4. Set a VNC password"
     echo ""
-    echo -e "  ${CYAN}Then connect from arya-cmux:${NC}"
+    echo -e "  ${CYAN}Then connect from cmux:${NC}"
     echo "  Host: localhost (or this Mac's IP)"
     echo "  Port: 5900"
     echo "  User: $(whoami)"
@@ -210,7 +210,7 @@ setup_linux() {
 
     # ── Set VNC password ──
     echo ""
-    info "Set your VNC password (this is what you'll enter in arya-cmux):"
+    info "Set your VNC password (this is what you'll enter in cmux):"
     mkdir -p "$HOME/.vnc"
 
     if command -v tigervncpasswd &>/dev/null; then
@@ -268,13 +268,13 @@ XSTARTUP
     echo -e "  ${GREEN}  VNC Server Ready!${NC}"
     echo -e "  ${GREEN}════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "  ${CYAN}Connect from arya-cmux:${NC}"
+    echo -e "  ${CYAN}Connect from cmux:${NC}"
     echo "  Host: $HOSTNAME (or $IP)"
     echo "  Port: $VNC_PORT"
     echo "  User: $(whoami)"
     echo "  Pass: (the password you just set)"
     echo ""
-    echo -e "  ${CYAN}Or use the arya-cmux CLI:${NC}"
+    echo -e "  ${CYAN}Or use the cmux CLI:${NC}"
     echo "  cmux vnc $HOSTNAME:$VNC_PORT"
     echo ""
     echo -e "  ${CYAN}To stop the server:${NC}"
@@ -290,7 +290,7 @@ XSTARTUP
         SERVICE_FILE="/etc/systemd/system/vnc@.service"
         sudo tee "$SERVICE_FILE" > /dev/null <<SYSTEMD
 [Unit]
-Description=TigerVNC Server for arya-cmux on display %i
+Description=TigerVNC Server for cmux on display %i
 After=syslog.target network.target
 
 [Service]
@@ -321,7 +321,7 @@ SYSTEMD
 main() {
     echo ""
     echo -e "${CYAN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║  arya-cmux VNC Server Setup                        ║${NC}"
+    echo -e "${CYAN}║  cmux VNC Server Setup                        ║${NC}"
     echo -e "${CYAN}║  Remote Desktop for Terminal-First Agent Hosts      ║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════╝${NC}"
     echo ""

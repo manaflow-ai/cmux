@@ -5,14 +5,14 @@ import Security
 
 /// Keychain-backed credential storage for VNC connections.
 ///
-/// Service: `com.arya-cmux.vnc`
+/// Service: `com.cmux.vnc`
 /// Account key: `host:port` (e.g. `192.168.1.10:5900`)
 /// Stored data: password (UTF-8 encoded)
 ///
 /// Username and connection metadata are stored separately via `VNCRecentConnections`
 /// in UserDefaults, since they are not secrets.
 enum VNCKeychainStore {
-    private static let service = "com.arya-cmux.vnc"
+    private static let service = "com.cmux.vnc"
 
     // MARK: - Save
 
