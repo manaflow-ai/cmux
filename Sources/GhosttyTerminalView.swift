@@ -1798,6 +1798,12 @@ class GhosttyApp {
                 prefix: "cmux-shell-integration-override",
                 logLabel: "shell integration override (fallback)"
             )
+            loadInlineGhosttyConfig(
+                "copy-on-select = clipboard",
+                into: fallbackConfig,
+                prefix: "cmux-copy-on-select",
+                logLabel: "copy-on-select override (fallback)"
+            )
             usesHostLayerBackground = true
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
@@ -1887,6 +1893,17 @@ class GhosttyApp {
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
+        // Ghostty's default copy-on-select = true writes to a private
+        // named pasteboard (com.mitchellh.ghostty.selection) that is not
+        // the system clipboard. Override to "clipboard" so that selecting
+        // text copies to NSPasteboard.general and Cmd+V works as macOS
+        // users expect.
+        loadInlineGhosttyConfig(
+            "copy-on-select = clipboard",
+            into: config,
+            prefix: "cmux-copy-on-select",
+            logLabel: "copy-on-select override"
+        )
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
         usesHostLayerBackground = useHostLayerBackground
         if !useHostLayerBackground {

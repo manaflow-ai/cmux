@@ -15,6 +15,7 @@ When we change the fork, update this document and the parent submodule SHA.
 Fork main has advanced beyond the March 30, 2026 rebase onto upstream `main`
 at `3509ccf78` (`v1.3.1-457-g3509ccf78`).
 Current cmux pinned fork head: `3b684a085` (`tip-1717-g3b684a085`).
+Branch `fix-copy-on-select-uaf` (`8eaee4d95`) carries the section 9 fix below (manaflow-ai/ghostty#36).
 
 ### 1) macOS display link restart on display changes
 
@@ -122,6 +123,17 @@ tend to conflict together during rebases.
 
 Fork main now carries the section 8 APC handling fix plus later upstream merges;
 the current cmux pin is the head listed above.
+
+### 9) Fix use-after-free in copy-on-select
+
+- Commit: `8eaee4d95` (Fix use-after-free in copy-on-select)
+- Branch: `fix-copy-on-select-uaf` (manaflow-ai/ghostty#36, pending merge)
+- Files:
+  - `src/Surface.zig`
+- Summary:
+  - Fixes a use-after-free in `setSelection()`. The old code called `Screen.select()` which freed tracked pins via `old.deinit()`, then compared the new selection against the freed `prev` pointer via `eql()`. Since freed memory usually retains old values, `eql()` returned true and `copySelectionToClipboards` was silently skipped — producing the one-character-paste symptom (cmux #2664).
+  - The fix evaluates `eql()` BEFORE `Screen.select()` frees the old pins.
+  - Additionally, copies the final selection to the clipboard directly on mouse-up (left-button release) to guarantee the clipboard is always up-to-date at the end of a drag selection.
 
 ## Upstreamed fork changes
 
