@@ -733,6 +733,7 @@ final class TerminalNotificationStore: ObservableObject {
         notification in
         store.playSuppressedNotificationFeedback(for: notification)
     }
+    private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -883,14 +884,41 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
-        indexes.latestUnreadByTabId[tabId]
+        indexes.latestByTabId[tabId]
+    }
+
+    func clearLatestNotification(forTabId tabId: UUID) {
+        guard let latestNotification = indexes.latestByTabId[tabId] else { return }
+        remove(id: latestNotification.id)
     }
 
     func focusedReadIndicatorSurfaceId(forTabId tabId: UUID) -> UUID? {
         focusedReadIndicatorByTabId[tabId]
     }
 
-    func addNotification(tabId: UUID, surfaceId: UUID?, title: String, subtitle: String, body: String) {
+    func addNotification(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        cooldownKey: String? = nil,
+        cooldownInterval: TimeInterval? = nil
+    ) {
+        let now = Date()
+        let resolvedCooldownInterval: TimeInterval?
+        if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
+            resolvedCooldownInterval = cooldownInterval
+        } else {
+            resolvedCooldownInterval = nil
+        }
+        if let cooldownKey,
+           let resolvedCooldownInterval,
+           let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
+           now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
+            return
+        }
+
         var updated = notifications
         var idsToClear: [String] = []
         updated.removeAll { existing in
@@ -925,11 +953,14 @@ final class TerminalNotificationStore: ObservableObject {
             title: title,
             subtitle: subtitle,
             body: body,
-            createdAt: Date(),
+            createdAt: now,
             isRead: false
         )
         updated.insert(notification, at: 0)
         notifications = updated
+        if let cooldownKey, resolvedCooldownInterval != nil {
+            lastNotificationDateByCooldownKey[cooldownKey] = now
+        }
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)

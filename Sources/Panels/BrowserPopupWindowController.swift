@@ -111,6 +111,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
         self.webView = webView
 
         // --- Window sizing from WKWindowFeatures ---
@@ -249,6 +250,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     func removeChildPopup(_ child: BrowserPopupWindowController) {
         childPopups.removeAll { $0 === child }
+    }
+
+    func setBrowserThemeMode(_ mode: BrowserThemeMode) {
+        BrowserThemeSettings.apply(mode, to: webView)
+        for child in childPopups {
+            child.setBrowserThemeMode(mode)
+        }
     }
 
     // MARK: - Popup lifecycle

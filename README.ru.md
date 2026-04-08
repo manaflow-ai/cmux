@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | Русский | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | Русский | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Вертикальные вкладки и разделённые панели" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> создаёт рабочее пространство для удалённой машины. Панели браузера маршрутизируются через удалённую сеть, поэтому localhost просто работает. Перетащите изображение в удалённую сессию для загрузки через scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> запускает режим напарника Claude Code одной командой. Напарники появляются как нативные разделения с метаданными в боковой панели и уведомлениями. tmux не требуется.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Импорт из браузера** — Импорт куки, истории и сессий из Chrome, Firefox, Arc и 20+ других браузеров, чтобы панели браузера запускались авторизованными
+- **Пользовательские команды** — Определяйте команды для конкретного проекта в [`cmux.json`](https://cmux.com/docs/custom-commands), которые запускаются из палитры команд
 - **Скриптуемость** — CLI и socket API для создания рабочих пространств, разделения панелей, отправки нажатий клавиш и автоматизации браузера
 - **Нативное приложение macOS** — Создано на Swift и AppKit, не Electron. Быстрый запуск, низкое потребление памяти.
 - **Совместимость с Ghostty** — Читает вашу существующую конфигурацию `~/.config/ghostty/config` для тем, шрифтов и цветов
@@ -268,6 +289,6 @@ cmux бесплатен, с открытым исходным кодом и вс
 
 ## Лицензия
 
-cmux распространяется с открытым исходным кодом по лицензии [AGPL-3.0-or-later](LICENSE).
+cmux распространяется с открытым исходным кодом по лицензии [GPL-3.0-or-later](LICENSE).
 
-Если ваша организация не может соблюдать условия AGPL, доступна коммерческая лицензия. Свяжитесь с [founders@manaflow.com](mailto:founders@manaflow.com) для получения подробностей.
+Если ваша организация не может соблюдать условия GPL, доступна коммерческая лицензия. Свяжитесь с [founders@manaflow.com](mailto:founders@manaflow.com) для получения подробностей.

@@ -222,6 +222,16 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
             }
         }
 
+        func focusField(_ field: BrowserSearchNativeTextField, in window: NSWindow) {
+            guard window.makeFirstResponder(field) else { return }
+            DispatchQueue.main.async { [weak field] in
+                guard let field,
+                      let editor = field.currentEditor() as? NSTextView else { return }
+                let end = field.stringValue.utf16.count
+                editor.setSelectedRange(NSRange(location: end, length: 0))
+            }
+        }
+
         func controlTextDidChange(_ obj: Notification) {
             guard !isProgrammaticMutation else { return }
             guard let field = obj.object as? NSTextField else { return }
@@ -294,7 +304,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                 field.currentEditor() != nil ||
                 ((fr as? NSTextView)?.delegate as? NSTextField) === field
             guard !alreadyFocused else { return }
-            window.makeFirstResponder(field)
+            coordinator.focusField(field, in: window)
         }
         return field
     }
@@ -337,7 +347,7 @@ private struct BrowserSearchTextFieldRepresentable: NSViewRepresentable {
                         nsView.currentEditor() != nil ||
                         ((fr as? NSTextView)?.delegate as? NSTextField) === nsView
                     guard !alreadyFocused else { return }
-                    window.makeFirstResponder(nsView)
+                    coordinator.focusField(nsView, in: window)
                 }
             }
         }

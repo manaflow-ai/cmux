@@ -210,6 +210,17 @@ enum BrowserThemeSettings {
 
         return defaultMode
     }
+
+    static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
+        switch mode {
+        case .system:
+            webView.appearance = nil
+        case .light:
+            webView.appearance = NSAppearance(named: .aqua)
+        case .dark:
+            webView.appearance = NSAppearance(named: .darkAqua)
+        }
+    }
 }
 
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
@@ -527,6 +538,9 @@ enum BrowserLinkOpenSettings {
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
 
+    static let openSidebarPortLinksInCmuxBrowserKey = "browserOpenSidebarPortLinksInCmuxBrowser"
+    static let defaultOpenSidebarPortLinksInCmuxBrowser: Bool = true
+
     static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
     static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
 
@@ -547,6 +561,13 @@ enum BrowserLinkOpenSettings {
             return defaultOpenSidebarPullRequestLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openSidebarPullRequestLinksInCmuxBrowserKey)
+    }
+
+    static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
+            return defaultOpenSidebarPortLinksInCmuxBrowser
+        }
+        return defaults.bool(forKey: openSidebarPortLinksInCmuxBrowserKey)
     }
 
     static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
@@ -2237,6 +2258,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
+    @Published var isReactGrabActive: Bool = false
+    var reactGrabMessageHandler: ReactGrabMessageHandler?
+    var pendingReactGrabReturnTargetPanelId: UUID?
+    var pendingReactGrabRoundTripToken: String?
+    let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
     private var preferredDeveloperToolsPresentation: DeveloperToolsPresentation = .unknown
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
@@ -2285,6 +2311,10 @@ final class BrowserPanel: Panel, ObservableObject {
         profileID == BrowserProfileStore.shared.builtInDefaultProfileID
     }
 
+    var currentBrowserThemeMode: BrowserThemeMode {
+        browserThemeMode
+    }
+
     private static let portalHostAreaThreshold: CGFloat = 4
     private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
 
@@ -2319,6 +2349,19 @@ final class BrowserPanel: Panel, ObservableObject {
         bounds: CGRect,
         reason: String
     ) -> Bool {
+        if shouldUseLocalInlineDeveloperToolsHosting() {
+            activePortalHostLease = nil
+            lockedPortalHost = nil
+#if DEBUG
+            dlog(
+                "browser.portal.host.skip panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason).localInlineDevTools host=\(hostId) pane=\(paneId.id.uuidString.prefix(5)) " +
+                "inWin=\(inWindow ? 1 : 0) size=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+            )
+#endif
+            return false
+        }
+
         let next = PortalHostLease(
             hostId: hostId,
             paneId: paneId.id,
@@ -2458,8 +2501,9 @@ final class BrowserPanel: Panel, ObservableObject {
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
-        // Match the empty-page background to the terminal theme so newly-created browsers
-        // don't flash white before content loads.
+        // Match only the unpainted/loading background so newly-created browsers don't flash
+        // white before content loads. Do not force page appearance or inject color-scheme CSS;
+        // websites must keep control of their own theme.
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
@@ -2521,6 +2565,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
+        setupReactGrabMessageHandler(for: webView)
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -2534,7 +2579,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
                 self.refreshFavicon(from: webView)
-                self.applyBrowserThemeModeIfNeeded()
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
             }
@@ -2679,6 +2723,7 @@ final class BrowserPanel: Panel, ObservableObject {
         bindWebView(webView)
         installDetachedDeveloperToolsWindowCloseObserver()
         applyBrowserThemeModeIfNeeded()
+        ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
@@ -3242,6 +3287,41 @@ final class BrowserPanel: Panel, ObservableObject {
         if window.makeFirstResponder(webView) {
             noteWebViewFocused()
         }
+    }
+
+    @discardableResult
+    func requestExplicitWebViewFocus() -> Bool {
+        // Programmatic WebView focus should win over stale omnibar focus state, especially
+        // after workspace switches where the blank-page omnibar auto-focus can re-trigger.
+        endSuppressWebViewFocusForAddressBar()
+        clearWebViewFocusSuppression()
+        NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+
+        guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
+
+        if Self.responderChainContains(window.firstResponder, target: webView) {
+            // Prevent omnibar auto-focus from immediately stealing first responder back.
+            suppressOmnibarAutofocus(for: 1.5)
+            noteWebViewFocused()
+            return true
+        }
+
+        guard window.makeFirstResponder(webView) else { return false }
+        // Prevent omnibar auto-focus from immediately stealing first responder back.
+        suppressOmnibarAutofocus(for: 1.5)
+        noteWebViewFocused()
+
+        DispatchQueue.main.async { [weak self, weak window, weak webView] in
+            guard let self, let window, let webView else { return }
+            guard webView.window === window else { return }
+            if !Self.responderChainContains(window.firstResponder, target: webView),
+               window.makeFirstResponder(webView) {
+                self.suppressOmnibarAutofocus(for: 1.5)
+                self.noteWebViewFocused()
+            }
+        }
+
+        return true
     }
 
     func unfocus() {
@@ -3939,7 +4019,7 @@ extension BrowserPanel {
 
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .unknown
         forceDeveloperToolsRefreshOnNextAttach = false
         developerToolsDetachedOpenGraceDeadline = nil
@@ -4219,6 +4299,11 @@ extension BrowserPanel {
         }
     }
 
+    private func setPreferredDeveloperToolsVisible(_ next: Bool) {
+        guard preferredDeveloperToolsVisible != next else { return }
+        preferredDeveloperToolsVisible = next
+    }
+
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
         if !detachedDeveloperToolsWindows().isEmpty {
             setPreferredDeveloperToolsPresentation(.detached)
@@ -4247,7 +4332,7 @@ extension BrowserPanel {
                 guard self.preferredDeveloperToolsVisible else { return }
                 guard !self.isDeveloperToolsVisible() else { return }
                 self.developerToolsDetachedOpenGraceDeadline = nil
-                self.preferredDeveloperToolsVisible = false
+                self.setPreferredDeveloperToolsVisible(false)
                 self.cancelDeveloperToolsRestoreRetry()
 #if DEBUG
                 dlog(
@@ -4383,7 +4468,7 @@ extension BrowserPanel {
     ) -> Bool {
         if isDeveloperToolsTransitionInFlight {
             pendingDeveloperToolsTransitionTargetVisible = targetVisible
-            preferredDeveloperToolsVisible = targetVisible
+            setPreferredDeveloperToolsVisible(targetVisible)
             if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
@@ -4410,7 +4495,7 @@ extension BrowserPanel {
 
         let isVisibleSelector = NSSelectorFromString("isVisible")
         let visible = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
-        preferredDeveloperToolsVisible = targetVisible
+        setPreferredDeveloperToolsVisible(targetVisible)
         developerToolsTransitionTargetVisible = targetVisible
 
         if targetVisible {
@@ -4512,7 +4597,7 @@ extension BrowserPanel {
         guard let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) else { return }
         if isDeveloperToolsTransitionInFlight {
             let targetVisible = pendingDeveloperToolsTransitionTargetVisible ?? developerToolsTransitionTargetVisible ?? visible
-            preferredDeveloperToolsVisible = targetVisible
+            setPreferredDeveloperToolsVisible(targetVisible)
             if targetVisible, visible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 syncDeveloperToolsPresentationPreferenceFromUI()
@@ -4527,7 +4612,7 @@ extension BrowserPanel {
         if visible {
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
-            preferredDeveloperToolsVisible = true
+            setPreferredDeveloperToolsVisible(true)
             developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
             return
@@ -4535,7 +4620,7 @@ extension BrowserPanel {
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
             return
         }
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         developerToolsLastKnownVisibleAt = nil
         cancelDeveloperToolsRestoreRetry()
     }
@@ -4590,7 +4675,7 @@ extension BrowserPanel {
             return false
         }
 
-        preferredDeveloperToolsVisible = false
+        setPreferredDeveloperToolsVisible(false)
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
@@ -4636,7 +4721,7 @@ extension BrowserPanel {
 
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
-            preferredDeveloperToolsVisible = false
+            setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
@@ -4663,7 +4748,7 @@ extension BrowserPanel {
         cmuxWithWindowFirstResponderBypass {
             _ = revealDeveloperTools(inspector)
         }
-        preferredDeveloperToolsVisible = true
+        setPreferredDeveloperToolsVisible(true)
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
             syncDeveloperToolsPresentationPreferenceFromUI()
@@ -4914,6 +4999,9 @@ extension BrowserPanel {
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
         browserThemeMode = mode
         applyBrowserThemeModeIfNeeded()
+        for controller in popupControllers {
+            controller.setBrowserThemeMode(mode)
+        }
     }
 
     func refreshAppearanceDrivenColors() {
@@ -5416,63 +5504,7 @@ extension BrowserPanel {
 
 private extension BrowserPanel {
     func applyBrowserThemeModeIfNeeded() {
-        switch browserThemeMode {
-        case .system:
-            webView.appearance = nil
-        case .light:
-            webView.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            webView.appearance = NSAppearance(named: .darkAqua)
-        }
-
-        let script = makeBrowserThemeModeScript(mode: browserThemeMode)
-        webView.evaluateJavaScript(script) { _, error in
-            #if DEBUG
-            if let error {
-                dlog("browser.themeMode error=\(error.localizedDescription)")
-            }
-            #endif
-        }
-    }
-
-    func makeBrowserThemeModeScript(mode: BrowserThemeMode) -> String {
-        let colorSchemeLiteral: String
-        switch mode {
-        case .system:
-            colorSchemeLiteral = "null"
-        case .light:
-            colorSchemeLiteral = "'light'"
-        case .dark:
-            colorSchemeLiteral = "'dark'"
-        }
-
-        return """
-        (() => {
-          const metaId = 'cmux-browser-theme-mode-meta';
-          const colorScheme = \(colorSchemeLiteral);
-          const root = document.documentElement || document.body;
-          if (!root) return;
-
-          let meta = document.getElementById(metaId);
-          if (colorScheme) {
-            root.style.setProperty('color-scheme', colorScheme, 'important');
-            root.setAttribute('data-cmux-browser-theme', colorScheme);
-            if (!meta) {
-              meta = document.createElement('meta');
-              meta.id = metaId;
-              meta.name = 'color-scheme';
-              (document.head || root).appendChild(meta);
-            }
-            meta.setAttribute('content', colorScheme);
-          } else {
-            root.style.removeProperty('color-scheme');
-            root.removeAttribute('data-cmux-browser-theme');
-            if (meta) {
-              meta.remove();
-            }
-          }
-        })();
-        """
+        BrowserThemeSettings.apply(browserThemeMode, to: webView)
     }
 
     func scheduleDeveloperToolsRestoreRetry() {

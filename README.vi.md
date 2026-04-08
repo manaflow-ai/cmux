@@ -8,12 +8,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | Tiếng Việt | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | Tiếng Việt | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -63,8 +64,28 @@ Sidebar hiển thị nhánh git, trạng thái/số PR liên kết, thư mục l
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Tab dọc và các pane chia" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> tạo workspace cho máy từ xa. Các pane trình duyệt định tuyến qua mạng từ xa nên localhost hoạt động bình thường. Kéo ảnh vào phiên từ xa để upload qua scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> chạy chế độ teammate của Claude Code chỉ với một lệnh. Các teammate sinh ra dưới dạng split gốc với metadata sidebar và thông báo. Không cần tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Nhập trình duyệt** — Nhập cookie, lịch sử, và phiên từ Chrome, Firefox, Arc, và hơn 20 trình duyệt khác để các pane trình duyệt khởi động đã đăng nhập sẵn
+- **Lệnh tùy chỉnh** — Định nghĩa các hành động riêng cho dự án trong [`cmux.json`](https://cmux.com/docs/custom-commands) và khởi chạy từ bảng lệnh
 - **Có thể script** — CLI và socket API để tạo workspace, chia pane, gửi phím, và tự động hóa trình duyệt
 - **Ứng dụng macOS gốc** — Xây bằng Swift và AppKit, không phải Electron. Khởi động nhanh, dùng ít bộ nhớ.
 - **Tương thích Ghostty** — Đọc cấu hình `~/.config/ghostty/config` hiện có của bạn cho theme, font, và màu sắc
@@ -268,6 +289,6 @@ cmux miễn phí, mã nguồn mở, và sẽ luôn như vậy. Nếu bạn muố
 
 ## Giấy phép
 
-cmux là mã nguồn mở theo [AGPL-3.0-or-later](LICENSE).
+cmux là mã nguồn mở theo [GPL-3.0-or-later](LICENSE).
 
-Nếu tổ chức của bạn không thể tuân thủ AGPL, giấy phép thương mại có sẵn. Liên hệ [founders@manaflow.com](mailto:founders@manaflow.com) để biết chi tiết.
+Nếu tổ chức của bạn không thể tuân thủ GPL, giấy phép thương mại có sẵn. Liên hệ [founders@manaflow.com](mailto:founders@manaflow.com) để biết chi tiết.

@@ -141,6 +141,14 @@ When adding a regression test for a bug fix, use a two-commit structure so CI pr
 
 This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the test genuinely fails without the fix.
 
+## Debug menu
+
+The app has a **Debug** menu in the macOS menu bar (only in DEBUG builds). Use it for visual iteration:
+
+- **Debug > Debug Windows** contains panels for tuning layout, colors, and behavior. Entries are alphabetical with no dividers.
+- To add a debug toggle or visual option: create an `NSWindowController` subclass with a `shared` singleton, add it to the "Debug Windows" menu in `Sources/cmuxApp.swift`, and add a SwiftUI view with `@AppStorage` bindings for live changes.
+- When the user says "debug menu" or "debug window", they mean this menu, not `defaults write`.
+
 ## Pitfalls
 
 - **Custom UTTypes** for drag-and-drop must be declared in `Resources/Info.plist` under `UTExportedTypeDeclarations` (e.g. `com.splittabbar.tabtransfer`, `com.cmux.sidebar-tab-reorder`).
@@ -152,6 +160,7 @@ This makes it visible in the GitHub PR UI (Commits tab, check statuses) that the
 - **Terminal find layering contract:** `SurfaceSearchOverlay` must be mounted from `GhosttySurfaceScrollView` in `Sources/GhosttyTerminalView.swift` (AppKit portal layer), not from SwiftUI panel containers such as `Sources/Panels/TerminalPanelView.swift`. Portal-hosted terminal views can sit above SwiftUI during split/workspace churn.
 - **Submodule safety:** When modifying a submodule (ghostty, vendor/bonsplit, etc.), always push the submodule commit to its remote `main` branch BEFORE committing the updated pointer in the parent repo. Never commit on a detached HEAD or temporary branch — the commit will be orphaned and lost. Verify with: `cd <submodule> && git merge-base --is-ancestor HEAD origin/main`.
 - **All user-facing strings must be localized.** Use `String(localized: "key.name", defaultValue: "English text")` for every string shown in the UI (labels, buttons, menus, dialogs, tooltips, error messages). Keys go in `Resources/Localizable.xcstrings` with translations for all supported languages (currently English and Japanese). Never use bare string literals in SwiftUI `Text()`, `Button()`, alert titles, etc.
+- **Shortcut policy:** Every new cmux-owned keyboard shortcut must be added to `KeyboardShortcutSettings`, visible/editable in Settings, supported in `~/.config/cmux/settings.json`, and documented in the keyboard shortcut and configuration docs.
 
 ## Test quality policy
 
@@ -226,7 +235,7 @@ Use the `/release` command to prepare a new release. This will:
 2. Gather commits since the last tag and update the changelog
 3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
-5. Commit, tag, and push
+5. Commit, run `./scripts/release-pretag-guard.sh`, tag, and push
 
 Version bumping:
 
@@ -239,9 +248,18 @@ Version bumping:
 
 This updates both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (build number). The build number is auto-incremented and is required for Sparkle auto-update to work.
 
+Before creating a release tag, run:
+
+```bash
+./scripts/release-pretag-guard.sh
+```
+
+If it fails, run `./scripts/bump-version.sh`, commit the build-number bump, then retry tagging.
+
 Manual release steps (if not using the command):
 
 ```bash
+./scripts/release-pretag-guard.sh
 git tag vX.Y.Z
 git push origin vX.Y.Z
 gh run watch --repo manaflow-ai/cmux

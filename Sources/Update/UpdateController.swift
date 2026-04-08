@@ -193,7 +193,10 @@ class UpdateController {
                     return
                 }
 
-                guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
+                // Only stop on terminal failure states (.notFound, .error).
+                // Don't stop on .idle — the check may still be starting up
+                // (e.g. retry loop, background probe finishing).
+                guard self.didObserveAttemptUpdateProgress, !state.isInstallable, !state.isIdle else {
                     return
                 }
                 self.stopAttemptUpdateMonitoring()

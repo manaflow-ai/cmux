@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import WebKit
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -738,18 +739,45 @@ final class WindowTransparencyDecisionTests: XCTestCase {
         }
     }
 
-    func testBehindWindowGlassPathStillControlsTransparentWindowFallback() {
+    func testGlassEnabledDecisionIgnoresGlassImplementationAvailability() {
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: false
+            )
+        )
+        XCTAssertTrue(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "withinWindow",
+                bgGlassEnabled: true,
+                glassEffectAvailable: true
+            )
+        )
+        XCTAssertFalse(
+            cmuxShouldApplyWindowGlass(
+                sidebarBlendMode: "behindWindow",
+                bgGlassEnabled: false,
+                glassEffectAvailable: true
+            )
+        )
+    }
+
+    func testBehindWindowGlassPathKeepsTransparentWindowEnabled() {
         withTemporaryWindowBackgroundDefaults {
             let defaults = UserDefaults.standard
             defaults.set("behindWindow", forKey: sidebarBlendModeKey)
             defaults.set(true, forKey: bgGlassEnabledKey)
 
-            let expectedTransparentFallback = !WindowGlassEffect.isAvailable
-            XCTAssertEqual(cmuxShouldUseTransparentBackgroundWindow(), expectedTransparentFallback)
-            XCTAssertEqual(
-                cmuxShouldUseClearWindowBackground(for: 1.0),
-                expectedTransparentFallback
-            )
+            XCTAssertTrue(cmuxShouldUseTransparentBackgroundWindow())
+            XCTAssertTrue(cmuxShouldUseClearWindowBackground(for: 1.0))
         }
     }
 
@@ -960,6 +988,29 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 }
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
+        var environment = [
+            "TERM": "xterm-ghostty",
+            "COLORTERM": "24bit",
+            "TERM_PROGRAM": "Apple_Terminal",
+            "CUSTOM_FLAG": "1"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertEqual(environment["CUSTOM_FLAG"], "1")
+        XCTAssertTrue(protectedKeys.contains("TERM"))
+        XCTAssertTrue(protectedKeys.contains("COLORTERM"))
+        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(
@@ -1000,6 +1051,36 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["PATH"], "/usr/bin")
         XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+
+    func testMergedStartupEnvironmentProtectsManagedTerminalIdentity() {
+        var baseEnvironment = [
+            "PATH": "/usr/bin"
+        ]
+        var protectedKeys: Set<String> = ["PATH"]
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys
+        )
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: baseEnvironment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "TERM": "xterm-ghostty",
+                "COLORTERM": "24bit",
+                "TERM_PROGRAM": "Apple_Terminal"
+            ],
+            initialEnvironmentOverrides: [
+                "TERM": "screen-256color",
+                "COLORTERM": "false",
+                "TERM_PROGRAM": "WarpTerminal"
+            ]
+        )
+
+        XCTAssertEqual(merged["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
 }
 
@@ -1255,6 +1336,44 @@ final class WorkspaceRemoteConfigurationTransportKeyTests: XCTestCase {
         )
 
         XCTAssertEqual(first.proxyBrokerTransportKey, second.proxyBrokerTransportKey)
+    }
+}
+
+final class WorkspaceRemoteSSHCleanupTests: XCTestCase {
+    func testOrphanedCMUXRemoteSSHPIDsMatchesOnlyParentOneRelayAndDaemonTransports() {
+        let psOutput = """
+          101 1 /usr/bin/ssh -N -T -S none -o ControlPath=/tmp/cmux-ssh-501-56080-%C -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          102 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+          103 999 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
+          104 1 /usr/bin/ssh -tt cmux-macmini
+          105 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56082:127.0.0.1:64050 other-host
+          106 1 /usr/bin/ssh -T -S none cmux-macmini /bin/sh
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini"
+            ),
+            [101, 102]
+        )
+    }
+
+    func testOrphanedCMUXRemoteSSHPIDsCanRestrictCleanupToSpecificRelayPort() {
+        let psOutput = """
+          201 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56080:127.0.0.1:64048 cmux-macmini
+          202 1 /usr/bin/ssh -N -T -S none -R 127.0.0.1:56081:127.0.0.1:64049 cmux-macmini
+          203 1 /usr/bin/ssh -T -S none -o RequestTTY=no cmux-macmini sh -c 'exec .cmux/bin/cmuxd-remote/0.63.1/darwin-arm64/cmuxd-remote serve --stdio'
+        """
+
+        XCTAssertEqual(
+            WorkspaceRemoteSessionController.orphanedCMUXRemoteSSHPIDs(
+                psOutput: psOutput,
+                destination: "cmux-macmini",
+                relayPort: 56081
+            ),
+            [202]
+        )
     }
 }
 
@@ -2138,6 +2257,54 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
     }
 
+    // MARK: autoInjectedCJKFontMappings
+
+    func testAutoInjectedCJKFontMappingsSkipsRangesCoveredByConfiguredPrimaryFont() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Sarasa Mono K\n") { path in
+            XCTAssertNil(
+                GhosttyApp.autoInjectedCJKFontMappings(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, range in
+                        XCTAssertEqual(fontFamily, "Sarasa Mono K")
+                        return coveredRanges.contains(range)
+                    }
+                )
+            )
+        }
+    }
+
+    func testAutoInjectedCJKFontMappingsKeepsOnlyUncoveredRanges() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Example CJK Mono\n") { path in
+            let mappings = GhosttyApp.autoInjectedCJKFontMappings(
+                preferredLanguages: ["ja-JP"],
+                configPaths: [path],
+                rangeCoverageProbe: { _, range in
+                    coveredRanges.contains(range)
+                }
+            )!
+
+            XCTAssertEqual(Set(mappings.map(\.0)), Set(["U+3040-U+309F", "U+30A0-U+30FF"]))
+            XCTAssertEqual(Set(mappings.map(\.1)), Set(["Hiragino Sans"]))
+        }
+    }
+
     // MARK: userConfigContainsCJKCodepointMap
 
     func testUserConfigContainsCJKCodepointMapDetectsPresence() throws {
@@ -2386,6 +2553,29 @@ final class GhosttyMouseFocusTests: XCTestCase {
         }
     }
 
+    func testShouldInjectCJKFontFallbackSkipsConfiguredFontThatAlreadyCoversMappedRanges() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Sarasa Mono K\n") { path in
+            XCTAssertFalse(
+                GhosttyApp.shouldInjectCJKFontFallback(
+                    preferredLanguages: ["zh-Hans-CN"],
+                    configPaths: [path],
+                    rangeCoverageProbe: { fontFamily, range in
+                        XCTAssertEqual(fontFamily, "Sarasa Mono K")
+                        return coveredRanges.contains(range)
+                    }
+                )
+            )
+        }
+    }
+
     func testLoadedCJKScanPathsSkipsReleaseAppSupportWhenTaggedConfigExists() throws {
         let appSupport = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-test-cjk-app-support-\(UUID().uuidString)")
@@ -2619,6 +2809,121 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
+    func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
+        let output = try runPromptInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "CMD=$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" >> "$CMUX_TEST_OUTPUT"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_THEME_TERM="$TERM"
+            if [[ $TERM = (*256color|*rxvt*) ]]; then
+              export CMUX_STARTUP_THEME_BRANCH=extended
+            else
+              export CMUX_STARTUP_THEME_BRANCH=basic
+            fi
+
+            cmux_test_ready() {
+              print -r -- "PRE=$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" > "$CMUX_TEST_OUTPUT"
+              : > "$CMUX_TEST_READY"
+            }
+            precmd_functions+=(cmux_test_ready)
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            "PRE=xterm-ghostty|basic|xterm-ghostty|xterm-256color\nCMD=xterm-256color|unset",
+            output
+        )
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermForInteractiveCommandMode() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermWhenIntegrationDisabled() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: false,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermWhenUserZshEnvDisablesIntegration() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}|${CMUX_SHELL_INTEGRATION:-unset}"
+            """,
+            userZshEnvContents: """
+            export CMUX_SHELL_INTEGRATION=0
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
+    }
+
+    func testShellIntegrationDoesNotRegisterPromptTimeTermRestoreHooks() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "${(j:,:)precmd_functions}"
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            "_cmux_precmd,_cmux_fix_path",
+            output
+        )
+    }
+
+    func testShellIntegrationRestoresManagedTermDuringPreexec() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_preexec 'echo $TERM'
+            print -r -- "$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            extraEnvironment: [
+                "TERM": "xterm-ghostty",
+                "CMUX_ZSH_RESTORE_TERM": "xterm-256color",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            "xterm-256color|unset",
+            output
+        )
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2774,6 +3079,286 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "report_tty ttys999 --tab=11111111-1111-1111-1111-111111111111")
     }
 
+    func testShellIntegrationRelayReportTTYUsesWorkspaceIDInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-report-tty-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_NAME=ttys777
+            _cmux_report_tty_via_relay
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys777","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output
+        )
+    }
+
+    func testShellIntegrationRelayPortsKickOmitsSurfaceIDUntilAvailableInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-kick-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _cmux_ports_kick_via_relay refresh
+            repeat 20; do
+              [[ -s "\(logPath.path)" ]] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh"}"#),
+            output
+        )
+        XCTAssertFalse(output.contains("surface_id"), output)
+    }
+
+    func testShellIntegrationRelayPromptRefreshUsesRefreshReasonInZsh() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-relay-precmd-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=-999
+            _cmux_precmd
+            repeat 20; do
+              [[ -s "\(logPath.path)" ]] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            output.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            output
+        )
+    }
+
+    func testShellIntegrationRelayReportTTYUsesWorkspaceIDInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-report-tty-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_NAME=ttys888
+            _cmux_report_tty_via_relay
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys888","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
+        )
+    }
+
+    func testShellIntegrationRelayPreexecWorksBeforeSurfaceIDExistsInBash() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-preexec-no-surface-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_NAME=ttys889
+            _CMUX_TTY_REPORTED=0
+            _cmux_preexec_command "python3 -m http.server 8899"
+            for _cmux_i in $(seq 1 20); do
+              [ -s "\(logPath.path)" ] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "",
+            ]
+        )
+
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.report_tty {"workspace_id":"11111111-1111-1111-1111-111111111111","tty_name":"ttys889"}"#),
+            result.stdout
+        )
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"command"}"#),
+            result.stdout
+        )
+        XCTAssertFalse(result.stdout.contains(#""surface_id""#), result.stdout)
+    }
+
+    func testShellIntegrationRelayPromptRefreshUsesRefreshReasonInBashWithoutPromptNoise() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-relay-prompt-\(UUID().uuidString)")
+        let binDir = root.appendingPathComponent("bin", isDirectory: true)
+        let logPath = root.appendingPathComponent("relay.log", isDirectory: false)
+
+        try fileManager.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeExecutableScript(
+            at: binDir.appendingPathComponent("cmux", isDirectory: false),
+            contents: """
+            #!/bin/sh
+            printf '%s\\n' "$*" >> "\(logPath.path)"
+            exit 0
+            """
+        )
+
+        let result = try runInteractiveBash(
+            cmuxLoadShellIntegration: true,
+            command: """
+            : > "\(logPath.path)"
+            _CMUX_TTY_REPORTED=1
+            _CMUX_PORTS_LAST_RUN=-999
+            _cmux_prompt_command
+            for _cmux_i in $(seq 1 20); do
+              [ -s "\(logPath.path)" ] && break
+              sleep 0.05
+            done
+            cat "\(logPath.path)"
+            """,
+            extraEnvironment: [
+                "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": "127.0.0.1:64011",
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_TAB_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_PANEL_ID": "22222222-2222-2222-2222-222222222222",
+            ]
+        )
+
+        XCTAssertFalse(result.stderr.contains("_cmux_report_tmux_state"), result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains(#"rpc surface.ports_kick {"workspace_id":"11111111-1111-1111-1111-111111111111","reason":"refresh","surface_id":"22222222-2222-2222-2222-222222222222"}"#),
+            result.stdout
+        )
+    }
+
     private func runInteractiveZsh(cmuxLoadGhosttyIntegration: Bool) throws -> String {
         try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: cmuxLoadGhosttyIntegration,
@@ -2788,7 +3373,9 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         cmuxLoadGhosttyIntegration: Bool,
         cmuxLoadShellIntegration: Bool,
         command: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
+        userZshRCContents: String? = nil
     ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2798,18 +3385,32 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         let userZdotdir = root.appendingPathComponent("zdotdir")
         try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
-        let userZshEnvContents: String = {
-            if let path = extraEnvironment["PATH"] {
-                let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
-                return "export PATH=\"\(escaped)\"\n"
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
             }
-            return "\n"
-        }()
-        try userZshEnvContents.write(
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
             to: userZdotdir.appendingPathComponent(".zshenv"),
             atomically: true,
             encoding: .utf8
         )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -2868,6 +3469,242 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(process.terminationStatus, 0, error)
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func runPromptInteractiveZsh(
+        cmuxLoadGhosttyIntegration: Bool,
+        cmuxLoadShellIntegration: Bool,
+        command: String,
+        extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
+        userZshRCContents: String? = nil
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-prompt-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let userZdotdir = root.appendingPathComponent("zdotdir")
+        try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
+            to: userZdotdir.appendingPathComponent(".zshenv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let readyPath = root.appendingPathComponent("ready", isDirectory: false)
+        let outputPath = root.appendingPathComponent("output.log", isDirectory: false)
+
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            let message = "openpty failed: \(String(cString: strerror(errno)))"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-i"]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+            "USER": NSUserName(),
+            "ZDOTDIR": cmuxZdotdir.path,
+            "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
+            "CMUX_SHELL_INTEGRATION": "0",
+            "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+            "CMUX_TEST_READY": readyPath.path,
+            "CMUX_TEST_OUTPUT": outputPath.path,
+        ]
+        if cmuxLoadGhosttyIntegration {
+            process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+        if cmuxLoadShellIntegration {
+            process.environment?["CMUX_SHELL_INTEGRATION"] = "1"
+            process.environment?["CMUX_SHELL_INTEGRATION_DIR"] = cmuxZdotdir.path
+            process.environment?["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux-test.sock").path
+            process.environment?["CMUX_TAB_ID"] = "tab-test"
+            process.environment?["CMUX_PANEL_ID"] = "panel-test"
+        }
+        for (key, value) in extraEnvironment {
+            process.environment?[key] = value
+        }
+
+        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
+        process.standardInput = slaveHandle
+        process.standardOutput = slaveHandle
+        process.standardError = slaveHandle
+
+        let masterHandle = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+        let terminalOutputLock = NSLock()
+        var terminalOutputData = Data()
+        masterHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            terminalOutputLock.lock()
+            terminalOutputData.append(data)
+            terminalOutputLock.unlock()
+        }
+        defer { masterHandle.readabilityHandler = nil }
+
+        func terminalOutputSnapshot() -> String {
+            terminalOutputLock.lock()
+            defer { terminalOutputLock.unlock() }
+            return String(data: terminalOutputData, encoding: .utf8) ?? ""
+        }
+
+        try process.run()
+        slaveHandle.closeFile()
+
+        let readyDeadline = Date().addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: readyPath.path) && Date() < readyDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if !fileManager.fileExists(atPath: readyPath.path) {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = terminalOutputSnapshot()
+            let message = "Timed out waiting for interactive zsh prompt: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        masterHandle.write(Data((command + "\nexit\n").utf8))
+
+        let exitDeadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < exitDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = terminalOutputSnapshot()
+            let message = "Timed out waiting for interactive zsh to exit: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        let terminalOutput = terminalOutputSnapshot()
+        XCTAssertEqual(process.terminationStatus, 0, terminalOutput)
+        return (try? String(contentsOf: outputPath, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func runInteractiveBash(
+        cmuxLoadShellIntegration: Bool,
+        command: String,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> (stdout: String, stderr: String) {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-bash-shell-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let integrationPath = repoRoot.appendingPathComponent("Resources/shell-integration/cmux-bash-integration.bash")
+        let rcfilePath = root.appendingPathComponent(".bashrc")
+        let rcfileContents: String = {
+            guard cmuxLoadShellIntegration else { return ":\n" }
+            return """
+            . "\(integrationPath.path)"
+            """
+        }()
+        try rcfileContents.write(to: rcfilePath, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [
+            "--noprofile",
+            "--rcfile", rcfilePath.path,
+            "-i",
+            "-c", command
+        ]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/bash",
+            "USER": NSUserName(),
+        ]
+        if cmuxLoadShellIntegration {
+            process.environment?["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux-test.sock").path
+            process.environment?["CMUX_TAB_ID"] = "tab-test"
+            process.environment?["CMUX_PANEL_ID"] = "panel-test"
+        }
+        for (key, value) in extraEnvironment {
+            process.environment?[key] = value
+        }
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            XCTFail("Timed out waiting for bash to exit")
+        }
+
+        let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let error = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        XCTAssertEqual(process.terminationStatus, 0, error)
+        return (
+            stdout: output.trimmingCharacters(in: .whitespacesAndNewlines),
+            stderr: error.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
     }
 
     private func writeExecutableScript(at url: URL, contents: String) throws {

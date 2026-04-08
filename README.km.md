@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | ភាសាខ្មែរ
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | ភាសាខ្មែរ | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertical tabs and split panes" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> បង្កើត workspace សម្រាប់ម៉ាស៊ីនពីចម្ងាយ។ ផ្ទាំងកម្មវិធីរុករកត្រូវបានដឹកនាំតាមបណ្តាញពីចម្ងាយ ដូច្នេះ localhost ដំណើរការបានភ្លាមៗ។ អូសរូបភាពចូលក្នុង session ពីចម្ងាយដើម្បីផ្ទុកឡើងតាមរយៈ scp។
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> ដំណើរការមុខងារ teammate mode របស់ Claude Code ដោយគ្រាន់តែប្រើពាក្យបញ្ជាតែមួយ។ សមាជិកក្រុមនឹងបង្ហាញជា split ដើមកំណើតដែលមាន metadata នៅលើរបារចំហៀង និងការជូនដំណឹង។ មិនត្រូវការ tmux ទេ។
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+* **ការនាំចូលកម្មវិធីរុករក (Browser import)** — នាំចូល cookies, ប្រវត្តិ និង sessions ពី Chrome, Firefox, Arc និងកម្មវិធីរុករកជាង 20 ផ្សេងទៀត ដើម្បីឱ្យផ្ទាំងកម្មវិធីរុករកចាប់ផ្ដើមដោយមានការផ្ទៀងផ្ទាត់រួចរាល់
+* **ពាក្យបញ្ជាផ្ទាល់ខ្លួន (Custom commands)** — កំណត់សកម្មភាពជាក់លាក់សម្រាប់គម្រោងនៅក្នុង [`cmux.json`](https://cmux.com/docs/custom-commands) ដែលអាចដំណើរការពី command palette
 * **អាចសរសេរ Script បាន (Scriptable)** — CLI និង socket API ដើម្បីបង្កើត workspaces, បំបែក panes, បញ្ជូន keystrokes, និងធ្វើស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក (browser)
 * **កម្មវិធីដើមរបស់ macOS (Native macOS app)** — បង្កើតឡើងដោយប្រើ Swift និង AppKit មិនមែន Electron ទេ។ ចាប់ផ្តើមលឿន, ស៊ីមេម៉ូរី (memory) តិច។
 * **ត្រូវគ្នាជាមួយ Ghostty (Ghostty compatible)** — អានការកំណត់ `~/.config/ghostty/config` ដែលអ្នកមានស្រាប់សម្រាប់ theme, font, និងពណ៌
@@ -269,6 +290,6 @@ cmux គឺឥតគិតថ្លៃ ជាកូដបើកចំហ (open s
 
 ## អាជ្ញាប័ណ្ណ (License)
 
-cmux គឺជាកម្មវិធីប្រភពបើកចំហក្រោម [AGPL-3.0-or-later](LICENSE)។
+cmux គឺជាកម្មវិធីប្រភពបើកចំហក្រោម [GPL-3.0-or-later](LICENSE)។
 
-ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម AGPL បាន អាជ្ញាប័ណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ ទាក់ទង [founders@manaflow.com](mailto:founders@manaflow.com) សម្រាប់ព័ត៌មានលម្អិត។
+ប្រសិនបើស្ថាប័នរបស់អ្នកមិនអាចអនុលោមតាម GPL បាន អាជ្ញាប័ណ្ណពាណិជ្ជកម្មមានផ្តល់ជូន។ ទាក់ទង [founders@manaflow.com](mailto:founders@manaflow.com) សម្រាប់ព័ត៌មានលម្អិត។

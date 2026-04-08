@@ -14,6 +14,27 @@ CMUX_DEBUG_LOG=""
 CLI_PATH=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
 LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
+AUTO_SKIP_ZIG_BUILD_REASON=""
+
+should_skip_ghostty_cli_helper_zig_build() {
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+    AUTO_SKIP_ZIG_BUILD_REASON="CMUX_SKIP_ZIG_BUILD=1"
+    return 0
+  fi
+
+  local product_version zig_version major_version
+  product_version="$(sw_vers -productVersion 2>/dev/null || true)"
+  zig_version="$(zig version 2>/dev/null || true)"
+  major_version="${product_version%%.*}"
+
+  if [[ "$zig_version" == "0.15.2" ]] && [[ "$major_version" =~ ^[0-9]+$ ]] && (( major_version >= 26 )); then
+    AUTO_SKIP_ZIG_BUILD_REASON="macOS ${product_version} + zig ${zig_version}"
+    return 0
+  fi
+
+  AUTO_SKIP_ZIG_BUILD_REASON=""
+  return 1
+}
 
 write_dev_cli_shim() {
   local target="$1"
@@ -258,6 +279,15 @@ if [[ -z "$TAG" ]]; then
   exit 1
 fi
 
+"$PWD/scripts/ensure-ghosttykit.sh"
+
+if should_skip_ghostty_cli_helper_zig_build; then
+  if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
+    echo "Auto-enabling CMUX_SKIP_ZIG_BUILD=1 for Ghostty CLI helper (${AUTO_SKIP_ZIG_BUILD_REASON})"
+  fi
+  export CMUX_SKIP_ZIG_BUILD=1
+fi
+
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
@@ -287,6 +317,11 @@ if [[ -z "$TAG" ]]; then
     INFOPLIST_KEY_CFBundleDisplayName="$APP_NAME"
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
   )
+fi
+# Forward CMUX_SKIP_ZIG_BUILD to xcodebuild run script phases (e.g. macOS
+# Tahoe where zig 0.15.2 can't link the ghostty CLI helper).
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
 XCODEBUILD_ARGS+=(build)
 
@@ -379,8 +414,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_DEBUG_LOG string \"${CMUX_DEBUG_LOG}\"" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_ENABLE 1" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_ENABLE string 1" "$INFO_PLIST"
-      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_MODE automation" "$INFO_PLIST" 2>/dev/null \
-        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_MODE string automation" "$INFO_PLIST"
+      /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_MODE allowAll" "$INFO_PLIST" 2>/dev/null \
+        || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_MODE string allowAll" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD 1" "$INFO_PLIST" 2>/dev/null \
         || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD string 1" "$INFO_PLIST"
       /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXTERM_REPO_ROOT \"${PWD}\"" "$INFO_PLIST" 2>/dev/null \
@@ -418,7 +453,9 @@ fi
 # Build cmuxd and ghostty helper binaries (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 GHOSTTY_HELPER_SRC="$PWD/ghostty/zig-out/bin/ghostty"
-if [[ "${CMUX_SKIP_ZIG_BUILD:-}" != "1" ]]; then
+if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
+  echo "Skipping zig builds (CMUX_SKIP_ZIG_BUILD=1)"
+else
   if [[ -d "$PWD/cmuxd" ]]; then
     (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
   fi
@@ -484,9 +521,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET:-}" ]]; then
     # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=automation CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_SOCKET_PATH="$CMUX_SOCKET" CMUXD_UNIX_PATH="$CMUXD_SOCKET" CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
   elif [[ -n "${TAG_SLUG:-}" ]]; then
-    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=automation CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
+    "${OPEN_CLEAN_ENV[@]}" CMUX_TAG="$TAG_SLUG" CMUX_SOCKET_ENABLE=1 CMUX_SOCKET_MODE=allowAll CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1 CMUXTERM_REPO_ROOT="$PWD" open -g "$APP_PATH"
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true

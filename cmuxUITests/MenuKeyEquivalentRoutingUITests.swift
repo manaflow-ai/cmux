@@ -89,12 +89,119 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
-    private func launchWithBrowserSetup() -> XCUIApplication {
+    func testCmdFFirstLetsWebContentHandleFindShortcut() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserHandledCmdFPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "cmdf-pending"
+            },
+            "Expected the browser test page to finish loading before Cmd+F"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "cmdf-handled" &&
+                    data["browserFindVisible"] == "false"
+            },
+            "Expected Cmd+F to reach browser content before cmux find overlay. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    func testBrowserFirstFindShortcutDoesNotReplayUnclaimedCmdEIntoWebContentTwice() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserObservedCmdEPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "cmde-0"
+            },
+            "Expected the Cmd+E test page to finish loading before the shortcut. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("e", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "cmde-1"
+            },
+            "Expected Cmd+E to reach browser content exactly once. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(
+            loadGotoSplit()?["browserPageTitle"],
+            "cmde-1",
+            "Expected Cmd+E to avoid a second WebKit replay. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    func testVisibleBrowserFindBarKeepsCmdGAndCmdShiftFOwnedByCmux() {
+        let app = launchWithBrowserSetup(browserURL: makeVisibleBrowserFindOwnershipPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "find-owner-idle"
+            },
+            "Expected the browser find ownership page to finish loading before opening find. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("needle")
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserFindVisible"] == "true" &&
+                    data["browserFindNeedle"] == "needle" &&
+                    data["browserFindSelected"] == "1" &&
+                    data["browserFindTotal"] == "3"
+            },
+            "Expected cmux browser find bar to open and capture the query before page-focus checks. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        guard let browserPanelId = loadGotoSplit()?["browserPanelId"], !browserPanelId.isEmpty else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        clickBrowserPane(app: app, browserPanelId: browserPanelId)
+
+        app.typeKey("g", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "find-owner-idle" &&
+                    data["browserFindVisible"] == "true" &&
+                    data["browserFindSelected"] == "2" &&
+                    data["browserFindTotal"] == "3"
+            },
+            "Expected visible cmux browser find bar to keep Cmd+G ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        clickBrowserPane(app: app, browserPanelId: browserPanelId)
+
+        app.typeKey("f", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "find-owner-idle" &&
+                    data["browserFindVisible"] == "false"
+            },
+            "Expected visible cmux browser find bar to keep Cmd+Shift+F ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
+        if let browserURL {
+            app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = browserURL
+        }
         app.launch()
         app.activate()
 
@@ -108,6 +215,114 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         return app
+    }
+
+    private func makeBrowserHandledCmdFPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmdf-pending</title>
+        </head>
+        <body tabindex="-1">
+          <main>Browser find shortcut passthrough</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'f') {
+                event.preventDefault();
+                document.title = 'cmdf-handled';
+                document.body.dataset.cmdf = 'handled';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeBrowserObservedCmdEPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmde-0</title>
+        </head>
+        <body tabindex="-1">
+          <main>Cmd+E should only reach the page once</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            let countState = { value: 0 };
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'e') {
+                countState.value += 1;
+                document.title = `cmde-${countState.value}`;
+                document.body.dataset.cmdeCount = String(countState.value);
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeVisibleBrowserFindOwnershipPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>find-owner-idle</title>
+        </head>
+        <body tabindex="-1">
+          <main>needle alpha</main>
+          <main>needle beta</main>
+          <main>needle gamma</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && key === 'g') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                document.title = 'page-handled-cmdg';
+                return;
+              }
+              if (event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && key === 'f') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                document.title = 'page-handled-cmdshiftf';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeDataURL(_ html: String) -> String {
+        let encoded = Data(html.utf8).base64EncodedString()
+        return "data:text/html;base64,\(encoded)"
+    }
+
+    private func clickBrowserPane(app: XCUIApplication, browserPanelId: String) {
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content for click target")
+        browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
     }
 
     private func refocusWebView(app: XCUIApplication) {
