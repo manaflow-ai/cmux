@@ -4990,7 +4990,13 @@ struct CMUXCLI {
             if let user = optionValue(commandArgs, name: "--user") ?? optionValue(commandArgs, name: "--username") {
                 params["username"] = user
             }
-            if let pass = optionValue(commandArgs, name: "--password") {
+            if commandArgs.contains("--password-stdin") {
+                // Read password from stdin (secure — not visible in process list)
+                if let stdinPass = readLine(strippingNewline: true), !stdinPass.isEmpty {
+                    params["password"] = stdinPass
+                }
+            } else if let pass = optionValue(commandArgs, name: "--password") {
+                fputs("Warning: --password exposes credentials in the process list. Use --password-stdin or enter in the UI.\n", stderr)
                 params["password"] = pass
             }
             if let wsId = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
@@ -8386,7 +8392,8 @@ struct CMUXCLI {
 
             Flags (connect):
               --user <name>                VNC/ARD username
-              --password <pass>            VNC password
+              --password-stdin             Read VNC password from stdin (recommended)
+              --password <pass>            VNC password (DEPRECATED: visible in ps)
               --workspace <id|ref>         Target workspace (default: $CMUX_WORKSPACE_ID)
               --window <id|ref>            Target window
               --no-connect                 Create panel without auto-connecting
@@ -8396,7 +8403,7 @@ struct CMUXCLI {
 
             Examples:
               cmux vnc localhost:5900
-              cmux vnc 192.168.1.50 --user admin --password secret
+              echo "secret" | cmux vnc 192.168.1.50 --user admin --password-stdin
               cmux vnc list
               cmux vnc disconnect surface:3
               cmux vnc screenshot surface:3 --out ~/Desktop/vnc.png
@@ -14625,7 +14632,7 @@ struct CMUXCLI {
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
 
-          vnc <host>[:<port>] [--user <name>] [--password <pass>]
+          vnc <host>[:<port>] [--user <name>] [--password-stdin]
           vnc list
           vnc disconnect <surface>
           vnc status <surface>
