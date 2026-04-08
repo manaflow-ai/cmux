@@ -791,6 +791,11 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     }
 }
 
+private func isMarkdownExtension(_ path: String) -> Bool {
+    let ext = (path as NSString).pathExtension.lowercased()
+    return ext == "md" || ext == "markdown"
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
@@ -804,6 +809,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     }
 
     if NSString(string: trimmed).isAbsolutePath {
+        if isMarkdownExtension(trimmed) {
+            #if DEBUG
+            dlog("link.resolve result=markdownViewer(absolutePath) url=\(trimmed)")
+            #endif
+            return .markdownViewer(URL(fileURLWithPath: trimmed))
+        }
         #if DEBUG
         dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
         #endif
@@ -823,6 +834,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
             dlog("link.resolve result=embeddedBrowser url=\(parsed)")
             #endif
             return .embeddedBrowser(parsed)
+        }
+        if scheme == "file" && isMarkdownExtension(parsed.path) {
+            #if DEBUG
+            dlog("link.resolve result=markdownViewer(fileScheme) url=\(parsed)")
+            #endif
+            return .markdownViewer(parsed)
         }
         #if DEBUG
         dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
