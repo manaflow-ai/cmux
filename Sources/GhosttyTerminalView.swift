@@ -4441,6 +4441,24 @@ final class TerminalSurface: Identifiable, ObservableObject {
         ghostty_surface_refresh(surface)
     }
 
+    /// Re-assert the correct color scheme and re-derive the surface config after a config
+    /// reload. This calls ghostty_surface_update_config which forces the surface to re-apply
+    /// its conditional state (light/dark) to the current config, then re-applies the color
+    /// scheme from the Swift side to keep tracking in sync.
+    func reapplyColorSchemeAndConfig() {
+        guard let surface, let view = attachedView else { return }
+        // Force the surface to re-derive its config with its current conditional state.
+        // ghostty_surface_set_color_scheme has an internal dedup that skips when the
+        // scheme hasn't changed, but after a config reload the underlying theme data
+        // may have changed. ghostty_surface_update_config bypasses that dedup.
+        if let config = GhosttyApp.shared.config {
+            ghostty_surface_update_config(surface, config)
+        }
+        // Re-apply color scheme to ensure the surface's conditional state matches
+        // the current macOS appearance, in case it drifted.
+        view.applySurfaceColorScheme(force: true)
+    }
+
     func applyWindowBackgroundIfActive() {
         surfaceView.applyWindowBackgroundIfActive()
     }
@@ -5632,7 +5650,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
-    private func applySurfaceColorScheme(force: Bool = false) {
+    fileprivate func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
         let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua

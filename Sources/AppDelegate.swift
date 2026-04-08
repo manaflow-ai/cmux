@@ -5812,6 +5812,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             terminalPanel.hostedView.reconcileGeometryNow()
             terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
             terminalPanel.surface.forceRefresh(reason: "appDelegate.refreshAfterGhosttyConfigReload")
+            // Force each surface to re-derive its config with the correct light/dark
+            // conditional state and re-apply the color scheme from the current appearance.
+            terminalPanel.surface.reapplyColorSchemeAndConfig()
             refreshedCount += 1
         }
 #if DEBUG
