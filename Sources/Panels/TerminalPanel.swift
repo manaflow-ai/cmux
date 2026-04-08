@@ -38,6 +38,16 @@ final class TerminalPanel: Panel, ObservableObject {
     /// (hostedView.window == nil) until the user switches workspaces.
     @Published var viewReattachToken: UInt64 = 0
 
+    /// Last detected SSH session for this panel (cached while SSH is the foreground process).
+    /// Used by the reconnection controller when the child process exits.
+    var lastDetectedSSHSession: DetectedSSHSession?
+
+    /// Timestamp of the last SSH detection check (for throttling).
+    var lastSSHDetectionTime: Date?
+
+    /// Number of SSH reconnection retries carried over from a previous panel replacement.
+    var sshReconnectRetryCount: Int = 0
+
     var onRequestWorkspacePaneFlash: ((WorkspaceAttentionFlashReason) -> Void)?
 
     private var cancellables = Set<AnyCancellable>()

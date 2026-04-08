@@ -41,19 +41,20 @@ func sidebarActiveForegroundNSColor(
 }
 
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
+    // arya-cmux: monochrome accent (light gray on dark)
     switch colorScheme {
     case .dark:
         return NSColor(
-            srgbRed: 0,
-            green: 145.0 / 255.0,
-            blue: 1.0,
+            srgbRed: 180.0 / 255.0,
+            green: 180.0 / 255.0,
+            blue: 180.0 / 255.0,
             alpha: 1.0
         )
     default:
         return NSColor(
-            srgbRed: 0,
-            green: 136.0 / 255.0,
-            blue: 1.0,
+            srgbRed: 64.0 / 255.0,
+            green: 64.0 / 255.0,
+            blue: 64.0 / 255.0,
             alpha: 1.0
         )
     }
@@ -6025,6 +6026,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
+        case .vnc:
+            return String(localized: "commandPalette.kind.vnc", defaultValue: "VNC")
         }
     }
 
@@ -6036,6 +6039,8 @@ struct ContentView: View {
             return ["browser", "web", "page"]
         case .markdown:
             return ["markdown", "note", "preview"]
+        case .vnc:
+            return ["vnc", "remote", "desktop", "realvnc"]
         }
     }
 
@@ -6133,6 +6138,8 @@ struct ContentView: View {
             return .newSurface
         case "palette.newBrowserTab":
             return .openBrowser
+        case "palette.newVNCTab":
+            return nil // Handled by registry, no built-in action
         case "palette.closeWindow":
             return .closeWindow
         case "palette.toggleSidebar":
@@ -6395,6 +6402,14 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newVNCTab",
+                title: constant(String(localized: "command.newVNCTab.title", defaultValue: "New Tab (VNC Remote Desktop)")),
+                subtitle: constant(String(localized: "command.newVNCTab.subtitle", defaultValue: "Tab")),
+                keywords: ["new", "vnc", "remote", "desktop", "realvnc"]
             )
         )
         contributions.append(
@@ -7117,6 +7132,17 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newVNCTab") {
+            DispatchQueue.main.async {
+                guard let currentWorkspaceId = tabManager.selectedTabId else { return }
+                // Open a VNC panel to localhost:5900 as default — user connects from the panel UI
+                _ = tabManager.openVNC(
+                    inWorkspace: currentWorkspaceId,
+                    hostname: "localhost",
+                    port: 5900
+                )
             }
         }
         registry.register(commandId: "palette.closeTab") {
@@ -12708,6 +12734,14 @@ private struct TabItemView: View, Equatable {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                if tab.avmSecurityStatus != .safe {
+                    let avmColor = NSColor(hex: tab.avmSecurityStatus.colorHex).map { Color(nsColor: $0) } ?? .orange
+                    Image(systemName: tab.avmSecurityStatus.iconName)
+                        .font(.system(size: 9))
+                        .foregroundColor(avmColor)
+                        .safeHelp("AVM: \(tab.avmSecurityStatus.label)")
                 }
 
                 Text(tab.title)

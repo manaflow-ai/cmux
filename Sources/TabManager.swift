@@ -3224,6 +3224,15 @@ class TabManager: ObservableObject {
         )
 #endif
 
+        // SSH auto-reconnection: if this panel was running SSH, attempt to reconnect
+        // instead of closing. Skip for remote workspaces (they have their own reconnection).
+        if !tab.isRemoteWorkspace, tab.handleSSHChildExit(panelId: surfaceId) {
+#if DEBUG
+            dlog("surface.close.childExited.sshReconnect tab=\(tabId.uuidString.prefix(5)) surface=\(surfaceId.uuidString.prefix(5))")
+#endif
+            return
+        }
+
         // Exiting the last SSH surface should demote the workspace back to a local one.
         // Route through Workspace close handling so remote teardown and replacement-panel
         // logic run before TabManager considers removing the workspace itself, including
@@ -4167,6 +4176,24 @@ class TabManager: ObservableObject {
     func browserPanel(tabId: UUID, panelId: UUID) -> BrowserPanel? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.browserPanel(for: panelId)
+    }
+
+    // MARK: - VNC
+
+    /// Create a new VNC surface in the focused pane of a workspace.
+    @discardableResult
+    func openVNC(
+        inWorkspace tabId: UUID,
+        hostname: String,
+        port: UInt16 = 5900
+    ) -> VNCPanel? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }),
+              let focusedPane = workspace.bonsplitController.focusedPaneId else { return nil }
+        return workspace.newVNCSurface(
+            inPane: focusedPane,
+            hostname: hostname,
+            port: port
+        )
     }
 
     /// Open a browser in a specific workspace, optionally preferring a split-right layout.

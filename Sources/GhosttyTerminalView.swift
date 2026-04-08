@@ -2530,6 +2530,15 @@ class GhosttyApp {
                    let manager = app.tabManagerFor(tabId: callbackTabId) ?? app.tabManager,
                    let workspace = manager.tabs.first(where: { $0.id == callbackTabId }),
                    workspace.panels[callbackSurfaceId] != nil {
+
+                    // Try to detect/cache SSH session from TTY before closing.
+                    // The SSH process may still be visible briefly after child exit.
+                    if let panel = workspace.panels[callbackSurfaceId] as? TerminalPanel,
+                       panel.lastDetectedSSHSession == nil,
+                       let ttyName = workspace.surfaceTTYNames[callbackSurfaceId] {
+                        panel.lastDetectedSSHSession = TerminalSSHSessionDetector.detect(forTTY: ttyName)
+                    }
+
                     manager.closePanelAfterChildExited(tabId: callbackTabId, surfaceId: callbackSurfaceId)
                 }
             }

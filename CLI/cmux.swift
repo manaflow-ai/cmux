@@ -2693,6 +2693,14 @@ struct CMUXCLI {
         case "help":
             print(usage())
 
+        // VNC commands
+        case "vnc":
+            try runVNCCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
+        // AVM commands
+        case "avm":
+            try runAVMCommand(commandArgs: commandArgs, jsonOutput: jsonOutput)
+
         // Browser commands
         case "browser":
             try runBrowserCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
@@ -4920,6 +4928,456 @@ struct CMUXCLI {
             "surface_id": surfaceId,
             "relay_port": relayPort,
         ])
+    }
+
+    // MARK: - VNC Command
+
+    private func runVNCCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        if dispatchSubcommandHelp(command: "vnc", commandArgs: commandArgs) { return }
+
+        let subcommand = commandArgs.first ?? ""
+
+        // Parse common flags
+        let effectiveJSONOutput = jsonOutput || commandArgs.contains("--json")
+        let effectiveIDFormat: CLIIDFormat = commandArgs.contains("--id-format")
+            ? (optionValue(commandArgs, name: "--id-format").flatMap { CLIIDFormat(rawValue: $0) } ?? idFormat)
+            : idFormat
+
+        func output(_ payload: [String: Any], fallback: String) {
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else {
+                print(fallback)
+            }
+        }
+
+        switch subcommand {
+        case "", "connect":
+            // cmux vnc <host>[:<port>] or cmux vnc connect <host>[:<port>]
+            let positionalArgs: [String]
+            if subcommand == "connect" {
+                positionalArgs = Array(commandArgs.dropFirst())
+            } else {
+                positionalArgs = commandArgs
+            }
+
+            // Filter out flags from positional args
+            let hostArg = positionalArgs.first(where: { !$0.hasPrefix("--") })
+            guard let hostArg, !hostArg.isEmpty else {
+                throw CLIError(message: "Usage: cmux vnc <host>[:<port>] [--user <name>] [--password <pass>]")
+            }
+
+            let hostname: String
+            let port: Int
+            if let colonIdx = hostArg.lastIndex(of: ":"),
+               let portNum = Int(hostArg[hostArg.index(after: colonIdx)...]) {
+                hostname = String(hostArg[hostArg.startIndex..<colonIdx])
+                port = portNum
+            } else {
+                hostname = hostArg
+                port = 5900
+            }
+
+            var params: [String: Any] = [
+                "hostname": hostname,
+                "port": port,
+            ]
+            if let user = optionValue(commandArgs, name: "--user") ?? optionValue(commandArgs, name: "--username") {
+                params["username"] = user
+            }
+            if let pass = optionValue(commandArgs, name: "--password") {
+                params["password"] = pass
+            }
+            if let wsId = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
+                params["workspace_id"] = wsId
+            }
+            if let winId = optionValue(commandArgs, name: "--window") {
+                params["window_id"] = winId
+            }
+            if commandArgs.contains("--no-connect") {
+                params["auto_connect"] = false
+            }
+
+            let payload = try client.sendV2(method: "vnc.connect", params: params)
+            let surfaceRef = payload["surface_ref"] as? String ?? payload["surface_id"] as? String ?? "unknown"
+            output(payload, fallback: surfaceRef)
+
+        case "list":
+            var params: [String: Any] = [:]
+            if let wsId = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
+                params["workspace_id"] = wsId
+            }
+            let payload = try client.sendV2(method: "vnc.list", params: params)
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else {
+                let connections = payload["connections"] as? [[String: Any]] ?? []
+                if connections.isEmpty {
+                    print("No VNC connections")
+                } else {
+                    for conn in connections {
+                        let ref = conn["surface_ref"] as? String ?? conn["surface_id"] as? String ?? "?"
+                        let host = conn["hostname"] as? String ?? "?"
+                        let port = conn["port"] as? Int ?? 5900
+                        let connected = conn["connected"] as? Bool ?? false
+                        let status = connected ? "connected" : (conn["connecting"] as? Bool == true ? "connecting" : "disconnected")
+                        print("\(ref)  \(host):\(port)  \(status)")
+                    }
+                }
+            }
+
+        case "disconnect":
+            let args = Array(commandArgs.dropFirst())
+            let surfaceArg = args.first(where: { !$0.hasPrefix("--") })
+                ?? optionValue(commandArgs, name: "--surface")
+                ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            guard let surfaceArg else {
+                throw CLIError(message: "Usage: cmux vnc disconnect <surface_id|ref>")
+            }
+            let resolved = try normalizeSurfaceHandle(surfaceArg, client: client) ?? surfaceArg
+            let payload = try client.sendV2(method: "vnc.disconnect", params: ["surface_id": resolved])
+            output(payload, fallback: "Disconnected")
+
+        case "status":
+            let args = Array(commandArgs.dropFirst())
+            let surfaceArg = args.first(where: { !$0.hasPrefix("--") })
+                ?? optionValue(commandArgs, name: "--surface")
+                ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            guard let surfaceArg else {
+                throw CLIError(message: "Usage: cmux vnc status <surface_id|ref>")
+            }
+            let resolved = try normalizeSurfaceHandle(surfaceArg, client: client) ?? surfaceArg
+            let payload = try client.sendV2(method: "vnc.status", params: ["surface_id": resolved])
+            if effectiveJSONOutput {
+                print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+            } else {
+                let host = payload["hostname"] as? String ?? "?"
+                let port = payload["port"] as? Int ?? 5900
+                let status = payload["status"] as? String ?? "unknown"
+                var line = "\(host):\(port) \(status)"
+                if let duration = payload["duration_seconds"] as? Int, duration > 0 {
+                    line += " (\(duration)s)"
+                }
+                if let w = payload["framebuffer_width"] as? Int, let h = payload["framebuffer_height"] as? Int {
+                    line += " \(w)x\(h)"
+                }
+                print(line)
+            }
+
+        case "screenshot":
+            let args = Array(commandArgs.dropFirst())
+            let surfaceArg = args.first(where: { !$0.hasPrefix("--") })
+                ?? optionValue(commandArgs, name: "--surface")
+                ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+            guard let surfaceArg else {
+                throw CLIError(message: "Usage: cmux vnc screenshot <surface_id|ref> [--out <path>]")
+            }
+            let resolved = try normalizeSurfaceHandle(surfaceArg, client: client) ?? surfaceArg
+            let payload = try client.sendV2(method: "vnc.screenshot", params: ["surface_id": resolved])
+            guard let base64Data = payload["data"] as? String else {
+                throw CLIError(message: "No screenshot data returned")
+            }
+            guard let pngData = Data(base64Encoded: base64Data) else {
+                throw CLIError(message: "Failed to decode screenshot data")
+            }
+
+            if let outPath = optionValue(commandArgs, name: "--out") {
+                let resolvedPath = resolvePath(outPath)
+                try pngData.write(to: URL(fileURLWithPath: resolvedPath))
+                print(resolvedPath)
+            } else {
+                // Write to stdout as raw PNG
+                FileHandle.standardOutput.write(pngData)
+            }
+
+        default:
+            throw CLIError(message: "Unknown vnc subcommand '\(subcommand)'. Use 'cmux vnc --help' for usage.")
+        }
+    }
+
+    // MARK: - AVM Command
+
+    private func runAVMCommand(commandArgs: [String], jsonOutput: Bool) throws {
+        if dispatchSubcommandHelp(command: "avm", commandArgs: commandArgs) { return }
+
+        let subcommand = commandArgs.first ?? "top"
+        let effectiveJSONOutput = jsonOutput || commandArgs.contains("--json")
+
+        // AVM commands talk directly to avmd, not through the cmux socket.
+        let socketPath: String
+        if let envPath = ProcessInfo.processInfo.environment["AVM_SOCKET"] {
+            socketPath = envPath
+        } else {
+            let home = ProcessInfo.processInfo.environment["HOME"] ?? "/tmp"
+            socketPath = "\(home)/.hyperspace/avm.sock"
+        }
+
+        switch subcommand {
+        case "top", "list":
+            let response = try avmSend(socketPath: socketPath, method: "agent.list")
+            guard let agents = response["data"] as? [[String: Any]] else {
+                if effectiveJSONOutput {
+                    print("{\"agents\":[]}")
+                } else {
+                    print("No agents registered (is avmd running?)")
+                }
+                return
+            }
+
+            if effectiveJSONOutput {
+                let jsonData = try JSONSerialization.data(withJSONObject: ["agents": agents], options: [.prettyPrinted, .sortedKeys])
+                print(String(data: jsonData, encoding: .utf8) ?? "{}")
+            } else {
+                if agents.isEmpty {
+                    print("No agents registered")
+                    return
+                }
+                // Header
+                let header = String(format: "%-4s  %-20s  %-8s  %-10s  %-10s  %-10s",
+                    "ID", "NAME", "PID", "UPTIME", "CPU", "RSS")
+                print(header)
+                print(String(repeating: "-", count: header.count))
+
+                for agent in agents {
+                    let id = agent["id"] as? Int ?? 0
+                    let name = agent["name"] as? String ?? "?"
+                    let pid = agent["pid"] as? Int ?? 0
+                    let uptimeSecs = agent["uptime_secs"] as? Double ?? 0
+
+                    let cpuStr: String
+                    if let cpu = agent["cpu_secs"] as? Double {
+                        cpuStr = cpu < 60 ? String(format: "%.1fs", cpu) : String(format: "%.1fm", cpu / 60)
+                    } else {
+                        cpuStr = "-"
+                    }
+
+                    let rssStr: String
+                    if let rssNum = agent["rss_bytes"] as? UInt64 ?? (agent["rss_bytes"] as? Int).map({ UInt64($0) }) {
+                        if rssNum < 1024 * 1024 {
+                            rssStr = "\(rssNum / 1024) KB"
+                        } else if rssNum < 1024 * 1024 * 1024 {
+                            rssStr = "\(rssNum / (1024 * 1024)) MB"
+                        } else {
+                            rssStr = String(format: "%.1f GB", Double(rssNum) / (1024 * 1024 * 1024))
+                        }
+                    } else {
+                        rssStr = "-"
+                    }
+
+                    let uptimeStr: String
+                    let secs = Int(uptimeSecs)
+                    if secs < 60 { uptimeStr = "\(secs)s" }
+                    else if secs < 3600 { uptimeStr = "\(secs / 60)m \(secs % 60)s" }
+                    else { uptimeStr = "\(secs / 3600)h \((secs % 3600) / 60)m" }
+
+                    print(String(format: "%-4d  %-20s  %-8d  %-10s  %-10s  %-10s",
+                        id, String(name.prefix(20)), pid, uptimeStr, cpuStr, rssStr))
+                }
+            }
+
+        case "status":
+            let pingResp = try? avmSend(socketPath: socketPath, method: "ping")
+            let isRunning = (pingResp?["ok"] as? Bool) == true
+
+            if effectiveJSONOutput {
+                var result: [String: Any] = ["running": isRunning, "socket": socketPath]
+                if isRunning {
+                    if let agentResp = try? avmSend(socketPath: socketPath, method: "agent.list"),
+                       let agents = agentResp["data"] as? [[String: Any]] {
+                        result["agent_count"] = agents.count
+                    }
+                    if let proxyResp = try? avmSend(socketPath: socketPath, method: "proxy.info"),
+                       let proxyData = proxyResp["data"] as? [String: Any] {
+                        result["proxy_port"] = proxyData["port"]
+                    }
+                    if let pendingResp = try? avmSend(socketPath: socketPath, method: "command.pending"),
+                       let pending = pendingResp["data"] as? [[String: Any]] {
+                        result["pending_approvals"] = pending.count
+                    }
+                }
+                let jsonData = try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys])
+                print(String(data: jsonData, encoding: .utf8) ?? "{}")
+            } else {
+                if isRunning {
+                    print("avmd: running (\(socketPath))")
+                    if let agentResp = try? avmSend(socketPath: socketPath, method: "agent.list"),
+                       let agents = agentResp["data"] as? [[String: Any]] {
+                        print("  agents: \(agents.count)")
+                    }
+                    if let proxyResp = try? avmSend(socketPath: socketPath, method: "proxy.info"),
+                       let proxyData = proxyResp["data"] as? [String: Any],
+                       let port = proxyData["port"] as? Int {
+                        print("  proxy: 127.0.0.1:\(port)")
+                    }
+                    if let pendingResp = try? avmSend(socketPath: socketPath, method: "command.pending"),
+                       let pending = pendingResp["data"] as? [[String: Any]], !pending.isEmpty {
+                        print("  pending approvals: \(pending.count)")
+                    }
+                } else {
+                    print("avmd: not running (\(socketPath))")
+                }
+            }
+
+        case "pending":
+            let response = try avmSend(socketPath: socketPath, method: "command.pending")
+            guard let pending = response["data"] as? [[String: Any]] else {
+                print("No pending approvals")
+                return
+            }
+            if effectiveJSONOutput {
+                let jsonData = try JSONSerialization.data(withJSONObject: pending, options: [.prettyPrinted, .sortedKeys])
+                print(String(data: jsonData, encoding: .utf8) ?? "[]")
+            } else {
+                if pending.isEmpty {
+                    print("No pending approvals")
+                } else {
+                    for entry in pending {
+                        let id = entry["id"] as? Int ?? 0
+                        let cmd = entry["command"] as? String ?? "?"
+                        let patterns = entry["matched_patterns"] as? [String] ?? []
+                        print("[\(id)] \(cmd)")
+                        if !patterns.isEmpty {
+                            print("       patterns: \(patterns.joined(separator: ", "))")
+                        }
+                    }
+                }
+            }
+
+        case "approve":
+            let args = Array(commandArgs.dropFirst())
+            guard let idStr = args.first, let approvalId = Int(idStr) else {
+                throw CLIError(message: "Usage: cmux avm approve <approval_id>")
+            }
+            let response = try avmSend(socketPath: socketPath, method: "command.approve", params: ["approval_id": approvalId])
+            if response["ok"] as? Bool == true {
+                print("Approved")
+            } else {
+                throw CLIError(message: response["error"] as? String ?? "Failed to approve")
+            }
+
+        case "deny":
+            let args = Array(commandArgs.dropFirst())
+            guard let idStr = args.first, let approvalId = Int(idStr) else {
+                throw CLIError(message: "Usage: cmux avm deny <approval_id>")
+            }
+            let response = try avmSend(socketPath: socketPath, method: "command.deny", params: ["approval_id": approvalId])
+            if response["ok"] as? Bool == true {
+                print("Denied")
+            } else {
+                throw CLIError(message: response["error"] as? String ?? "Failed to deny")
+            }
+
+        case "policy-reload":
+            let response = try avmSend(socketPath: socketPath, method: "policy.reload")
+            if response["ok"] as? Bool == true {
+                print("Policy reloaded")
+            } else {
+                throw CLIError(message: response["error"] as? String ?? "Failed to reload policy")
+            }
+
+        case "egress-log":
+            let count = Int(optionValue(commandArgs, name: "--count") ?? "20") ?? 20
+            let response = try avmSend(socketPath: socketPath, method: "egress.log", params: ["count": count])
+            guard let entries = response["data"] as? [[String: Any]] else {
+                print("No egress entries")
+                return
+            }
+            if effectiveJSONOutput {
+                let jsonData = try JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted, .sortedKeys])
+                print(String(data: jsonData, encoding: .utf8) ?? "[]")
+            } else {
+                if entries.isEmpty {
+                    print("No egress entries")
+                } else {
+                    for entry in entries {
+                        let url = entry["url"] as? String ?? "?"
+                        let action = entry["action"] as? String ?? "?"
+                        let method = entry["method"] as? String ?? "?"
+                        print("\(action)  \(method)  \(url)")
+                    }
+                }
+            }
+
+        default:
+            throw CLIError(message: "Unknown avm subcommand '\(subcommand)'. Use 'cmux avm --help' for usage.")
+        }
+    }
+
+    /// Send a JSON-RPC request directly to avmd's UDS.
+    private func avmSend(socketPath: String, method: String, params: [String: Any] = [:]) throws -> [String: Any] {
+        guard FileManager.default.fileExists(atPath: socketPath) else {
+            throw CLIError(message: "AVM daemon not running (socket not found: \(socketPath))")
+        }
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw CLIError(message: "socket() failed: \(errno)")
+        }
+        defer { close(fd) }
+
+        // Set timeout
+        var tv = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        // Connect
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = socketPath.utf8CString
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: 104) { dst in
+                pathBytes.withUnsafeBufferPointer { src in
+                    let count = min(src.count, 104)
+                    dst.update(from: src.baseAddress!, count: count)
+                }
+            }
+        }
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard connectResult == 0 else {
+            throw CLIError(message: "Cannot connect to avmd: \(String(cString: strerror(errno)))")
+        }
+
+        // Build request
+        var request: [String: Any] = ["method": method]
+        if !params.isEmpty {
+            request["params"] = params
+        }
+        let jsonData = try JSONSerialization.data(withJSONObject: request)
+        var payload = jsonData
+        payload.append(0x0A)
+
+        // Send
+        let sent = payload.withUnsafeBytes { buf in
+            Darwin.send(fd, buf.baseAddress!, buf.count, 0)
+        }
+        guard sent == payload.count else {
+            throw CLIError(message: "send() incomplete")
+        }
+
+        // Receive
+        var responseData = Data()
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = recv(fd, &buf, buf.count, 0)
+            if n <= 0 { break }
+            responseData.append(contentsOf: buf[0..<n])
+            if buf[0..<n].contains(0x0A) { break }
+        }
+
+        guard !responseData.isEmpty,
+              let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw CLIError(message: "Invalid response from avmd")
+        }
+        return json
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {
@@ -7912,6 +8370,64 @@ struct CMUXCLI {
             return "Legacy alias for 'cmux browser focus-webview'. Run 'cmux browser --help' for details."
         case "is-webview-focused":
             return "Legacy alias for 'cmux browser is-webview-focused'. Run 'cmux browser --help' for details."
+        case "vnc":
+            return """
+            Usage: cmux vnc <host>[:<port>] [flags]
+                   cmux vnc <subcommand> [args]
+
+            Manage VNC remote desktop connections.
+
+            Subcommands:
+              connect <host>[:<port>]      Open a VNC panel and connect (default subcommand)
+              list                         List active VNC connections
+              disconnect <surface>         Disconnect a VNC session
+              status <surface>             Show VNC connection status
+              screenshot <surface>         Capture framebuffer as PNG
+
+            Flags (connect):
+              --user <name>                VNC/ARD username
+              --password <pass>            VNC password
+              --workspace <id|ref>         Target workspace (default: $CMUX_WORKSPACE_ID)
+              --window <id|ref>            Target window
+              --no-connect                 Create panel without auto-connecting
+
+            Flags (screenshot):
+              --out <path>                 Write PNG to file (default: stdout)
+
+            Examples:
+              cmux vnc localhost:5900
+              cmux vnc 192.168.1.50 --user admin --password secret
+              cmux vnc list
+              cmux vnc disconnect surface:3
+              cmux vnc screenshot surface:3 --out ~/Desktop/vnc.png
+            """
+        case "avm":
+            return """
+            Usage: cmux avm <subcommand> [args]
+
+            Manage the AVM (Agent Virtual Machine) security runtime daemon.
+
+            Subcommands:
+              top                            List agents with CPU/RAM/uptime (default)
+              list                           Alias for top
+              status                         Check avmd daemon status
+              pending                        List pending command approvals
+              approve <id>                   Approve a pending dangerous command
+              deny <id>                      Deny a pending dangerous command
+              policy-reload                  Reload avmd policy from ~/.hyperspace/avm-policy.json
+              egress-log [--count <n>]       Show recent egress proxy entries (default: 20)
+
+            Environment:
+              AVM_SOCKET                     Override avmd socket path (default: ~/.hyperspace/avm.sock)
+
+            Examples:
+              cmux avm top
+              cmux avm status --json
+              cmux avm pending
+              cmux avm approve 1
+              cmux avm deny 2
+              cmux avm egress-log --count 50
+            """
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
@@ -14108,6 +14624,20 @@ struct CMUXCLI {
           paste-buffer [--name <name>] [--workspace <id|ref>] [--surface <id|ref>]
           respawn-pane [--workspace <id|ref>] [--surface <id|ref>] [--command <cmd>]
           display-message [-p|--print] <text>
+
+          vnc <host>[:<port>] [--user <name>] [--password <pass>]
+          vnc list
+          vnc disconnect <surface>
+          vnc status <surface>
+          vnc screenshot <surface> [--out <path>]
+
+          avm top                            (list agents with CPU/RAM/uptime)
+          avm status                         (check avmd daemon status)
+          avm pending                        (list pending command approvals)
+          avm approve <id>                   (approve a pending command)
+          avm deny <id>                      (deny a pending command)
+          avm policy-reload                  (reload avmd policy file)
+          avm egress-log [--count <n>]       (show recent egress entries)
 
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 

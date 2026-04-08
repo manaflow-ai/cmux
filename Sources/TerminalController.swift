@@ -2009,6 +2009,16 @@ class TerminalController {
             case "surface_health":
                 return surfaceHealth(args)
 
+        // VNC panel commands
+        case "vnc_connect":
+            return vncConnect(args)
+        case "vnc_disconnect":
+            return vncDisconnect(args)
+        case "vnc_list":
+            return vncList()
+        case "vnc_status":
+            return vncStatus(args)
+
             default:
                 return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
             }
@@ -2380,6 +2390,26 @@ class TerminalController {
         case "browser.input_touch":
             return v2Result(id: id, self.v2BrowserInputTouch(params: params))
 
+        // VNC
+        case "vnc.connect":
+            return v2Result(id: id, self.v2VNCConnect(params: params))
+        case "vnc.disconnect":
+            return v2Result(id: id, self.v2VNCDisconnect(params: params))
+        case "vnc.status":
+            return v2Result(id: id, self.v2VNCStatus(params: params))
+        case "vnc.list":
+            return v2Result(id: id, self.v2VNCList(params: params))
+        case "vnc.screenshot":
+            return v2Result(id: id, self.v2VNCScreenshot(params: params))
+
+        // AVM
+        case "avm.status":
+            return v2Result(id: id, self.v2AVMStatus(params: params))
+        case "avm.agents":
+            return v2Result(id: id, self.v2AVMAgents(params: params))
+        case "avm.top":
+            return v2Result(id: id, self.v2AVMAgents(params: params))
+
         // Markdown
         case "markdown.open":
             return v2Result(id: id, self.v2MarkdownOpen(params: params))
@@ -2532,6 +2562,14 @@ class TerminalController {
             "app.focus_override.set",
             "app.simulate_active",
             "markdown.open",
+            "vnc.connect",
+            "vnc.disconnect",
+            "vnc.status",
+            "vnc.list",
+            "vnc.screenshot",
+            "avm.status",
+            "avm.agents",
+            "avm.top",
             "browser.open_split",
             "browser.navigate",
             "browser.back",
@@ -15821,6 +15859,381 @@ class TerminalController {
             }
         }
         return result
+    }
+
+    // MARK: - VNC v1 Commands
+
+    /// v1: vnc_connect <hostname>[:<port>] [username] [password]
+    private func vncConnect(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 2).map(String.init)
+        guard !parts.isEmpty else {
+            return "ERROR: Usage: vnc_connect <hostname>[:<port>] [username] [password]"
+        }
+
+        let hostPort = parts[0]
+        let hostname: String
+        let port: UInt16
+        if let colonIdx = hostPort.lastIndex(of: ":") {
+            hostname = String(hostPort[hostPort.startIndex..<colonIdx])
+            port = UInt16(hostPort[hostPort.index(after: colonIdx)...]) ?? 5900
+        } else {
+            hostname = hostPort
+            port = 5900
+        }
+
+        var result = "ERROR: Failed to create VNC panel"
+        DispatchQueue.main.sync {
+            guard let tabId = tabManager.selectedTabId,
+                  tabManager.tabs.contains(where: { $0.id == tabId }) else { return }
+            guard let vncPanel = tabManager.openVNC(
+                inWorkspace: tabId,
+                hostname: hostname,
+                port: port
+            ) else { return }
+
+            if parts.count > 1 {
+                vncPanel.username = parts[1]
+            }
+            if parts.count > 2 {
+                vncPanel.password = parts[2]
+            }
+
+            vncPanel.connect()
+            result = "OK \(vncPanel.id.uuidString)"
+        }
+        return result
+    }
+
+    /// v1: vnc_disconnect <surface_id>
+    private func vncDisconnect(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let surfaceId = UUID(uuidString: trimmed) else {
+            return "ERROR: Invalid surface_id"
+        }
+
+        var result = "ERROR: VNC surface not found"
+        DispatchQueue.main.sync {
+            for ws in tabManager.tabs {
+                if let panel = ws.panels[surfaceId] as? VNCPanel {
+                    panel.disconnect()
+                    result = "OK"
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    /// v1: vnc_list
+    private func vncList() -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        var lines: [String] = []
+        DispatchQueue.main.sync {
+            for ws in tabManager.tabs {
+                for (panelId, panel) in ws.panels {
+                    guard let vncPanel = panel as? VNCPanel else { continue }
+                    let status = vncPanel.isConnected ? "connected" : (vncPanel.isConnecting ? "connecting" : "disconnected")
+                    lines.append("\(panelId.uuidString) \(vncPanel.hostname):\(String(vncPanel.port)) \(status)")
+                }
+            }
+        }
+        return lines.isEmpty ? "OK (none)" : lines.joined(separator: "\n")
+    }
+
+    /// v1: vnc_status <surface_id>
+    private func vncStatus(_ args: String) -> String {
+        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let surfaceId = UUID(uuidString: trimmed) else {
+            return "ERROR: Invalid surface_id"
+        }
+
+        var result = "ERROR: VNC surface not found"
+        DispatchQueue.main.sync {
+            for ws in tabManager.tabs {
+                if let panel = ws.panels[surfaceId] as? VNCPanel {
+                    let status = panel.isConnected ? "connected" : (panel.isConnecting ? "connecting" : "disconnected")
+                    var line = "\(panel.hostname):\(String(panel.port)) \(status)"
+                    if panel.isConnected {
+                        line += " duration=\(Int(panel.connectionDuration))s"
+                    }
+                    if let fb = panel.framebuffer {
+                        let size = fb.size
+                        line += " resolution=\(Int(size.width))x\(Int(size.height))"
+                    }
+                    if let err = panel.errorMessage, !err.isEmpty {
+                        line += " error=\"\(err)\""
+                    }
+                    result = "OK \(line)"
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    // MARK: - VNC v2 Commands
+
+    /// Create a VNC panel and optionally auto-connect.
+    /// Params: hostname (required), port (default 5900), username, password,
+    ///         workspace_id, window_id, pane_id, auto_connect (default true)
+    private func v2VNCConnect(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let hostname = v2String(params, "hostname") else {
+            return .err(code: "invalid_params", message: "hostname is required", data: nil)
+        }
+        let port = UInt16(v2Int(params, "port") ?? 5900)
+        let autoConnect = v2Bool(params, "auto_connect") ?? true
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to create VNC panel", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let paneId: PaneID? = {
+                if let paneUUID = v2UUID(params, "pane_id") {
+                    return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                }
+                return ws.bonsplitController.focusedPaneId
+            }()
+
+            guard let paneId else {
+                result = .err(code: "not_found", message: "Pane not found", data: nil)
+                return
+            }
+
+            guard let vncPanel = ws.newVNCSurface(
+                inPane: paneId,
+                hostname: hostname,
+                port: port,
+                focus: v2FocusAllowed()
+            ) else {
+                result = .err(code: "internal_error", message: "Failed to create VNC surface", data: nil)
+                return
+            }
+
+            if let username = v2String(params, "username") {
+                vncPanel.username = username
+            }
+            if let password = v2String(params, "password") {
+                vncPanel.password = password
+            }
+
+            if autoConnect {
+                vncPanel.connect()
+            }
+
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "pane_id": paneId.id.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "surface_id": vncPanel.id.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: vncPanel.id),
+                "type": "vnc",
+                "hostname": hostname,
+                "port": Int(port),
+                "auto_connect": autoConnect,
+            ])
+        }
+        return result
+    }
+
+    /// Disconnect a VNC session.
+    /// Params: surface_id (required)
+    private func v2VNCDisconnect(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "surface_id is required", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "VNC surface not found", data: nil)
+        v2MainSync {
+            for ws in tabManager.tabs {
+                if let panel = ws.panels[surfaceId] as? VNCPanel {
+                    panel.disconnect()
+                    result = .ok([
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "disconnected": true,
+                    ])
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    /// Get VNC connection status.
+    /// Params: surface_id (required)
+    private func v2VNCStatus(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "surface_id is required", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "VNC surface not found", data: nil)
+        v2MainSync {
+            for ws in tabManager.tabs {
+                if let panel = ws.panels[surfaceId] as? VNCPanel {
+                    var info = panel.statusInfo
+                    info["surface_id"] = surfaceId.uuidString
+                    info["surface_ref"] = v2Ref(kind: .surface, uuid: surfaceId)
+                    info["workspace_id"] = ws.id.uuidString
+                    info["workspace_ref"] = v2Ref(kind: .workspace, uuid: ws.id)
+                    result = .ok(info)
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    /// List all VNC panels across workspaces.
+    /// Params: workspace_id (optional — filter to specific workspace), window_id (optional)
+    private func v2VNCList(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var connections: [[String: Any]] = []
+        v2MainSync {
+            let workspaces: [Workspace]
+            if let wsId = v2UUID(params, "workspace_id"),
+               let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
+                workspaces = [ws]
+            } else {
+                workspaces = tabManager.tabs
+            }
+
+            for ws in workspaces {
+                for (panelId, panel) in ws.panels {
+                    guard let vncPanel = panel as? VNCPanel else { continue }
+                    var info = vncPanel.statusInfo
+                    info["surface_id"] = panelId.uuidString
+                    info["surface_ref"] = v2Ref(kind: .surface, uuid: panelId)
+                    info["workspace_id"] = ws.id.uuidString
+                    info["workspace_ref"] = v2Ref(kind: .workspace, uuid: ws.id)
+                    connections.append(info)
+                }
+            }
+        }
+        return .ok(["connections": connections, "count": connections.count])
+    }
+
+    /// Capture VNC framebuffer as base64-encoded PNG.
+    /// Params: surface_id (required)
+    private func v2VNCScreenshot(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "surface_id is required", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "not_found", message: "VNC surface not found", data: nil)
+        v2MainSync {
+            for ws in tabManager.tabs {
+                if let panel = ws.panels[surfaceId] as? VNCPanel {
+                    guard panel.isConnected else {
+                        result = .err(code: "not_connected", message: "VNC session is not connected", data: nil)
+                        return
+                    }
+                    guard let pngData = panel.captureScreenshot() else {
+                        result = .err(code: "capture_failed", message: "Failed to capture VNC framebuffer", data: nil)
+                        return
+                    }
+                    let base64 = pngData.base64EncodedString()
+                    var info: [String: Any] = [
+                        "surface_id": surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                        "format": "png",
+                        "encoding": "base64",
+                        "data": base64,
+                        "size_bytes": pngData.count,
+                    ]
+                    if let fb = panel.framebuffer {
+                        let size = fb.size
+                        info["width"] = Int(size.width)
+                        info["height"] = Int(size.height)
+                    }
+                    result = .ok(info)
+                    return
+                }
+            }
+        }
+        return result
+    }
+
+    // MARK: - AVM Handlers
+
+    /// Get AVM daemon status and overall security state.
+    private func v2AVMStatus(params: [String: Any]) -> V2CallResult {
+        let monitor = AVMStatusMonitor.shared
+        let snapshot = monitor.snapshot
+        var info: [String: Any] = [
+            "connected": snapshot.isConnected,
+            "overall_status": snapshot.overallStatus.rawValue,
+            "agent_count": snapshot.agents.count,
+            "pending_approvals": snapshot.pendingApprovalCount,
+            "monitoring": monitor.isRunning,
+        ]
+        if let port = snapshot.proxyPort {
+            info["proxy_port"] = Int(port)
+        }
+        // Per-workspace status if workspace_id provided
+        if let wsIdStr = params["workspace_id"] as? String, let wsId = UUID(uuidString: wsIdStr) {
+            info["workspace_status"] = monitor.statusForWorkspace(wsId).rawValue
+        }
+        return .ok(info)
+    }
+
+    /// List agents registered with avmd.
+    private func v2AVMAgents(params: [String: Any]) -> V2CallResult {
+        let monitor = AVMStatusMonitor.shared
+        let snapshot = monitor.snapshot
+        guard snapshot.isConnected else {
+            return .ok(["agents": [] as [Any], "connected": false])
+        }
+
+        let agents: [[String: Any]] = snapshot.agents.map { agent in
+            var info: [String: Any] = [
+                "id": agent.id,
+                "name": agent.name,
+                "pid": agent.pid,
+                "uptime": agent.formattedUptime,
+                "uptime_secs": agent.uptimeSecs,
+            ]
+            if let cpu = agent.cpuSecs { info["cpu_secs"] = cpu; info["cpu"] = agent.formattedCPU }
+            if let rss = agent.rssBytes { info["rss_bytes"] = rss; info["rss"] = agent.formattedRSS }
+            return info
+        }
+
+        return .ok([
+            "agents": agents,
+            "connected": true,
+            "pending_approvals": snapshot.pendingApprovalCount,
+        ])
     }
 
     deinit {

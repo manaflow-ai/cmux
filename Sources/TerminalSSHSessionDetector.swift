@@ -384,6 +384,30 @@ struct DetectedSSHSession: Equatable {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    /// Build the full SSH command line for reconnection.
+    func reconnectCommand() -> String {
+        var args: [String] = ["/usr/bin/ssh"]
+
+        if useIPv4 { args.append("-4") }
+        if useIPv6 { args.append("-6") }
+        if forwardAgent { args.append("-A") }
+        if compressionEnabled { args.append("-C") }
+
+        if let port { args += ["-p", String(port)] }
+        if let identityFile, !identityFile.isEmpty { args += ["-i", identityFile] }
+        if let configFile, !configFile.isEmpty { args += ["-F", configFile] }
+        if let jumpHost, !jumpHost.isEmpty { args += ["-J", jumpHost] }
+        if let controlPath, !controlPath.isEmpty { args += ["-S", controlPath] }
+
+        for option in sshOptions {
+            args += ["-o", option]
+        }
+
+        args.append(destination)
+
+        return args.joined(separator: " ")
+    }
+
 #if DEBUG
     func scpArgumentsForTesting(localPath: String, remotePath: String) -> [String] {
         scpArguments(localPath: localPath, remotePath: remotePath)

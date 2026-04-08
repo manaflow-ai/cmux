@@ -1,0 +1,29 @@
+[package]
+name = "avmd"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Agent Virtual Machine daemon — resource caps, egress control, kill switch for AI agents"
+
+[dependencies]
+anyhow = "1"
+libc = "0.2"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Allow these common patterns
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

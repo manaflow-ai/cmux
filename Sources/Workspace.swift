@@ -491,6 +491,20 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+        case .vnc:
+            guard panel is VNCPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            markdownSnapshot = nil
+        }
+
+        // Build VNC snapshot (nil for non-VNC panels)
+        let vncSnapshot: SessionVNCPanelSnapshot? = (panel as? VNCPanel).map {
+            SessionVNCPanelSnapshot(
+                hostname: $0.hostname,
+                port: $0.port,
+                username: $0.username
+            )
         }
 
         return SessionPanelSnapshot(
@@ -506,7 +520,8 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
-            markdown: markdownSnapshot
+            markdown: markdownSnapshot,
+            vnc: vncSnapshot
         )
     }
 
@@ -681,6 +696,26 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
+        case .vnc:
+            guard let vncSnap = snapshot.vnc,
+                  let vncPanel = newVNCSurface(
+                    inPane: paneId,
+                    hostname: vncSnap.hostname,
+                    port: vncSnap.port,
+                    focus: false
+                  ) else {
+                return nil
+            }
+            vncPanel.username = vncSnap.username
+            // Auto-fill password from Keychain if available
+            if let savedPassword = VNCKeychainStore.loadPassword(
+                host: vncSnap.hostname,
+                port: vncSnap.port
+            ) {
+                vncPanel.password = savedPassword
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: vncPanel.id)
+            return vncPanel.id
         }
     }
 
@@ -712,6 +747,7 @@ extension Workspace {
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             surfaceTTYNames[panelId] = ttyName
+            detectSSHSessionIfNeeded(panelId: panelId)
         } else {
             surfaceTTYNames.removeValue(forKey: panelId)
         }
@@ -6596,6 +6632,13 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     var surfaceTTYNames: [UUID: String] = [:]
+    /// AVM security status for this workspace (updated by AVMStatusMonitor subscription).
+    @Published private(set) var avmSecurityStatus: AVMSecurityStatus = .safe
+    /// AVM agent IDs registered for panels in this workspace.
+    private(set) var avmAgentIds: Set<UInt64> = []
+    private var avmSubscription: AnyCancellable?
+
+    let sshReconnectionController = SSHReconnectionController()
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
@@ -6719,6 +6762,7 @@ final class Workspace: Identifiable, ObservableObject {
         static let terminal = "terminal"
         static let browser = "browser"
         static let markdown = "markdown"
+        static let vnc = "vnc"
     }
 
     enum PanelShellActivityState: String {
@@ -6932,6 +6976,9 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+
+        // Subscribe to AVM status changes and update sidebar entries.
+        installAVMStatusSubscription()
     }
 
     deinit {
@@ -7092,6 +7139,192 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    // MARK: - SSH Session Detection & Reconnection
+
+    private static let sshDetectionThrottleInterval: TimeInterval = 5.0
+
+    /// Detect and cache SSH session for a terminal panel (throttled).
+    /// Called when TTY names are updated from telemetry or status reports.
+    func detectSSHSessionIfNeeded(panelId: UUID) {
+        guard let panel = panels[panelId] as? TerminalPanel else { return }
+        guard let ttyName = surfaceTTYNames[panelId], !ttyName.isEmpty else { return }
+
+        // Throttle: skip if checked recently
+        if let lastCheck = panel.lastSSHDetectionTime,
+           Date().timeIntervalSince(lastCheck) < Self.sshDetectionThrottleInterval {
+            return
+        }
+        panel.lastSSHDetectionTime = Date()
+
+        // Detect SSH on a background queue to avoid blocking main thread
+        let panelId = panelId
+        DispatchQueue.global(qos: .utility).async {
+            let session = TerminalSSHSessionDetector.detect(forTTY: ttyName)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                guard let panel = self.panels[panelId] as? TerminalPanel else { return }
+                panel.lastDetectedSSHSession = session
+#if DEBUG
+                if let session {
+                    dlog(
+                        "ssh.detect panel=\(panelId.uuidString.prefix(5)) " +
+                        "dest=\(session.destination) port=\(session.port.map(String.init) ?? "nil")"
+                    )
+                }
+#endif
+            }
+        }
+    }
+
+    /// Check if a panel qualifies for SSH auto-reconnection on child exit.
+    /// Returns the SSH command string if reconnection should be attempted.
+    func sshReconnectCommand(for panelId: UUID) -> (command: String, destination: String)? {
+        // Check cached detected SSH session first
+        if let panel = panels[panelId] as? TerminalPanel,
+           let session = panel.lastDetectedSSHSession {
+            return (session.reconnectCommand(), session.destination)
+        }
+
+        // Fall back: check if the terminal was started with an SSH initial command
+        if let panel = panels[panelId] as? TerminalPanel {
+            let initialCmd = panel.surface.debugInitialCommand()
+            if let cmd = initialCmd,
+               (cmd.hasPrefix("ssh ") || cmd.hasPrefix("/usr/bin/ssh ")) {
+                // Extract destination from initial command (last non-option argument)
+                let parts = cmd.split(separator: " ")
+                let destination = parts.last.map(String.init) ?? "unknown"
+                return (cmd, destination)
+            }
+        }
+
+        // Last-ditch: try to detect from TTY (process may already be dead)
+        if let ttyName = surfaceTTYNames[panelId],
+           let session = TerminalSSHSessionDetector.detect(forTTY: ttyName) {
+            return (session.reconnectCommand(), session.destination)
+        }
+
+        return nil
+    }
+
+    /// Handle SSH child exit: schedule reconnection instead of closing the panel.
+    /// Returns true if reconnection was scheduled, false if normal close should proceed.
+    func handleSSHChildExit(panelId: UUID) -> Bool {
+        guard let reconnectInfo = sshReconnectCommand(for: panelId) else { return false }
+
+        // Find the pane containing this panel
+        guard let surfaceId = surfaceIdFromPanelId(panelId) else { return false }
+        var foundPaneId: PaneID?
+        for pane in bonsplitController.allPaneIds {
+            if bonsplitController.tabs(inPane: pane).contains(where: { $0.id == surfaceId }) {
+                foundPaneId = pane
+                break
+            }
+        }
+        guard let paneId = foundPaneId else { return false }
+
+        let panel = panels[panelId] as? TerminalPanel
+        let retryCount = panel?.sshReconnectRetryCount ?? 0
+
+#if DEBUG
+        dlog(
+            "ssh.reconnect.schedule panel=\(panelId.uuidString.prefix(5)) " +
+            "dest=\(reconnectInfo.destination) retry=\(retryCount)"
+        )
+#endif
+
+        // Update title to show reconnecting status
+        let suffix = String(
+            localized: "ssh.reconnecting.title",
+            defaultValue: "Reconnecting (\(retryCount + 1)/\(SSHReconnectionController.maxRetries))…"
+        )
+        updatePanelTitle(panelId: panelId, title: "\(reconnectInfo.destination) — \(suffix)")
+
+        let scheduled = sshReconnectionController.schedule(
+            oldPanelId: panelId,
+            sshCommand: reconnectInfo.command,
+            destination: reconnectInfo.destination,
+            retryCount: retryCount
+        ) { [weak self] in
+            self?.performSSHReconnect(oldPanelId: panelId, paneId: paneId, sshCommand: reconnectInfo.command)
+        }
+
+        if !scheduled {
+#if DEBUG
+            dlog("ssh.reconnect.maxRetries panel=\(panelId.uuidString.prefix(5))")
+#endif
+            updatePanelTitle(
+                panelId: panelId,
+                title: "\(reconnectInfo.destination) — " + String(
+                    localized: "ssh.reconnect.failed",
+                    defaultValue: "Connection failed"
+                )
+            )
+        }
+
+        return scheduled
+    }
+
+    /// Perform the actual SSH reconnection: create new terminal, close old one.
+    private func performSSHReconnect(oldPanelId: UUID, paneId: PaneID, sshCommand: String) {
+        let retryCount = sshReconnectionController.retryCount(for: oldPanelId)
+#if DEBUG
+        dlog(
+            "ssh.reconnect.perform panel=\(oldPanelId.uuidString.prefix(5)) " +
+            "pane=\(paneId.id.uuidString.prefix(5)) retry=\(retryCount) cmd=\(sshCommand.prefix(60))"
+        )
+#endif
+
+        // Create new terminal panel with the SSH command
+        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let newPanel = TerminalPanel(
+            workspaceId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: inheritedConfig,
+            portOrdinal: portOrdinal,
+            initialCommand: sshCommand
+        )
+        newPanel.sshReconnectRetryCount = retryCount
+        configureTerminalPanel(newPanel)
+        panels[newPanel.id] = newPanel
+        panelTitles[newPanel.id] = newPanel.displayTitle
+        seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
+
+        // Create tab in bonsplit
+        guard let newTabId = bonsplitController.createTab(
+            title: newPanel.displayTitle,
+            icon: newPanel.displayIcon,
+            kind: SurfaceKind.terminal,
+            isDirty: newPanel.isDirty,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+#if DEBUG
+            dlog("ssh.reconnect.createTabFailed panel=\(oldPanelId.uuidString.prefix(5))")
+#endif
+            panels.removeValue(forKey: newPanel.id)
+            panelTitles.removeValue(forKey: newPanel.id)
+            terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
+            return
+        }
+
+        surfaceIdToPanelId[newTabId] = newPanel.id
+
+        // Select the new tab and focus it
+        bonsplitController.selectTab(newTabId)
+        focusPanel(newPanel.id)
+
+        // Transfer reconnection state
+        _ = sshReconnectionController.transfer(from: oldPanelId, to: newPanel.id)
+
+        // Close old panel (force = skip confirm, process is already dead)
+        closePanel(oldPanelId, force: true)
+    }
+
+    /// Cancel SSH reconnection for a panel.
+    func cancelSSHReconnect(panelId: UUID) {
+        sshReconnectionController.cancel(panelId: panelId)
+    }
+
     private func triggerWorkspacePaneFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
         tmuxWorkspaceFlashPanelId = panelId
         tmuxWorkspaceFlashReason = reason
@@ -7232,6 +7465,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.browser
         case .markdown:
             return SurfaceKind.markdown
+        case .vnc:
+            return SurfaceKind.vnc
         }
     }
 
@@ -8917,6 +9152,17 @@ final class Workspace: Identifiable, ObservableObject {
         let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let remoteTerminalStartupCommand = remoteTerminalStartupCommand()
 
+        // Merge AVM proxy environment when avmd is running.
+        var effectiveEnvironment = startupEnvironment
+        if AVMStatusMonitor.shared.snapshot.isConnected,
+           let port = AVMStatusMonitor.shared.snapshot.proxyPort {
+            let proxyURL = "http://127.0.0.1:\(port)"
+            if effectiveEnvironment["HTTP_PROXY"] == nil { effectiveEnvironment["HTTP_PROXY"] = proxyURL }
+            if effectiveEnvironment["HTTPS_PROXY"] == nil { effectiveEnvironment["HTTPS_PROXY"] = proxyURL }
+            if effectiveEnvironment["http_proxy"] == nil { effectiveEnvironment["http_proxy"] = proxyURL }
+            if effectiveEnvironment["https_proxy"] == nil { effectiveEnvironment["https_proxy"] = proxyURL }
+        }
+
         // Create new terminal panel
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -8925,7 +9171,7 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: remoteTerminalStartupCommand,
-            additionalEnvironment: startupEnvironment
+            additionalEnvironment: effectiveEnvironment
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
@@ -9253,6 +9499,143 @@ final class Workspace: Identifiable, ObservableObject {
 
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    // MARK: - VNC surfaces
+
+    func newVNCSurface(
+        inPane paneId: PaneID,
+        hostname: String,
+        port: UInt16 = 5900,
+        focus: Bool? = nil
+    ) -> VNCPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let vncPanel = VNCPanel(workspaceId: id, hostname: hostname, port: port)
+        panels[vncPanel.id] = vncPanel
+        panelTitles[vncPanel.id] = vncPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: vncPanel.displayTitle,
+            icon: vncPanel.displayIcon,
+            kind: SurfaceKind.vnc,
+            isDirty: vncPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: vncPanel.id)
+            panelTitles.removeValue(forKey: vncPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = vncPanel.id
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: vncPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installVNCPanelSubscription(vncPanel)
+        return vncPanel
+    }
+
+    private func installVNCPanelSubscription(_ vncPanel: VNCPanel) {
+        let subscription = vncPanel.$displayTitle
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak vncPanel] newTitle in
+                guard let self,
+                      let vncPanel,
+                      let tabId = self.surfaceIdFromPanelId(vncPanel.id) else { return }
+                guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+                if self.panelTitles[vncPanel.id] != newTitle {
+                    self.panelTitles[vncPanel.id] = newTitle
+                }
+                let resolvedTitle = self.resolvedPanelTitle(panelId: vncPanel.id, fallback: newTitle)
+                guard existing.title != resolvedTitle else { return }
+                self.bonsplitController.updateTab(
+                    tabId,
+                    title: resolvedTitle,
+                    hasCustomTitle: self.panelCustomTitles[vncPanel.id] != nil
+                )
+            }
+        panelSubscriptions[vncPanel.id] = subscription
+    }
+
+    // MARK: - AVM Status
+
+    private static let avmStatusKey = "avm_status"
+
+    private func installAVMStatusSubscription() {
+        let workspaceId = self.id
+        avmSubscription = AVMStatusMonitor.shared.$snapshot
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                let status = AVMStatusMonitor.shared.statusForWorkspace(workspaceId)
+                self.avmSecurityStatus = status
+                self.updateAVMSidebarEntry(snapshot: snapshot, status: status)
+            }
+    }
+
+    private func updateAVMSidebarEntry(snapshot: AVMStatusSnapshot, status: AVMSecurityStatus) {
+        guard snapshot.isConnected else {
+            statusEntries.removeValue(forKey: Self.avmStatusKey)
+            return
+        }
+
+        let agentIds = AVMStatusMonitor.shared.workspaceAgentIds[id] ?? []
+        guard !agentIds.isEmpty else {
+            statusEntries.removeValue(forKey: Self.avmStatusKey)
+            return
+        }
+
+        let agentCount = snapshot.agents.filter { agentIds.contains($0.id) }.count
+        let value: String
+        switch status {
+        case .safe:
+            value = "\(agentCount) agent\(agentCount == 1 ? "" : "s") — secure"
+        case .warning:
+            let pendingStr = snapshot.pendingApprovalCount > 0
+                ? ", \(snapshot.pendingApprovalCount) pending"
+                : ""
+            value = "\(agentCount) agent\(agentCount == 1 ? "" : "s") — warning\(pendingStr)"
+        case .blocked:
+            value = "\(agentCount) agent\(agentCount == 1 ? "" : "s") — blocked"
+        }
+
+        statusEntries[Self.avmStatusKey] = SidebarStatusEntry(
+            key: Self.avmStatusKey,
+            value: value,
+            icon: status.iconName,
+            color: status.colorHex,
+            priority: 90
+        )
+    }
+
+    /// Register an agent process with AVM for this workspace.
+    func avmRegisterAgent(name: String, pid: UInt32) async -> UInt64? {
+        let agentId = await AVMStatusMonitor.shared.registerAgent(name: name, pid: pid, workspaceId: id)
+        if let agentId {
+            avmAgentIds.insert(agentId)
+        }
+        return agentId
+    }
+
+    /// Deregister an agent from AVM for this workspace.
+    func avmDeregisterAgent(id agentId: UInt64) async {
+        await AVMStatusMonitor.shared.deregisterAgent(id: agentId, workspaceId: self.id)
+        avmAgentIds.remove(agentId)
     }
 
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.

@@ -32,6 +32,9 @@ __pycache__/
 .hypothesis/
 .vercel
 
+# Rust
+avm/target/
+
 # Zig
 .zig-cache/
 zig-out/
