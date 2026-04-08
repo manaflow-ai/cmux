@@ -4201,11 +4201,13 @@ final class WorkspaceRemoteSessionController {
             guard let resolvedHost = hostname else { return hop }
             var resolved = ""
             if let user { resolved += "\(user)@" }
-            // Bracket IPv6 literals when a non-default port is appended.
+            // Always bracket IPv6 literals in -J output; bare colons are
+            // ambiguous to OpenSSH's host:port parser.
             let needsPort = port != nil && port != "22"
             let isIPv6 = resolvedHost.contains(":")
-            if isIPv6 && needsPort {
-                resolved += "[\(resolvedHost)]:\(port!)"
+            if isIPv6 {
+                resolved += "[\(resolvedHost)]"
+                if needsPort { resolved += ":\(port!)" }
             } else {
                 resolved += resolvedHost
                 if needsPort { resolved += ":\(port!)" }
