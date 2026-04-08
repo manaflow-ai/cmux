@@ -2209,7 +2209,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRecalculatesTerminalSurfaceWidth() {
+    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -2289,32 +2289,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Preferred scroller style changes should recalculate the terminal grid width immediately"
-        )
-
-        scrollView.scrollerStyle = .overlay
-        scrollView.layoutSubtreeIfNeeded()
-        let overlayContentWidth = scrollView.contentSize.width
-        XCTAssertGreaterThan(
-            overlayContentWidth,
-            legacyContentWidth,
-            "Overlay scrollbars should restore the full terminal content width"
-        )
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
-        )
-
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertEqual(
+            restoredContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+        )
         assertPendingSurfaceWidth(
-            overlayContentWidth,
-            "Preferred scroller style changes should also restore the wider terminal grid when overlay scrollbars return"
+            restoredContentWidth,
+            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
         )
     }
 
