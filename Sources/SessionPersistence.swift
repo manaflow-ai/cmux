@@ -279,9 +279,19 @@ enum SessionSplitOrientation: String, Codable, Sendable {
     }
 }
 
+struct SessionTabGroupSnapshot: Codable, Sendable {
+    var id: UUID
+    var name: String
+    var colorHex: String
+    var isCollapsed: Bool?
+}
+
 struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var panelIds: [UUID]
     var selectedPanelId: UUID?
+    var groups: [SessionTabGroupSnapshot]? = nil
+    /// Maps panel ID → group ID for tabs assigned to a group.
+    var panelGroupAssignments: [UUID: UUID]? = nil
 }
 
 struct SessionSplitLayoutSnapshot: Codable, Sendable {

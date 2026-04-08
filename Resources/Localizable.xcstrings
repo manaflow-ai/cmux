@@ -87391,6 +87391,23 @@
           }
         }
       }
+    },
+    "tab.group.defaultName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Group"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グループ"
+          }
+        }
+      }
     }
   }
 }
