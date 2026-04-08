@@ -3712,6 +3712,71 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
             XCTFail("Expected hostless HTTPS URL to open externally")
         }
     }
+
+    func testResolvesAbsoluteMarkdownPathAsMarkdownViewer() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/readme.md"))
+        switch target {
+        case let .markdownViewer(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/readme.md")
+        default:
+            XCTFail("Expected .md absolute path to route to markdown viewer, got \(target)")
+        }
+    }
+
+    func testResolvesAbsoluteMarkdownExtensionPathAsMarkdownViewer() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/notes.markdown"))
+        switch target {
+        case let .markdownViewer(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/notes.markdown")
+        default:
+            XCTFail("Expected .markdown absolute path to route to markdown viewer, got \(target)")
+        }
+    }
+
+    func testResolvesUppercaseMDExtensionAsMarkdownViewer() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/README.MD"))
+        switch target {
+        case let .markdownViewer(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/README.MD")
+        default:
+            XCTFail("Expected .MD absolute path to route to markdown viewer, got \(target)")
+        }
+    }
+
+    func testResolvesFileSchemeMarkdownAsMarkdownViewer() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("file:///tmp/design.md"))
+        switch target {
+        case let .markdownViewer(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/design.md")
+        default:
+            XCTFail("Expected file:// .md URL to route to markdown viewer, got \(target)")
+        }
+    }
+
+    func testResolvesAbsoluteTextPathAsExternal() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("/tmp/notes.txt"))
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/notes.txt")
+        default:
+            XCTFail("Expected .txt path to remain external, got \(target)")
+        }
+    }
+
+    func testResolvesHTTPMarkdownURLAsEmbeddedBrowser() throws {
+        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("https://example.com/README.md"))
+        switch target {
+        case .embeddedBrowser:
+            break
+        default:
+            XCTFail("Expected HTTPS .md URL to route to embedded browser, got \(target)")
+        }
+    }
 }
 
 
