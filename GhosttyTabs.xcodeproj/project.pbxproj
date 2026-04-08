@@ -134,6 +134,8 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
+					D3A1B2C300000001E5F60718 /* GhosttySurfaceContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A1B2C300000002E5F60718 /* GhosttySurfaceContractTests.swift */; };
+					D3A1B2C300000003E5F60718 /* RemoteDaemonRPCTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3A1B2C300000004E5F60718 /* RemoteDaemonRPCTests.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -332,6 +334,8 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
+				D3A1B2C300000002E5F60718 /* GhosttySurfaceContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySurfaceContractTests.swift; sourceTree = "<group>"; };
+				D3A1B2C300000004E5F60718 /* RemoteDaemonRPCTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDaemonRPCTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -612,6 +616,8 @@
 					491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 					10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
 					C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
+					D3A1B2C300000002E5F60718 /* GhosttySurfaceContractTests.swift */,
+					D3A1B2C300000004E5F60718 /* RemoteDaemonRPCTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -912,6 +918,8 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
+					D3A1B2C300000001E5F60718 /* GhosttySurfaceContractTests.swift in Sources */,
+					D3A1B2C300000003E5F60718 /* RemoteDaemonRPCTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};
