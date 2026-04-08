@@ -9064,7 +9064,7 @@ final class GhosttySurfaceScrollView: NSView {
         })
 
         observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
+            forName: TerminalScrollBarSettings.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -11278,14 +11278,14 @@ final class GhosttySurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
             return
         }
-        let wasVisible = shouldShowTerminalScrollBar()
+        let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
-        let isVisible = shouldShowTerminalScrollBar()
+        let isVisible = terminalScrollBarAllowedBySettings() && scrollbar.total > scrollbar.len
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
             return
@@ -11318,7 +11318,12 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        _ = synchronizeGeometryAndContent()
+        synchronizeScrollbarAppearance()
+
+        // Retile just the scroll view so contentSize reflects the current
+        // scroller preference without perturbing hosted terminal geometry.
+        scrollView.tile()
+        _ = synchronizeCoreSurface()
     }
 
     private func handleTerminalScrollBarPreferenceChange() {
@@ -11375,7 +11380,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func terminalScrollBarReservedWidth() -> CGFloat {
-        guard shouldShowTerminalScrollBar() else { return 0 }
+        // Keep the PTY width stable while scrollback appears/disappears so
+        // entering alternate-screen TUIs does not reflow the surface.
+        guard terminalScrollBarAllowedBySettings() else { return 0 }
         return ceil(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay))
     }
 }

@@ -99,12 +99,17 @@ enum PaneFirstClickFocusSettings {
 enum TerminalScrollBarSettings {
     static let showScrollBarKey = "terminal.showScrollBar"
     static let defaultShowScrollBar = true
+    static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
 
     static func isVisible(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showScrollBarKey) == nil {
             return defaultShowScrollBar
         }
         return defaults.bool(forKey: showScrollBarKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -4228,6 +4233,17 @@ struct SettingsView: View {
         )
     }
 
+    private var showTerminalScrollBarBinding: Binding<Bool> {
+        Binding(
+            get: { showTerminalScrollBar },
+            set: { newValue in
+                guard showTerminalScrollBar != newValue else { return }
+                showTerminalScrollBar = newValue
+                TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
@@ -5179,7 +5195,7 @@ struct SettingsView: View {
                                 ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
                                 : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
                         ) {
-                            Toggle("", isOn: $showTerminalScrollBar)
+                            Toggle("", isOn: showTerminalScrollBarBinding)
                                 .labelsHidden()
                                 .controlSize(.small)
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
