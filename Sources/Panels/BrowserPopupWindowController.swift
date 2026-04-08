@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import ObjectiveC
+import Security
 import WebKit
 
 func browserPopupContentRect(
@@ -617,8 +618,18 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        // Parity with main browser: performDefaultHandling enables system keychain
-        // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
+        // Parity with main browser: explicitly look up MDM client identity from
+        // the system keychain since WKWebView's .performDefaultHandling does not
+        // search the keychain the way Safari does.
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
+            let host = challenge.protectionSpace.host
+            let issuers = challenge.protectionSpace.distinguishedNames as CFArray?
+            if let identity = SecIdentityCopyPreferred(host as CFString, nil, issuers) {
+                let credential = URLCredential(identity: identity, certificates: nil, persistence: .forSession)
+                completionHandler(.useCredential, credential)
+                return
+            }
+        }
         completionHandler(.performDefaultHandling, nil)
     }
 

@@ -5993,16 +5993,27 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        // WKWebView rejects all authentication challenges by default when this
-        // delegate method is not implemented (.rejectProtectionSpace). This
-        // breaks TLS client-certificate flows such as Microsoft Entra ID
-        // Conditional Access, which verifies device compliance via a client
-        // certificate stored in the system keychain by MDM enrollment.
+        // WKWebView's .performDefaultHandling does NOT search the system keychain
+        // for client identities the way Safari does — Safari's web content process
+        // has special entitlements that third-party apps lack. On MDM-enrolled Macs,
+        // Microsoft Entra ID (Conditional Access) issues a TLS client-certificate
+        // challenge to verify device compliance. Without an explicit keychain lookup,
+        // no certificate is sent and the user sees "this device needs to be under
+        // policy."
         //
-        // By returning .performDefaultHandling the system's standard URL-loading
-        // behaviour takes over: the keychain is searched for matching client
-        // identities, MDM-installed root CAs are trusted, and any configured SSO
-        // extensions (e.g. Microsoft Enterprise SSO) can intercept the challenge.
+        // SecIdentityCopyPreferred runs in the app process (which has keychain
+        // access) and returns the preferred client identity matching the server's
+        // host and acceptable CA distinguished names — the same lookup Safari
+        // performs internally.
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
+            let host = challenge.protectionSpace.host
+            let issuers = challenge.protectionSpace.distinguishedNames as CFArray?
+            if let identity = SecIdentityCopyPreferred(host as CFString, nil, issuers) {
+                let credential = URLCredential(identity: identity, certificates: nil, persistence: .forSession)
+                completionHandler(.useCredential, credential)
+                return
+            }
+        }
         completionHandler(.performDefaultHandling, nil)
     }
 
