@@ -87527,6 +87527,261 @@
           }
         }
       }
+    },
+    "island.header.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Island"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux アイランド"
+          }
+        }
+      }
+    },
+    "island.settings.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Island"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイランド"
+          }
+        }
+      }
+    },
+    "island.settings.enable.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show agent session island overlay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントセッションのアイランドを表示"
+          }
+        }
+      }
+    },
+    "island.settings.enable.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A notch-anchored pill that lists active AI agent sessions running inside cmux. Click a row to jump to that workspace and terminal split."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノッチ付近に浮かぶピル型オーバーレイで、cmux 内で実行中の AI エージェントセッションを一覧表示します。行をクリックすると、該当のワークスペースとターミナル分割に移動します。"
+          }
+        }
+      }
+    },
+    "island.settings.known_kinds.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detects sessions from `cmux set-status` with one of these known keys: claude_code, codex, copilot_cli, opencode, gemini_cli, cursor, amp, droid."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の既知のキーを持つ `cmux set-status` エントリをセッションとして検出します: claude_code, codex, copilot_cli, opencode, gemini_cli, cursor, amp, droid。"
+          }
+        }
+      }
+    },
+    "island.phase.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RUNNING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
+    "island.phase.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IDLE"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
+    "island.phase.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WAITING"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        }
+      }
+    },
+    "island.phase.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
+      }
+    },
+    "island.phase.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "—"
+          }
+        }
+      }
+    },
+    "island.debug.window.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Island Controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイランドコントローラー"
+          }
+        }
+      }
+    },
+    "island.debug.injectTestSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inject test session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テストセッションを注入"
+          }
+        }
+      }
+    },
+    "island.debug.clearTestSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear test sessions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テストセッションをクリア"
+          }
+        }
+      }
+    },
+    "menu.debug.islandController": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Island Controller…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイランドコントローラー…"
+          }
+        }
+      }
+    },
+    "settings.section.island": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Island"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイランド"
+          }
+        }
+      }
     }
   }
 }
