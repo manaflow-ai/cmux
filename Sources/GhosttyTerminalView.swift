@@ -3091,6 +3091,34 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            if case let .markdownViewer(url) = target {
+                let filePath = url.path
+                #if DEBUG
+                dlog("link.openURL target=markdownViewer, opening markdown panel filePath=\(filePath)")
+                #endif
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                return performOnMain {
+                    guard let sourceWorkspaceId,
+                          let sourcePanelId,
+                          let app = AppDelegate.shared,
+                          let resolved = app.workspaceContainingPanel(
+                              panelId: sourcePanelId,
+                              preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
+                        #if DEBUG
+                        dlog("link.openURL markdownViewer but workspace lookup failed")
+                        #endif
+                        return false
+                    }
+                    let workspace = resolved.workspace
+                    return workspace.newMarkdownSplit(
+                        from: sourcePanelId,
+                        orientation: .horizontal,
+                        filePath: filePath
+                    ) != nil
+                }
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
@@ -3184,6 +3212,9 @@ class GhosttyApp {
                         return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
+            case .markdownViewer:
+                // Handled above before the browser settings guard.
+                return false
             }
         default:
             return false
