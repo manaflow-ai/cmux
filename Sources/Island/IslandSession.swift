@@ -1,7 +1,7 @@
 // Sources/Island/IslandSession.swift
 
+import AppKit
 import Foundation
-import SwiftUI
 
 /// Known AI-agent kinds the cmux Island monitors.
 ///
@@ -48,16 +48,18 @@ enum IslandAgentKind: String, CaseIterable, Hashable, Sendable {
     }
 
     /// Stable brand-ish color for the row chip and collapsed-pill legend.
-    var color: Color {
+    /// Returned as `NSColor` so this file stays free of SwiftUI imports —
+    /// the view layer bridges to `Color(nsColor:)` at the call site.
+    var color: NSColor {
         switch self {
-        case .claudeCode: return Color(red: 0.85, green: 0.47, blue: 0.02)
-        case .codex:      return Color(red: 0.23, green: 0.51, blue: 0.96)
-        case .copilotCli: return Color(red: 0.55, green: 0.36, blue: 0.96)
-        case .openCode:   return Color(red: 0.20, green: 0.72, blue: 0.45)
-        case .geminiCli:  return Color(red: 0.40, green: 0.66, blue: 0.95)
-        case .cursor:     return Color(red: 0.90, green: 0.90, blue: 0.90)
-        case .amp:        return Color(red: 0.90, green: 0.26, blue: 0.36)
-        case .droid:      return Color(red: 0.99, green: 0.81, blue: 0.24)
+        case .claudeCode: return NSColor(calibratedRed: 0.85, green: 0.47, blue: 0.02, alpha: 1)
+        case .codex:      return NSColor(calibratedRed: 0.23, green: 0.51, blue: 0.96, alpha: 1)
+        case .copilotCli: return NSColor(calibratedRed: 0.55, green: 0.36, blue: 0.96, alpha: 1)
+        case .openCode:   return NSColor(calibratedRed: 0.20, green: 0.72, blue: 0.45, alpha: 1)
+        case .geminiCli:  return NSColor(calibratedRed: 0.40, green: 0.66, blue: 0.95, alpha: 1)
+        case .cursor:     return NSColor(calibratedRed: 0.90, green: 0.90, blue: 0.90, alpha: 1)
+        case .amp:        return NSColor(calibratedRed: 0.90, green: 0.26, blue: 0.36, alpha: 1)
+        case .droid:      return NSColor(calibratedRed: 0.99, green: 0.81, blue: 0.24, alpha: 1)
         }
     }
 }
@@ -106,7 +108,7 @@ enum IslandSessionPhase: String, Hashable, Sendable {
 
 /// One row in the cmux Island. Immutable value type; a fresh instance is
 /// emitted whenever the upstream state changes.
-struct IslandSession: Identifiable, Equatable, Sendable {
+struct IslandSession: Identifiable, Equatable, Comparable, Sendable {
     /// Stable identity equal to `panelId` — a single panel hosts at most one
     /// session in MVP scope.
     let id: UUID
@@ -124,10 +126,14 @@ struct IslandSession: Identifiable, Equatable, Sendable {
 
 extension IslandSession {
     /// Standard sort comparator. Running first, recent first on ties.
+    ///
+    /// Note: the tie-break uses `>` on `lastActivity` because "sorted before"
+    /// for the island list means "more recent activity ranks first". Reading
+    /// `>` inside a `<` operator is the correct inversion, not a bug.
     static func < (lhs: IslandSession, rhs: IslandSession) -> Bool {
         if lhs.phase.rank != rhs.phase.rank {
             return lhs.phase.rank < rhs.phase.rank
         }
-        return lhs.lastActivity > rhs.lastActivity
+        return lhs.lastActivity > rhs.lastActivity  // descending: newer activity ranks first
     }
 }

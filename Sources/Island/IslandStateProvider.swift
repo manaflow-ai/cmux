@@ -39,7 +39,10 @@ protocol IslandStateSource: AnyObject {
 
 // MARK: - In-memory source for tests and debug injection
 
-final class InMemoryIslandStateSource: IslandStateSource {
+/// All mutable state is pinned to `@MainActor`, which makes this class safe to
+/// share across async contexts. Declared `@unchecked Sendable` rather than
+/// relying on compiler inference so the isolation contract is audit-visible.
+final class InMemoryIslandStateSource: IslandStateSource, @unchecked Sendable {
     private let subject = PassthroughSubject<Void, Never>()
 
     @MainActor
