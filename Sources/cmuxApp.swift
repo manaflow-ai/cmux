@@ -2716,19 +2716,15 @@ private final class IslandControllerDebugWindowController: NSWindowController, N
 }
 
 /// Debug-only view that lets a developer toggle the feature on and push
-/// synthetic sessions into an in-memory source for visual iteration.
-/// NOTE: the injected sessions do NOT flow into the production
-/// IslandStateStore — this debug window operates on its own isolated
-/// source. It exists to verify shape/layout without running real agents.
-///
-/// TODO(Task 17): once Island source files are registered in project.pbxproj,
-/// replace the local `sessions` state with `InMemoryIslandStateSource` so this
-/// window exercises the real provider protocol.
+/// synthetic `IslandSession` values into an `InMemoryIslandStateSource` for
+/// visual iteration. NOTE: this debug source is deliberately isolated from
+/// the production `IslandStateStore`; it exists to verify shape/layout
+/// without running real agents.
+@MainActor
 private struct IslandDebugView: View {
-    // TODO(Task 17): replace with IslandSettings.enabledKey once
-    // Sources/Island/IslandSettings.swift is in project.pbxproj.
-    @AppStorage("island.enabled") private var islandEnabled = false
-    @State private var sessions: [IslandDebugSession] = []
+    @AppStorage(IslandSettings.enabledKey) private var islandEnabled = IslandSettings.defaultEnabled
+    @State private var source = InMemoryIslandStateSource()
+    @State private var sessionCount: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2754,13 +2750,14 @@ private struct IslandDebugView: View {
                     localized: "island.debug.clearTestSessions",
                     defaultValue: "Clear test sessions"
                 )) {
-                    sessions.removeAll()
+                    source.clear()
+                    sessionCount = 0
                 }
             }
 
             Divider()
 
-            Text(verbatim: "Injected sessions: \(sessions.count)")
+            Text(verbatim: "Injected sessions: \(sessionCount)")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
@@ -2771,15 +2768,23 @@ private struct IslandDebugView: View {
     }
 
     private func injectRandomSession() {
-        sessions.append(IslandDebugSession(id: UUID()))
+        let kinds = IslandAgentKind.allCases
+        let kind = kinds[sessionCount % kinds.count]
+        let session = IslandSession(
+            id: UUID(),
+            workspaceId: UUID(),
+            panelId: UUID(),
+            agentKind: kind,
+            phase: .running,
+            workspaceTitle: "Debug workspace",
+            panelTitle: "Debug panel \(sessionCount + 1)",
+            lastActivity: Date(),
+            unreadCount: 0,
+            rawStatusValue: "running"
+        )
+        source.add(session)
+        sessionCount = source.makeSnapshot().count
     }
-}
-
-/// Minimal synthetic session token used by `IslandDebugView` while the Island
-/// source files are not yet registered in the project (pending Task 17).
-/// Replaced by `IslandSession` once `project.pbxproj` includes the Island group.
-private struct IslandDebugSession: Identifiable {
-    let id: UUID
 }
 #endif
 
@@ -4229,9 +4234,7 @@ struct SettingsView: View {
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
-    // TODO(Task 17): replace literal with IslandSettings.enabledKey once
-    // Sources/Island/IslandSettings.swift is registered in project.pbxproj.
-    @AppStorage("island.enabled") private var islandEnabled = false
+    @AppStorage(IslandSettings.enabledKey) private var islandEnabled = IslandSettings.defaultEnabled
     @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
