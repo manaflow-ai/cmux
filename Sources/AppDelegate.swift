@@ -4492,12 +4492,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Try exact display ID match first, then fall back to geometry
                 // match for monitors that get a new ID after cable reseat or
                 // power cycle (common with USB-C/Thunderbolt).
-                let savedEntries: [(windowId: UUID, frame: SessionRectSnapshot, display: SessionDisplaySnapshot)]? = {
+                let savedMatch: (entries: [(windowId: UUID, frame: SessionRectSnapshot, display: SessionDisplaySnapshot)], staleDisplayID: UUID?) = {
                     if let exact = savedDisplayWindowFrames[appearedID], !exact.isEmpty {
-                        return exact
+                        return (exact, nil)
                     }
                     guard let appearedDisplay = displays.available.first(where: { $0.displayID == appearedID }) else {
-                        return nil
+                        return ([], nil)
                     }
                     // Match disconnected displays by frame AND visibleFrame
                     // geometry (±1px tolerance). Comparing both reduces false
@@ -4513,15 +4513,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                             abs(refVisible.origin.x - appearedDisplay.visibleFrame.origin.x) <= 1 &&
                             abs(refVisible.origin.y - appearedDisplay.visibleFrame.origin.y) <= 1
                         if frameMatch && visibleMatch {
-                            return entries
+                            return (entries, cachedID)
                         }
                     }
-                    return nil
+                    return ([], nil)
                 }()
-                guard let savedEntries, !savedEntries.isEmpty else {
+                guard !savedMatch.entries.isEmpty else {
                     continue
                 }
-                for entry in savedEntries {
+                for entry in savedMatch.entries {
                     guard let context = mainWindowContexts.values.first(where: { $0.windowId == entry.windowId }),
                           let window = context.window ?? windowForMainWindowId(context.windowId) else {
                         continue
@@ -4541,12 +4541,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         // because the final updateSavedDisplayWindowFrames call
                         // excludes programmatically moved windows.
                         if let newDisplay = displaySnapshot(for: window) {
-                            // Drop all stale buckets (including the old disconnected-
-                            // display entry) so savedFrameForDisplacedWindow() won't
-                            // keep returning the pre-reconnect frame.
-                            removeSavedDisplayWindowFrames(forWindowId: entry.windowId)
+                            // Remove the entry only from the stale disconnected-
+                            // display bucket so savedFrameForDisplacedWindow() won't
+                            // keep returning the pre-reconnect frame. Cached geometry
+                            // for other displays is preserved for future restores.
+                            if let staleID = savedMatch.staleDisplayID {
+                                if var staleEntries = savedDisplayWindowFrames[staleID] {
+                                    staleEntries.removeAll { $0.windowId == entry.windowId }
+                                    if staleEntries.isEmpty {
+                                        savedDisplayWindowFrames.removeValue(forKey: staleID)
+                                    } else {
+                                        savedDisplayWindowFrames[staleID] = staleEntries
+                                    }
+                                }
+                            }
                             let restoredEntry = (windowId: entry.windowId, frame: SessionRectSnapshot(window.frame), display: newDisplay)
                             var bucket = savedDisplayWindowFrames[appearedID] ?? []
+                            bucket.removeAll { $0.windowId == entry.windowId }
                             bucket.append(restoredEntry)
                             savedDisplayWindowFrames[appearedID] = bucket
                         }
