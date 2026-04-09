@@ -77,6 +77,7 @@ final class CmuxSettingsFileStore {
         "automation.portBase",
         "automation.portRange",
         "customCommands.trustedDirectories",
+        "island.enabled",
         "browser.defaultSearchEngine",
         "browser.showSearchSuggestions",
         "browser.theme",
@@ -367,6 +368,9 @@ final class CmuxSettingsFileStore {
         }
         if let customCommandsSection = root["customCommands"] as? [String: Any] {
             parseCustomCommandsSection(customCommandsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let islandSection = root["island"] as? [String: Any] {
+            parseIslandSection(islandSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
         if let browserSection = root["browser"] as? [String: Any] {
             parseBrowserSection(browserSection, sourcePath: sourcePath, snapshot: &snapshot)
@@ -732,6 +736,18 @@ final class CmuxSettingsFileStore {
             snapshot.managedCustomSettings.trustedDirectories = normalized
         } else if section.keys.contains("trustedDirectories") {
             logInvalid("customCommands.trustedDirectories", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseIslandSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            // "island.enabled" == IslandSettings.enabledKey; inlined until Task 17
+            // registers Sources/Island/IslandSettings.swift in project.pbxproj.
+            snapshot.managedUserDefaults["island.enabled"] = .bool(value)
         }
     }
 
@@ -1457,23 +1473,40 @@ final class CmuxSettingsFileStore {
         }
         return string
     }
+
+#if DEBUG
+    /// Test-only entry that parses a JSON string into a ResolvedSettingsSnapshot.
+    /// Used by IslandSettingsFileStoreTests to verify the settings.json pipeline
+    /// end-to-end without hitting disk.
+    static func testResolveSnapshot(jsonString: String, sourcePath: String = "test.json") throws -> ResolvedSettingsSnapshot {
+        guard let data = jsonString.data(using: .utf8),
+              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(
+                domain: "CmuxSettingsFileStoreTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Invalid JSON"]
+            )
+        }
+        return CmuxSettingsFileStore().parseSettingsFile(root: root, sourcePath: sourcePath)
+    }
+#endif
 }
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
+struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
     var managedCustomSettings = ManagedCustomSettings()
 }
 
-private enum ManagedStringOverride: Equatable {
+enum ManagedStringOverride: Equatable {
     case set(String)
     case clear
 }
 
-private struct ManagedCustomSettings: Equatable {
+struct ManagedCustomSettings: Equatable {
     var trustedDirectories: [String]?
     var socketPassword: ManagedStringOverride?
 
@@ -1493,7 +1526,7 @@ private struct ManagedCustomSettings: Equatable {
     }
 }
 
-private enum ManagedSettingsValue: Equatable {
+enum ManagedSettingsValue: Equatable {
     case bool(Bool)
     case int(Int)
     case double(Double)
