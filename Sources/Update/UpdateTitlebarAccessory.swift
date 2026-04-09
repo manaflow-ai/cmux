@@ -7,6 +7,10 @@ final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
+final class NonDraggableTitlebarAccessoryContainerView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
+}
+
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
     case compact
@@ -772,10 +776,13 @@ func titlebarControlsShouldApplyLayout(
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
     private let hostingView: NonDraggableHostingView<TitlebarControlsView>
-    private let containerView = NSView()
+    private let containerView = NonDraggableTitlebarAccessoryContainerView()
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
     private var mouseEventMonitor: Any?
+    private weak var suppressedWindow: NSWindow?
+    private var previousWindowMovableState: Bool?
+    private var didArmWindowDragSuppression = false
     private var pendingSizeUpdate = false
     private var fittingSizeNeedsRefresh = true
     private var cachedFittingSize: NSSize?
@@ -837,6 +844,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     deinit {
+        restoreWindowDraggingIfNeeded()
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
@@ -854,12 +862,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     }
 
     private func normalizedMouseClickEventIfNeeded(_ event: NSEvent) -> NSEvent? {
-        guard event.clickCount >= 2 else { return event }
         guard let window = view.window, event.window === window else { return event }
 
         let point = view.convert(event.locationInWindow, from: nil)
         guard view.bounds.contains(point) else { return event }
         guard view.hitTest(point) != nil else { return event }
+
+        switch event.type {
+        case .leftMouseDown:
+            disableWindowDraggingIfNeeded(window: window)
+        case .leftMouseUp:
+            restoreWindowDraggingIfNeeded()
+        default:
+            break
+        }
+
+        guard event.clickCount >= 2 else { return event }
         guard let cgEvent = event.cgEvent, let copiedCGEvent = cgEvent.copy() else { return event }
 
         // Titlebar accessory controls live inside the native titlebar region. When the
@@ -868,6 +886,26 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         // before dispatch so the controls still respond but the window does not zoom.
         copiedCGEvent.setIntegerValueField(CGEventField.mouseEventClickState, value: 1)
         return NSEvent(cgEvent: copiedCGEvent) ?? event
+    }
+
+    private func disableWindowDraggingIfNeeded(window: NSWindow) {
+        guard !didArmWindowDragSuppression else { return }
+
+        didArmWindowDragSuppression = true
+        suppressedWindow = window
+        _ = beginWindowDragSuppression(window: window)
+        previousWindowMovableState = temporarilyDisableWindowDragging(window: window)
+    }
+
+    private func restoreWindowDraggingIfNeeded() {
+        guard didArmWindowDragSuppression || previousWindowMovableState != nil else { return }
+
+        let targetWindow = suppressedWindow ?? view.window
+        _ = endWindowDragSuppression(window: targetWindow)
+        restoreWindowDragging(window: targetWindow, previousMovableState: previousWindowMovableState)
+        previousWindowMovableState = nil
+        suppressedWindow = nil
+        didArmWindowDragSuppression = false
     }
 
     override func viewDidAppear() {
