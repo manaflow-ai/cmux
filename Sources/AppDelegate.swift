@@ -4541,9 +4541,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         // because the final updateSavedDisplayWindowFrames call
                         // excludes programmatically moved windows.
                         if let newDisplay = displaySnapshot(for: window) {
+                            // Drop all stale buckets (including the old disconnected-
+                            // display entry) so savedFrameForDisplacedWindow() won't
+                            // keep returning the pre-reconnect frame.
+                            removeSavedDisplayWindowFrames(forWindowId: entry.windowId)
                             let restoredEntry = (windowId: entry.windowId, frame: SessionRectSnapshot(window.frame), display: newDisplay)
                             var bucket = savedDisplayWindowFrames[appearedID] ?? []
-                            bucket.removeAll { $0.windowId == entry.windowId }
                             bucket.append(restoredEntry)
                             savedDisplayWindowFrames[appearedID] = bucket
                         }
