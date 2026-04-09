@@ -4339,6 +4339,89 @@ struct SettingsView: View {
         )
     }
 
+    @ViewBuilder
+    private func terminalRightClickAppSettingsRows() -> some View {
+        SettingsCardDivider()
+
+        SettingsPickerRow(
+            configurationReview: .settingsOnly,
+            String(localized: "settings.app.terminalRightClickBehavior", defaultValue: "Terminal Right Click"),
+            subtitle: terminalRightClickBehaviorSubtitle,
+            controlWidth: pickerColumnWidth,
+            selection: terminalRightClickBehaviorSelection
+        ) {
+            Text(
+                String(
+                    localized: "settings.app.terminalRightClickBehavior.optionContextMenu",
+                    defaultValue: "Show Context Menu"
+                )
+            )
+            .tag(TerminalRightClickSettings.Behavior.contextMenu.rawValue)
+            Text(
+                String(
+                    localized: "settings.app.terminalRightClickBehavior.optionPaste",
+                    defaultValue: "Paste from Clipboard"
+                )
+            )
+            .tag(TerminalRightClickSettings.Behavior.pasteFromClipboard.rawValue)
+        }
+
+        if selectedTerminalRightClickBehavior == .pasteFromClipboard {
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.app.terminalLongRightClickContextMenu", defaultValue: "Long Right Click Opens Context Menu"),
+                subtitle: terminalLongRightClickContextMenuSubtitle
+            ) {
+                Toggle("", isOn: $terminalRightClickLongPressContextMenuEnabled)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalLongRightClickContextMenuToggle")
+                    .accessibilityLabel(
+                        String(
+                            localized: "settings.app.terminalLongRightClickContextMenu",
+                            defaultValue: "Long Right Click Opens Context Menu"
+                        )
+                    )
+            }
+
+            if terminalRightClickLongPressContextMenuEnabled {
+                SettingsCardDivider()
+
+                SettingsPickerRow(
+                    configurationReview: .settingsOnly,
+                    String(localized: "settings.app.terminalLongRightClickDuration", defaultValue: "Long Right Click Delay"),
+                    subtitle: terminalLongRightClickDurationSubtitle,
+                    controlWidth: pickerColumnWidth,
+                    selection: terminalLongRightClickDurationSelection
+                ) {
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionFast",
+                            defaultValue: "Fast (0.20s)"
+                        )
+                    )
+                    .tag(0.20)
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionDefault",
+                            defaultValue: "Default (0.30s)"
+                        )
+                    )
+                    .tag(0.30)
+                    Text(
+                        String(
+                            localized: "settings.app.terminalLongRightClickDuration.optionSlow",
+                            defaultValue: "Slow (0.45s)"
+                        )
+                    )
+                    .tag(0.45)
+                }
+            }
+        }
+    }
+
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
         SidebarActiveTabIndicatorSettings.resolvedStyle(rawValue: sidebarActiveTabIndicatorStyle)
     }
@@ -4867,82 +4950,7 @@ struct SettingsView: View {
                                 )
                         }
 
-                        SettingsCardDivider()
-
-                        SettingsPickerRow(
-                            String(localized: "settings.app.terminalRightClickBehavior", defaultValue: "Terminal Right Click"),
-                            subtitle: terminalRightClickBehaviorSubtitle,
-                            controlWidth: pickerColumnWidth,
-                            selection: terminalRightClickBehaviorSelection
-                        ) {
-                            Text(
-                                String(
-                                    localized: "settings.app.terminalRightClickBehavior.optionContextMenu",
-                                    defaultValue: "Show Context Menu"
-                                )
-                            )
-                            .tag(TerminalRightClickSettings.Behavior.contextMenu.rawValue)
-                            Text(
-                                String(
-                                    localized: "settings.app.terminalRightClickBehavior.optionPaste",
-                                    defaultValue: "Paste from Clipboard"
-                                )
-                            )
-                            .tag(TerminalRightClickSettings.Behavior.pasteFromClipboard.rawValue)
-                        }
-
-                        if selectedTerminalRightClickBehavior == .pasteFromClipboard {
-                            SettingsCardDivider()
-
-                            SettingsCardRow(
-                                String(localized: "settings.app.terminalLongRightClickContextMenu", defaultValue: "Long Right Click Opens Context Menu"),
-                                subtitle: terminalLongRightClickContextMenuSubtitle
-                            ) {
-                                Toggle("", isOn: $terminalRightClickLongPressContextMenuEnabled)
-                                    .labelsHidden()
-                                    .controlSize(.small)
-                                    .accessibilityIdentifier("SettingsTerminalLongRightClickContextMenuToggle")
-                                    .accessibilityLabel(
-                                        String(
-                                            localized: "settings.app.terminalLongRightClickContextMenu",
-                                            defaultValue: "Long Right Click Opens Context Menu"
-                                        )
-                                    )
-                            }
-
-                            if terminalRightClickLongPressContextMenuEnabled {
-                                SettingsCardDivider()
-
-                                SettingsPickerRow(
-                                    String(localized: "settings.app.terminalLongRightClickDuration", defaultValue: "Long Right Click Delay"),
-                                    subtitle: terminalLongRightClickDurationSubtitle,
-                                    controlWidth: pickerColumnWidth,
-                                    selection: terminalLongRightClickDurationSelection
-                                ) {
-                                    Text(
-                                        String(
-                                            localized: "settings.app.terminalLongRightClickDuration.optionFast",
-                                            defaultValue: "Fast (0.20s)"
-                                        )
-                                    )
-                                    .tag(0.20)
-                                    Text(
-                                        String(
-                                            localized: "settings.app.terminalLongRightClickDuration.optionDefault",
-                                            defaultValue: "Default (0.30s)"
-                                        )
-                                    )
-                                    .tag(0.30)
-                                    Text(
-                                        String(
-                                            localized: "settings.app.terminalLongRightClickDuration.optionSlow",
-                                            defaultValue: "Slow (0.45s)"
-                                        )
-                                    )
-                                    .tag(0.45)
-                                }
-                            }
-                        }
+                        terminalRightClickAppSettingsRows()
 
                         SettingsCardDivider()
 
