@@ -9403,6 +9403,7 @@ final class GhosttySurfaceScrollView: NSView {
         let workspace = terminalSurface.owningWorkspace()
         cachedOwningWorkspace = workspace
         updateWorkspaceTerminalScrollBarObserver(workspace)
+        _ = synchronizeGeometryAndContent()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -9841,7 +9842,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func refreshHostBackgroundAfterGhosttyConfigReload() {
-        synchronizeScrollbarAppearance()
+        _ = synchronizeGeometryAndContent()
         surfaceView.applySurfaceBackground()
         surfaceView.applyWindowBackgroundIfActive()
     }
