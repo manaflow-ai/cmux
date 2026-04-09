@@ -63,6 +63,24 @@
           "default": true,
           "description": "When cmux is inactive, the first click can activate and focus the clicked pane."
         },
+        "terminalRightClickBehavior": {
+          "type": "string",
+          "enum": ["contextMenu", "pasteFromClipboard"],
+          "default": "contextMenu",
+          "description": "Terminal right click: open the context menu or paste from the clipboard."
+        },
+        "terminalRightClickLongPressContextMenuEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "When terminal right click pastes, holding right click can still open the context menu."
+        },
+        "terminalRightClickLongPressDuration": {
+          "type": "number",
+          "minimum": 0.15,
+          "maximum": 1,
+          "default": 0.3,
+          "description": "Seconds to hold right click before opening the context menu (paste mode only)."
+        },
         "preferredEditor": {
           "type": "string",
           "default": "",

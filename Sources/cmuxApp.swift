@@ -4344,7 +4344,7 @@ struct SettingsView: View {
         SettingsCardDivider()
 
         SettingsPickerRow(
-            configurationReview: .settingsOnly,
+            configurationReview: .json("app.terminalRightClickBehavior"),
             String(localized: "settings.app.terminalRightClickBehavior", defaultValue: "Terminal Right Click"),
             subtitle: terminalRightClickBehaviorSubtitle,
             controlWidth: pickerColumnWidth,
@@ -4370,7 +4370,7 @@ struct SettingsView: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .settingsOnly,
+                configurationReview: .json("app.terminalRightClickLongPressContextMenuEnabled"),
                 String(localized: "settings.app.terminalLongRightClickContextMenu", defaultValue: "Long Right Click Opens Context Menu"),
                 subtitle: terminalLongRightClickContextMenuSubtitle
             ) {
@@ -4390,7 +4390,7 @@ struct SettingsView: View {
                 SettingsCardDivider()
 
                 SettingsPickerRow(
-                    configurationReview: .settingsOnly,
+                    configurationReview: .json("app.terminalRightClickLongPressDuration"),
                     String(localized: "settings.app.terminalLongRightClickDuration", defaultValue: "Long Right Click Delay"),
                     subtitle: terminalLongRightClickDurationSubtitle,
                     controlWidth: pickerColumnWidth,
