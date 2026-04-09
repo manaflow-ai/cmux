@@ -13476,6 +13476,7 @@ struct CMUXCLI {
         let statusKey: String       // Key for set_status: "cursor", "gemini"
         let configDir: String       // Relative to ~: ".cursor", ".gemini"
         let configFile: String      // File name: "hooks.json", "settings.json"
+        let configDirEnvOverride: String? // e.g. "CODEX_HOME" overrides configDir
         let sessionStoreSuffix: String // e.g. "cursor" -> ~/.cmuxterm/cursor-hook-sessions.json
         let disableEnvVar: String   // e.g. "CMUX_CURSOR_HOOKS_DISABLED"
         let hookMarker: String      // Marker in commands: "cmux cursor-hook"
@@ -13494,15 +13495,26 @@ struct CMUXCLI {
         }
 
         enum PostInstallAction {
-            case codexConfigToml // write codex_hooks = true to config.toml
+            case codexConfigToml // write codex_hooks = true to config.toml on install, remove on uninstall
+        }
+
+        /// Resolves the config directory, respecting env override if set.
+        func resolvedConfigDir() -> String {
+            if let envKey = configDirEnvOverride,
+               let envValue = ProcessInfo.processInfo.environment[envKey],
+               !envValue.isEmpty {
+                return NSString(string: envValue).expandingTildeInPath
+            }
+            return NSString(string: "~/\(configDir)").expandingTildeInPath
         }
 
         init(name: String, displayName: String, statusKey: String,
-             configDir: String, configFile: String, sessionStoreSuffix: String,
-             disableEnvVar: String, hookMarker: String, format: HookFormat,
-             events: [HookEvent], postInstallAction: PostInstallAction? = nil) {
+             configDir: String, configFile: String, configDirEnvOverride: String? = nil,
+             sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
+             format: HookFormat, events: [HookEvent], postInstallAction: PostInstallAction? = nil) {
             self.name = name; self.displayName = displayName; self.statusKey = statusKey
             self.configDir = configDir; self.configFile = configFile
+            self.configDirEnvOverride = configDirEnvOverride
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
             self.postInstallAction = postInstallAction
@@ -13528,7 +13540,7 @@ struct CMUXCLI {
     private static let agentDefs: [AgentHookDef] = [
         AgentHookDef(
             name: "codex", displayName: "Codex", statusKey: "codex",
-            configDir: ".codex", configFile: "hooks.json",
+            configDir: ".codex", configFile: "hooks.json", configDirEnvOverride: "CODEX_HOME",
             sessionStoreSuffix: "codex", disableEnvVar: "CMUX_CODEX_HOOKS_DISABLED",
             hookMarker: "cmux codex-hook", format: .nested(timeoutMs: 5000),
             events: [
@@ -13638,8 +13650,7 @@ struct CMUXCLI {
 
     private func installAgentHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
-        let configDir = "\(home)/\(def.configDir)"
+        let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
@@ -13650,8 +13661,10 @@ struct CMUXCLI {
         }
 
         var existing: [String: Any] = [:]
-        if let data = fm.contents(atPath: filePath),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if let data = fm.contents(atPath: filePath) {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
+            }
             existing = json
         }
 
@@ -13741,8 +13754,8 @@ struct CMUXCLI {
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
-        let filePath = "\(home)/\(def.configDir)/\(def.configFile)"
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
 
         guard let data = fm.contents(atPath: filePath),
               var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -13777,6 +13790,27 @@ struct CMUXCLI {
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
         print("Removed \(removed) cmux hook(s) from \(filePath)")
+
+        // Post-uninstall actions
+        if let action = def.postInstallAction {
+            switch action {
+            case .codexConfigToml:
+                let configPath = "\(configDir)/config.toml"
+                guard fm.fileExists(atPath: configPath),
+                      let content = try? String(contentsOfFile: configPath, encoding: .utf8),
+                      content.contains("codex_hooks") else { return }
+                // Remove the codex_hooks line
+                let newContent = content.replacingOccurrences(
+                    of: "\\n?codex_hooks\\s*=\\s*\\w+",
+                    with: "",
+                    options: .regularExpression
+                )
+                if newContent != content {
+                    try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
+                    print("Removed codex_hooks from \(configPath)")
+                }
+            }
+        }
     }
 
     // MARK: Generic hook handler
@@ -13905,7 +13939,6 @@ struct CMUXCLI {
         let agentFilter = optionValue(args, name: "--agent")
         let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
         let verb = isUninstall ? "uninstalling" : "installing"
 
         print("cmux \(isUninstall ? "uninstall" : "setup")-hooks: \(verb) agent hooks")
@@ -13919,7 +13952,7 @@ struct CMUXCLI {
 
         for def in Self.agentDefs {
             if let filter = agentFilter, filter.lowercased() != def.name { continue }
-            let configDir = "\(home)/\(def.configDir)"
+            let configDir = def.resolvedConfigDir()
             if !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (not found)")
                 skipped += 1
