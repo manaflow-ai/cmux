@@ -79,6 +79,32 @@ final class IslandStateStoreTests: XCTestCase {
         XCTAssertEqual(store.currentSessions.map(\.phase), [.running, .idle])
     }
 
+    func testSortOrderAfterTick() {
+        // testSortOrderRunningBeforeIdle covers the init-snapshot path only.
+        // This test verifies sort is also applied inside the debounced sink
+        // so a regression in the tick-path projection would be caught.
+        let source = InMemoryIslandStateSource()
+        let store = IslandStateStore(source: source)
+
+        let exp = expectation(description: "sorted emission after tick")
+
+        store.sessionsPublisher
+            .dropFirst()
+            .sink { sessions in
+                if sessions.count == 2 {
+                    XCTAssertEqual(sessions.map(\.phase), [.running, .idle])
+                    exp.fulfill()
+                }
+            }
+            .store(in: &cancellables)
+
+        let idle    = makeSession(phase: .idle)
+        let running = makeSession(phase: .running)
+        source.set([idle, running])  // deliberately out-of-order input
+
+        wait(for: [exp], timeout: 2.0)
+    }
+
     func testClearingSourceEmitsEmpty() {
         let source = InMemoryIslandStateSource()
         source.set([makeSession()])
