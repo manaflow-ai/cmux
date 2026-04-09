@@ -490,6 +490,17 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
 
             let point = view.convert(event.locationInWindow, from: nil)
             guard view.bounds.contains(point) else { return event }
+            // Match the drag-handle hit policy so double-click titlebar actions only
+            // trigger from empty titlebar space, never through interactive siblings such
+            // as the sidebar/notification/new-workspace controls layered above it.
+            guard windowDragHandleShouldCaptureHit(
+                point,
+                in: view,
+                eventType: event.type,
+                eventWindow: event.window
+            ) else {
+                return event
+            }
 
             let action = performStandardTitlebarDoubleClick(window: window)
             return action == nil ? event : nil
