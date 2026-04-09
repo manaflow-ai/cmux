@@ -1889,8 +1889,8 @@ struct CMUXCLI {
         }
 
         // Unified hook setup for all agents
-        if command == "setup-hooks" {
-            try runSetupHooks()
+        if command == "setup-hooks" || command == "uninstall-hooks" {
+            try runSetupHooks(uninstall: command == "uninstall-hooks")
             return
         }
 
@@ -13893,16 +13893,21 @@ struct CMUXCLI {
 
     // MARK: - Unified setup-hooks
 
-    private func runSetupHooks() throws {
-        let agentFilter = optionValue(ProcessInfo.processInfo.arguments, name: "--agent")
+    private func runSetupHooks(uninstall: Bool = false) throws {
+        let args = ProcessInfo.processInfo.arguments
+        let agentFilter = optionValue(args, name: "--agent")
+        let isUninstall = uninstall || args.contains("--uninstall")
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
+        let verb = isUninstall ? "uninstalling" : "installing"
 
-        print("cmux setup-hooks: installing agent hooks")
-        print("  (Claude Code hooks are injected automatically via the claude wrapper)")
+        print("cmux \(isUninstall ? "uninstall" : "setup")-hooks: \(verb) agent hooks")
+        if !isUninstall {
+            print("  (Claude Code hooks are injected automatically via the claude wrapper)")
+        }
         print("")
 
-        var installed = 0
+        var count = 0
         var skipped = 0
 
         for def in Self.agentDefs {
@@ -13914,12 +13919,16 @@ struct CMUXCLI {
                 continue
             }
             print("  \(def.name):")
-            try installAgentHooks(def)
-            installed += 1
+            if isUninstall {
+                try uninstallAgentHooks(def)
+            } else {
+                try installAgentHooks(def)
+            }
+            count += 1
             print("")
         }
 
-        print("Done: \(installed) installed, \(skipped) skipped")
+        print("Done: \(count) \(isUninstall ? "uninstalled" : "installed"), \(skipped) skipped")
     }
 
 
