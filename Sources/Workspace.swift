@@ -292,6 +292,13 @@ extension Workspace {
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
 
+        // Capture the active Claude Code session ID so it can be resumed on
+        // restore. The hook session store maps session IDs to workspace IDs.
+        let claudeSessionId: String? = {
+            guard agentPIDs["claude_code"] != nil else { return nil }
+            return SessionClaudeSessionStore.sessionId(forWorkspaceId: id.uuidString)
+        }()
+
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
             customTitle: customTitle,
@@ -305,12 +312,20 @@ extension Workspace {
             statusEntries: statusSnapshots,
             logEntries: logSnapshots,
             progress: progressSnapshot,
-            gitBranch: gitBranchSnapshot
+            gitBranch: gitBranchSnapshot,
+            claudeSessionId: claudeSessionId
         )
     }
 
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
+
+        // Queue Claude Code session for resume. The focused terminal panel (or
+        // the first terminal if no focus info) will receive a
+        // CMUX_RESTORE_CLAUDE_SESSION env var that shell integration picks up.
+        if let claudeSessionId = snapshot.claudeSessionId {
+            pendingClaudeSessionRestore = (sessionId: claudeSessionId, targetPanelId: snapshot.focusedPanelId)
+        }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         if !normalizedCurrentDirectory.isEmpty {
@@ -640,9 +655,18 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let workingDirectory = snapshot.terminal?.workingDirectory ?? snapshot.directory ?? currentDirectory
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
+            var replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: snapshot.terminal?.scrollback
             )
+
+            // Inject Claude Code session resume for the targeted panel. Falls
+            // back to the first terminal panel when no specific target is set.
+            if let pending = pendingClaudeSessionRestore,
+               pending.targetPanelId == nil || pending.targetPanelId == snapshot.id {
+                replayEnvironment["CMUX_RESTORE_CLAUDE_SESSION"] = pending.sessionId
+                pendingClaudeSessionRestore = nil
+            }
+
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -6613,6 +6637,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    /// Holds the Claude Code session ID to resume during session restore.
+    /// Cleared after it's consumed by the first matching terminal panel.
+    private var pendingClaudeSessionRestore: (sessionId: String, targetPanelId: UUID?)?
 
     private func sidebarObservationSignal<Value: Equatable>(
         _ publisher: Published<Value>.Publisher

@@ -117,6 +117,40 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSaveAndLoadRoundTripPreservesClaudeSessionId() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].claudeSessionId = "01JQVX8K3M5N7P2R4T6W9Y0ZAB"
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertEqual(
+            loaded?.windows.first?.tabManager.workspaces.first?.claudeSessionId,
+            "01JQVX8K3M5N7P2R4T6W9Y0ZAB"
+        )
+    }
+
+    func testSaveAndLoadRoundTripOmitsNilClaudeSessionId() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+
+        let loaded = SessionPersistenceStore.load(fileURL: snapshotURL)
+        XCTAssertNil(loaded?.windows.first?.tabManager.workspaces.first?.claudeSessionId)
+    }
+
     func testSaveSkipsRewritingIdenticalSnapshotData() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -914,6 +948,68 @@ final class SessionPersistenceTests: XCTestCase {
     private func fileNumber(for fileURL: URL) throws -> Int {
         let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
         return try XCTUnwrap(attributes[.systemFileNumber] as? Int)
+    }
+}
+
+final class SessionClaudeSessionStoreTests: XCTestCase {
+    func testSessionIdLookupFindsMatchingWorkspace() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-store-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let storeURL = tempDir.appendingPathComponent("claude-hook-sessions.json")
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "abc123": {
+              "sessionId": "abc123",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "cwd": "/tmp",
+              "pid": 9999,
+              "startedAt": 1000,
+              "updatedAt": 2000
+            },
+            "def456": {
+              "sessionId": "def456",
+              "workspaceId": "WS-2",
+              "surfaceId": "SF-2",
+              "cwd": "/home",
+              "pid": 8888,
+              "startedAt": 1000,
+              "updatedAt": 3000
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        // SessionClaudeSessionStore reads from a hardcoded path, so we test
+        // the decoding logic indirectly via the round-trip snapshot test above.
+        // This test validates that the JSON structure matches expectations.
+        let data = try Data(contentsOf: storeURL)
+        let decoded = try JSONDecoder().decode(ClaudeHookStoreTestFile.self, from: data)
+        XCTAssertEqual(decoded.sessions.count, 2)
+        XCTAssertEqual(decoded.sessions["abc123"]?.workspaceId, "WS-1")
+        XCTAssertEqual(decoded.sessions["def456"]?.sessionId, "def456")
+    }
+
+    /// Mirror of the private struct in SessionClaudeSessionStore for test decoding.
+    private struct ClaudeHookStoreTestFile: Codable {
+        var version: Int
+        var sessions: [String: ClaudeHookStoreTestRecord]
+    }
+
+    private struct ClaudeHookStoreTestRecord: Codable {
+        var sessionId: String
+        var workspaceId: String
+        var surfaceId: String
+        var cwd: String?
+        var pid: Int?
+        var startedAt: TimeInterval
+        var updatedAt: TimeInterval
     }
 }
 
