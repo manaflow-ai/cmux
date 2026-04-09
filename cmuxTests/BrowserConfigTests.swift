@@ -3332,49 +3332,49 @@ final class BrowserHostWhitelistTests: XCTestCase {
     }
 
     func testEmptyWhitelistAllowsAll() {
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
     }
 
     func testExactMatch() {
         defaults.set("localhost\n127.0.0.1", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("127.0.0.1", defaults: defaults))
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "127.0.0.1", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
     }
 
     func testExactMatchIsCaseInsensitive() {
         defaults.set("LocalHost", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("LOCALHOST", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "LOCALHOST", defaults: defaults))
     }
 
     func testWildcardSuffix() {
         defaults.set("*.localtest.me", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("app.localtest.me", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("sub.app.localtest.me", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localtest.me", defaults: defaults))
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "app.localtest.me", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "sub.app.localtest.me", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localtest.me", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
     }
 
     func testWildcardIsCaseInsensitive() {
         defaults.set("*.Example.COM", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("sub.example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "sub.example.com", defaults: defaults))
     }
 
     func testBlankLinesAndWhitespaceIgnored() {
         defaults.set("  localhost  \n\n  127.0.0.1  \n", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("127.0.0.1", defaults: defaults))
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "127.0.0.1", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
     }
 
     func testMixedExactAndWildcard() {
         defaults.set("localhost\n127.0.0.1\n*.local.dev", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("127.0.0.1", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("app.local.dev", defaults: defaults))
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("github.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "127.0.0.1", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "app.local.dev", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "github.com", defaults: defaults))
     }
 
     func testDefaultWhitelistIsEmpty() {
@@ -3384,24 +3384,24 @@ final class BrowserHostWhitelistTests: XCTestCase {
 
     func testWildcardRequiresDotBoundary() {
         defaults.set("*.example.com", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("badexample.com", defaults: defaults))
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com.evil", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "badexample.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com.evil", defaults: defaults))
     }
 
     func testWhitelistNormalizesSchemesPortsAndTrailingDots() {
         defaults.set("https://LOCALHOST:3000/path\n*.Example.COM:443", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("localhost.", defaults: defaults))
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("api.example.com", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "localhost.", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "api.example.com", defaults: defaults))
     }
 
     func testInvalidWhitelistEntriesDoNotImplicitlyAllowAll() {
         defaults.set("http://\n*.\n", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertFalse(BrowserLinkOpenSettings.hostMatchesWhitelist("example.com", defaults: defaults))
+        XCTAssertFalse(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "example.com", defaults: defaults))
     }
 
     func testUnicodeWhitelistEntryMatchesPunycodeHost() {
         defaults.set("b\u{00FC}cher.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
-        XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
+        XCTAssertTrue(BrowserLinkOpenSettings.shouldOpenInCmuxBrowser(host: "xn--bcher-kva.example", defaults: defaults))
     }
 }
 

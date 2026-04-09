@@ -80,6 +80,7 @@ final class CmuxSettingsFileStore {
         "browser.theme",
         "browser.openTerminalLinksInCmuxBrowser",
         "browser.interceptTerminalOpenCommandInCmuxBrowser",
+        "browser.hostListMode",
         "browser.hostsToOpenInEmbeddedBrowser",
         "browser.urlsToAlwaysOpenExternally",
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
