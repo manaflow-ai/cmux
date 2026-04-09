@@ -482,6 +482,14 @@ struct cmuxApp: App {
                     Button("Debug Window Controls…") {
                         DebugWindowControlsWindowController.shared.show()
                     }
+                    Button(
+                        String(
+                            localized: "menu.debug.islandController",
+                            defaultValue: "Island Controller…"
+                        )
+                    ) {
+                        IslandControllerDebugWindowController.shared.show()
+                    }
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
@@ -2668,6 +2676,112 @@ private final class SidebarDebugWindowController: NSWindowController, NSWindowDe
         window?.makeKeyAndOrderFront(nil)
     }
 }
+
+#if DEBUG
+private final class IslandControllerDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = IslandControllerDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = String(
+            localized: "island.debug.window.title",
+            defaultValue: "Island Controller"
+        )
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.islandDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: IslandDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Debug-only view that lets a developer toggle the feature on and push
+/// synthetic sessions into an in-memory source for visual iteration.
+/// NOTE: the injected sessions do NOT flow into the production
+/// IslandStateStore — this debug window operates on its own isolated
+/// source. It exists to verify shape/layout without running real agents.
+///
+/// TODO(Task 17): once Island source files are registered in project.pbxproj,
+/// replace the local `sessions` state with `InMemoryIslandStateSource` so this
+/// window exercises the real provider protocol.
+private struct IslandDebugView: View {
+    // TODO(Task 17): replace with IslandSettings.enabledKey once
+    // Sources/Island/IslandSettings.swift is in project.pbxproj.
+    @AppStorage("island.enabled") private var islandEnabled = false
+    @State private var sessions: [IslandDebugSession] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(
+                String(
+                    localized: "island.settings.enable.label",
+                    defaultValue: "Show agent session island overlay"
+                ),
+                isOn: $islandEnabled
+            )
+            .font(.system(size: 13, weight: .semibold))
+
+            Divider()
+
+            HStack {
+                Button(String(
+                    localized: "island.debug.injectTestSession",
+                    defaultValue: "Inject test session"
+                )) {
+                    injectRandomSession()
+                }
+                Button(String(
+                    localized: "island.debug.clearTestSessions",
+                    defaultValue: "Clear test sessions"
+                )) {
+                    sessions.removeAll()
+                }
+            }
+
+            Divider()
+
+            Text(verbatim: "Injected sessions: \(sessions.count)")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+        .padding(16)
+        .frame(minWidth: 380, minHeight: 480)
+    }
+
+    private func injectRandomSession() {
+        sessions.append(IslandDebugSession(id: UUID()))
+    }
+}
+
+/// Minimal synthetic session token used by `IslandDebugView` while the Island
+/// source files are not yet registered in the project (pending Task 17).
+/// Replaced by `IslandSession` once `project.pbxproj` includes the Island group.
+private struct IslandDebugSession: Identifiable {
+    let id: UUID
+}
+#endif
 
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
