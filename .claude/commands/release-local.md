@@ -38,10 +38,12 @@ Full end-to-end release built locally. Bumps version, updates changelog, tags, t
 
 - Run: `./scripts/bump-version.sh` (bumps minor by default)
 
-### 5. Commit, tag, and push
+### 5. Commit, run the pre-tag guard, then tag and push
 
 - Stage: `CHANGELOG.md`, `GhosttyTabs.xcodeproj/project.pbxproj`
 - Commit message: `Bump version to X.Y.Z`
+- Run: `./scripts/release-pretag-guard.sh`
+- If it fails, run `./scripts/bump-version.sh`, commit the build-number bump, and rerun the guard
 - Create tag: `git tag vX.Y.Z`
 - Push: `git push origin main && git push origin vX.Y.Z`
 

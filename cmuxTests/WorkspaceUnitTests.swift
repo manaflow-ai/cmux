@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Combine
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -193,6 +194,1071 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         let keys = KeyboardShortcutSettings.Action.allCases.map(\.defaultsKey)
         XCTAssertEqual(Set(keys).count, keys.count)
     }
+
+    func testChordedShortcutDisplayDisablesMenuKeyEquivalent() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "d"
+        )
+
+        XCTAssertEqual(shortcut.displayString, "⌃B D")
+        XCTAssertNil(shortcut.keyEquivalent)
+        XCTAssertNil(shortcut.menuItemKeyEquivalent)
+    }
+
+    func testNumberedChordDisplayUsesChordSuffix() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "7"
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.selectWorkspaceByNumber.displayedShortcutString(for: shortcut),
+            "⌃B 1…9"
+        )
+    }
+
+    func testNumberedChordNormalizationTargetsSecondStroke() {
+        let shortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "7"
+        )
+
+        let normalized = KeyboardShortcutSettings.Action.selectWorkspaceByNumber.normalizedRecordedShortcut(shortcut)
+        XCTAssertEqual(normalized?.key, "b")
+        XCTAssertEqual(normalized?.chordKey, "1")
+    }
+
+    func testStoredShortcutDecodesLegacySingleStrokePayload() throws {
+        let data = """
+        {"key":"d","command":true,"shift":false,"option":false,"control":false}
+        """.data(using: .utf8)!
+
+        let shortcut = try JSONDecoder().decode(StoredShortcut.self, from: data)
+
+        XCTAssertEqual(shortcut.key, "d")
+        XCTAssertFalse(shortcut.hasChord)
+        XCTAssertNil(shortcut.chordKey)
+    }
+
+    func testEscapeCancelDetectionTreatsEscapeCharacterAsCancelEvenWithUnexpectedKeyCode() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 36
+        ) else {
+            XCTFail("Failed to construct escape-like event")
+            return
+        }
+
+        XCTAssertTrue(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertNil(ShortcutStroke.from(event: event, requireModifier: false))
+    }
+
+    func testEscapeCancelDetectionAllowsModifiedEscapeGeneratingShortcut() {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 33
+        ) else {
+            XCTFail("Failed to construct modified escape-generating event")
+            return
+        }
+
+        XCTAssertFalse(ShortcutStroke.isEscapeCancelEvent(event))
+        XCTAssertEqual(
+            ShortcutStroke.from(event: event, requireModifier: false),
+            ShortcutStroke(key: "[", command: true, shift: false, option: false, control: false)
+        )
+    }
+
+    func testShortcutRecorderStopsRecordingWhenFirstStrokeConfirmationIsRejected() {
+#if DEBUG
+        let button = ShortcutRecorderNSButton(frame: .zero)
+        button.transformRecordedShortcut = { _ in nil }
+        button.debugSetPendingChordStart(
+            ShortcutStroke(
+                key: "x",
+                command: true,
+                shift: false,
+                option: false,
+                control: false
+            )
+        )
+
+        button.performClick(nil)
+
+        XCTAssertFalse(button.debugIsRecording)
+#else
+        XCTFail("Shortcut recorder debug hooks are only available in DEBUG")
+#endif
+    }
+}
+
+final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+
+    override func setUp() {
+        super.setUp()
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.resetAll()
+    }
+
+    override func tearDown() {
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        KeyboardShortcutSettings.resetAll()
+        super.tearDown()
+    }
+
+    func testSettingsFileStoreParsesSingleStrokeChordAndNumberedChord() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "toggleSidebar": "cmd+b",
+                "newTab": ["ctrl+b", "c"],
+                "selectWorkspaceByNumber": ["ctrl+b", "7"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .toggleSidebar),
+            StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(
+            store.override(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+        XCTAssertEqual(
+            store.override(for: .selectWorkspaceByNumber),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
+        )
+        XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreRejectsModifierFreeFirstStroke() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "toggleSidebar": "b",
+                "newTab": ["b", "c"],
+                "splitRight": ["ctrl+b", "d"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(store.override(for: .toggleSidebar))
+        XCTAssertNil(store.override(for: .newTab))
+        XCTAssertEqual(
+            store.override(for: .splitRight),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "d")
+        )
+    }
+
+    func testSettingsFileStoreUsesFallbackOnlyWhenPrimaryIsMissing() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let fallbackStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        XCTAssertEqual(
+            fallbackStore.override(for: .showNotifications),
+            StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        )
+        XCTAssertEqual(fallbackStore.activeSourcePath, fallbackURL.path)
+
+        try writeSettingsFile("{ not valid json", to: primaryURL)
+
+        let invalidPrimaryStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+        XCTAssertNil(invalidPrimaryStore.override(for: .showNotifications))
+        XCTAssertEqual(invalidPrimaryStore.activeSourcePath, primaryURL.path)
+    }
+
+    func testShortcutSettingsFileOverridesPersistedShortcutValues() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false),
+            for: .newTab
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+        XCTAssertTrue(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
+        XCTAssertNotNil(KeyboardShortcutSettings.settingsFileManagedSubtitle(for: .newTab))
+    }
+
+    @MainActor
+    func testReloadConfigurationReloadsShortcutSettingsFile() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": "cmd+n"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        )
+
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config")
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.shortcut(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+    }
+
+    func testManagedShortcutWritesDoNotOverwritePersistedValue() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        let missingSettingsFileURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        let persistedShortcut = StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
+        let managedShortcut = StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+
+        KeyboardShortcutSettings.setShortcut(persistedShortcut, for: .newTab)
+
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "newTab": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "t", command: true, shift: false, option: false, control: false),
+            for: .newTab
+        )
+
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), managedShortcut)
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertFalse(KeyboardShortcutSettings.isManagedBySettingsFile(.newTab))
+        XCTAssertEqual(KeyboardShortcutSettings.shortcut(for: .newTab), persistedShortcut)
+    }
+
+    func testSystemWideHotkeySettingsPreserveInvalidManagedShortcutWithoutFallingBackToDefault() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showHideAllWindows": ["ctrl+b", "c"]
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let invalidShortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "c"
+        )
+
+        XCTAssertEqual(
+            KeyboardShortcutSettings.settingsFileStore.override(for: .showHideAllWindows),
+            invalidShortcut
+        )
+        XCTAssertTrue(SystemWideHotkeySettings.isManagedBySettingsFile())
+        XCTAssertEqual(SystemWideHotkeySettings.shortcut(), invalidShortcut)
+        XCTAssertNotEqual(SystemWideHotkeySettings.shortcut(), SystemWideHotkeySettings.defaultShortcut)
+        XCTAssertNil(SystemWideHotkeySettings.shortcut().carbonHotKeyRegistration)
+    }
+
+    func testSystemWideHotkeyLegacyMigrationPreservesInvalidShortcut() throws {
+        let invalidShortcut = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            chordKey: "c"
+        )
+        let encodedShortcut = try XCTUnwrap(try? JSONEncoder().encode(invalidShortcut))
+        let defaults = UserDefaults.standard
+        defaults.set(encodedShortcut, forKey: SystemWideHotkeySettings.legacyShortcutKey)
+
+        let migratedShortcut = SystemWideHotkeySettings.shortcut()
+
+        XCTAssertEqual(migratedShortcut, invalidShortcut)
+        XCTAssertNil(defaults.object(forKey: SystemWideHotkeySettings.legacyShortcutKey))
+
+        let migratedData = try XCTUnwrap(
+            defaults.data(forKey: KeyboardShortcutSettings.Action.showHideAllWindows.defaultsKey)
+        )
+        let storedShortcut = try XCTUnwrap(try? JSONDecoder().decode(StoredShortcut.self, from: migratedData))
+        XCTAssertEqual(storedShortcut, invalidShortcut)
+        XCTAssertNil(storedShortcut.carbonHotKeyRegistration)
+    }
+
+    func testBootstrapCreatesCommentedTemplateWhenPrimaryAndFallbackAreMissing() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL
+            .appendingPathComponent(".config/cmux", isDirectory: true)
+            .appendingPathComponent("settings.json", isDirectory: false)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: settingsFileURL.path))
+        XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+        XCTAssertNil(store.override(for: .newTab))
+
+        let contents = try String(contentsOf: settingsFileURL, encoding: .utf8)
+        XCTAssertTrue(contents.contains(#""$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json""#))
+        XCTAssertTrue(contents.contains(#""schemaVersion": 1,"#))
+        XCTAssertTrue(contents.contains(#"//   "app" : {"#))
+        XCTAssertTrue(contents.contains(#"//     "colors" : {"#))
+        XCTAssertTrue(contents.contains(##"//       "Red" : "#C0392B""##))
+        XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
+    }
+
+    func testBootstrapDoesNotCreatePrimaryWhenFallbackAlreadyExists() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+        XCTAssertEqual(store.activeSourcePath, fallbackURL.path)
+    }
+
+    func testSettingsFileURLForEditingUsesActiveFallbackWithoutCreatingPrimary() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.settingsFileURLForEditing().path, fallbackURL.path)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: primaryURL.path))
+    }
+
+    func testSettingsFileURLForEditingPrefersInvalidPrimaryForRepair() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("primary/settings.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("fallback/settings.json", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: primaryURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: fallbackURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try writeSettingsFile("{ not valid json", to: primaryURL)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertEqual(store.settingsFileURLForEditing().path, primaryURL.path)
+        XCTAssertEqual(store.activeSourcePath, primaryURL.path)
+    }
+
+    func testSettingsFileStoreParsesJSONCCommentsAndTrailingCommas() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "$schema": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json",
+              "schemaVersion": 1,
+              // tmux-like prefix
+              "shortcuts": {
+                "bindings": {
+                  "newTab": [
+                    "ctrl+b",
+                    "c",
+                  ],
+                },
+              },
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .newTab),
+            StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "c")
+        )
+    }
+
+    func testFutureSchemaVersionStillParsesKnownFields() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "schemaVersion": 999,
+              "shortcuts": {
+                "showNotifications": "cmd+i"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            store.override(for: .showNotifications),
+            StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        )
+    }
+
+    func testManagedUserDefaultSettingRestoresBackedUpValueWhenFileSettingIsRemoved() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspaceAutoReorderSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.set(false, forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let managedSettingsURL = directoryURL.appendingPathComponent("managed.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "reorderOnNotification": true
+              }
+            }
+            """,
+            to: managedSettingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: managedSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, true)
+
+        let missingSettingsURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: managedKey) as? Bool, false)
+        XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
+    }
+
+    func testSettingsFileStoreAppliesWorkspaceColorDictionaryAndAllowsRemovingDefaults() throws {
+        let defaults = UserDefaults.standard
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
+        let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            if let previousPalette {
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+            }
+            if let previousLegacyOverrides {
+                defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
+            }
+            if let previousLegacyCustomColors {
+                defaults.set(previousLegacyCustomColors, forKey: "workspaceTabColor.customColors")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "colors": {
+                  "Blue": "#2244ff",
+                  "Neon Mint": "#00f5d4"
+                }
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(palette.map(\.name), ["Blue", "Neon Mint"])
+        XCTAssertEqual(palette.map(\.hex), ["#2244FF", "#00F5D4"])
+    }
+
+    func testManagedWorkspaceColorsRestoreLegacyPaletteWhenFileSettingIsRemoved() throws {
+        let defaults = UserDefaults.standard
+        let previousPalette = defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey) as? [String: String]
+        let previousLegacyOverrides = defaults.dictionary(forKey: "workspaceTabColor.defaultOverrides") as? [String: String]
+        let previousLegacyCustomColors = defaults.array(forKey: "workspaceTabColor.customColors") as? [String]
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            WorkspaceTabColorSettings.reset(defaults: defaults)
+            if let previousPalette {
+                defaults.set(previousPalette, forKey: WorkspaceTabColorSettings.paletteKey)
+            }
+            if let previousLegacyOverrides {
+                defaults.set(previousLegacyOverrides, forKey: "workspaceTabColor.defaultOverrides")
+            }
+            if let previousLegacyCustomColors {
+                defaults.set(previousLegacyCustomColors, forKey: "workspaceTabColor.customColors")
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        WorkspaceTabColorSettings.reset(defaults: defaults)
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let managedSettingsURL = directoryURL.appendingPathComponent("managed.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "workspaceColors": {
+                "colors": {
+                  "Neon Mint": "#00F5D4"
+                }
+              }
+            }
+            """,
+            to: managedSettingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: managedSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults).map(\.name), ["Neon Mint"])
+
+        let missingSettingsURL = directoryURL.appendingPathComponent("missing.json", isDirectory: false)
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: missingSettingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let restored = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertEqual(restored.first(where: { $0.name == "Blue" })?.hex, "#010203")
+        XCTAssertEqual(restored.first(where: { $0.name == "Custom 1" })?.hex, "#778899")
+        XCTAssertNil(defaults.data(forKey: settingsFileBackupsDefaultsKey))
+    }
+
+    @MainActor
+    func testReloadConfigurationReloadsManagedAppSettingsFromSettingsFile() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspacePlacementSettings.placementKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "top"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(WorkspacePlacementSettings.current(), .top)
+
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "end"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        GhosttyApp.shared.reloadConfiguration(source: "test.reload_config_app_setting")
+
+        XCTAssertEqual(WorkspacePlacementSettings.current(), .end)
+    }
+
+    @MainActor
+    func testManagedWorkspacePlacementChangesDefaultInsertionBehavior() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = WorkspacePlacementSettings.placementKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "newWorkspacePlacement": "top"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        let manager = TabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace(placementOverride: .end)
+        let third = manager.addWorkspace(placementOverride: .end)
+        manager.selectWorkspace(first)
+
+        let inserted = manager.addWorkspace()
+
+        XCTAssertEqual(manager.tabs.map(\.id), [inserted.id, first.id, second.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        return directoryURL
+    }
+
+    private func writeSettingsFile(_ contents: String, to url: URL) throws {
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+final class StoredShortcutMatchingTests: XCTestCase {
+    func testMatchingIgnoresCapsLock() {
+        let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 12,
+                modifierFlags: [.command, .capsLock],
+                eventCharacter: "q",
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testMatchingUsesRecordedCharacterForRemappedCommandLetter() {
+        let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 13,
+                modifierFlags: [.command],
+                eventCharacter: "q",
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+        XCTAssertFalse(
+            StoredShortcut(key: "w", command: true, shift: false, option: false, control: false).matches(
+                keyCode: 13,
+                modifierFlags: [.command],
+                eventCharacter: "q",
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testMatchingTreatsKeypadEnterAsReturn() {
+        let shortcut = StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 76,
+                modifierFlags: [.command],
+                eventCharacter: "\r",
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+    }
+
+    func testMatchingFallsBackToLayoutCharacterForNonLatinInput() {
+        let shortcut = StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 17,
+                modifierFlags: [.command],
+                eventCharacter: "е",
+                layoutCharacterProvider: { keyCode, _ in
+                    keyCode == 17 ? "t" : nil
+                }
+            )
+        )
+    }
+
+    func testResolvedKeyCodeUsesCurrentLayoutWhenShortcutWasStoredByCharacter() {
+        let stroke = ShortcutStroke(key: "q", command: true, shift: false, option: false, control: false)
+
+        XCTAssertEqual(
+            stroke.resolvedKeyCode(
+                layoutCharacterProvider: { keyCode, flags in
+                    guard flags == [.command] else { return nil }
+                    switch keyCode {
+                    case 12:
+                        return "'"
+                    case 13:
+                        return "q"
+                    default:
+                        return nil
+                    }
+                }
+            ),
+            13
+        )
+    }
+
+    func testResolvedKeyCodePrefersRecordedPhysicalKeyOverLayoutLookup() {
+        let stroke = ShortcutStroke(key: "q", command: true, shift: false, option: false, control: false, keyCode: 13)
+
+        XCTAssertEqual(
+            stroke.resolvedKeyCode(
+                layoutCharacterProvider: { keyCode, _ in
+                    keyCode == 12 ? "q" : nil
+                }
+            ),
+            13
+        )
+        XCTAssertEqual(stroke.carbonHotKeyRegistration?.keyCode, 13)
+    }
+
+    func testSystemWideHotkeyNormalizationRejectsReservedShortcutByRecordedPhysicalKey() {
+        KeyboardShortcutSettings.resetAll()
+        defer { KeyboardShortcutSettings.resetAll() }
+
+        let shortcut = StoredShortcut(
+            key: "q",
+            command: true,
+            shift: false,
+            option: false,
+            control: false,
+            keyCode: 13
+        )
+
+        XCTAssertNil(KeyboardShortcutSettings.Action.showHideAllWindows.normalizedRecordedShortcut(shortcut))
+    }
 }
 
 
@@ -210,8 +1276,27 @@ final class WorkspaceShortcutMapperTests: XCTestCase {
         XCTAssertNil(WorkspaceShortcutMapper.digitForWorkspace(at: 8, workspaceCount: 12))
     }
 }
+@MainActor
+final class WorkspaceCustomDescriptionTests: XCTestCase {
+    func testSetCustomDescriptionPreservesMeaningfulLeadingAndTrailingWhitespace() {
+        let workspace = Workspace()
+        let description = "  line one\n\nline two\n\n"
 
+        workspace.setCustomDescription(description)
 
+        XCTAssertEqual(workspace.customDescription, description)
+        XCTAssertTrue(workspace.hasCustomDescription)
+    }
+
+    func testSetCustomDescriptionClearsWhitespaceOnlyDescriptions() {
+        let workspace = Workspace()
+
+        workspace.setCustomDescription(" \n\t \n")
+
+        XCTAssertNil(workspace.customDescription)
+        XCTAssertFalse(workspace.hasCustomDescription)
+    }
+}
 final class WorkspacePlacementSettingsTests: XCTestCase {
     func testCurrentPlacementDefaultsToAfterCurrentWhenUnset() {
         let suiteName = "WorkspacePlacementSettingsTests.Default.\(UUID().uuidString)"
@@ -294,6 +1379,34 @@ final class WorkspacePlacementSettingsTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationPlacementTests: XCTestCase {
+    private final class SnapshotMutatingTabManager: TabManager {
+        var afterCaptureWorkspaceCreationSnapshot: (() -> Void)?
+        var beforeCreateWorkspace: (() -> Void)?
+
+        override func didCaptureWorkspaceCreationSnapshot() {
+            afterCaptureWorkspaceCreationSnapshot?()
+        }
+
+        override func makeWorkspaceForCreation(
+            title: String,
+            workingDirectory: String?,
+            portOrdinal: Int,
+            configTemplate: CmuxSurfaceConfigTemplate?,
+            initialTerminalCommand: String?,
+            initialTerminalEnvironment: [String: String]
+        ) -> Workspace {
+            beforeCreateWorkspace?()
+            return super.makeWorkspaceForCreation(
+                title: title,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                configTemplate: configTemplate,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalEnvironment: initialTerminalEnvironment
+            )
+        }
+    }
+
     func testAddWorkspaceDefaultPlacementMatchesCurrentSetting() {
         let currentPlacement = WorkspacePlacementSettings.current()
 
@@ -334,6 +1447,173 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
         XCTAssertEqual(insertedIndex, baselineCount)
     }
 
+    func testAddWorkspaceAfterCurrentOverrideAppendsAfterLastSelectedWorkspace() {
+        let manager = TabManager()
+        guard !manager.tabs.isEmpty else {
+            XCTFail("Expected TabManager to initialise with at least one workspace")
+            return
+        }
+        _ = manager.addWorkspace()
+        _ = manager.addWorkspace()
+        let fourth = manager.addWorkspace()
+        let baselineOrder = manager.tabs.map(\.id)
+
+        manager.selectWorkspace(fourth)
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
+        XCTAssertEqual(manager.tabs.last?.id, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentUsesPrecreationSnapshotWhenSelectionMutatesDuringBootstrap() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        manager.setPinned(first, pinned: true)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        let baselineOrder = manager.tabs.map(\.id)
+        manager.beforeCreateWorkspace = {
+            manager.selectWorkspace(first)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, third.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentDoesNotReinsertClosedWorkspaceCapturedInSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.closeWorkspace(second)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == second.id }))
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceSurvivesSelectedWorkspaceClosingAfterSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.closeWorkspace(third)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, second.id, inserted.id])
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == third.id }))
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceSurvivesMidCreationClose() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let closingWorkspace = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(third)
+
+        let closingWorkspaceId = closingWorkspace.id
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, closingWorkspaceId, third.id])
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            guard let liveWorkspace = manager.tabs.first(where: { $0.id == closingWorkspaceId }) else {
+                XCTFail("Expected captured workspace to still be present when closing after snapshot")
+                return
+            }
+            manager.closeWorkspace(liveWorkspace)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == closingWorkspaceId }))
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, third.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentUsesSnapshotPinnedStateWhenPinningMutatesAfterSnapshot() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        manager.setPinned(first, pinned: true)
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(first)
+        let baselineOrder = manager.tabs.map(\.id)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            manager.setPinned(first, pinned: false)
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(manager.tabs.map(\.id).filter { $0 != inserted.id }, baselineOrder)
+        XCTAssertEqual(manager.tabs.map(\.id), [first.id, inserted.id, second.id, third.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
+    func testAddWorkspaceAfterCurrentFollowsLiveReorderUsingSnapshotTabValues() {
+        let manager = SnapshotMutatingTabManager()
+        guard let first = manager.tabs.first else {
+            XCTFail("Expected initial workspace")
+            return
+        }
+
+        let second = manager.addWorkspace()
+        let third = manager.addWorkspace()
+        manager.selectWorkspace(second)
+
+        manager.afterCaptureWorkspaceCreationSnapshot = {
+            XCTAssertTrue(
+                manager.reorderWorkspace(tabId: third.id, toIndex: 0),
+                "Expected to reorder live workspaces after the snapshot is captured"
+            )
+        }
+
+        let inserted = manager.addWorkspace(placementOverride: .afterCurrent)
+
+        XCTAssertEqual(
+            manager.tabs.map(\.id).filter { $0 != inserted.id },
+            [third.id, first.id, second.id]
+        )
+        XCTAssertEqual(manager.tabs.map(\.id), [third.id, first.id, second.id, inserted.id])
+        XCTAssertEqual(manager.selectedTabId, inserted.id)
+    }
+
     private func makeManagerWithThreeWorkspaces() -> TabManager {
         let manager = TabManager()
         _ = manager.addWorkspace()
@@ -342,6 +1622,65 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
             manager.selectWorkspace(first)
         }
         return manager
+    }
+}
+
+@MainActor
+final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
+    private final class UnsafeConfigSnapshotTabManager: TabManager {
+        private var injectedConfig: CmuxSurfaceConfigTemplate?
+        var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
+
+        func installInjectedConfig(fontSize: Float) {
+            var config = CmuxSurfaceConfigTemplate()
+            config.fontSize = fontSize
+            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
+            config.command = "echo snapshot"
+            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
+            injectedConfig = config
+        }
+
+        override func inheritedTerminalConfigForNewWorkspace(
+            workspace: Workspace?
+        ) -> CmuxSurfaceConfigTemplate? {
+            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        }
+
+        override func makeWorkspaceForCreation(
+            title: String,
+            workingDirectory: String?,
+            portOrdinal: Int,
+            configTemplate: CmuxSurfaceConfigTemplate?,
+            initialTerminalCommand: String?,
+            initialTerminalEnvironment: [String: String]
+        ) -> Workspace {
+            capturedConfigTemplate = configTemplate
+            return super.makeWorkspaceForCreation(
+                title: title,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                configTemplate: configTemplate,
+                initialTerminalCommand: initialTerminalCommand,
+                initialTerminalEnvironment: initialTerminalEnvironment
+            )
+        }
+    }
+
+    func testAddWorkspacePassesSanitizedInheritedConfigTemplate() {
+        let manager = UnsafeConfigSnapshotTabManager()
+        manager.installInjectedConfig(fontSize: 19)
+
+        _ = manager.addWorkspace()
+
+        guard let capturedConfig = manager.capturedConfigTemplate else {
+            XCTFail("Expected captured config template for new workspace")
+            return
+        }
+
+        XCTAssertEqual(capturedConfig.fontSize, 19, accuracy: 0.001)
+        XCTAssertNil(capturedConfig.workingDirectory)
+        XCTAssertNil(capturedConfig.command)
+        XCTAssertTrue(capturedConfig.environmentVariables.isEmpty)
     }
 }
 
@@ -355,14 +1694,7 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
     }
 
     func testBuiltInPaletteMatchesOriginalPRPalette() {
-        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let palette = WorkspaceTabColorSettings.defaultPaletteWithOverrides(defaults: defaults)
+        let palette = WorkspaceTabColorSettings.defaultPalette
         XCTAssertEqual(palette.count, 16)
         XCTAssertEqual(palette.first?.name, "Red")
         XCTAssertEqual(palette.first?.hex, "#C0392B")
@@ -370,8 +1702,19 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         XCTAssertFalse(palette.contains(where: { $0.name == "Gold" }))
     }
 
-    func testDefaultOverrideRoundTripFallsBackWhenResetToBase() {
-        let suiteName = "WorkspaceTabColorSettingsTests.DefaultOverride.\(UUID().uuidString)"
+    func testPaletteFallsBackToBuiltInDefaultsWhenUnset() {
+        let suiteName = "WorkspaceTabColorSettingsTests.BuiltInPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
+    }
+
+    func testSetColorRoundTripFallsBackWhenResetToBase() {
+        let suiteName = "WorkspaceTabColorSettingsTests.SetColor.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
             return
@@ -380,25 +1723,27 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
 
         let first = WorkspaceTabColorSettings.defaultPalette[0]
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
 
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#00aa33", defaults: defaults)
+        WorkspaceTabColorSettings.setColor(named: first.name, hex: "#00aa33", defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             "#00AA33"
         )
+        XCTAssertNotNil(defaults.dictionary(forKey: WorkspaceTabColorSettings.paletteKey))
 
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: first.hex, defaults: defaults)
+        WorkspaceTabColorSettings.setColor(named: first.name, hex: first.hex, defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
+            WorkspaceTabColorSettings.currentColorHex(named: first.name, defaults: defaults),
             first.hex
         )
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
     }
 
-    func testAddCustomColorPersistsAndDeduplicatesByMostRecent() {
-        let suiteName = "WorkspaceTabColorSettingsTests.CustomColors.\(UUID().uuidString)"
+    func testAddCustomColorCreatesNamedEntriesAndDeduplicatesByHex() {
+        let suiteName = "WorkspaceTabColorSettingsTests.NamedCustomColors.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
             return
@@ -419,13 +1764,54 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         )
         XCTAssertNil(WorkspaceTabColorSettings.addCustomColor("nope", defaults: defaults))
 
+        let customEntries = WorkspaceTabColorSettings.customPaletteEntries(defaults: defaults)
+        XCTAssertEqual(customEntries.map(\.name), ["Custom 1", "Custom 2"])
+        XCTAssertEqual(customEntries.map(\.hex), ["#00AA33", "#112233"])
+    }
+
+    func testPaletteDictionaryCanRemoveBuiltInEntriesAndAddNamedOnes() {
+        let suiteName = "WorkspaceTabColorSettingsTests.DictionaryPalette.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var palette = Dictionary(uniqueKeysWithValues: WorkspaceTabColorSettings.defaultPalette.map { ($0.name, $0.hex) })
+        palette.removeValue(forKey: "Red")
+        palette["Neon Mint"] = "#00F5D4"
+        WorkspaceTabColorSettings.persistPaletteMap(palette, defaults: defaults)
+
+        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
+        XCTAssertFalse(resolved.contains(where: { $0.name == "Red" }))
+        XCTAssertEqual(resolved.first?.name, "Crimson")
+        XCTAssertEqual(resolved.last?.name, "Neon Mint")
+        XCTAssertEqual(resolved.last?.hex, "#00F5D4")
+    }
+
+    func testLegacyKeysStillResolveIntoEffectivePalette() {
+        let suiteName = "WorkspaceTabColorSettingsTests.LegacyKeys.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
+
+        let resolved = WorkspaceTabColorSettings.palette(defaults: defaults)
         XCTAssertEqual(
-            WorkspaceTabColorSettings.customColors(defaults: defaults),
-            ["#00AA33", "#112233"]
+            resolved.first(where: { $0.name == "Blue" })?.hex,
+            "#010203"
+        )
+        XCTAssertEqual(
+            resolved.first(where: { $0.name == "Custom 1" })?.hex,
+            "#778899"
         )
     }
 
-    func testPaletteIncludesCustomEntriesAndResetClearsAll() {
+    func testResetClearsNewAndLegacyStorage() {
         let suiteName = "WorkspaceTabColorSettingsTests.Reset.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create isolated UserDefaults suite")
@@ -433,23 +1819,16 @@ final class WorkspaceTabColorSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let first = WorkspaceTabColorSettings.defaultPalette[0]
-        WorkspaceTabColorSettings.setDefaultColor(named: first.name, hex: "#334455", defaults: defaults)
-        _ = WorkspaceTabColorSettings.addCustomColor("#778899", defaults: defaults)
-
-        let paletteBeforeReset = WorkspaceTabColorSettings.palette(defaults: defaults)
-        XCTAssertEqual(paletteBeforeReset.count, WorkspaceTabColorSettings.defaultPalette.count + 1)
-        XCTAssertEqual(paletteBeforeReset[0].hex, "#334455")
-        XCTAssertEqual(paletteBeforeReset.last?.name, "Custom 1")
-        XCTAssertEqual(paletteBeforeReset.last?.hex, "#778899")
+        WorkspaceTabColorSettings.persistPaletteMap(["Neon Mint": "#00F5D4"], defaults: defaults)
+        defaults.set(["Blue": "#010203"], forKey: "workspaceTabColor.defaultOverrides")
+        defaults.set(["#778899"], forKey: "workspaceTabColor.customColors")
 
         WorkspaceTabColorSettings.reset(defaults: defaults)
 
-        XCTAssertEqual(WorkspaceTabColorSettings.customColors(defaults: defaults), [])
-        XCTAssertEqual(
-            WorkspaceTabColorSettings.defaultColorHex(named: first.name, defaults: defaults),
-            first.hex
-        )
+        XCTAssertNil(defaults.object(forKey: WorkspaceTabColorSettings.paletteKey))
+        XCTAssertNil(defaults.object(forKey: "workspaceTabColor.defaultOverrides"))
+        XCTAssertNil(defaults.object(forKey: "workspaceTabColor.customColors"))
+        XCTAssertEqual(WorkspaceTabColorSettings.palette(defaults: defaults), WorkspaceTabColorSettings.defaultPalette)
     }
 
     func testDisplayColorLightModeKeepsOriginalHex() {
@@ -792,6 +2171,48 @@ final class WorkspaceTeardownTests: XCTestCase {
 
 @MainActor
 final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
+    private func waitForCondition(
+        timeout: TimeInterval = 2,
+        pollInterval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(pollInterval))
+        }
+        return condition()
+    }
+
+    private func hostTerminalPanelInWindow(_ panel: TerminalPanel) throws -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 280),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        let contentView = try XCTUnwrap(window.contentView, "Expected content view")
+
+        let hostedView = panel.hostedView
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(
+            waitForCondition {
+                panel.surface.surface != nil
+            },
+            "Expected runtime surface to materialize after hosting panel in a window"
+        )
+        return window
+    }
+
     func testNewTerminalSplitFallsBackToRequestedWorkingDirectoryWhenReportedDirectoryIsStale() {
         let workspace = Workspace()
         guard let sourcePaneId = workspace.bonsplitController.focusedPaneId else {
@@ -835,6 +2256,72 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
             requestedDirectory,
             "Expected split to inherit the source terminal's requested cwd when no reported cwd exists yet"
         )
+    }
+
+    func testNewTerminalSplitSkipsFreedInheritedSurfacePointer() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId) else {
+            XCTFail("Expected focused terminal panel")
+            return
+        }
+
+        let window = try hostTerminalPanelInWindow(sourcePanel)
+        defer { window.orderOut(nil) }
+
+        XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
+
+        sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+
+        let splitPanel = workspace.newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: false
+        )
+
+        XCTAssertNotNil(splitPanel, "Expected split creation to survive a stale inherited surface pointer")
+        XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testNewTerminalSurfaceSkipsFreedInheritedSurfacePointer() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let sourcePanelId = workspace.focusedPanelId,
+              let sourcePanel = workspace.terminalPanel(for: sourcePanelId),
+              let sourcePaneId = workspace.paneId(forPanelId: sourcePanelId) else {
+            XCTFail("Expected focused terminal panel and pane")
+            return
+        }
+
+        let window = try hostTerminalPanelInWindow(sourcePanel)
+        defer { window.orderOut(nil) }
+
+        XCTAssertNotNil(sourcePanel.surface.surface, "Expected runtime surface before forcing stale pointer")
+
+        sourcePanel.surface.replaceSurfaceWithFreedPointerForTesting()
+        XCTAssertNotNil(
+            sourcePanel.surface.surface,
+            "Expected Swift wrapper to remain non-nil while simulating a stale native surface"
+        )
+
+        let createdPanel = workspace.newTerminalSurface(
+            inPane: sourcePaneId,
+            focus: false
+        )
+
+        XCTAssertNotNil(createdPanel, "Expected terminal creation to survive a stale inherited surface pointer")
+        XCTAssertNil(sourcePanel.surface.surface, "Expected stale surface pointer to be quarantined")
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 
@@ -988,6 +2475,65 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             rightPanel.hostedView.isSurfaceViewFirstResponder(),
             "Expected the clicked split pane to become first responder"
         )
+    }
+
+    func testClearSuppressReparentFocusReassertsGhosttyFocusForCurrentFirstResponder() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+        contentView.addSubview(leftPanel.hostedView)
+        contentView.addSubview(rightPanel.hostedView)
+
+        leftPanel.hostedView.setVisibleInUI(true)
+        rightPanel.hostedView.setVisibleInUI(true)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let leftSurfaceView = surfaceView(in: leftPanel.hostedView) else {
+            XCTFail("Expected left terminal surface view")
+            return
+        }
+
+        leftPanel.surface.setFocus(false)
+        rightPanel.surface.setFocus(true)
+        leftPanel.hostedView.suppressReparentFocus()
+
+        XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(
+            leftPanel.surface.debugDesiredFocusState(),
+            "Suppressed reparent focus should not immediately flip the Ghostty focus bit"
+        )
+
+        leftPanel.hostedView.clearSuppressReparentFocus()
+        let focusRecovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                leftPanel.surface.debugDesiredFocusState()
+            },
+            object: NSObject()
+        )
+        wait(for: [focusRecovered], timeout: 1.0)
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 
@@ -1689,6 +3235,133 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         let ordered = workspace.sidebarGitBranchesInDisplayOrder()
         XCTAssertEqual(ordered.map(\.branch), ["main", "feature/sidebar"])
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
+    }
+
+    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let baselinePublishCount = publishCount
+
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected the first focused branch update to publish workspace changes"
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+        )
+    }
+
+    func testUpdatingFocusedPanelPullRequestWithSameStateDoesNotRepublishWorkspace() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
+
+        var publishCount = 0
+        let cancellable = workspace.objectWillChange.sink { _ in
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2388,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+        let baselinePublishCount = publishCount
+
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected the first focused pull request update to publish workspace changes"
+        )
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2388,
+            label: "PR",
+            url: pullRequestURL,
+            status: .open,
+            branch: "feature/sidebar-pr"
+        )
+
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
+        )
+    }
+
+    func testSidebarObservationPublisherEmitsForFocusedGitBranchChangesOnlyOncePerState() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial focused panel")
+            return
+        }
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        let baselinePublishCount = publishCount
+        XCTAssertGreaterThan(
+            baselinePublishCount,
+            0,
+            "Expected focused git branch updates to invalidate sidebar rows"
+        )
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
+        XCTAssertEqual(
+            publishCount,
+            baselinePublishCount,
+            "Expected identical git metadata refreshes to be ignored by sidebar rows"
+        )
+    }
+
+    func testSidebarObservationPublisherIgnoresRemoteHeartbeatOnlyChanges() {
+        let workspace = Workspace()
+
+        var publishCount = 0
+        let cancellable = workspace.sidebarObservationPublisher.sink {
+            publishCount += 1
+        }
+        defer { cancellable.cancel() }
+
+        workspace.remoteHeartbeatCount = 1
+        workspace.remoteLastHeartbeatAt = Date()
+
+        XCTAssertEqual(
+            publishCount,
+            0,
+            "Expected non-visible remote heartbeat updates to avoid invalidating sidebar rows"
+        )
     }
 
     @MainActor

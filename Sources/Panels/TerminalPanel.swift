@@ -90,7 +90,7 @@ final class TerminalPanel: Panel, ObservableObject {
     convenience init(
         workspaceId: UUID,
         context: ghostty_surface_context_e = GHOSTTY_SURFACE_CONTEXT_SPLIT,
-        configTemplate: ghostty_surface_config_s? = nil,
+        configTemplate: CmuxSurfaceConfigTemplate? = nil,
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
         initialCommand: String? = nil,
@@ -189,6 +189,10 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func sendText(_ text: String) {
         surface.sendText(text)
+    }
+
+    func sendInput(_ text: String) {
+        surface.sendInput(text)
     }
 
     func performBindingAction(_ action: String) -> Bool {

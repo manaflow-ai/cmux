@@ -44,6 +44,12 @@ struct TmuxOverlayExperimentSettings {
     }
 }
 
+private enum WorkspaceTitlebarInteractionMetrics {
+    // Keep in sync with Bonsplit's tab bar height so the monitor only covers
+    // the minimal-mode titlebar strip.
+    static let minimalModeTopStripHeight: CGFloat = 30
+}
+
 struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
     let paneId: String
     let left: Int
@@ -219,6 +225,7 @@ struct WorkspaceContentView: View {
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
+    let isFullScreen: Bool
     let workspacePortalPriority: Int
     let onThemeRefreshRequest: ((
         _ reason: String,
@@ -256,6 +263,7 @@ struct WorkspaceContentView: View {
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
         let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
+
 
         // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
         // Finder file drops to the correct terminal panel.
@@ -370,7 +378,7 @@ struct WorkspaceContentView: View {
         }
 
         Group {
-            if isMinimalMode {
+            if isMinimalMode && !isFullScreen {
                 bonsplitView
                     .ignoresSafeArea(.container, edges: .top)
             } else {
@@ -707,8 +715,7 @@ extension WorkspaceContentView {
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
-    @AppStorage(KeyboardShortcutSettings.Action.newSurface.defaultsKey) private var newSurfaceShortcutData = Data()
-    @AppStorage(KeyboardShortcutSettings.Action.openBrowser.defaultsKey) private var openBrowserShortcutData = Data()
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     private struct ShortcutHint: View {
         let text: String
@@ -744,19 +751,13 @@ struct EmptyPanelView: View {
     }
 
     private var newSurfaceShortcut: StoredShortcut {
-        decodeShortcut(from: newSurfaceShortcutData, fallback: KeyboardShortcutSettings.Action.newSurface.defaultShortcut)
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .newSurface)
     }
 
     private var openBrowserShortcut: StoredShortcut {
-        decodeShortcut(from: openBrowserShortcutData, fallback: KeyboardShortcutSettings.Action.openBrowser.defaultShortcut)
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .openBrowser)
     }
 
     @ViewBuilder

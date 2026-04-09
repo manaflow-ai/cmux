@@ -7,6 +7,11 @@ import XCTest
 #endif
 
 final class SessionPersistenceTests: XCTestCase {
+    private struct LegacyPersistedWindowGeometry: Codable {
+        let frame: SessionRectSnapshot
+        let display: SessionDisplaySnapshot?
+    }
+
     @MainActor
     func testWorkspaceSessionSnapshotRestoresMarkdownPanel() throws {
         let root = FileManager.default.temporaryDirectory
@@ -39,6 +44,32 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredPanel.filePath, markdownURL.path)
         XCTAssertEqual(restored.customTitle, "Docs")
         XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
+    }
+
+    @MainActor
+    func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64001,
+            relayID: "relay-test",
+            relayToken: String(repeating: "c", count: 64),
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.surfaceListeningPorts[panelId] = [6969]
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+
+        XCTAssertTrue(panelSnapshot.listeningPorts.isEmpty)
     }
 
     func testSaveAndLoadRoundTripWithCustomSnapshotPath() throws {
@@ -641,6 +672,55 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.height, 700, accuracy: 0.001)
     }
 
+    func testDecodedPersistedWindowGeometryDataAcceptsCurrentSchema() throws {
+        let data = try JSONEncoder().encode(
+            AppDelegate.PersistedWindowGeometry(
+                version: AppDelegate.persistedWindowGeometrySchemaVersion,
+                frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
+                display: SessionDisplaySnapshot(
+                    displayID: 1,
+                    frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+                    visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+                )
+            )
+        )
+
+        let decoded = try XCTUnwrap(AppDelegate.decodedPersistedWindowGeometryData(data))
+        XCTAssertEqual(decoded.version, AppDelegate.persistedWindowGeometrySchemaVersion)
+        XCTAssertEqual(decoded.frame.x, 220, accuracy: 0.001)
+        XCTAssertEqual(decoded.frame.y, 160, accuracy: 0.001)
+        XCTAssertEqual(decoded.frame.width, 980, accuracy: 0.001)
+        XCTAssertEqual(decoded.frame.height, 700, accuracy: 0.001)
+        XCTAssertEqual(decoded.display?.displayID, 1)
+    }
+
+    func testDecodedPersistedWindowGeometryDataRejectsLegacyUnversionedPayload() throws {
+        let data = try JSONEncoder().encode(
+            LegacyPersistedWindowGeometry(
+                frame: SessionRectSnapshot(x: 180, y: 140, width: 900, height: 640),
+                display: SessionDisplaySnapshot(
+                    displayID: 1,
+                    frame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000),
+                    visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 1_600, height: 1_000)
+                )
+            )
+        )
+
+        XCTAssertNil(AppDelegate.decodedPersistedWindowGeometryData(data))
+    }
+
+    func testDecodedPersistedWindowGeometryDataRejectsDifferentSchemaVersion() throws {
+        let data = try JSONEncoder().encode(
+            AppDelegate.PersistedWindowGeometry(
+                version: AppDelegate.persistedWindowGeometrySchemaVersion + 1,
+                frame: SessionRectSnapshot(x: 220, y: 160, width: 980, height: 700),
+                display: nil
+            )
+        )
+
+        XCTAssertNil(AppDelegate.decodedPersistedWindowGeometryData(data))
+    }
+
     func testResolvedWindowFrameCentersInFallbackDisplayWhenOffscreen() {
         let savedFrame = SessionRectSnapshot(x: 4_000, y: 4_000, width: 900, height: 700)
         let display = AppDelegate.SessionDisplayGeometry(
@@ -691,6 +771,34 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restored.minY, -90, accuracy: 0.001)
         XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
         XCTAssertEqual(restored.height, 1_410, accuracy: 0.001)
+    }
+
+    func testResolvedWindowFramePreservesExactGeometryWhenDisplayChangesButWindowRemainsAccessible() {
+        let savedFrame = SessionRectSnapshot(x: 1_100, y: -20, width: 1_280, height: 1_000)
+        let savedDisplay = SessionDisplaySnapshot(
+            displayID: 2,
+            frame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: SessionRectSnapshot(x: 0, y: 0, width: 2_560, height: 1_410)
+        )
+        let adjustedDisplay = AppDelegate.SessionDisplayGeometry(
+            displayID: 2,
+            frame: CGRect(x: 0, y: 0, width: 2_560, height: 1_440),
+            visibleFrame: CGRect(x: 0, y: 40, width: 2_560, height: 1_360)
+        )
+
+        let restored = AppDelegate.resolvedWindowFrame(
+            from: savedFrame,
+            display: savedDisplay,
+            availableDisplays: [adjustedDisplay],
+            fallbackDisplay: adjustedDisplay
+        )
+
+        XCTAssertNotNil(restored)
+        guard let restored else { return }
+        XCTAssertEqual(restored.minX, 1_100, accuracy: 0.001)
+        XCTAssertEqual(restored.minY, -20, accuracy: 0.001)
+        XCTAssertEqual(restored.width, 1_280, accuracy: 0.001)
+        XCTAssertEqual(restored.height, 1_000, accuracy: 0.001)
     }
 
     func testResolvedWindowFrameClampsWhenDisplayGeometryChangesEvenWithSameDisplayID() {
