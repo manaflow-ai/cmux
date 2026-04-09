@@ -50,3 +50,6 @@ tmp-*/
 
 # Superpowers brainstorm scratch (visual companion mockups, transient state)
 .superpowers/
+
+# Git worktrees (isolated per-feature workspaces)
+.worktrees/
