@@ -3199,6 +3199,10 @@ struct ContentView: View {
             openCommandPaletteSwitcher()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
+            invalidateCommandPaletteShortcutState()
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
             guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
@@ -6117,13 +6121,19 @@ struct ContentView: View {
         for contribution: CommandPaletteCommandContribution,
         context: CommandPaletteContextSnapshot
     ) -> String? {
-        // Preserve browser reload semantics for Cmd+R when a browser tab is focused.
+        // When reload and rename intentionally share a binding, prefer showing the
+        // browser-focused reload hint instead of a duplicate rename entry.
         if contribution.commandId == "palette.renameTab",
            context.bool(CommandPaletteContextKeys.panelIsBrowser) {
-            return nil
+            let renameTabShortcut = KeyboardShortcutSettings.shortcut(for: .renameTab)
+            let browserReloadShortcut = KeyboardShortcutSettings.shortcut(for: .browserReload)
+            if renameTabShortcut.conflicts(with: browserReloadShortcut) {
+                return nil
+            }
         }
         if let action = commandPaletteShortcutAction(for: contribution.commandId) {
-            return KeyboardShortcutSettings.shortcut(for: action).displayString
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+            return shortcut.isDisabled ? nil : action.displayedShortcutString(for: shortcut)
         }
         if let staticShortcut = commandPaletteStaticShortcutHint(for: contribution.commandId) {
             return staticShortcut
@@ -6165,6 +6175,8 @@ struct ContentView: View {
             return .nextSurface
         case "palette.previousTabInPane":
             return .prevSurface
+        case "palette.browserReload":
+            return .browserReload
         case "palette.browserToggleDevTools":
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":
@@ -8005,6 +8017,24 @@ struct ContentView: View {
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         resetCommandPaletteSearchFocus()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    private func invalidateCommandPaletteShortcutState() {
+        commandPaletteSearchCorpus = []
+        commandPaletteSearchCorpusByID = [:]
+        commandPaletteSearchCommandsByID = [:]
+        cachedCommandPaletteResults = []
+        commandPaletteVisibleResults = []
+        commandPaletteVisibleResultsScope = nil
+        commandPaletteVisibleResultsFingerprint = nil
+        cachedCommandPaletteScope = nil
+        cachedCommandPaletteFingerprint = nil
+        commandPaletteResolvedSearchFingerprint = nil
+        commandPaletteResultsRevision &+= 1
+
+        guard isCommandPalettePresented else { return }
+        scheduleCommandPaletteResultsRefresh(forceSearchCorpusRefresh: true)
         syncCommandPaletteDebugStateForObservedWindow()
     }
 

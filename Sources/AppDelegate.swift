@@ -11170,9 +11170,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        let renameTabShortcut = KeyboardShortcutSettings.shortcut(for: .renameTab)
+        let browserReloadShortcut = KeyboardShortcutSettings.shortcut(for: .browserReload)
         if matchConfiguredShortcut(event: event, action: .renameTab) {
-            // Keep Cmd+R browser reload behavior when a browser panel is focused.
-            if tabManager?.focusedBrowserPanel != nil {
+            // When users intentionally bind both actions to the same shortcut, let the
+            // focused browser keep reload precedence and leave rename available elsewhere.
+            if focusedBrowserNavigationTarget(for: event) != nil,
+               renameTabShortcut.conflicts(with: browserReloadShortcut),
+               matchConfiguredShortcut(event: event, action: .browserReload) {
                 return false
             }
             let targetWindow = commandPaletteTargetWindow ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -11180,10 +11185,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        var shouldSwallowDisabledWorkspaceDigitShortcut = false
+        var shouldSwallowDisabledSurfaceDigitShortcut = false
+
         // Numeric shortcuts for specific workspaces (9 = last workspace)
-        // Always consume the event when the digit matches to prevent Ghostty's
-        // goto_tab fallback from creating a new window when the index is out of bounds.
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+        // If the shortcut is disabled, remember the match and keep routing so any
+        // later custom shortcut on the same combo can still win before we swallow
+        // the event to block Ghostty's goto_tab fallback.
+        switch numberedConfiguredShortcutMatch(event: event, action: .selectWorkspaceByNumber) {
+        case .digit(let digit):
             if let manager = tabManager,
                let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: digit, workspaceCount: manager.tabs.count) {
 #if DEBUG
@@ -11194,16 +11204,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 manager.selectTab(at: targetIndex)
             }
             return true
+        case .disabledMatch:
+            shouldSwallowDisabledWorkspaceDigitShortcut = true
+        case .noMatch:
+            break
         }
 
         // Numeric shortcuts for surfaces within the focused pane (9 = last)
-        if let digit = numberedConfiguredShortcutDigit(event: event, action: .selectSurfaceByNumber) {
+        switch numberedConfiguredShortcutMatch(event: event, action: .selectSurfaceByNumber) {
+        case .digit(let digit):
             if digit == 9 {
                 tabManager?.selectLastSurface()
             } else {
                 tabManager?.selectSurface(at: digit - 1)
             }
             return true
+        case .disabledMatch:
+            shouldSwallowDisabledSurfaceDigitShortcut = true
+        case .noMatch:
+            break
         }
 
         // Pane focus navigation (defaults to Cmd+Option+Arrow, but can be customized to letter/number keys).
@@ -11348,26 +11367,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.goBack()
+            focusedBrowserTarget.goBack()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserForward) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.goForward()
+            focusedBrowserTarget.goForward()
             return true
         }
 
         if matchConfiguredShortcut(event: event, action: .browserReload) {
-            guard let focusedBrowserPanel = tabManager?.focusedBrowserPanel else {
+            guard let focusedBrowserTarget = focusedBrowserNavigationTarget(for: event) else {
                 return false
             }
-            focusedBrowserPanel.reload()
+            focusedBrowserTarget.reload()
             return true
         }
 
@@ -11461,6 +11480,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .reopenClosedBrowserPanel) {
             _ = tabManager?.reopenMostRecentlyClosedBrowserPanel()
+            return true
+        }
+
+        if shouldSwallowDisabledWorkspaceDigitShortcut || shouldSwallowDisabledSurfaceDigitShortcut {
             return true
         }
 
@@ -11566,6 +11589,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return components.string ?? "<redacted>"
     }
 #endif
+
+    private enum FocusedBrowserNavigationTarget {
+        case panel(BrowserPanel)
+        case popup(CmuxWebView)
+
+        func goBack() {
+            switch self {
+            case .panel(let panel):
+                panel.goBack()
+            case .popup(let webView):
+                webView.goBack()
+            }
+        }
+
+        func goForward() {
+            switch self {
+            case .panel(let panel):
+                panel.goForward()
+            case .popup(let webView):
+                webView.goForward()
+            }
+        }
+
+        func reload() {
+            switch self {
+            case .panel(let panel):
+                panel.reload()
+            case .popup(let webView):
+                webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+                webView.reload()
+            }
+        }
+    }
+
+    private func focusedBrowserNavigationTarget(for event: NSEvent) -> FocusedBrowserNavigationTarget? {
+        if let popupWebView = focusedPopupBrowserWebView(for: event) {
+            return .popup(popupWebView)
+        }
+        if let focusedPanel = tabManager?.focusedBrowserPanel {
+            return .panel(focusedPanel)
+        }
+        return nil
+    }
+
+    private func focusedPopupBrowserWebView(for event: NSEvent) -> CmuxWebView? {
+        var seenWindowNumbers = Set<Int>()
+        for window in [event.window, NSApp.keyWindow, NSApp.mainWindow].compactMap({ $0 }) {
+            guard seenWindowNumbers.insert(window.windowNumber).inserted else { continue }
+            guard window.identifier?.rawValue == "cmux.browser-popup" else { continue }
+
+            if let firstResponder = window.firstResponder,
+               let webView = NSWindow.cmuxOwningWebView(for: firstResponder, in: window, event: event) {
+                return webView
+            }
+
+            if let contentView = window.contentView,
+               let webView = NSWindow.cmuxUniqueBrowserWebView(in: contentView) {
+                return webView
+            }
+        }
+        return nil
+    }
 
     @discardableResult
     private func focusBrowserAddressBar(panelId: UUID) -> Bool {
@@ -12276,6 +12361,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         return false
+    }
+
+    private enum NumberedConfiguredShortcutMatch {
+        case noMatch
+        case disabledMatch
+        case digit(Int)
+    }
+
+    private func numberedConfiguredShortcutMatch(
+        event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> NumberedConfiguredShortcutMatch {
+        if let digit = numberedConfiguredShortcutDigit(event: event, action: action) {
+            return .digit(digit)
+        }
+
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
+        let disabledFallback = action.defaultShortcut
+        if shortcut.isDisabled,
+           let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent,
+           let secondStroke = disabledFallback.secondStroke,
+           disabledFallback.firstStroke == prefix,
+           numberedShortcutDigit(event: event, stroke: secondStroke) != nil {
+            return .disabledMatch
+        }
+
+        if shortcut.isDisabled,
+           !disabledFallback.hasChord,
+           numberedShortcutDigit(event: event, stroke: disabledFallback.firstStroke) != nil {
+            return .disabledMatch
+        }
+
+        return .noMatch
+    }
+
+    fileprivate func shouldSuppressBrowserDefaultReloadCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard isDefaultBrowserReloadCommandEquivalent(event) else {
+            return false
+        }
+
+        let configuredReloadShortcut = KeyboardShortcutSettings.shortcut(for: .browserReload)
+        guard !matchShortcut(event: event, shortcut: configuredReloadShortcut) else {
+            return false
+        }
+
+        return true
     }
 
     /// Match a shortcut stroke against an event, handling normal keys.
@@ -13903,6 +14034,21 @@ private extension AppDelegate {
     }
 }
 
+private func isDefaultBrowserReloadCommandEquivalent(
+    _ event: NSEvent,
+    layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+) -> Bool {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    guard flags == [.command] else { return false }
+
+    if event.charactersIgnoringModifiers?.lowercased() == "r" {
+        return true
+    }
+
+    return layoutCharacterProvider(event.keyCode, event.modifierFlags)?.lowercased() == "r"
+}
+
 private extension NSWindow {
     @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if cmuxIsWindowFirstResponderBypassActive() {
@@ -14255,6 +14401,14 @@ private extension NSWindow {
         if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             dlog("  → consumed by handleBrowserSurfaceKeyEquivalent")
+#endif
+            return true
+        }
+
+        if firstResponderWebView != nil,
+           AppDelegate.shared?.shouldSuppressBrowserDefaultReloadCommandEquivalent(event) == true {
+#if DEBUG
+            dlog("  → suppressed stale browser reload command equivalent")
 #endif
             return true
         }

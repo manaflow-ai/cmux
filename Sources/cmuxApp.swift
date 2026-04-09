@@ -695,6 +695,7 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.view.reloadPage", defaultValue: "Reload Page"), shortcut: menuShortcut(for: .browserReload)) {
                     activeTabManager.focusedBrowserPanel?.reload()
                 }
+                .disabled(activeTabManager.focusedBrowserPanel == nil)
 
                 splitCommandButton(title: String(localized: "menu.view.toggleDevTools", defaultValue: "Toggle Developer Tools"), shortcut: menuShortcut(for: .toggleBrowserDeveloperTools)) {
                     let manager = activeTabManager
@@ -782,25 +783,15 @@ struct cmuxApp: App {
 
                 // Numbered workspace selection (9 = last workspace)
                 ForEach(1...9, id: \.self) { number in
-                    let selectWorkspaceByNumberShortcut = menuShortcut(for: .selectWorkspaceByNumber)
-                    if selectWorkspaceByNumberShortcut.hasChord {
-                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                            let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
-                            }
+                    numberedCommandButton(
+                        title: String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)"),
+                        number: number,
+                        shortcut: menuShortcut(for: .selectWorkspaceByNumber)
+                    ) {
+                        let manager = activeTabManager
+                        if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
+                            manager.selectTab(at: targetIndex)
                         }
-                    } else {
-                        Button(String(localized: "menu.view.workspace", defaultValue: "Workspace \(number)")) {
-                            let manager = activeTabManager
-                            if let targetIndex = WorkspaceShortcutMapper.workspaceIndex(forDigit: number, workspaceCount: manager.tabs.count) {
-                                manager.selectTab(at: targetIndex)
-                            }
-                        }
-                        .keyboardShortcut(
-                            KeyEquivalent(Character("\(number)")),
-                            modifiers: selectWorkspaceByNumberShortcut.eventModifiers
-                        )
                     }
                 }
 
@@ -1102,6 +1093,24 @@ struct cmuxApp: App {
                 .keyboardShortcut(key, modifiers: shortcut.eventModifiers)
         } else {
             Button(title, action: action)
+        }
+    }
+
+    @ViewBuilder
+    private func numberedCommandButton(
+        title: String,
+        number: Int,
+        shortcut: StoredShortcut,
+        action: @escaping () -> Void
+    ) -> some View {
+        if shortcut.isDisabled || shortcut.hasChord {
+            Button(title, action: action)
+        } else {
+            Button(title, action: action)
+                .keyboardShortcut(
+                    KeyEquivalent(Character("\(number)")),
+                    modifiers: shortcut.eventModifiers
+                )
         }
     }
 
@@ -5950,7 +5959,12 @@ struct SettingsView: View {
                     }
                     .id(shortcutResetToken)
 
-                    Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record a new shortcut."))
+                    Text(
+                        String(
+                            localized: "settings.shortcuts.recordHint",
+                            defaultValue: "Click a shortcut value to record. Press Delete to clear it, press a second key for a chord, or click again to keep the first key."
+                        )
+                    )
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .padding(.leading, 2)

@@ -63519,13 +63519,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Click a shortcut value to record. Press a second key for a chord, or click again to keep the first key."
+            "value": "Click a shortcut value to record. Press Delete to clear it, press a second key for a chord, or click again to keep the first key."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ショートカット値をクリックして記録します。コードにするには続けて2つ目のキーを押し、1キーのままにするにはもう一度クリックします。"
+            "value": "ショートカット値をクリックして記録します。Delete キーで解除、続けて2つ目のキーでコード、もう一度クリックで1キーのまま確定します。"
           }
         },
         "zh-Hans": {
@@ -68213,6 +68213,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Вибрати робочу область 1…9"
+          }
+        }
+      }
+    },
+    "shortcut.browserReload.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページを再読み込み"
           }
         }
       }

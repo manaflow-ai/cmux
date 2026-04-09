@@ -189,7 +189,7 @@ enum KeyboardShortcutSettings {
             case .prevSidebarTab:
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: true)
             case .renameTab:
-                return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
+                return StoredShortcut(key: "r", command: true, shift: false, option: true, control: false)
             case .renameWorkspace:
                 return StoredShortcut(key: "r", command: true, shift: true, option: false, control: false)
             case .editWorkspaceDescription:
@@ -283,6 +283,9 @@ enum KeyboardShortcutSettings {
         }
 
         func displayedShortcutString(for shortcut: StoredShortcut) -> String {
+            if shortcut.isDisabled {
+                return shortcut.displayString
+            }
             if usesNumberedDigitMatching {
                 return shortcut.numberedDisplayString
             }
@@ -290,6 +293,7 @@ enum KeyboardShortcutSettings {
         }
 
         func normalizedRecordedShortcut(_ shortcut: StoredShortcut) -> StoredShortcut? {
+            guard !shortcut.isDisabled else { return shortcut }
             switch self {
             case .showHideAllWindows:
                 return KeyboardShortcutSettings.normalizedSystemWideHotkeyShortcut(shortcut)
@@ -861,7 +865,7 @@ struct ShortcutStroke: Equatable {
     }
 
     var displayString: String {
-        modifierDisplayString + keyDisplayString
+        return modifierDisplayString + keyDisplayString
     }
 
     var modifierDisplayString: String {
@@ -874,6 +878,9 @@ struct ShortcutStroke: Equatable {
     }
 
     var keyDisplayString: String {
+        if isDisabled {
+            return String(localized: "settings.material.none", defaultValue: "None")
+        }
         switch key {
         case "\t":
             return String(localized: "shortcut.key.tab", defaultValue: "Tab")
@@ -898,6 +905,7 @@ struct ShortcutStroke: Equatable {
     }
 
     var keyEquivalent: KeyEquivalent? {
+        guard !isDisabled else { return nil }
         switch key {
         case "←":
             return .leftArrow
@@ -935,7 +943,14 @@ struct ShortcutStroke: Equatable {
         return modifiers
     }
 
+    func conflicts(with other: StoredShortcut) -> Bool {
+        guard !isDisabled, !other.isDisabled else { return false }
+        return key.lowercased() == other.key.lowercased()
+            && modifierFlags == other.modifierFlags
+    }
+
     var menuItemKeyEquivalent: String? {
+        guard !isDisabled else { return nil }
         switch key {
         case "←":
             guard let scalar = UnicodeScalar(NSLeftArrowFunctionKey) else { return nil }
@@ -1012,7 +1027,8 @@ struct ShortcutStroke: Equatable {
         event: NSEvent,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        matches(
+        guard !isDisabled else { return false }
+        return matches(
             keyCode: event.keyCode,
             modifierFlags: event.modifierFlags,
             eventCharacter: event.charactersIgnoringModifiers,
@@ -1026,6 +1042,7 @@ struct ShortcutStroke: Equatable {
         eventCharacter: String?,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
+        guard !isDisabled else { return false }
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
         guard flags == self.modifierFlags else { return false }
 
@@ -1271,6 +1288,10 @@ struct ShortcutStroke: Equatable {
         return modifiers
     }
 
+    var isDisabled: Bool {
+        key.isEmpty && !command && !shift && !option && !control
+    }
+
     func resolvedKeyCode(
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> UInt16? {
@@ -1298,6 +1319,7 @@ struct ShortcutStroke: Equatable {
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
+        guard !isDisabled else { return nil }
         guard let keyCode = resolvedKeyCode() else { return nil }
         return CarbonHotKeyRegistration(keyCode: UInt32(keyCode), modifiers: carbonModifiers)
     }
@@ -1403,6 +1425,12 @@ struct StoredShortcut: Codable, Equatable {
         )
     }
 
+    static let disabled = StoredShortcut(key: "", command: false, shift: false, option: false, control: false)
+
+    var isDisabled: Bool {
+        !hasChord && firstStroke.isDisabled
+    }
+
     var firstStroke: ShortcutStroke {
         ShortcutStroke(
             key: key,
@@ -1481,6 +1509,28 @@ struct StoredShortcut: Codable, Equatable {
         return firstStroke.menuItemKeyEquivalent
     }
 
+    func conflicts(with other: StoredShortcut) -> Bool {
+        guard !isDisabled, !other.isDisabled else { return false }
+
+        let firstStrokeConflicts =
+            firstStroke.key.lowercased() == other.firstStroke.key.lowercased()
+            && firstStroke.modifierFlags == other.firstStroke.modifierFlags
+        guard firstStrokeConflicts else { return false }
+
+        switch (secondStroke, other.secondStroke) {
+        case (nil, nil):
+            return true
+        case (nil, _), (_, nil):
+            // Chord arming consumes the shared first stroke before single-stroke
+            // matching runs, so a single shortcut collides with any chord that
+            // starts the same way.
+            return true
+        case let (lhsSecond?, rhsSecond?):
+            return lhsSecond.key.lowercased() == rhsSecond.key.lowercased()
+                && lhsSecond.modifierFlags == rhsSecond.modifierFlags
+        }
+    }
+
     static func from(event: NSEvent) -> StoredShortcut? {
         guard let stroke = ShortcutStroke.from(event: event) else { return nil }
         return StoredShortcut(first: stroke)
@@ -1490,7 +1540,7 @@ struct StoredShortcut: Codable, Equatable {
         event: NSEvent,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        guard !hasChord else { return false }
+        guard !isDisabled, !hasChord else { return false }
         return firstStroke.matches(event: event, layoutCharacterProvider: layoutCharacterProvider)
     }
 
@@ -1500,7 +1550,7 @@ struct StoredShortcut: Codable, Equatable {
         eventCharacter: String?,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
-        guard !hasChord else { return false }
+        guard !isDisabled, !hasChord else { return false }
         return firstStroke.matches(
             keyCode: keyCode,
             modifierFlags: modifierFlags,
@@ -1510,7 +1560,7 @@ struct StoredShortcut: Codable, Equatable {
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
-        guard !hasChord else { return nil }
+        guard !isDisabled, !hasChord else { return nil }
         return firstStroke.carbonHotKeyRegistration
     }
 }
@@ -1685,6 +1735,13 @@ final class ShortcutRecorderNSButton: NSButton {
             guard let self = self else { return event }
 
             if ShortcutStroke.isEscapeCancelEvent(event) {
+                self.stopRecording()
+                return nil
+            }
+
+            if event.keyCode == 51 || event.keyCode == 117 { // Delete / Forward Delete
+                self.shortcut = .disabled
+                self.onShortcutRecorded?(.disabled)
                 self.stopRecording()
                 return nil
             }

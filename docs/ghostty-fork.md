@@ -13,9 +13,9 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 Fork rebased onto upstream `main` at `3509ccf78` (`v1.3.1-457-g3509ccf78`) on March 30, 2026.
-Current cmux pinned fork head: `ae3cc5d29` (`v1.3.1-473-gae3cc5d29`).
-Fork `main` keeps this pin reachable via merge commit `5c781d710`
-(`Retain layer-background pin ancestry on main`).
+Current cmux parent-repo pin: `3b684a085` (`xcframework-3b684a085d40ec79e8a0ae863a4f2b48ed4dba74-0-g3b684a085`).
+The refreshed fork history still keeps the local layer-background restore commit `ae3cc5d29`
+reachable on `origin/main`.
 
 ### 1) macOS display link restart on display changes
 
@@ -108,7 +108,7 @@ tend to conflict together during rebases.
   - `src/renderer/generic.zig`
 - Summary:
   - Adds a `macos-background-from-layer` bool config (default false).
-  - When true, sets `bg_color[3] = 0` in the per-frame uniform update so the Metal renderer skips the full-screen background fill.
+  - When true and no background image is active, sets `bg_color[3] = 0` in the per-frame uniform update so the Metal renderer skips the full-screen background fill.
   - Allows the host app to provide the terminal background via `CALayer.backgroundColor` for instant coverage during view resizes, avoiding alpha double-stacking.
   - Replays the layer-background restore on top of the refreshed Ghostty base so cmux keeps the resize-coverage fix after the upstream sync.
 
@@ -136,6 +136,9 @@ The fork branch HEAD is now the section 7 layer-background restore commit.
 
 These files change frequently upstream; be careful when rebasing the fork:
 
+- April 9, 2026:
+  - Merging `issue-1708-cmd-r-reload-passthrough` into the refreshed fork history kept the parent repo on `origin/main`'s newer `ghostty` pin (`3b684a085`) and dropped the older branch-local `77e68c9b5` pin from the pre-refresh lineage.
+
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep
     the newer `capture`/`captureTrailing()` API usage intact.
@@ -158,8 +161,9 @@ These files change frequently upstream; be careful when rebasing the fork:
 
 - `src/renderer/generic.zig`
   - The `macos-background-from-layer` check sits next to the glass-style check in `updateFrame`.
-    If upstream refactors the bg_color uniform update or the glass conditional, re-check that both
-    paths still zero out `bg_color[3]` correctly.
+    If upstream refactors the bg_color uniform update, the glass conditional, or the background draw
+    pass ordering, re-check that both paths still zero out `bg_color[3]` correctly without skipping
+    Ghostty-managed background images.
 
 - `src/Surface.zig`, `src/apprt/embedded.zig`, `macos/Sources/Ghostty/Surface View/SurfaceView.swift`
   - The initial `focused` plumbing has to stay aligned across the C config, embedded runtime surface,
