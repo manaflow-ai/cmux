@@ -4494,7 +4494,10 @@ struct CMUXCLI {
     ) -> String {
         var lines = remoteBootstrapTTYCaptureLines(remoteRelayPort: remoteRelayPort, includeRelayRPC: true)
         lines.append("/bin/sh \"$HOME/.cmux/relay/\(remoteRelayPort).bootstrap.sh\"")
-        return lines.joined(separator: "\n")
+        let script = lines.joined(separator: "\n")
+        // Wrap in /bin/sh -c so RemoteCommand works when the remote user's
+        // login shell is non-POSIX (e.g. Fish).
+        return "/bin/sh -c " + shellQuote(script)
     }
 
     private func remoteBootstrapInstallShell(remoteRelayPort: Int) -> String {
@@ -4522,7 +4525,10 @@ struct CMUXCLI {
             "rm -f \"$cmux_tmp\"",
             "exit $cmux_status",
         ]
-        return lines.joined(separator: "\n")
+        let script = lines.joined(separator: "\n")
+        // Wrap in /bin/sh -c so RemoteCommand works when the remote user's
+        // login shell is non-POSIX (e.g. Fish).
+        return "/bin/sh -c " + shellQuote(script)
     }
 
     private func remoteBootstrapTTYCaptureLines(
@@ -4950,7 +4956,10 @@ struct CMUXCLI {
             "rm -f \"$cmux_tmp\"",
             "exit $cmux_status",
         ]
-        return lines.joined(separator: "\n")
+        let script = lines.joined(separator: "\n")
+        // Wrap in /bin/sh -c so RemoteCommand works when the remote user's
+        // login shell is non-POSIX (e.g. Fish).
+        return "/bin/sh -c " + shellQuote(script)
     }
 
     func sshPercentEscapedRemoteCommand(_ remoteCommand: String) -> String {
