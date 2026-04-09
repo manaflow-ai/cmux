@@ -669,10 +669,13 @@ extension Workspace {
 
             // Inject Claude Code session resume for the targeted panel. Falls
             // back to the first terminal panel when no specific target is set.
-            if let pending = pendingClaudeSessionRestore,
-               pending.targetPanelId == nil || pending.targetPanelId == snapshot.id {
-                replayEnvironment["CMUX_RESTORE_CLAUDE_SESSION"] = pending.sessionId
-                pendingClaudeSessionRestore = nil
+            // Clear the pending token only after the terminal is created
+            // successfully so a failed surface doesn't swallow the restore.
+            let matchedClaudeRestore = pendingClaudeSessionRestore.flatMap { pending in
+                (pending.targetPanelId == nil || pending.targetPanelId == snapshot.id) ? pending : nil
+            }
+            if let matchedClaudeRestore {
+                replayEnvironment["CMUX_RESTORE_CLAUDE_SESSION"] = matchedClaudeRestore.sessionId
             }
 
             guard let terminalPanel = newTerminalSurface(
@@ -682,6 +685,9 @@ extension Workspace {
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
+            }
+            if matchedClaudeRestore != nil {
+                pendingClaudeSessionRestore = nil
             }
             let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
             if let fallbackScrollback {

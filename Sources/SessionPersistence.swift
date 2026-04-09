@@ -492,6 +492,8 @@ enum SessionScrollbackReplayStore {
 /// for a given workspace. The store is maintained by the CLI at
 /// `~/.cmuxterm/claude-hook-sessions.json`.
 enum SessionClaudeSessionStore {
+    private static let supportedStoreVersion = 1
+
     private struct StoreFile: Codable {
         var version: Int
         var sessions: [String: SessionRecord]
@@ -521,6 +523,7 @@ enum SessionClaudeSessionStore {
     static func sessionId(forWorkspaceId workspaceId: String, storeURL: URL) -> String? {
         guard let data = try? Data(contentsOf: storeURL) else { return nil }
         guard let store = try? JSONDecoder().decode(StoreFile.self, from: data) else { return nil }
+        guard store.version == supportedStoreVersion else { return nil }
 
         return store.sessions.values
             .filter { $0.workspaceId == workspaceId }
