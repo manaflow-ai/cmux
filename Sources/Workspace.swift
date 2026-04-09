@@ -6482,6 +6482,10 @@ struct ClosedBrowserPanelRestoreSnapshot {
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor
 final class Workspace: Identifiable, ObservableObject {
+    static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
+        "cmux.workspaceTerminalScrollBarHiddenDidChange"
+    )
+
     let id: UUID
     @Published var title: String
     @Published var customTitle: String?
@@ -7528,6 +7532,10 @@ final class Workspace: Identifiable, ObservableObject {
     func setTerminalScrollBarHidden(_ hidden: Bool) {
         guard terminalScrollBarHidden != hidden else { return }
         terminalScrollBarHidden = hidden
+        NotificationCenter.default.post(
+            name: Self.terminalScrollBarHiddenDidChangeNotification,
+            object: self
+        )
         scheduleTerminalGeometryReconcile()
     }
 

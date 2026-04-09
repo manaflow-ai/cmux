@@ -13285,10 +13285,7 @@ private struct TabItemView: View, Equatable {
 
         Menu(String(localized: "contextMenu.workspaceSettings", defaultValue: "Workspace Settings")) {
             Button {
-                toggleWorkspaceTerminalScrollBarHidden(
-                    targetIds: targetIds,
-                    currentlyHidden: allContextMenuWorkspacesHideTerminalScrollBar
-                )
+                toggleWorkspaceTerminalScrollBarHidden(targetIds: targetIds)
             } label: {
                 Label {
                     Text(String(localized: "contextMenu.workspaceSettings.hideTerminalScrollBar", defaultValue: "Hide Terminal Scroll Bar"))
@@ -14003,7 +14000,11 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID], currentlyHidden: Bool) {
+    private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
+        let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
+            workspacesById[targetId]?.terminalScrollBarHidden == true
+        }
         let hideScrollBar = !currentlyHidden
         for targetId in targetIds {
             tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)

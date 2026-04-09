@@ -6197,7 +6197,11 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        let previousShowTerminalScrollBar = showTerminalScrollBar
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+        if previousShowTerminalScrollBar != showTerminalScrollBar {
+            TerminalScrollBarSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
