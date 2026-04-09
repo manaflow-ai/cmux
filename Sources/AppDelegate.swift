@@ -2253,6 +2253,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var islandWindowController: IslandWindowController?
+    private var islandEnabledObserver: AnyCancellable?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -2669,6 +2671,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+
+        // cmux Island — opt-in overlay. Created and destroyed reactively
+        // based on the islandEnabled setting so disabling it leaves no
+        // leftover panel, observer, or timer behind.
+        islandEnabledObserver = NotificationCenter.default
+            .publisher(for: UserDefaults.didChangeNotification)
+            .map { _ in UserDefaults.standard.bool(forKey: IslandSettings.enabledKey) }
+            .prepend(UserDefaults.standard.bool(forKey: IslandSettings.enabledKey))
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                self?.refreshIslandController(enabled: enabled)
+            }
+    }
+
+    @MainActor
+    private func refreshIslandController(enabled: Bool) {
+        if enabled {
+            guard islandWindowController == nil else { return }
+            guard let tabManager = self.tabManager else { return }
+
+            let source = TabManagerIslandStateSource(tabManager: tabManager)
+            let store = IslandStateStore(source: source)
+
+            let focusSink = TabManagerIslandFocusSink(
+                tabManager: tabManager,
+                collapse: { [weak self] in
+                    self?.islandWindowController?.close()
+                }
+            )
+            let router = IslandJumpRouter(focusSink: focusSink)
+
+            let controller = IslandWindowController(provider: store, router: router)
+            islandWindowController = controller
+        } else {
+            islandWindowController?.shutdown()
+            islandWindowController = nil
+        }
     }
 
 #if DEBUG
