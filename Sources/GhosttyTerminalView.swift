@@ -4126,6 +4126,12 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
+        if !CursorIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
+        }
+        if !GeminiIntegrationSettings.hooksEnabled() {
+            setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
+        }
 
         if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
             let currentPath = env["PATH"]

@@ -72,6 +72,8 @@ final class CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.cursorIntegration",
+        "automation.geminiIntegration",
         "automation.portBase",
         "automation.portRange",
         "customCommands.trustedDirectories",
@@ -695,6 +697,12 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
+        }
+        if let value = jsonBool(section["cursorIntegration"]) {
+            snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["geminiIntegration"]) {
+            snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
@@ -1376,6 +1384,8 @@ final class CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                     "claudeBinaryPath": "",
+                    "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
+                    "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "portBase": 9100,
                     "portRange": 10,
                 ],
