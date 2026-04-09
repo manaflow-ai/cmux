@@ -297,12 +297,13 @@ No hover-to-expand in MVP.
 
 `IslandJumpRouter.jump(to: session)` performs the following, in order, against `IslandFocusSink`:
 
-1. `activateAppBringingToFront()` — this is the single place in the island code that is allowed to activate cmux. The call is an explicit user focus intent (the click), which satisfies the focus-intent exception in cmux's socket focus policy (CLAUDE.md §"Socket focus policy"). No other island code path activates the app.
-2. `selectWorkspace(session.workspaceId)` — routes through the same code path that the existing `workspace.select` socket command uses.
-3. `focusPanel(session.panelId)` — routes through the same code path that the existing `pane.focus` / `surface.focus` socket commands use.
-4. `collapseIsland(reason: .jumped)`.
+1. `selectWorkspace(session.workspaceId)` — probe first. Routes through the same code path that the existing `workspace.select` socket command uses. Returns false if the workspace has been torn down since the session was projected.
+2. **If the probe returned false:** log `dlog("island.jump failed: workspace … not found")` in DEBUG builds and jump straight to step 5. The app is **not** activated. This preserves the user's current focus context when the click would otherwise land on a stale row.
+3. `activateApp()` — only reached on the happy path where the workspace still exists. This is the single place in the island code that is allowed to activate cmux. The call is an explicit user focus intent (the row click), which satisfies the focus-intent exception in cmux's socket focus policy (CLAUDE.md §"Socket focus policy"). No other island code path activates the app.
+4. `focusPanel(session.panelId, inWorkspace: session.workspaceId)` — routes through the same code path that the existing `pane.focus` / `surface.focus` socket commands use. If it returns false (panel gone but workspace still present), log `dlog("island.jump failed: panel … not found …")` in DEBUG builds and continue.
+5. `collapseIsland()` — always, exactly once, regardless of which step (if any) failed. No error UI in MVP.
 
-If any of steps 2 or 3 fail (workspace or panel no longer exists), the router logs a single `dlog("island.jump failed…")` in DEBUG builds and collapses the island without activating cmux. No error UI in MVP.
+**Sequence note:** earlier drafts of this spec ordered `activate` before `select`. That order was abandoned because it would steal macOS focus for a workspace that might already be gone. The current order — select first, activate only on success — satisfies the same user-intent exception while preserving focus on the miss path.
 
 ### 6.7 Non-notch Mac behavior
 

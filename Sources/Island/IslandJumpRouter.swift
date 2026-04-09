@@ -1,9 +1,14 @@
 // Sources/Island/IslandJumpRouter.swift
 
 import Foundation
+#if DEBUG
+import Bonsplit  // dlog
+#endif
 
 /// Translates a session tap into a fixed sequence of `IslandFocusSink`
-/// calls. See spec §6.6 for the required ordering.
+/// calls. See spec §6.6 for the intent; the ordering below probes
+/// `selectWorkspace` *before* `activateApp` so that a jump to a torn-down
+/// workspace does not steal macOS focus unnecessarily.
 @MainActor
 final class IslandJumpRouter {
 
@@ -25,11 +30,24 @@ final class IslandJumpRouter {
     func jump(to session: IslandSession) {
         let workspaceFound = focusSink.selectWorkspace(id: session.workspaceId)
         guard workspaceFound else {
+#if DEBUG
+            dlog("island.jump failed: workspace \(session.workspaceId.uuidString.prefix(8)) not found")
+#endif
             focusSink.collapseIsland()
             return
         }
         focusSink.activateApp()
-        _ = focusSink.focusPanel(id: session.panelId, inWorkspace: session.workspaceId)
+        let panelFocused = focusSink.focusPanel(
+            id: session.panelId,
+            inWorkspace: session.workspaceId
+        )
+#if DEBUG
+        if !panelFocused {
+            dlog(
+                "island.jump failed: panel \(session.panelId.uuidString.prefix(8)) not found in workspace \(session.workspaceId.uuidString.prefix(8))"
+            )
+        }
+#endif
         focusSink.collapseIsland()
     }
 }
