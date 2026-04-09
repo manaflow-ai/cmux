@@ -1728,6 +1728,7 @@ struct CMUXCLI {
         // so help text is available even when cmux is not running.
         if command != "__tmux-compat",
            command != "claude-teams",
+           command != "claude-teams-debug",
            command != "codex",
            (commandArgs.contains("--help") || commandArgs.contains("-h")) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
@@ -1770,7 +1771,7 @@ struct CMUXCLI {
             return
         }
 
-        if command == "claude-teams" {
+        if command == "claude-teams" || command == "claude-teams-debug" {
             try runClaudeTeams(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
@@ -6885,9 +6886,10 @@ struct CMUXCLI {
               cmux themes set --light "Catppuccin Latte" --dark "Catppuccin Mocha"
               cmux themes clear
             """
-        case "claude-teams":
+        case "claude-teams", "claude-teams-debug":
             return String(localized: "cli.claude-teams.usage", defaultValue: """
             Usage: cmux claude-teams [claude-args...]
+                   cmux claude-teams-debug [claude-args...]
 
             Launch Claude Code with agent teams enabled.
 
