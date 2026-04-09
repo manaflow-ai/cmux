@@ -324,7 +324,10 @@ extension Workspace {
         // terminal panel — focusedPanelId may point at a browser or markdown
         // panel, in which case we fall back to the first terminal panel (nil
         // target means "first terminal created").
-        if let claudeSessionId = snapshot.claudeSessionId {
+        pendingClaudeSessionRestore = nil
+        if let claudeSessionId = snapshot.claudeSessionId?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !claudeSessionId.isEmpty {
             let targetTerminalId: UUID? = {
                 if let focusedId = snapshot.focusedPanelId,
                    snapshot.panels.first(where: { $0.id == focusedId })?.type == .terminal {
