@@ -59,7 +59,7 @@ struct IslandRootView: View {
                 .fill(Color(nsColor: viewModel.aggregateColor))
                 .frame(width: 6, height: 6)
                 .shadow(color: Color(nsColor: viewModel.aggregateColor).opacity(0.6), radius: 3)
-            Text("\(viewModel.sessions.count)")
+            Text(verbatim: "\(viewModel.sessions.count)")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white)
@@ -101,18 +101,24 @@ struct IslandRootView: View {
                     .fill(Color(nsColor: session.agentKind.color))
                     .frame(width: 20, height: 20)
                     .overlay(
-                        Text(session.agentKind.monogram)
+                        // Monogram is a structural identifier (single letter
+                        // per agent kind), not a translatable string.
+                        Text(verbatim: session.agentKind.monogram)
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.white)
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(session.workspaceTitle) · \(session.panelTitle)")
+                    // Composed structural strings — separators and interpolated
+                    // values (workspace/panel titles, elapsed time) are not
+                    // translated as wholes. `Text(verbatim:)` declares this
+                    // intent so the localization scanner doesn't flag them.
+                    Text(verbatim: "\(session.workspaceTitle) · \(session.panelTitle)")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Text("\(session.agentKind.displayName) · \(relativeTime(since: session.lastActivity))")
+                    Text(verbatim: "\(session.agentKind.displayName) · \(relativeTime(since: session.lastActivity))")
                         .font(.system(size: 11))
                         .foregroundStyle(.white.opacity(0.55))
                         .lineLimit(1)
@@ -123,7 +129,7 @@ struct IslandRootView: View {
 
                 phasePill(session.phase)
                 if session.unreadCount > 0 {
-                    Text("·\(session.unreadCount)")
+                    Text(verbatim: "·\(session.unreadCount)")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(.white.opacity(0.7))
                 }
