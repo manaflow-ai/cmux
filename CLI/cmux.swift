@@ -5232,7 +5232,7 @@ struct CMUXCLI {
         let escapedForegroundAuthToken = foregroundAuthToken
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        return [
+        let script = [
             preferredCLIPath.map { "cmux_reconnect_cli=\(shellQuote($0));" } ?? "cmux_reconnect_cli=\"\";",
             "cmux_reconnect_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
             "if [ -z \"$cmux_reconnect_cli\" ] && [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]; then cmux_reconnect_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
@@ -5248,6 +5248,9 @@ struct CMUXCLI {
             "fi;",
             "unset cmux_reconnect_socket cmux_reconnect_cli;",
         ].joined(separator: " ")
+        // Wrap in /bin/sh -c so LocalCommand works regardless of the user's
+        // login shell (e.g. Fish, which does not support POSIX var=value syntax).
+        return "/bin/sh -c " + shellQuote(script)
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {

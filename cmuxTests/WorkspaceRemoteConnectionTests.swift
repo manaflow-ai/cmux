@@ -2188,6 +2188,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         let localCommand = String(localCommandArgument.dropFirst("LocalCommand=".count))
         XCTAssertTrue(
+            localCommand.hasPrefix("/bin/sh -c "),
+            "Expected LocalCommand to be wrapped in /bin/sh -c for non-POSIX shell compatibility (e.g. Fish), saw \(localCommand)"
+        )
+        XCTAssertTrue(
             firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
             "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
         )
