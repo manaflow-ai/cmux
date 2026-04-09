@@ -13704,7 +13704,7 @@ struct CMUXCLI {
             }
         }
 
-        try newData.write(to: URL(fileURLWithPath: filePath))
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
         print("\(def.displayName) hooks installed at \(filePath)")
 
         // Post-install actions
@@ -13715,16 +13715,23 @@ struct CMUXCLI {
                 let existingContent: String = fm.fileExists(atPath: configPath)
                     ? ((try? String(contentsOfFile: configPath, encoding: .utf8)) ?? "")
                     : ""
-                if !existingContent.contains("codex_hooks") {
-                    let newContent: String
-                    if existingContent.contains("[features]") {
-                        newContent = existingContent.replacingOccurrences(
-                            of: "[features]",
-                            with: "[features]\ncodex_hooks = true"
-                        )
-                    } else {
-                        newContent = existingContent + "\n[features]\ncodex_hooks = true\n"
-                    }
+                let newContent: String
+                if existingContent.contains("codex_hooks") {
+                    // Replace existing value (might be false) with true
+                    newContent = existingContent.replacingOccurrences(
+                        of: "codex_hooks\\s*=\\s*\\w+",
+                        with: "codex_hooks = true",
+                        options: .regularExpression
+                    )
+                } else if existingContent.contains("[features]") {
+                    newContent = existingContent.replacingOccurrences(
+                        of: "[features]",
+                        with: "[features]\ncodex_hooks = true"
+                    )
+                } else {
+                    newContent = existingContent + "\n[features]\ncodex_hooks = true\n"
+                }
+                if newContent != existingContent {
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
                     print("Enabled codex_hooks in \(configPath)")
                 }
@@ -13768,7 +13775,7 @@ struct CMUXCLI {
 
         json["hooks"] = hooks
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        try newData.write(to: URL(fileURLWithPath: filePath))
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
         print("Removed \(removed) cmux hook(s) from \(filePath)")
     }
 
