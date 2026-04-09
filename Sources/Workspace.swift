@@ -320,11 +320,19 @@ extension Workspace {
     func restoreSessionSnapshot(_ snapshot: SessionWorkspaceSnapshot) {
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 
-        // Queue Claude Code session for resume. The focused terminal panel (or
-        // the first terminal if no focus info) will receive a
-        // CMUX_RESTORE_CLAUDE_SESSION env var that shell integration picks up.
+        // Queue Claude Code session for resume. Resolve the target to a
+        // terminal panel — focusedPanelId may point at a browser or markdown
+        // panel, in which case we fall back to the first terminal panel (nil
+        // target means "first terminal created").
         if let claudeSessionId = snapshot.claudeSessionId {
-            pendingClaudeSessionRestore = (sessionId: claudeSessionId, targetPanelId: snapshot.focusedPanelId)
+            let targetTerminalId: UUID? = {
+                if let focusedId = snapshot.focusedPanelId,
+                   snapshot.panels.first(where: { $0.id == focusedId })?.type == .terminal {
+                    return focusedId
+                }
+                return nil
+            }()
+            pendingClaudeSessionRestore = (sessionId: claudeSessionId, targetPanelId: targetTerminalId)
         }
 
         let normalizedCurrentDirectory = snapshot.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)

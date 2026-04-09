@@ -514,7 +514,12 @@ enum SessionClaudeSessionStore {
 
     /// Find the most recently updated Claude Code session ID for a workspace.
     static func sessionId(forWorkspaceId workspaceId: String) -> String? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: storePath)) else { return nil }
+        sessionId(forWorkspaceId: workspaceId, storeURL: URL(fileURLWithPath: storePath))
+    }
+
+    /// Testable overload that reads from an arbitrary store URL.
+    static func sessionId(forWorkspaceId workspaceId: String, storeURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: storeURL) else { return nil }
         guard let store = try? JSONDecoder().decode(StoreFile.self, from: data) else { return nil }
 
         return store.sessions.values

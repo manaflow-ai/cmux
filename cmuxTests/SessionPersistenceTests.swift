@@ -952,14 +952,17 @@ final class SessionPersistenceTests: XCTestCase {
 }
 
 final class SessionClaudeSessionStoreTests: XCTestCase {
-    func testSessionIdLookupFindsMatchingWorkspace() throws {
+    private func writeStore(_ json: String) throws -> URL {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-claude-store-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
         let storeURL = tempDir.appendingPathComponent("claude-hook-sessions.json")
-        let json = """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+        return storeURL
+    }
+
+    func testSessionIdLookupFindsMatchingWorkspace() throws {
+        let storeURL = try writeStore("""
         {
           "version": 1,
           "sessions": {
@@ -983,33 +986,76 @@ final class SessionClaudeSessionStoreTests: XCTestCase {
             }
           }
         }
-        """
-        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
 
-        // SessionClaudeSessionStore reads from a hardcoded path, so we test
-        // the decoding logic indirectly via the round-trip snapshot test above.
-        // This test validates that the JSON structure matches expectations.
-        let data = try Data(contentsOf: storeURL)
-        let decoded = try JSONDecoder().decode(ClaudeHookStoreTestFile.self, from: data)
-        XCTAssertEqual(decoded.sessions.count, 2)
-        XCTAssertEqual(decoded.sessions["abc123"]?.workspaceId, "WS-1")
-        XCTAssertEqual(decoded.sessions["def456"]?.sessionId, "def456")
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: storeURL),
+            "abc123"
+        )
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-2", storeURL: storeURL),
+            "def456"
+        )
     }
 
-    /// Mirror of the private struct in SessionClaudeSessionStore for test decoding.
-    private struct ClaudeHookStoreTestFile: Codable {
-        var version: Int
-        var sessions: [String: ClaudeHookStoreTestRecord]
+    func testSessionIdLookupReturnsNilForUnknownWorkspace() throws {
+        let storeURL = try writeStore("""
+        {
+          "version": 1,
+          "sessions": {
+            "abc123": {
+              "sessionId": "abc123",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "startedAt": 1000,
+              "updatedAt": 2000
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        XCTAssertNil(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-UNKNOWN", storeURL: storeURL)
+        )
     }
 
-    private struct ClaudeHookStoreTestRecord: Codable {
-        var sessionId: String
-        var workspaceId: String
-        var surfaceId: String
-        var cwd: String?
-        var pid: Int?
-        var startedAt: TimeInterval
-        var updatedAt: TimeInterval
+    func testSessionIdLookupReturnsMostRecentlyUpdated() throws {
+        let storeURL = try writeStore("""
+        {
+          "version": 1,
+          "sessions": {
+            "old-session": {
+              "sessionId": "old-session",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-1",
+              "startedAt": 1000,
+              "updatedAt": 1000
+            },
+            "new-session": {
+              "sessionId": "new-session",
+              "workspaceId": "WS-1",
+              "surfaceId": "SF-2",
+              "startedAt": 2000,
+              "updatedAt": 5000
+            }
+          }
+        }
+        """)
+        defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
+
+        XCTAssertEqual(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: storeURL),
+            "new-session"
+        )
+    }
+
+    func testSessionIdLookupReturnsNilForMissingFile() {
+        let bogusURL = URL(fileURLWithPath: "/tmp/cmux-nonexistent-\(UUID().uuidString).json")
+        XCTAssertNil(
+            SessionClaudeSessionStore.sessionId(forWorkspaceId: "WS-1", storeURL: bogusURL)
+        )
     }
 }
 
