@@ -1353,6 +1353,7 @@ class GhosttyApp {
     private let backgroundLogLock = NSLock()
     private var backgroundLogSequence: UInt64 = 0
     private var appObservers: [NSObjectProtocol] = []
+    private var appearanceObservation: NSKeyValueObservation?
     private var bellAudioSound: NSSound?
     private var backgroundEventCounter: UInt64 = 0
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
@@ -1641,6 +1642,19 @@ class GhosttyApp {
         lastAppearanceColorScheme = GhosttyConfig.currentColorSchemePreference()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
 
+        // Synchronize the app's internal conditional state with the current
+        // system appearance. Without this, app.config_conditional_state.theme
+        // stays at the Zig default (.light) and newly created surfaces inherit
+        // a potentially wrong scheme. Deferred to the next main run loop turn
+        // so the cascade soft reload it triggers runs after initialization is
+        // fully complete (observers registered, focus state set, etc.).
+        if let app {
+            let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            DispatchQueue.main.async {
+                ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+            }
+        }
+
         #if os(macOS)
         if let app {
             ghostty_app_set_focus(app, NSApp.isActive)
@@ -1651,8 +1665,17 @@ class GhosttyApp {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let app = self?.app else { return }
+            guard let self, let app = self.app else { return }
             ghostty_app_set_focus(app, true)
+            // Re-check the system appearance whenever cmux becomes active.
+            // If the appearance changed while cmux was in the background
+            // (e.g. macOS auto-switched dark/light overnight), the per-view
+            // viewDidChangeEffectiveAppearance callbacks may not have fired
+            // reliably. This guarantees the theme is in sync.
+            self.synchronizeThemeWithAppearance(
+                NSApp.effectiveAppearance,
+                source: "didBecomeActive"
+            )
         })
 
         appObservers.append(NotificationCenter.default.addObserver(
@@ -1663,6 +1686,22 @@ class GhosttyApp {
             guard let app = self?.app else { return }
             ghostty_app_set_focus(app, false)
         })
+
+        // Observe NSApp.effectiveAppearance directly via KVO so that system
+        // appearance changes are detected even when no terminal view is in
+        // a key window position to receive viewDidChangeEffectiveAppearance.
+        if let app = NSApp {
+            self.appearanceObservation = app.observe(
+                \.effectiveAppearance,
+                options: [.new]
+            ) { [weak self] _, _ in
+                guard let self else { return }
+                self.synchronizeThemeWithAppearance(
+                    NSApp?.effectiveAppearance,
+                    source: "kvo.effectiveAppearance"
+                )
+            }
+        }
 
         #endif
     }
@@ -1735,6 +1774,14 @@ class GhosttyApp {
                 logLabel: "layer background"
             )
         }
+        // Set the config's conditional theme state to match the current system
+        // appearance BEFORE finalization. Ghostty's default conditional state is
+        // .light; if the system is in dark mode the config would finalize with
+        // light-themed colors, causing background/foreground mismatches until
+        // a surface color scheme change triggers re-derivation.
+        let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        ghostty_config_set_color_scheme(config, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+
         ghostty_config_finalize(config)
     }
 
@@ -2391,6 +2438,18 @@ class GhosttyApp {
         }
         guard shouldReload else { return }
         lastAppearanceColorScheme = currentColorScheme
+
+        // Update the app's conditional state to match the new appearance so
+        // that ghostty_app_update_config derives correctly and new surfaces
+        // inherit the right scheme. The dedup inside App.colorSchemeEvent
+        // makes this a no-op if the state already matches.
+        if let app {
+            let scheme: ghostty_color_scheme_e = currentColorScheme == .dark
+                ? GHOSTTY_COLOR_SCHEME_DARK
+                : GHOSTTY_COLOR_SCHEME_LIGHT
+            ghostty_app_set_color_scheme(app, scheme)
+        }
+
         reloadConfiguration(
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false
