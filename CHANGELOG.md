@@ -2,6 +2,11 @@
 
 All notable changes to cmux are documented here.
 
+## [Unreleased]
+
+### Added
+- **cmux Island (opt-in).** New notch-anchored overlay that lists active AI agent sessions detected from `cmux set-status` entries. Click a row to jump to the corresponding workspace and terminal split. Enable it from Settings → Island. See [`docs/superpowers/specs/2026-04-09-cmux-island-design.md`](docs/superpowers/specs/2026-04-09-cmux-island-design.md) for design details. ([#2590](https://github.com/manaflow-ai/cmux/issues/2590))
+
 ## [0.63.2] - 2026-04-06
 
 ### Added
