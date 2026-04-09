@@ -53599,6 +53599,142 @@
         }
       }
     },
+    "settings.automation.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor連携"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursorはcmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Cursor agent status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにCursorエージェントのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI連携"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeminiはCmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Gemini session status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにGeminiセッションのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {
