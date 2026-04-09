@@ -134,6 +134,21 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
+		CA5015140DE00001 /* IslandSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00001 /* IslandSettings.swift */; };
+		CA5015140DE00002 /* IslandSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00002 /* IslandSession.swift */; };
+		CA5015140DE00003 /* IslandStateProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00003 /* IslandStateProvider.swift */; };
+		CA5015140DE00004 /* IslandStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00004 /* IslandStateStore.swift */; };
+		CA5015140DE00005 /* IslandFocusSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00005 /* IslandFocusSink.swift */; };
+		CA5015140DE00006 /* IslandJumpRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00006 /* IslandJumpRouter.swift */; };
+		CA5015140DE00007 /* NotchShape.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00007 /* NotchShape.swift */; };
+		CA5015140DE00008 /* NotchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00008 /* NotchPanel.swift */; };
+		CA5015140DE00009 /* IslandRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00009 /* IslandRootView.swift */; };
+		CA5015140DE00010 /* IslandWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00010 /* IslandWindowController.swift */; };
+		CA5015140DE00011 /* IslandSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00011 /* IslandSettingsFileStoreTests.swift */; };
+		CA5015140DE00012 /* IslandSessionPhaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00012 /* IslandSessionPhaseTests.swift */; };
+		CA5015140DE00013 /* IslandSessionSortTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00013 /* IslandSessionSortTests.swift */; };
+		CA5015140DE00014 /* IslandStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00014 /* IslandStateStoreTests.swift */; };
+		CA5015140DE00015 /* IslandJumpRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA5015141DE00015 /* IslandJumpRouterTests.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -332,6 +347,21 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
+		CA5015141DE00001 /* IslandSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandSettings.swift; sourceTree = "<group>"; };
+		CA5015141DE00002 /* IslandSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandSession.swift; sourceTree = "<group>"; };
+		CA5015141DE00003 /* IslandStateProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandStateProvider.swift; sourceTree = "<group>"; };
+		CA5015141DE00004 /* IslandStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandStateStore.swift; sourceTree = "<group>"; };
+		CA5015141DE00005 /* IslandFocusSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandFocusSink.swift; sourceTree = "<group>"; };
+		CA5015141DE00006 /* IslandJumpRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandJumpRouter.swift; sourceTree = "<group>"; };
+		CA5015141DE00007 /* NotchShape.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/NotchShape.swift; sourceTree = "<group>"; };
+		CA5015141DE00008 /* NotchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/NotchPanel.swift; sourceTree = "<group>"; };
+		CA5015141DE00009 /* IslandRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandRootView.swift; sourceTree = "<group>"; };
+		CA5015141DE00010 /* IslandWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Island/IslandWindowController.swift; sourceTree = "<group>"; };
+		CA5015141DE00011 /* IslandSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandSettingsFileStoreTests.swift; sourceTree = "<group>"; };
+		CA5015141DE00012 /* IslandSessionPhaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandSessionPhaseTests.swift; sourceTree = "<group>"; };
+		CA5015141DE00013 /* IslandSessionSortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandSessionSortTests.swift; sourceTree = "<group>"; };
+		CA5015141DE00014 /* IslandStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandStateStoreTests.swift; sourceTree = "<group>"; };
+		CA5015141DE00015 /* IslandJumpRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IslandJumpRouterTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -518,6 +548,16 @@
 				A5001651 /* CmuxConfig.swift */,
 				A5001653 /* CmuxConfigExecutor.swift */,
 				A5001655 /* CmuxDirectoryTrust.swift */,
+				CA5015141DE00001 /* IslandSettings.swift */,
+				CA5015141DE00002 /* IslandSession.swift */,
+				CA5015141DE00003 /* IslandStateProvider.swift */,
+				CA5015141DE00004 /* IslandStateStore.swift */,
+				CA5015141DE00005 /* IslandFocusSink.swift */,
+				CA5015141DE00006 /* IslandJumpRouter.swift */,
+				CA5015141DE00007 /* NotchShape.swift */,
+				CA5015141DE00008 /* NotchPanel.swift */,
+				CA5015141DE00009 /* IslandRootView.swift */,
+				CA5015141DE00010 /* IslandWindowController.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -612,6 +652,11 @@
 					491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 					10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
 					C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
+					CA5015141DE00011 /* IslandSettingsFileStoreTests.swift */,
+					CA5015141DE00012 /* IslandSessionPhaseTests.swift */,
+					CA5015141DE00013 /* IslandSessionSortTests.swift */,
+					CA5015141DE00014 /* IslandStateStoreTests.swift */,
+					CA5015141DE00015 /* IslandJumpRouterTests.swift */,
 				);
 				path = cmuxTests;
 				sourceTree = "<group>";
@@ -843,6 +888,16 @@
 				A5001650 /* CmuxConfig.swift in Sources */,
 			A5001652 /* CmuxConfigExecutor.swift in Sources */,
 			A5001654 /* CmuxDirectoryTrust.swift in Sources */,
+			CA5015140DE00001 /* IslandSettings.swift in Sources */,
+			CA5015140DE00002 /* IslandSession.swift in Sources */,
+			CA5015140DE00003 /* IslandStateProvider.swift in Sources */,
+			CA5015140DE00004 /* IslandStateStore.swift in Sources */,
+			CA5015140DE00005 /* IslandFocusSink.swift in Sources */,
+			CA5015140DE00006 /* IslandJumpRouter.swift in Sources */,
+			CA5015140DE00007 /* NotchShape.swift in Sources */,
+			CA5015140DE00008 /* NotchPanel.swift in Sources */,
+			CA5015140DE00009 /* IslandRootView.swift in Sources */,
+			CA5015140DE00010 /* IslandWindowController.swift in Sources */,
 		);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -912,6 +967,11 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
+					CA5015140DE00011 /* IslandSettingsFileStoreTests.swift in Sources */,
+					CA5015140DE00012 /* IslandSessionPhaseTests.swift in Sources */,
+					CA5015140DE00013 /* IslandSessionSortTests.swift in Sources */,
+					CA5015140DE00014 /* IslandStateStoreTests.swift in Sources */,
+					CA5015140DE00015 /* IslandJumpRouterTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;
 			};

@@ -76,8 +76,10 @@ final class IslandWindowController: NSWindowController {
     }
 
     /// Convenience used by the router's collapse callback and the
-    /// AppDelegate shutdown path.
-    func close() {
+    /// AppDelegate shutdown path. Overrides `NSWindowController.close()`
+    /// so external callers use the same entry point; we only collapse the
+    /// SwiftUI pill state here and leave window tear-down to `shutdown()`.
+    override func close() {
         viewModel.close()
     }
 
