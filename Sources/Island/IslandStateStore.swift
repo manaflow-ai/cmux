@@ -62,9 +62,15 @@ final class TabManagerIslandStateSource: IslandStateSource {
         self.tabManager = tabManager
 
         // 1. Any change to the tabs array → rebuild per-workspace subscriptions
-        //    and fire a change tick. Prime with the current tabs so existing
-        //    workspaces get observers even if the tabs array never mutates
-        //    again before the first snapshot.
+        //    and fire a change tick. We prime by calling resubscribe directly
+        //    with the current tabs before attaching the $tabs sink. When init
+        //    runs on @MainActor, Combine delivers the initial $tabs value
+        //    synchronously on subscribe, so this priming call is logically
+        //    redundant — the nil-guard inside resubscribe makes the second
+        //    call a no-op. We keep the priming to document the invariant
+        //    ("existing workspaces always have observers before the first
+        //    snapshot") and to stay correct if a future scheduler change
+        //    defers the sink's initial delivery to a later runloop turn.
         resubscribe(to: tabManager.tabs)
 
         tabsCancellable = tabManager.$tabs
@@ -145,6 +151,13 @@ final class TabManagerIslandStateSource: IslandStateSource {
     /// (`hasUnreadNotification(forTabId:surfaceId:)`), but no per-panel
     /// count. For MVP we report the workspace-scoped count when the panel
     /// is the one holding an unread indicator, otherwise 0.
+    ///
+    /// Known limitations:
+    /// - Workspace-level notifications stored with `surfaceId: nil` will
+    ///   fail the per-panel gate and report 0 — false negatives are
+    ///   possible when a notification isn't bound to a specific panel.
+    /// - Two unread panels in the same workspace will both report the
+    ///   full workspace count — false positives on the numeric value.
     ///
     // TODO(Phase 2): replace with a true per-panel count once
     // TerminalNotificationStore exposes `unreadCount(forTabId:surfaceId:)`.
