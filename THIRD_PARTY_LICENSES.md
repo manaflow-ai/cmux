@@ -4,6 +4,16 @@ cmux includes the following third-party software:
 
 ---
 
+## claude-island
+
+- **License:** Apache License 2.0
+- **Source:** https://github.com/farouqaldori/claude-island
+- **Files ported:** `Sources/Island/NotchShape.swift`, `Sources/Island/NotchPanel.swift` (adapted from `ClaudeIsland/UI/Components/NotchShape.swift` and `ClaudeIsland/UI/Window/NotchWindow.swift`)
+
+The ported files retain their original license headers and are redistributed under the Apache License 2.0.
+
+---
+
 ## Ghostty
 
 - **License:** MIT License
