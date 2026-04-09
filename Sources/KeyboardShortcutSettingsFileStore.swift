@@ -745,6 +745,8 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let value = jsonBool(section["enabled"]) {
+            // TODO(Task 17): replace "island.enabled" literal with IslandSettings.enabledKey
+            // once Sources/Island/IslandSettings.swift is registered in the Xcode target.
             // "island.enabled" == IslandSettings.enabledKey; inlined until Task 17
             // registers Sources/Island/IslandSettings.swift in project.pbxproj.
             snapshot.managedUserDefaults["island.enabled"] = .bool(value)
