@@ -2393,6 +2393,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
     private var lastTypingActivityAt: TimeInterval = 0
+
+    /// Tracks which display IDs were connected at the last screen-parameters check,
+    /// so we can detect which displays disappeared and which reconnected.
+    private var lastKnownDisplayIDs: Set<UInt32> = []
+
+    /// Caches the last-known good window frame and display snapshot for each window
+    /// on each display, keyed by display ID. When a display disappears and macOS moves
+    /// a window to the primary monitor, we use this cache instead of the live (wrong)
+    /// frame when building session snapshots, and to restore the window when the
+    /// display reconnects.
+    private var savedDisplayWindowFrames: [UInt32: [(windowId: UUID, frame: SessionRectSnapshot, display: SessionDisplaySnapshot)]] = [:]
+
+    /// Debounce work item for coalescing rapid `didChangeScreenParameters` notifications.
+    private var screenParametersChangeWorkItem: DispatchWorkItem?
     private var didHandleExplicitOpenIntentAtStartup = false
     private var isTerminatingApp = false
     // Set to true when the user has already confirmed quit via the warning dialog,
@@ -4327,6 +4341,254 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
+
+        // Seed last-known display IDs from the current screen configuration.
+        lastKnownDisplayIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        // Capture initial window positions so we have a baseline for display-change detection.
+        updateSavedDisplayWindowFrames()
+
+        // Observe display configuration changes (monitor connect/disconnect, sleep/wake)
+        // so we can restore windows to reconnected displays.
+        let screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleHandleScreenParametersDidChange()
+        }
+        lifecycleSnapshotObservers.append(screenChangeObserver)
+    }
+
+    // MARK: - Display reconnection support
+
+    /// Snapshots the current window-to-display mapping so we can detect when macOS
+    /// has forcibly moved a window away from a disconnected display.
+    /// Windows in `excluding` are skipped to avoid overwriting user-positioned
+    /// frames with programmatically computed ones.
+    private func updateSavedDisplayWindowFrames(excluding: Set<UUID> = []) {
+        for context in mainWindowContexts.values {
+            guard !excluding.contains(context.windowId) else { continue }
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { continue }
+            guard let displayID = window.screen?.cmuxDisplayID else { continue }
+            let frame = SessionRectSnapshot(window.frame)
+            guard let display = displaySnapshot(for: window) else { continue }
+            let entry = (windowId: context.windowId, frame: frame, display: display)
+            // Remove this window from other CONNECTED display buckets so the
+            // cache has a single authoritative entry per window among live
+            // displays. Entries for disconnected displays are preserved so we
+            // can restore when those displays reconnect.
+            for (otherID, otherEntries) in savedDisplayWindowFrames where otherID != displayID && lastKnownDisplayIDs.contains(otherID) {
+                let filtered = otherEntries.filter { $0.windowId != context.windowId }
+                if filtered.isEmpty {
+                    savedDisplayWindowFrames.removeValue(forKey: otherID)
+                } else if filtered.count != otherEntries.count {
+                    savedDisplayWindowFrames[otherID] = filtered
+                }
+            }
+            var entries = savedDisplayWindowFrames[displayID] ?? []
+            entries.removeAll { $0.windowId == context.windowId }
+            entries.append(entry)
+            savedDisplayWindowFrames[displayID] = entries
+        }
+    }
+
+    /// Debounces `didChangeScreenParametersNotification` — macOS can fire it multiple
+    /// times during a single display connect/disconnect event.
+    private func scheduleHandleScreenParametersDidChange() {
+        screenParametersChangeWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleScreenParametersDidChange()
+            }
+        }
+        screenParametersChangeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    /// Detects which displays appeared/disappeared and restores windows to their
+    /// last-known positions on the appropriate displays.
+    private func handleScreenParametersDidChange() {
+        let currentIDs = Set(NSScreen.screens.compactMap { $0.cmuxDisplayID })
+        let disappeared = lastKnownDisplayIDs.subtracting(currentIDs)
+        let appeared = currentIDs.subtracting(lastKnownDisplayIDs)
+
+#if DEBUG
+        dlog(
+            "display.screenParametersChanged current=\(currentIDs.sorted()) " +
+                "previous=\(lastKnownDisplayIDs.sorted()) " +
+                "appeared=\(appeared.sorted()) disappeared=\(disappeared.sorted())"
+        )
+#endif
+
+        lastKnownDisplayIDs = currentIDs
+
+        let displays = currentDisplayGeometries()
+
+        // Track windows we programmatically reposition so we don't overwrite the
+        // user's saved position on the target display with our computed frame.
+        var programmaticallyMovedWindowIds = Set<UUID>()
+
+        // When a display disappears, macOS moves its windows but often leaves them
+        // as narrow slivers at the screen edge. Restore them to their last-known
+        // position on the fallback display, or center them if no prior position
+        // exists on that display.
+        if !disappeared.isEmpty {
+            for disappearedID in disappeared {
+                guard let savedEntries = savedDisplayWindowFrames[disappearedID] else {
+#if DEBUG
+                    dlog("display.refit.skip displayID=\(disappearedID) reason=no_saved_entries keys=\(Array(savedDisplayWindowFrames.keys))")
+#endif
+                    continue
+                }
+                for entry in savedEntries {
+                    guard let context = mainWindowContexts.values.first(where: { $0.windowId == entry.windowId }),
+                          let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                        continue
+                    }
+                    guard let fallback = displays.fallback, let fallbackID = fallback.displayID else { continue }
+
+                    let minWidth = CGFloat(SessionPersistencePolicy.minimumWindowWidth)
+                    let minHeight = CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+
+                    // Check if we have a saved position for this window on the
+                    // fallback display — if so, restore to that position (like
+                    // Hyper does). Otherwise center with the original size.
+                    let currentSize = entry.frame.cgRect.size
+                    let refitFrame: CGRect
+                    if let fallbackEntry = savedDisplayWindowFrames[fallbackID]?.first(where: { $0.windowId == entry.windowId }) {
+                        // Use the fallback display's saved origin but keep the
+                        // window's current size (it may have been resized on the
+                        // disappeared display).
+                        let origin = fallbackEntry.frame.cgRect.origin
+                        refitFrame = Self.clampFrame(
+                            CGRect(origin: origin, size: currentSize),
+                            within: fallback.visibleFrame,
+                            minWidth: minWidth,
+                            minHeight: minHeight
+                        )
+                    } else {
+                        refitFrame = Self.centeredFrame(
+                            entry.frame.cgRect,
+                            in: fallback.visibleFrame,
+                            minWidth: minWidth,
+                            minHeight: minHeight
+                        )
+                    }
+                    window.setFrame(refitFrame, display: true)
+                    programmaticallyMovedWindowIds.insert(entry.windowId)
+#if DEBUG
+                    dlog(
+                        "display.refit window=\(entry.windowId.uuidString.prefix(8)) " +
+                            "fromDisplay=\(disappearedID) toDisplay=\(fallbackID) " +
+                            "frame={\(debugNSRectDescription(window.frame))}"
+                    )
+#endif
+                }
+            }
+        }
+
+        if !appeared.isEmpty {
+            for appearedID in appeared {
+                // Try exact display ID match first, then fall back to geometry
+                // match for monitors that get a new ID after cable reseat or
+                // power cycle (common with USB-C/Thunderbolt).
+                let savedEntries: [(windowId: UUID, frame: SessionRectSnapshot, display: SessionDisplaySnapshot)]? = {
+                    if let exact = savedDisplayWindowFrames[appearedID], !exact.isEmpty {
+                        return exact
+                    }
+                    guard let appearedDisplay = displays.available.first(where: { $0.displayID == appearedID }) else {
+                        return nil
+                    }
+                    // Match disconnected displays by frame AND visibleFrame
+                    // geometry (±1px tolerance). Comparing both reduces false
+                    // matches when two identical monitors are connected.
+                    for (cachedID, entries) in savedDisplayWindowFrames where !currentIDs.contains(cachedID) {
+                        guard let ref = entries.first?.display,
+                              let refFrame = ref.frame?.cgRect,
+                              let refVisible = ref.visibleFrame?.cgRect else { continue }
+                        let frameMatch = abs(refFrame.width - appearedDisplay.frame.width) <= 1 &&
+                            abs(refFrame.height - appearedDisplay.frame.height) <= 1
+                        let visibleMatch = abs(refVisible.width - appearedDisplay.visibleFrame.width) <= 1 &&
+                            abs(refVisible.height - appearedDisplay.visibleFrame.height) <= 1 &&
+                            abs(refVisible.origin.x - appearedDisplay.visibleFrame.origin.x) <= 1 &&
+                            abs(refVisible.origin.y - appearedDisplay.visibleFrame.origin.y) <= 1
+                        if frameMatch && visibleMatch {
+                            return entries
+                        }
+                    }
+                    return nil
+                }()
+                guard let savedEntries, !savedEntries.isEmpty else {
+                    continue
+                }
+                for entry in savedEntries {
+                    guard let context = mainWindowContexts.values.first(where: { $0.windowId == entry.windowId }),
+                          let window = context.window ?? windowForMainWindowId(context.windowId) else {
+                        continue
+                    }
+                    if let restoredFrame = Self.resolvedWindowFrame(
+                        from: entry.frame,
+                        display: entry.display,
+                        availableDisplays: displays.available,
+                        fallbackDisplay: displays.fallback
+                    ) {
+                        window.setFrame(restoredFrame, display: true)
+                        programmaticallyMovedWindowIds.insert(entry.windowId)
+
+                        // Persist the restored position under the new live display
+                        // ID. This is necessary when a geometry-matched restore
+                        // maps from a stale disconnected ID to a new appearedID,
+                        // because the final updateSavedDisplayWindowFrames call
+                        // excludes programmatically moved windows.
+                        if let newDisplay = displaySnapshot(for: window) {
+                            let restoredEntry = (windowId: entry.windowId, frame: SessionRectSnapshot(window.frame), display: newDisplay)
+                            var bucket = savedDisplayWindowFrames[appearedID] ?? []
+                            bucket.removeAll { $0.windowId == entry.windowId }
+                            bucket.append(restoredEntry)
+                            savedDisplayWindowFrames[appearedID] = bucket
+                        }
+#if DEBUG
+                        dlog(
+                            "display.restored window=\(entry.windowId.uuidString.prefix(8)) " +
+                                "displayID=\(appearedID) " +
+                                "frame={\(debugNSRectDescription(window.frame))}"
+                        )
+#endif
+                    }
+                }
+            }
+        }
+
+        // Refresh cache for windows that were NOT programmatically moved (user may
+        // have repositioned them). Skip windows we just moved to avoid overwriting
+        // the user's saved position on the target display with our computed frame.
+        updateSavedDisplayWindowFrames(excluding: programmaticallyMovedWindowIds)
+        _ = saveSessionSnapshot(includeScrollback: false)
+    }
+
+    /// Removes all cached display-position entries for a given window ID.
+    private func removeSavedDisplayWindowFrames(forWindowId windowId: UUID) {
+        for (displayID, entries) in savedDisplayWindowFrames {
+            let filtered = entries.filter { $0.windowId != windowId }
+            if filtered.isEmpty {
+                savedDisplayWindowFrames.removeValue(forKey: displayID)
+            } else {
+                savedDisplayWindowFrames[displayID] = filtered
+            }
+        }
+    }
+
+    /// Returns the saved frame and display for a window if its original display has
+    /// disappeared (macOS moved it). Returns nil if the window is on its expected display.
+    private func savedFrameForDisplacedWindow(windowId: UUID) -> (frame: SessionRectSnapshot, display: SessionDisplaySnapshot)? {
+        let currentIDs = lastKnownDisplayIDs
+        for (displayID, entries) in savedDisplayWindowFrames {
+            guard !currentIDs.contains(displayID) else { continue }
+            if let entry = entries.first(where: { $0.windowId == windowId }) {
+                return (entry.frame, entry.display)
+            }
+        }
+        return nil
     }
 
     private func socketListenerConfigurationIfEnabled() -> (mode: SocketControlMode, path: String)? {
@@ -4566,6 +4828,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let saveStart = ProcessInfo.processInfo.systemUptime
 #endif
+        // Keep the per-display window frame cache fresh so it's accurate if a
+        // display disconnects before the next tick.
+        updateSavedDisplayWindowFrames()
         _ = saveSessionSnapshot(includeScrollback: false)
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
@@ -4677,9 +4942,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
                 let window = context.window ?? windowForMainWindowId(context.windowId)
+                // If this window's original display has disappeared (macOS moved it
+                // to the primary monitor), use the cached frame/display from before
+                // the display went away instead of the live (wrong) position.
+                let displaced = window != nil
+                    ? savedFrameForDisplacedWindow(windowId: context.windowId)
+                    : nil
+                let snapshotFrame = displaced?.frame ?? window.map { SessionRectSnapshot($0.frame) }
+                let snapshotDisplay = displaced?.display ?? displaySnapshot(for: window)
                 return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
+                    frame: snapshotFrame,
+                    display: snapshotDisplay,
                     tabManager: context.tabManager.sessionSnapshot(includeScrollback: includeScrollback),
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
@@ -4802,6 +5075,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
         if !isTerminatingApp {
+            updateSavedDisplayWindowFrames()
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
@@ -6110,6 +6384,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: context.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: context.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: context.windowId)
+
+        removeSavedDisplayWindowFrames(forWindowId: context.windowId)
 
         if tabManager === context.tabManager {
             if let nextContext = mainWindowContexts.values.first(where: { resolvedWindow(for: $0) != nil }) {
@@ -12778,6 +13054,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         commandPaletteEscapeSuppressionStartedAtByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSelectionByWindowId.removeValue(forKey: removed.windowId)
         commandPaletteSnapshotByWindowId.removeValue(forKey: removed.windowId)
+
+        removeSavedDisplayWindowFrames(forWindowId: removed.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
