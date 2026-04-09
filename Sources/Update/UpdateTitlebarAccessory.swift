@@ -775,6 +775,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private let containerView = NSView()
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
+    private var mouseEventMonitor: Any?
     private var pendingSizeUpdate = false
     private var fittingSizeNeedsRefresh = true
     private var cachedFittingSize: NSSize?
@@ -827,6 +828,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         }
 
         applyWorkspaceTitlebarVisibility()
+        installMouseEventMonitor()
         scheduleSizeUpdate(invalidateFittingSize: true)
     }
 
@@ -838,6 +840,34 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
         }
+        if let mouseEventMonitor {
+            NSEvent.removeMonitor(mouseEventMonitor)
+        }
+    }
+
+    private func installMouseEventMonitor() {
+        guard mouseEventMonitor == nil else { return }
+        mouseEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self else { return event }
+            return self.normalizedMouseClickEventIfNeeded(event)
+        }
+    }
+
+    private func normalizedMouseClickEventIfNeeded(_ event: NSEvent) -> NSEvent? {
+        guard event.clickCount >= 2 else { return event }
+        guard let window = view.window, event.window === window else { return event }
+
+        let point = view.convert(event.locationInWindow, from: nil)
+        guard view.bounds.contains(point) else { return event }
+        guard view.hitTest(point) != nil else { return event }
+        guard let cgEvent = event.cgEvent, let copiedCGEvent = cgEvent.copy() else { return event }
+
+        // Titlebar accessory controls live inside the native titlebar region. When the
+        // user rapidly clicks them, AppKit can treat the second click as a titlebar
+        // double-click and zoom the window. Normalize those clicks back to single-clicks
+        // before dispatch so the controls still respond but the window does not zoom.
+        copiedCGEvent.setIntegerValueField(CGEventField.mouseEventClickState, value: 1)
+        return NSEvent(cgEvent: copiedCGEvent) ?? event
     }
 
     override func viewDidAppear() {
