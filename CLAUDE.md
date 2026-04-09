@@ -235,7 +235,7 @@ Use the `/release` command to prepare a new release. This will:
 2. Gather commits since the last tag and update the changelog
 3. Update `CHANGELOG.md` (the docs changelog page at `web/app/docs/changelog/page.tsx` reads from it)
 4. Run `./scripts/bump-version.sh` to update both versions
-5. Commit, tag, and push
+5. Commit, run `./scripts/release-pretag-guard.sh`, tag, and push
 
 Version bumping:
 
@@ -248,9 +248,18 @@ Version bumping:
 
 This updates both `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` (build number). The build number is auto-incremented and is required for Sparkle auto-update to work.
 
+Before creating a release tag, run:
+
+```bash
+./scripts/release-pretag-guard.sh
+```
+
+If it fails, run `./scripts/bump-version.sh`, commit the build-number bump, then retry tagging.
+
 Manual release steps (if not using the command):
 
 ```bash
+./scripts/release-pretag-guard.sh
 git tag vX.Y.Z
 git push origin vX.Y.Z
 gh run watch --repo manaflow-ai/cmux

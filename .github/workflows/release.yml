@@ -24,6 +24,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Validate Sparkle build number is monotonic
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
+
       - name: Guard immutable release assets
         id: guard_release_assets
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7

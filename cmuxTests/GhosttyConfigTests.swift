@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import WebKit
+import Darwin
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -987,6 +988,29 @@ final class RemoteLoopbackHTTPRequestRewriterTests: XCTestCase {
 }
 
 final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
+    func testApplyManagedTerminalIdentityEnvironmentOverridesInheritedValues() {
+        var environment = [
+            "TERM": "xterm-ghostty",
+            "COLORTERM": "24bit",
+            "TERM_PROGRAM": "Apple_Terminal",
+            "CUSTOM_FLAG": "1"
+        ]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        XCTAssertEqual(environment["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(environment["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(environment["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
+        XCTAssertEqual(environment["CUSTOM_FLAG"], "1")
+        XCTAssertTrue(protectedKeys.contains("TERM"))
+        XCTAssertTrue(protectedKeys.contains("COLORTERM"))
+        XCTAssertTrue(protectedKeys.contains("TERM_PROGRAM"))
+    }
+
     func testMergedStartupEnvironmentAllowsSessionReplayAndInitialEnvCMUXKeys() {
         let replayPath = "/tmp/cmux-replay-\(UUID().uuidString)"
         let merged = TerminalSurface.mergedStartupEnvironment(
@@ -1027,6 +1051,36 @@ final class GhosttyTerminalStartupEnvironmentTests: XCTestCase {
         XCTAssertEqual(merged["PATH"], "/usr/bin")
         XCTAssertEqual(merged["CMUX_SURFACE_ID"], "managed-surface")
         XCTAssertEqual(merged["CUSTOM_FLAG"], "1")
+    }
+
+    func testMergedStartupEnvironmentProtectsManagedTerminalIdentity() {
+        var baseEnvironment = [
+            "PATH": "/usr/bin"
+        ]
+        var protectedKeys: Set<String> = ["PATH"]
+        TerminalSurface.applyManagedTerminalIdentityEnvironment(
+            to: &baseEnvironment,
+            protectedKeys: &protectedKeys
+        )
+
+        let merged = TerminalSurface.mergedStartupEnvironment(
+            base: baseEnvironment,
+            protectedKeys: protectedKeys,
+            additionalEnvironment: [
+                "TERM": "xterm-ghostty",
+                "COLORTERM": "24bit",
+                "TERM_PROGRAM": "Apple_Terminal"
+            ],
+            initialEnvironmentOverrides: [
+                "TERM": "screen-256color",
+                "COLORTERM": "false",
+                "TERM_PROGRAM": "WarpTerminal"
+            ]
+        )
+
+        XCTAssertEqual(merged["TERM"], TerminalSurface.managedTerminalType)
+        XCTAssertEqual(merged["COLORTERM"], TerminalSurface.managedColorTerm)
+        XCTAssertEqual(merged["TERM_PROGRAM"], TerminalSurface.managedTerminalProgram)
     }
 }
 
@@ -2755,6 +2809,121 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertEqual(output, "BEFORE\nAFTER", output)
     }
 
+    func testShellIntegrationPreservesStartupTermForThemeSelectionBeforeRestoringManagedTerm() throws {
+        let output = try runPromptInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "CMD=$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" >> "$CMUX_TEST_OUTPUT"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_THEME_TERM="$TERM"
+            if [[ $TERM = (*256color|*rxvt*) ]]; then
+              export CMUX_STARTUP_THEME_BRANCH=extended
+            else
+              export CMUX_STARTUP_THEME_BRANCH=basic
+            fi
+
+            cmux_test_ready() {
+              print -r -- "PRE=$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" > "$CMUX_TEST_OUTPUT"
+              : > "$CMUX_TEST_READY"
+            }
+            precmd_functions+=(cmux_test_ready)
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            "PRE=xterm-ghostty|basic|xterm-ghostty|xterm-256color\nCMD=xterm-256color|unset",
+            output
+        )
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermForInteractiveCommandMode() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermWhenIntegrationDisabled() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: false,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset", output)
+    }
+
+    func testShellIntegrationDoesNotSpoofManagedTermWhenUserZshEnvDisablesIntegration() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "$CMUX_STARTUP_TERM|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}|${CMUX_SHELL_INTEGRATION:-unset}"
+            """,
+            userZshEnvContents: """
+            export CMUX_SHELL_INTEGRATION=0
+            """,
+            userZshRCContents: """
+            export CMUX_STARTUP_TERM="$TERM"
+            """
+        )
+
+        XCTAssertEqual(output, "xterm-256color|xterm-256color|unset|0", output)
+    }
+
+    func testShellIntegrationDoesNotRegisterPromptTimeTermRestoreHooks() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            print -r -- "${(j:,:)precmd_functions}"
+            """
+        )
+
+        XCTAssertEqual(
+            output,
+            "_cmux_precmd,_cmux_fix_path",
+            output
+        )
+    }
+
+    func testShellIntegrationRestoresManagedTermDuringPreexec() throws {
+        let output = try runInteractiveZsh(
+            cmuxLoadGhosttyIntegration: false,
+            cmuxLoadShellIntegration: true,
+            command: """
+            _cmux_preexec 'echo $TERM'
+            print -r -- "$TERM|${CMUX_ZSH_RESTORE_TERM-unset}"
+            """,
+            extraEnvironment: [
+                "TERM": "xterm-ghostty",
+                "CMUX_ZSH_RESTORE_TERM": "xterm-256color",
+            ]
+        )
+
+        XCTAssertEqual(
+            output,
+            "xterm-256color|unset",
+            output
+        )
+    }
+
     func testShellIntegrationPublishesOnlyWorkspaceScopedCmuxEnvironmentToTmuxServerAutomatically() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3204,7 +3373,9 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         cmuxLoadGhosttyIntegration: Bool,
         cmuxLoadShellIntegration: Bool,
         command: String,
-        extraEnvironment: [String: String] = [:]
+        extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
+        userZshRCContents: String? = nil
     ) throws -> String {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -3214,18 +3385,32 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         let userZdotdir = root.appendingPathComponent("zdotdir")
         try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
-        let userZshEnvContents: String = {
-            if let path = extraEnvironment["PATH"] {
-                let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
-                return "export PATH=\"\(escaped)\"\n"
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
             }
-            return "\n"
-        }()
-        try userZshEnvContents.write(
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
             to: userZdotdir.appendingPathComponent(".zshenv"),
             atomically: true,
             encoding: .utf8
         )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
 
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -3284,6 +3469,169 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(process.terminationStatus, 0, error)
         return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func runPromptInteractiveZsh(
+        cmuxLoadGhosttyIntegration: Bool,
+        cmuxLoadShellIntegration: Bool,
+        command: String,
+        extraEnvironment: [String: String] = [:],
+        userZshEnvContents: String? = nil,
+        userZshRCContents: String? = nil
+    ) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-zsh-prompt-integration-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let userZdotdir = root.appendingPathComponent("zdotdir")
+        try fileManager.createDirectory(at: userZdotdir, withIntermediateDirectories: true)
+        var userZshEnvFileContents = "\n"
+        if let path = extraEnvironment["PATH"] {
+            let escaped = path.replacingOccurrences(of: "\"", with: "\\\"")
+            userZshEnvFileContents = "export PATH=\"\(escaped)\"\n"
+        }
+        if let userZshEnvContents {
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+            userZshEnvFileContents.append(userZshEnvContents)
+            if !userZshEnvFileContents.hasSuffix("\n") {
+                userZshEnvFileContents.append("\n")
+            }
+        }
+        try userZshEnvFileContents.write(
+            to: userZdotdir.appendingPathComponent(".zshenv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        if let userZshRCContents {
+            try userZshRCContents.write(
+                to: userZdotdir.appendingPathComponent(".zshrc"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
+        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let readyPath = root.appendingPathComponent("ready", isDirectory: false)
+        let outputPath = root.appendingPathComponent("output.log", isDirectory: false)
+
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            let message = "openpty failed: \(String(cString: strerror(errno)))"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-i"]
+        process.environment = [
+            "HOME": root.path,
+            "TERM": "xterm-256color",
+            "SHELL": "/bin/zsh",
+            "USER": NSUserName(),
+            "ZDOTDIR": cmuxZdotdir.path,
+            "CMUX_ZSH_ZDOTDIR": userZdotdir.path,
+            "CMUX_SHELL_INTEGRATION": "0",
+            "GHOSTTY_RESOURCES_DIR": ghosttyResources.path,
+            "CMUX_TEST_READY": readyPath.path,
+            "CMUX_TEST_OUTPUT": outputPath.path,
+        ]
+        if cmuxLoadGhosttyIntegration {
+            process.environment?["CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION"] = "1"
+        }
+        if cmuxLoadShellIntegration {
+            process.environment?["CMUX_SHELL_INTEGRATION"] = "1"
+            process.environment?["CMUX_SHELL_INTEGRATION_DIR"] = cmuxZdotdir.path
+            process.environment?["CMUX_SOCKET_PATH"] = root.appendingPathComponent("cmux-test.sock").path
+            process.environment?["CMUX_TAB_ID"] = "tab-test"
+            process.environment?["CMUX_PANEL_ID"] = "panel-test"
+        }
+        for (key, value) in extraEnvironment {
+            process.environment?[key] = value
+        }
+
+        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
+        process.standardInput = slaveHandle
+        process.standardOutput = slaveHandle
+        process.standardError = slaveHandle
+
+        let masterHandle = FileHandle(fileDescriptor: masterFD, closeOnDealloc: true)
+        let terminalOutputLock = NSLock()
+        var terminalOutputData = Data()
+        masterHandle.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            terminalOutputLock.lock()
+            terminalOutputData.append(data)
+            terminalOutputLock.unlock()
+        }
+        defer { masterHandle.readabilityHandler = nil }
+
+        func terminalOutputSnapshot() -> String {
+            terminalOutputLock.lock()
+            defer { terminalOutputLock.unlock() }
+            return String(data: terminalOutputData, encoding: .utf8) ?? ""
+        }
+
+        try process.run()
+        slaveHandle.closeFile()
+
+        let readyDeadline = Date().addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: readyPath.path) && Date() < readyDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if !fileManager.fileExists(atPath: readyPath.path) {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = terminalOutputSnapshot()
+            let message = "Timed out waiting for interactive zsh prompt: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        masterHandle.write(Data((command + "\nexit\n").utf8))
+
+        let exitDeadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < exitDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
+            let terminalOutput = terminalOutputSnapshot()
+            let message = "Timed out waiting for interactive zsh to exit: \(terminalOutput)"
+            XCTFail(message)
+            throw NSError(
+                domain: "ZshShellIntegrationHandoffTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: message]
+            )
+        }
+
+        let terminalOutput = terminalOutputSnapshot()
+        XCTAssertEqual(process.terminationStatus, 0, terminalOutput)
+        return (try? String(contentsOf: outputPath, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func runInteractiveBash(

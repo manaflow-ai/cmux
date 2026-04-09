@@ -22,6 +22,74 @@ final class CmuxSettingsFileStore {
 
     static let currentSchemaVersion = 1
     static let schemaURLString = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
+    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
+    // validate against this set so new persisted settings need an explicit settings.json review.
+    static let supportedSettingsJSONPaths: Set<String> = [
+        "app.language",
+        "app.appearance",
+        "app.appIcon",
+        "app.newWorkspacePlacement",
+        "app.minimalMode",
+        "app.keepWorkspaceOpenWhenClosingLastSurface",
+        "app.focusPaneOnFirstClick",
+        "app.preferredEditor",
+        "app.reorderOnNotification",
+        "app.sendAnonymousTelemetry",
+        "app.warnBeforeQuit",
+        "app.renameSelectsExistingName",
+        "app.commandPaletteSearchesAllSurfaces",
+        "notifications.dockBadge",
+        "notifications.showInMenuBar",
+        "notifications.unreadPaneRing",
+        "notifications.paneFlash",
+        "notifications.sound",
+        "notifications.customSoundFilePath",
+        "notifications.command",
+        "sidebar.hideAllDetails",
+        "sidebar.branchLayout",
+        "sidebar.showNotificationMessage",
+        "sidebar.showBranchDirectory",
+        "sidebar.showPullRequests",
+        "sidebar.openPullRequestLinksInCmuxBrowser",
+        "sidebar.openPortLinksInCmuxBrowser",
+        "sidebar.showSSH",
+        "sidebar.showPorts",
+        "sidebar.showLog",
+        "sidebar.showProgress",
+        "sidebar.showCustomMetadata",
+        "workspaceColors.indicatorStyle",
+        "workspaceColors.selectionColor",
+        "workspaceColors.notificationBadgeColor",
+        "workspaceColors.colors",
+        "workspaceColors.paletteOverrides",
+        "workspaceColors.customColors",
+        "sidebarAppearance.matchTerminalBackground",
+        "sidebarAppearance.tintColor",
+        "sidebarAppearance.lightModeTintColor",
+        "sidebarAppearance.darkModeTintColor",
+        "sidebarAppearance.tintOpacity",
+        "automation.socketControlMode",
+        "automation.socketPassword",
+        "automation.claudeCodeIntegration",
+        "automation.claudeBinaryPath",
+        "automation.cursorIntegration",
+        "automation.geminiIntegration",
+        "automation.portBase",
+        "automation.portRange",
+        "customCommands.trustedDirectories",
+        "browser.defaultSearchEngine",
+        "browser.showSearchSuggestions",
+        "browser.theme",
+        "browser.openTerminalLinksInCmuxBrowser",
+        "browser.interceptTerminalOpenCommandInCmuxBrowser",
+        "browser.hostsToOpenInEmbeddedBrowser",
+        "browser.urlsToAlwaysOpenExternally",
+        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
+        "browser.showImportHintOnBlankTabs",
+        "browser.reactGrabVersion",
+        "shortcuts.showModifierHoldHints",
+        "shortcuts.bindings",
+    ]
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
@@ -629,6 +697,12 @@ final class CmuxSettingsFileStore {
         }
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
+        }
+        if let value = jsonBool(section["cursorIntegration"]) {
+            snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["geminiIntegration"]) {
+            snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
@@ -1310,6 +1384,8 @@ final class CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                     "claudeBinaryPath": "",
+                    "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
+                    "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "portBase": 9100,
                     "portRange": 10,
                 ],

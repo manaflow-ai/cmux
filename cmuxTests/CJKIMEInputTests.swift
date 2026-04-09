@@ -1469,6 +1469,121 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
 }
 
 @MainActor
+final class GhosttyPrintableShiftKeyEquivalentRegressionTests: XCTestCase {
+    private struct HostedTerminalWindow {
+        let surface: TerminalSurface
+        let window: NSWindow
+        let hostedView: GhosttySurfaceScrollView
+        let surfaceView: GhosttyNSView
+    }
+
+    private func makeHostedTerminalWindow() throws -> HostedTerminalWindow {
+        _ = NSApplication.shared
+
+        let surface = TerminalSurface(
+            tabId: UUID(),
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil,
+            workingDirectory: nil
+        )
+        let hostedView = surface.hostedView
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+
+        let contentView = try XCTUnwrap(window.contentView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        let surfaceView = try XCTUnwrap(findGhosttyNSView(in: hostedView))
+        return HostedTerminalWindow(
+            surface: surface,
+            window: window,
+            hostedView: hostedView,
+            surfaceView: surfaceView
+        )
+    }
+
+    func testShiftSlashPrintableKeyEquivalentBypassesShortcutPath() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "/",
+            charactersIgnoringModifiers: "/",
+            isARepeat: false,
+            keyCode: 26 // ABC-QWERTZ Shift+7
+        ) else {
+            XCTFail("Failed to construct Shift+/ event")
+            return
+        }
+
+        withExtendedLifetime(hostedTerminal.surface) {
+            XCTAssertFalse(
+                window.performKeyEquivalent(with: event),
+                "Printable Shift+/ should continue through keyDown instead of being consumed as a key equivalent"
+            )
+        }
+    }
+
+    func testShiftQuestionMarkPrintableKeyEquivalentBypassesShortcutPath() throws {
+        let hostedTerminal = try makeHostedTerminalWindow()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        window.makeFirstResponder(surfaceView)
+        XCTAssertNotNil(surfaceView.terminalSurface)
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.shift],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "?",
+            charactersIgnoringModifiers: "?",
+            isARepeat: false,
+            keyCode: 27 // ABC-QWERTZ Shift+-
+        ) else {
+            XCTFail("Failed to construct Shift+? event")
+            return
+        }
+
+        withExtendedLifetime(hostedTerminal.surface) {
+            XCTAssertFalse(
+                window.performKeyEquivalent(with: event),
+                "Printable Shift+? should continue through keyDown instead of being consumed as a key equivalent"
+            )
+        }
+    }
+}
+
+@MainActor
 final class GhosttyOptionDeleteRegressionTests: XCTestCase {
     func testOptionDeletePreservesAltAsModifierForWordDelete() {
         _ = NSApplication.shared

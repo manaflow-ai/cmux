@@ -190,6 +190,8 @@ _CMUX_PR_POLL_INTERVAL="${_CMUX_PR_POLL_INTERVAL:-45}"
 _CMUX_PR_FORCE="${_CMUX_PR_FORCE:-0}"
 _CMUX_PR_DEBUG="${_CMUX_PR_DEBUG:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
+_CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
+_CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -428,6 +430,95 @@ _cmux_clear_pr_for_panel() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     # Synchronous: must arrive before the next report_pr from the poll loop.
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_record_pr_command_hint() {
+    local cmd="$1"
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
+
+    local -a words=()
+    read -r -a words <<< "$cmd"
+
+    local index=0
+    local word base
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index < ${#words[@]} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word##*/}"
+        [[ "$base" == "gh" ]] || return 0
+        index=$(( index + 1 ))
+        break
+    done
+
+    (( index + 1 < ${#words[@]} )) || return 0
+    [[ "${words[index]}" == "pr" ]] || return 0
+    local action="${words[index + 1]}"
+    action="$(printf '%s' "$action" | tr '[:upper:]' '[:lower:]')"
+    case "$action" in
+        merge|close|reopen|create|checkout|ready|edit|view)
+            _CMUX_LAST_PR_ACTION="$action" ;;
+        *)
+            return 0 ;;
+    esac
+
+    index=$(( index + 2 ))
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+        case "$word" in
+            --*=*)
+                index=$(( index + 1 ))
+                continue ;;
+            --*)
+                index=$(( index + 2 ))
+                continue ;;
+            -*)
+                index=$(( index + 1 ))
+                continue ;;
+            *)
+                _CMUX_LAST_PR_TARGET="$word"
+                break ;;
+        esac
+    done
+}
+
+_cmux_emit_pr_command_hint() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ -n "$_CMUX_LAST_PR_ACTION" ]] || return 0
+
+    local payload="report_pr_action $_CMUX_LAST_PR_ACTION --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if [[ -n "$_CMUX_LAST_PR_TARGET" ]]; then
+        local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
+        payload+=" --target=\"$quoted_target\""
+    fi
+    {
+        _cmux_send "$payload"
+    } >/dev/null 2>&1 & disown
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
 }
 
 _cmux_pr_output_indicates_no_pull_request() {
@@ -833,6 +924,7 @@ _cmux_preexec_command() {
     _cmux_socket_is_unix && cmux_has_unix_socket=1
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
+    _cmux_record_pr_command_hint "$cmd"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -855,6 +947,7 @@ _cmux_bash_preexec_hook() {
 }
 
 _cmux_prompt_command() {
+    local last_status=$?
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
@@ -977,41 +1070,15 @@ _cmux_prompt_command() {
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
-    # Pull request metadata is remote state. Keep polling while the shell sits
-    # at a prompt so newly created or merged PRs appear without another command.
-    local should_restart_pr_poll=0
-    local should_signal_pr_probe=0
-    local pr_context_changed=0
-    if [[ -n "$_CMUX_PR_POLL_PWD" && "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
-        pr_context_changed=1
-    elif [[ "$git_head_changed" == "1" ]]; then
-        pr_context_changed=1
-    fi
-    if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" || "$git_head_changed" == "1" ]]; then
-        should_restart_pr_poll=1
-    elif (( _CMUX_PR_FORCE )); then
-        if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-            should_signal_pr_probe=1
-        else
-            should_restart_pr_poll=1
-        fi
-    elif [[ -z "$_CMUX_PR_POLL_PID" ]] || ! kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        should_restart_pr_poll=1
-    fi
-
-    if (( pr_context_changed )); then
+    if [[ "$git_head_changed" == "1" ]]; then
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
     fi
-
-    if (( should_signal_pr_probe )); then
-        _CMUX_PR_FORCE=0
-        _cmux_pr_request_probe
-    fi
-
-    if (( should_restart_pr_poll )); then
-        _CMUX_PR_FORCE=0
-        _cmux_start_pr_poll_loop "$pwd" 1
+    if (( last_status == 0 )); then
+        _cmux_emit_pr_command_hint
+    else
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
     fi
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.
