@@ -2,6 +2,11 @@ import XCTest
 import Foundation
 
 final class BrowserPaneNavigationKeybindUITests: XCTestCase {
+    private struct WorkspaceContext {
+        let workspaceId: String
+        let windowId: String
+    }
+
     private var dataPath = ""
     private var socketPath = ""
 
@@ -792,9 +797,171 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         runFindFocusPersistenceScenario(route: .cmdOptionArrows, useAutofocusRacePage: true)
     }
 
+    func testCmdFFocusesBrowserFindFieldAfterCmdDCmdLNavigation() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        // On some CI runners the app accepts key events before XCUI exposes the window tree.
+        _ = window.waitForExistence(timeout: 2.0)
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D to create a split before opening the browser. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before opening find. value=\(String(describing: omnibar.value))"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        let omnibarValueBeforeFindTyping = (omnibar.value as? String) ?? ""
+        app.typeText("needle")
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "needle"
+            },
+            "Expected Cmd+F to focus browser find after Cmd+D, Cmd+L, and navigation. " +
+                "findValue=\(String(describing: findField.value)) omnibarValue=\(String(describing: omnibar.value))"
+        )
+        let omnibarValueAfterFindTyping = (omnibar.value as? String) ?? ""
+        XCTAssertFalse(
+            omnibarValueAfterFindTyping.contains("needle"),
+            "Expected typing after Cmd+F to stay out of the omnibar. " +
+                "omnibarValueBefore=\(omnibarValueBeforeFindTyping) " +
+                "omnibarValueAfter=\(String(describing: omnibar.value)) " +
+                "findValue=\(String(describing: findField.value))"
+        )
+    }
+
+    func testBrowserFindFieldKeepsFocusAfterNewWorkspaceRoundTrip() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        _ = window.waitForExistence(timeout: 2.0)
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        guard let originalWorkspace = currentWorkspaceContext() else {
+            XCTFail("Expected current workspace context before leaving the original workspace")
+            return
+        }
+
+        app.typeKey("d", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                guard data["lastSplitDirection"] == "right" else { return false }
+                guard let paneCountAfterSplit = Int(data["paneCountAfterSplit"] ?? "") else { return false }
+                return paneCountAfterSplit >= 2
+            },
+            "Expected Cmd+D to create a split before opening the browser. data=\(String(describing: loadData()))"
+        )
+
+        app.typeKey("l", modifierFlags: [.command])
+
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before opening find. value=\(String(describing: omnibar.value))"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("seed")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((findField.value as? String) ?? "") == "seed"
+            },
+            "Expected browser find field to capture initial typing. value=\(String(describing: findField.value))"
+        )
+
+        openCommandPaletteForNewWorkspace(app, windowId: originalWorkspace.windowId)
+        XCTAssertTrue(
+            selectWorkspace(originalWorkspace.workspaceId),
+            "Expected to return to the original workspace by identity"
+        )
+
+        let restoredFindField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(restoredFindField.waitForExistence(timeout: 6.0), "Expected browser find field after returning to workspace 1")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((restoredFindField.value as? String) ?? "") == "seed"
+            },
+            "Expected existing browser find query to persist after returning. value=\(String(describing: restoredFindField.value))"
+        )
+
+        app.typeText("x")
+        XCTAssertTrue(
+            waitForCondition(timeout: 4.0) {
+                ((restoredFindField.value as? String) ?? "") == "seedx"
+            },
+            "Expected typing after returning from a new workspace to stay in the browser find field. " +
+                "findValue=\(String(describing: restoredFindField.value)) omnibarValue=\(String(describing: omnibar.value))"
+        )
+    }
+
+    func testWorkspaceRoundTripPreservesFocusedTerminalFindWhenBrowserFindIsAlsoOpen() {
+        runSplitFindWorkspaceRoundTripScenario(restoredOwner: .terminal)
+    }
+
+    func testWorkspaceRoundTripPreservesFocusedBrowserFindWhenTerminalFindIsAlsoOpen() {
+        runSplitFindWorkspaceRoundTripScenario(restoredOwner: .browser)
+    }
+
     private enum FindFocusRoute {
         case cmdOptionArrows
         case cmdCtrlLetters
+    }
+
+    private enum SplitFindOwner {
+        case terminal
+        case browser
+
+        var focusedPanelKind: String {
+            switch self {
+            case .terminal:
+                return "terminal"
+            case .browser:
+                return "browser"
+            }
+        }
     }
 
     private func runFindFocusPersistenceScenario(route: FindFocusRoute, useAutofocusRacePage: Bool) {
@@ -906,6 +1073,150 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    private func runSplitFindWorkspaceRoundTripScenario(restoredOwner: SplitFindOwner) {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_RECORD_ONLY"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        launchAndEnsureForeground(app)
+
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.waitForExistence(timeout: 10.0), "Expected main window to exist")
+        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+
+        guard let originalWorkspace = currentWorkspaceContext() else {
+            XCTFail("Expected current workspace context before leaving workspace 1")
+            return
+        }
+
+        app.typeKey("d", modifierFlags: [.command])
+        focusRightPaneForFindScenario(app, route: .cmdOptionArrows)
+
+        app.typeKey("l", modifierFlags: [.command, .shift])
+        let omnibar = app.textFields["BrowserOmnibarTextField"].firstMatch
+        XCTAssertTrue(omnibar.waitForExistence(timeout: 8.0), "Expected browser omnibar after Cmd+Shift+L")
+
+        app.typeKey("a", modifierFlags: [.command])
+        app.typeKey(XCUIKeyboardKey.delete.rawValue, modifierFlags: [])
+        app.typeText("example.com")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForOmnibarToContainExampleDomain(omnibar, timeout: 8.0),
+            "Expected browser navigation to example domain before running workspace round trip. value=\(String(describing: omnibar.value))"
+        )
+
+        focusLeftPaneForFindScenario(app, route: .cmdOptionArrows)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "terminal"
+            },
+            "Expected left terminal pane to be focused before opening terminal find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("la")
+
+        focusRightPaneForFindScenario(app, route: .cmdOptionArrows)
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == "browser"
+                    && data["terminalFindNeedle"] == "la"
+            },
+            "Expected terminal find query to persist before opening browser find. data=\(String(describing: loadData()))"
+        )
+        app.typeKey("f", modifierFlags: [.command])
+        app.typeText("am")
+
+        switch restoredOwner {
+        case .terminal:
+            focusLeftPaneForFindScenario(app, route: .cmdOptionArrows)
+        case .browser:
+            break
+        }
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == restoredOwner.focusedPanelKind
+                    && data["terminalFindNeedle"] == "la"
+                    && data["browserFindNeedle"] == "am"
+            },
+            "Expected the intended find owner before leaving workspace 1. data=\(String(describing: loadData()))"
+        )
+
+        openCommandPaletteForNewWorkspace(app, windowId: originalWorkspace.windowId)
+        XCTAssertTrue(
+            selectWorkspace(originalWorkspace.workspaceId),
+            "Expected to return to the original workspace by identity"
+        )
+
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                data["focusedPanelKind"] == restoredOwner.focusedPanelKind
+                    && data["terminalFindNeedle"] == "la"
+                    && data["browserFindNeedle"] == "am"
+            },
+            "Expected the previously focused find owner to be restored after the workspace round trip. data=\(String(describing: loadData()))"
+        )
+
+        switch restoredOwner {
+        case .terminal:
+            app.typeText("foo")
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPanelKind"] == "terminal"
+                        && data["terminalFindNeedle"] == "lafoo"
+                        && data["browserFindNeedle"] == "am"
+                },
+                "Expected typing after returning to stay in terminal find. data=\(String(describing: loadData()))"
+            )
+        case .browser:
+            app.typeText("do")
+            XCTAssertTrue(
+                waitForDataMatch(timeout: 6.0) { data in
+                    data["focusedPanelKind"] == "browser"
+                        && data["terminalFindNeedle"] == "la"
+                        && data["browserFindNeedle"] == "amdo"
+                },
+                "Expected typing after returning to stay in browser find. data=\(String(describing: loadData()))"
+            )
+        }
+    }
+
+    private func openCommandPaletteForNewWorkspace(_ app: XCUIApplication, windowId: String) {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+
+        let paletteSearchField = app.textFields["CommandPaletteSearchField"].firstMatch
+        XCTAssertTrue(paletteSearchField.waitForExistence(timeout: 5.0), "Expected command palette search field")
+        paletteSearchField.click()
+        paletteSearchField.typeText("New Workspace")
+
+        guard let snapshot = waitForCommandPaletteSnapshot(
+            windowId: windowId,
+            mode: "commands",
+            query: "New Workspace",
+            timeout: 5.0,
+            predicate: { snapshot in
+                guard let firstRow = self.commandPaletteResultRows(from: snapshot).first else { return false }
+                return (firstRow["command_id"] as? String) == "palette.newWorkspace"
+            }
+        ) else {
+            XCTFail("Expected palette.newWorkspace to be the selected command palette result")
+            return
+        }
+        XCTAssertEqual(
+            commandPaletteResultRows(from: snapshot).first?["command_id"] as? String,
+            "palette.newWorkspace",
+            "Expected palette.newWorkspace to be selected before pressing Return"
+        )
+
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForNonExistence(paletteSearchField, timeout: 5.0),
+            "Expected command palette to dismiss after creating a workspace"
+        )
+    }
+
     private func focusLeftPaneForFindScenario(_ app: XCUIApplication, route: FindFocusRoute) {
         switch route {
         case .cmdOptionArrows:
@@ -925,40 +1236,104 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForOmnibarToContainExampleDomain(_ omnibar: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        waitForCondition(timeout: timeout) {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains("example.com") || value.contains("example.org") {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return value.contains("example.com") || value.contains("example.org")
         }
-        let value = (omnibar.value as? String) ?? ""
-        return value.contains("example.com") || value.contains("example.org")
     }
 
     private func waitForOmnibarToContain(_ omnibar: XCUIElement, value expectedSubstring: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        waitForCondition(timeout: timeout) {
             let value = (omnibar.value as? String) ?? ""
-            if value.contains(expectedSubstring) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            return value.contains(expectedSubstring)
         }
-        let value = (omnibar.value as? String) ?? ""
-        return value.contains(expectedSubstring)
     }
 
     private func waitForElementToBecomeHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if element.exists && element.isHittable {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            element.exists && element.isHittable
         }
-        return element.exists && element.isHittable
+    }
+
+    private func waitForSocketPong(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            self.socketCommand("ping") == "PONG"
+        }
+    }
+
+    private func currentWorkspaceContext() -> WorkspaceContext? {
+        guard let envelope = socketJSON(method: "workspace.current", params: [:]),
+              let ok = envelope["ok"] as? Bool,
+              ok,
+              let result = envelope["result"] as? [String: Any],
+              let workspaceId = result["workspace_id"] as? String,
+              let windowId = result["window_id"] as? String else {
+            return nil
+        }
+        return WorkspaceContext(workspaceId: workspaceId, windowId: windowId)
+    }
+
+    private func selectWorkspace(_ workspaceId: String) -> Bool {
+        guard let envelope = socketJSON(
+            method: "workspace.select",
+            params: ["workspace_id": workspaceId]
+        ),
+        let ok = envelope["ok"] as? Bool,
+        ok else {
+            return false
+        }
+
+        return waitForCondition(timeout: 5.0) {
+            self.currentWorkspaceContext()?.workspaceId == workspaceId
+        }
+    }
+
+    private func socketCommand(_ command: String) -> String? {
+        ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendLine(command)
+    }
+
+    private func socketJSON(method: String, params: [String: Any]) -> [String: Any]? {
+        let request: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": method,
+            "params": params,
+        ]
+        return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+    }
+
+    private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {
+        snapshot["results"] as? [[String: Any]] ?? []
+    }
+
+    private func waitForCommandPaletteSnapshot(
+        windowId: String,
+        mode: String,
+        query: String,
+        timeout: TimeInterval,
+        predicate: (([String: Any]) -> Bool)? = nil
+    ) -> [String: Any]? {
+        var latest: [String: Any]?
+        let matched = waitForCondition(timeout: timeout) {
+            guard let snapshot = self.commandPaletteSnapshot(windowId: windowId) else { return false }
+            latest = snapshot
+            guard (snapshot["visible"] as? Bool) == true else { return false }
+            guard (snapshot["mode"] as? String) == mode else { return false }
+            guard (snapshot["query"] as? String) == query else { return false }
+            return predicate?(snapshot) ?? true
+        }
+        return matched ? latest : nil
+    }
+
+    private func commandPaletteSnapshot(windowId: String) -> [String: Any]? {
+        let envelope = socketJSON(
+            method: "debug.command_palette.results",
+            params: [
+                "window_id": windowId,
+                "limit": 20,
+            ]
+        )
+        guard let ok = envelope?["ok"] as? Bool, ok else { return nil }
+        return envelope?["result"] as? [String: Any]
     }
 
     private var autofocusRacePageURL: String {
@@ -970,50 +1345,41 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
-        app.launch()
-        XCTAssertTrue(
-            ensureForegroundAfterLaunch(app, timeout: timeout),
-            "Expected app to launch in foreground. state=\(app.state.rawValue)"
-        )
-    }
+        // On headless CI runners (no GUI session), XCUIApplication.launch()
+        // blocks ~60s then fails with "Failed to activate application
+        // (current state: Running Background)". Mark this as an expected
+        // failure so the test can continue — keyboard and element APIs work
+        // via accessibility even when the app is in .runningBackground.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
 
-    private func ensureForegroundAfterLaunch(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        if app.wait(for: .runningForeground, timeout: timeout) {
-            return true
-        }
+        if app.state == .runningForeground { return }
+
         if app.state == .runningBackground {
-            app.activate()
-            return app.wait(for: .runningForeground, timeout: 6.0)
+            // App launched but couldn't activate — continue in background.
+            // XCUIElement queries and keyboard input work through the
+            // accessibility framework regardless of activation state.
+            return
         }
-        return false
+
+        XCTFail("App failed to start. state=\(app.state.rawValue)")
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
-    private func waitForDataMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), predicate(data) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func waitForDataMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return predicate(data)
         }
-        if let data = loadData(), predicate(data) {
-            return true
-        }
-        return false
     }
 
     private func waitForNonExistence(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
@@ -1027,5 +1393,120 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return nil
         }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
+    }
+
+    private func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private final class ControlSocketClient {
+        private let path: String
+        private let responseTimeout: TimeInterval
+
+        init(path: String, responseTimeout: TimeInterval) {
+            self.path = path
+            self.responseTimeout = responseTimeout
+        }
+
+        func sendJSON(_ object: [String: Any]) -> [String: Any]? {
+            guard JSONSerialization.isValidJSONObject(object),
+                  let data = try? JSONSerialization.data(withJSONObject: object),
+                  let line = String(data: data, encoding: .utf8),
+                  let response = sendLine(line),
+                  let responseData = response.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                return nil
+            }
+            return parsed
+        }
+
+        func sendLine(_ line: String) -> String? {
+            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+            guard fd >= 0 else { return nil }
+            defer { close(fd) }
+
+#if os(macOS)
+            var noSigPipe: Int32 = 1
+            _ = withUnsafePointer(to: &noSigPipe) { ptr in
+                setsockopt(
+                    fd,
+                    SOL_SOCKET,
+                    SO_NOSIGPIPE,
+                    ptr,
+                    socklen_t(MemoryLayout<Int32>.size)
+                )
+            }
+#endif
+
+            var addr = sockaddr_un()
+            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+            addr.sun_family = sa_family_t(AF_UNIX)
+
+            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+            let bytes = Array(path.utf8CString)
+            guard bytes.count <= maxLen else { return nil }
+            withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+                let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+                memset(raw, 0, maxLen)
+                for index in 0..<bytes.count {
+                    raw[index] = bytes[index]
+                }
+            }
+
+            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+            let addrLen = socklen_t(pathOffset + bytes.count)
+#if os(macOS)
+            addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+            let connected = withUnsafePointer(to: &addr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                    connect(fd, sa, addrLen)
+                }
+            }
+            guard connected == 0 else { return nil }
+
+            let payload = line + "\n"
+            let wrote: Bool = payload.withCString { cString in
+                var remaining = strlen(cString)
+                var pointer = UnsafeRawPointer(cString)
+                while remaining > 0 {
+                    let written = write(fd, pointer, remaining)
+                    if written <= 0 { return false }
+                    remaining -= written
+                    pointer = pointer.advanced(by: written)
+                }
+                return true
+            }
+            guard wrote else { return nil }
+
+            let deadline = Date().addingTimeInterval(responseTimeout)
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            var accumulator = ""
+            while Date() < deadline {
+                var pollDescriptor = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+                let ready = poll(&pollDescriptor, 1, 100)
+                if ready < 0 {
+                    return nil
+                }
+                if ready == 0 {
+                    continue
+                }
+                let count = read(fd, &buffer, buffer.count)
+                if count <= 0 { break }
+                if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
+                    accumulator.append(chunk)
+                    if let newline = accumulator.firstIndex(of: "\n") {
+                        return String(accumulator[..<newline])
+                    }
+                }
+            }
+
+            return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     }
 }

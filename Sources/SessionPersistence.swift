@@ -8,7 +8,7 @@ enum SessionSnapshotSchema {
 
 enum SessionPersistencePolicy {
     static let defaultSidebarWidth: Double = 200
-    static let minimumSidebarWidth: Double = 186
+    static let minimumSidebarWidth: Double = 180
     static let maximumSidebarWidth: Double = 600
     static let minimumWindowWidth: Double = 300
     static let minimumWindowHeight: Double = 200
@@ -228,6 +228,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
+    var profileID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
@@ -329,6 +330,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 struct SessionWorkspaceSnapshot: Codable, Sendable {
     var processTitle: String
     var customTitle: String?
+    var customDescription: String?
     var customColor: String?
     var isPinned: Bool
     var currentDirectory: String
@@ -376,14 +378,21 @@ enum SessionPersistenceStore {
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.sortedKeys]
-            let data = try encoder.encode(snapshot)
+            let data = try encodedSnapshotData(snapshot)
+            if let existingData = try? Data(contentsOf: fileURL), existingData == data {
+                return true
+            }
             try data.write(to: fileURL, options: .atomic)
             return true
         } catch {
             return false
         }
+    }
+
+    private static func encodedSnapshotData(_ snapshot: AppSessionSnapshot) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(snapshot)
     }
 
     static func removeSnapshot(fileURL: URL? = nil) {

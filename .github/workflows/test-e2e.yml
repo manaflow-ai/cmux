@@ -20,17 +20,18 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (macos-15 or macos-26)"
+        description: "Runner OS (Depot runners for GUI activation support)"
         required: false
-        default: "macos-15"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - macos-15
-          - macos-26
+          - depot-macos-latest
+          - depot-macos-14
 
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
+    timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
@@ -90,7 +91,24 @@ jobs:
           rm GhosttyKit.xcframework.tar.gz
           test -d GhosttyKit.xcframework
 
+      - name: Install zig
+        run: |
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
+
       - name: Create virtual display
+        if: ${{ inputs.test_filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -155,8 +173,8 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'macos-15' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'macos-15' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |
@@ -187,8 +205,24 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           ONLY_TESTING="-only-testing:cmuxUITests/$TEST_FILTER"
+          DISPLAY_ENV_PREFIX=()
 
-          # Start recording right before the test (after build/resolve)
+          if [ "$TEST_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+            HELPER_PATH="/tmp/create-virtual-display"
+            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+
+            rm -f "$MANIFEST_PATH"
+            trap 'rm -f "$MANIFEST_PATH"' EXIT
+
+            clang -framework Foundation -framework CoreGraphics \
+              -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+            printf '%s\n' "{\"helperBinaryPath\":\"$HELPER_PATH\"}" > "$MANIFEST_PATH"
+          fi
+
+          # Start recording right before the test (after build/resolve).
+          # The display churn regression creates its own virtual display above,
+          # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
             DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
             echo "Available devices:"
@@ -215,13 +249,22 @@ jobs:
             fi
           fi
 
+          XCODEBUILD_CMD=(
+            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
+            -disableAutomaticPackageResolution
+            -destination "platform=macOS"
+            -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
+            $ONLY_TESTING
+            test
+          )
+
           set +e
-          OUTPUT=$(xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            $ONLY_TESTING test 2>&1)
+          if [ "${#DISPLAY_ENV_PREFIX[@]}" -gt 0 ]; then
+            OUTPUT=$(env "${DISPLAY_ENV_PREFIX[@]}" "${XCODEBUILD_CMD[@]}" 2>&1)
+          else
+            OUTPUT=$("${XCODEBUILD_CMD[@]}" 2>&1)
+          fi
           EXIT_CODE=$?
           set -e
 

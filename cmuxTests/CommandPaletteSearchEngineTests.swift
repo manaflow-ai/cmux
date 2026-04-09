@@ -116,6 +116,29 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ]
     }
 
+    private func makeUpdateCommandEntries() -> [FixtureEntry] {
+        [
+            FixtureEntry(
+                id: "command.checkForUpdates",
+                rank: 0,
+                title: "Check for Updates",
+                searchableTexts: ["Check for Updates", "Global", "update", "upgrade", "release"]
+            ),
+            FixtureEntry(
+                id: "command.attemptUpdate",
+                rank: 1,
+                title: "Attempt Update",
+                searchableTexts: ["Attempt Update", "Global", "attempt", "check", "update", "upgrade", "release"]
+            ),
+            FixtureEntry(
+                id: "command.applyUpdateIfAvailable",
+                rank: 2,
+                title: "Apply Update (If Available)",
+                searchableTexts: ["Apply Update (If Available)", "Global", "apply", "install", "update", "available"]
+            ),
+        ]
+    }
+
     private func optimizedResults(
         entries: [FixtureEntry],
         query: String
@@ -141,7 +164,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
     }
 
-    private func legacyResults(
+    private func referenceResults(
         entries: [FixtureEntry],
         query: String
     ) -> [FixtureResult] {
@@ -151,9 +174,9 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
             }
             : entries.compactMap { entry in
-                guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+                guard let fuzzyScore = weightedReferenceScore(
                     query: query,
-                    candidates: entry.searchableTexts
+                    entry: entry
                 ) else {
                     return nil
                 }
@@ -163,7 +186,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                     title: entry.title,
                     score: fuzzyScore,
                     titleMatchIndices: CommandPaletteFuzzyMatcher.matchCharacterIndices(
-                        query: query,
+                    query: query,
                         candidate: entry.title
                     )
                 )
@@ -174,6 +197,25 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             if lhs.rank != rhs.rank { return lhs.rank < rhs.rank }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    private func weightedReferenceScore(
+        query: String,
+        entry: FixtureEntry
+    ) -> Int? {
+        guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
+            query: query,
+            candidates: entry.searchableTexts
+        ) else {
+            return nil
+        }
+        guard let titleScore = CommandPaletteFuzzyMatcher.score(
+            query: query,
+            candidate: entry.title
+        ) else {
+            return fuzzyScore
+        }
+        return max(fuzzyScore, titleScore + 2000)
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
@@ -187,7 +229,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
     }
 
-    func testOptimizedSearchMatchesLegacyPipeline() {
+    func testOptimizedSearchMatchesReferencePipeline() {
         let commandEntries = makeCommandEntries(count: 96)
         let switcherEntries = makeSwitcherEntries(count: 64)
         let queries = [
@@ -205,12 +247,12 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         for query in queries {
             XCTAssertEqual(
                 optimizedResults(entries: commandEntries, query: query),
-                legacyResults(entries: commandEntries, query: query),
+                referenceResults(entries: commandEntries, query: query),
                 "Command corpus mismatch for query \(query)"
             )
             XCTAssertEqual(
                 optimizedResults(entries: switcherEntries, query: query),
-                legacyResults(entries: switcherEntries, query: query),
+                referenceResults(entries: switcherEntries, query: query),
                 "Switcher corpus mismatch for query \(query)"
             )
         }
@@ -320,6 +362,15 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(
             optimizedResults(entries: entries, query: "fadnr").first?.id,
             "command.finder"
+        )
+    }
+
+    func testSearchPrefersTitleMatchOverKeywordOnlyMatchForCheckQuery() {
+        let results = optimizedResults(entries: makeUpdateCommandEntries(), query: "check")
+
+        XCTAssertEqual(
+            results.prefix(2).map(\.id),
+            ["command.checkForUpdates", "command.attemptUpdate"]
         )
     }
 
@@ -434,6 +485,145 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testPendingEmptyStateIsNotPreservedWhileSearchIsStillPending() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsPreservedForSameResolvedNoMatchQuery() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsNotPreservedWhenQueryDoesNotRefineResolvedNoMatch() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzza",
+                resolvedMatchingQuery: "zzzzb"
+            )
+        )
+    }
+
+    func testPendingEmptyStateIsNotPreservedWhenResolvedResultsMayBeStale() {
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: false,
+                resolvedResultsAreEmpty: true,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldPreserveEmptyStateWhileSearchPending(
+                isSearchPending: true,
+                visibleResultsScopeMatches: true,
+                resolvedSearchScopeMatches: true,
+                resolvedSearchFingerprintMatches: true,
+                resolvedResultsAreEmpty: false,
+                currentMatchingQuery: "zzzzzzzzz",
+                resolvedMatchingQuery: "zzzzzzzz"
+            )
+        )
+    }
+
+    func testVisibleResultsResetWhenQueryChangesCommandPaletteScope() {
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertTrue(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: "",
+                newQuery: ">",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">rename",
+                newQuery: ">renam",
+                hasVisibleResults: true
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+                oldQuery: ">",
+                newQuery: "",
+                hasVisibleResults: false
+            )
+        )
+    }
+
+    func testRefreshInputsPreferObservedQueryOverStaleState() {
+        let inputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: ">",
+            observedQuery: "",
+            searchAllSurfaces: true
+        )
+
+        XCTAssertEqual(inputs.scope, "switcher")
+        XCTAssertEqual(inputs.matchingQuery, "")
+        XCTAssertFalse(inputs.includesSurfaces)
+    }
+
+    func testRefreshInputsIncludeSurfacesOnlyForNonEmptySwitcherQuery() {
+        let switcherInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "  feature/search  ",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(switcherInputs.scope, "switcher")
+        XCTAssertEqual(switcherInputs.matchingQuery, "feature/search")
+        XCTAssertTrue(switcherInputs.includesSurfaces)
+
+        let commandInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: ">feature/search",
+            searchAllSurfaces: true
+        )
+        XCTAssertEqual(commandInputs.scope, "commands")
+        XCTAssertEqual(commandInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(commandInputs.includesSurfaces)
+
+        let workspaceOnlyInputs = ContentView.commandPaletteRefreshInputsForTests(
+            stateQuery: "",
+            observedQuery: "feature/search",
+            searchAllSurfaces: false
+        )
+        XCTAssertEqual(workspaceOnlyInputs.scope, "switcher")
+        XCTAssertEqual(workspaceOnlyInputs.matchingQuery, "feature/search")
+        XCTAssertFalse(workspaceOnlyInputs.includesSurfaces)
+    }
+
     func testCommandContextFingerprintTracksExactContextValues() {
         let base = ContentView.commandPaletteContextFingerprint(
             boolValues: [
@@ -490,7 +680,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
                                 ports: [3000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -510,7 +701,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/other"],
                                 branches: ["feature/search-speed"],
                                 ports: [4000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -530,7 +722,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                                 directories: ["/Users/example/dev/cmuxterm"],
                                 branches: ["feature/search-speed"],
                                 ports: [3000]
-                            )
+                            ),
+                            surfaces: []
                         )
                     ]
                 )
@@ -539,6 +732,100 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
         XCTAssertNotEqual(base, changedMetadata)
         XCTAssertNotEqual(base, changedDisplayName)
+    }
+
+    func testSwitcherFingerprintTracksSurfaceValuesAtSameCardinality() {
+        let windowID = UUID()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        let base = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Terminal",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-alpha"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+        let changedSurfaceMetadata = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Terminal",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-beta"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+        let changedSurfaceKind = ContentView.commandPaletteSwitcherFingerprint(
+            windowContexts: [
+                ContentView.CommandPaletteSwitcherFingerprintContext(
+                    windowId: windowID,
+                    windowLabel: nil,
+                    selectedWorkspaceId: workspaceID,
+                    workspaces: [
+                        ContentView.CommandPaletteSwitcherFingerprintWorkspace(
+                            id: workspaceID,
+                            displayName: "Workspace Alpha",
+                            metadata: CommandPaletteSwitcherSearchMetadata(),
+                            surfaces: [
+                                ContentView.CommandPaletteSwitcherFingerprintSurface(
+                                    id: surfaceID,
+                                    displayName: "Terminal",
+                                    kindLabel: "Browser",
+                                    metadata: CommandPaletteSwitcherSearchMetadata(
+                                        directories: ["/tmp/search-alpha"],
+                                        branches: ["feature/a"],
+                                        ports: [3000]
+                                    )
+                                )
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        XCTAssertNotEqual(base, changedSurfaceMetadata)
+        XCTAssertNotEqual(base, changedSurfaceKind)
     }
 
     func testCommandSearchBenchmarkBeatsLegacyPipeline() {
@@ -557,13 +844,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         for query in queries.prefix(8) {
-            _ = legacyResults(entries: entries, query: query)
+            _ = referenceResults(entries: entries, query: query)
             _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
         }
 
-        let legacyMs = benchmarkElapsedMs {
+        let referenceMs = benchmarkElapsedMs {
             for query in queries {
-                _ = legacyResults(entries: entries, query: query)
+                _ = referenceResults(entries: entries, query: query)
             }
         }
         let optimizedMs = benchmarkElapsedMs {
@@ -572,11 +859,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
         }
 
-        print(String(format: "BENCH cmd+shift+p legacy=%.2fms optimized=%.2fms", legacyMs, optimizedMs))
+        print(String(format: "BENCH cmd+shift+p reference=%.2fms optimized=%.2fms", referenceMs, optimizedMs))
         XCTAssertLessThan(
             optimizedMs,
-            legacyMs * 1.25,
-            "Optimized command search regressed significantly: legacy=\(legacyMs) optimized=\(optimizedMs)"
+            referenceMs * 1.25,
+            "Optimized command search regressed significantly: reference=\(referenceMs) optimized=\(optimizedMs)"
         )
     }
 
@@ -596,13 +883,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
 
         for query in queries.prefix(8) {
-            _ = legacyResults(entries: entries, query: query)
+            _ = referenceResults(entries: entries, query: query)
             _ = CommandPaletteSearchEngine.search(entries: corpus, query: query) { _, _ in 0 }
         }
 
-        let legacyMs = benchmarkElapsedMs {
+        let referenceMs = benchmarkElapsedMs {
             for query in queries {
-                _ = legacyResults(entries: entries, query: query)
+                _ = referenceResults(entries: entries, query: query)
             }
         }
         let optimizedMs = benchmarkElapsedMs {
@@ -611,11 +898,11 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             }
         }
 
-        print(String(format: "BENCH cmd+p legacy=%.2fms optimized=%.2fms", legacyMs, optimizedMs))
+        print(String(format: "BENCH cmd+p reference=%.2fms optimized=%.2fms", referenceMs, optimizedMs))
         XCTAssertLessThan(
             optimizedMs,
-            legacyMs * 1.25,
-            "Optimized switcher search regressed significantly: legacy=\(legacyMs) optimized=\(optimizedMs)"
+            referenceMs * 1.25,
+            "Optimized switcher search regressed significantly: reference=\(referenceMs) optimized=\(optimizedMs)"
         )
     }
 }

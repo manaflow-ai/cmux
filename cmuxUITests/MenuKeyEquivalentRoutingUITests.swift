@@ -4,6 +4,16 @@ import CoreGraphics
 import ImageIO
 import Darwin
 
+private extension XCTestCase {
+    func waitForCondition(timeout: TimeInterval, predicate: @escaping () -> Bool) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in predicate() },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+}
+
 final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     private var gotoSplitPath = ""
     private var keyequivPath = ""
@@ -79,12 +89,119 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         )
     }
 
-    private func launchWithBrowserSetup() -> XCUIApplication {
+    func testCmdFFirstLetsWebContentHandleFindShortcut() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserHandledCmdFPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "cmdf-pending"
+            },
+            "Expected the browser test page to finish loading before Cmd+F"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "cmdf-handled" &&
+                    data["browserFindVisible"] == "false"
+            },
+            "Expected Cmd+F to reach browser content before cmux find overlay. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    func testBrowserFirstFindShortcutDoesNotReplayUnclaimedCmdEIntoWebContentTwice() {
+        let app = launchWithBrowserSetup(browserURL: makeBrowserObservedCmdEPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "cmde-0"
+            },
+            "Expected the Cmd+E test page to finish loading before the shortcut. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("e", modifierFlags: [.command])
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 5.0) { data in
+                data["browserPageTitle"] == "cmde-1"
+            },
+            "Expected Cmd+E to reach browser content exactly once. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(
+            loadGotoSplit()?["browserPageTitle"],
+            "cmde-1",
+            "Expected Cmd+E to avoid a second WebKit replay. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    func testVisibleBrowserFindBarKeepsCmdGAndCmdShiftFOwnedByCmux() {
+        let app = launchWithBrowserSetup(browserURL: makeVisibleBrowserFindOwnershipPageURL())
+
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 10.0) { data in
+                data["browserPageTitle"] == "find-owner-idle"
+            },
+            "Expected the browser find ownership page to finish loading before opening find. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        app.typeKey("f", modifierFlags: [.command])
+
+        let findField = app.textFields["BrowserFindSearchTextField"].firstMatch
+        XCTAssertTrue(findField.waitForExistence(timeout: 6.0), "Expected browser find field after Cmd+F")
+
+        app.typeText("needle")
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserFindVisible"] == "true" &&
+                    data["browserFindNeedle"] == "needle" &&
+                    data["browserFindSelected"] == "1" &&
+                    data["browserFindTotal"] == "3"
+            },
+            "Expected cmux browser find bar to open and capture the query before page-focus checks. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        guard let browserPanelId = loadGotoSplit()?["browserPanelId"], !browserPanelId.isEmpty else {
+            XCTFail("Missing browserPanelId in goto_split setup data")
+            return
+        }
+
+        clickBrowserPane(app: app, browserPanelId: browserPanelId)
+
+        app.typeKey("g", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "find-owner-idle" &&
+                    data["browserFindVisible"] == "true" &&
+                    data["browserFindSelected"] == "2" &&
+                    data["browserFindTotal"] == "3"
+            },
+            "Expected visible cmux browser find bar to keep Cmd+G ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+        )
+
+        clickBrowserPane(app: app, browserPanelId: browserPanelId)
+
+        app.typeKey("f", modifierFlags: [.command, .shift])
+        XCTAssertTrue(
+            waitForGotoSplitMatch(timeout: 6.0) { data in
+                data["browserPageTitle"] == "find-owner-idle" &&
+                    data["browserFindVisible"] == "false"
+            },
+            "Expected visible cmux browser find bar to keep Cmd+Shift+F ownership after page refocus. data=\(loadGotoSplit() ?? [:])"
+        )
+    }
+
+    private func launchWithBrowserSetup(browserURL: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = gotoSplitPath
         app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
+        if let browserURL {
+            app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = browserURL
+        }
         app.launch()
         app.activate()
 
@@ -98,6 +215,114 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
         }
 
         return app
+    }
+
+    private func makeBrowserHandledCmdFPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmdf-pending</title>
+        </head>
+        <body tabindex="-1">
+          <main>Browser find shortcut passthrough</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'f') {
+                event.preventDefault();
+                document.title = 'cmdf-handled';
+                document.body.dataset.cmdf = 'handled';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeBrowserObservedCmdEPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>cmde-0</title>
+        </head>
+        <body tabindex="-1">
+          <main>Cmd+E should only reach the page once</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            let countState = { value: 0 };
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && key === 'e') {
+                countState.value += 1;
+                document.title = `cmde-${countState.value}`;
+                document.body.dataset.cmdeCount = String(countState.value);
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeVisibleBrowserFindOwnershipPageURL() -> String {
+        let html = """
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>find-owner-idle</title>
+        </head>
+        <body tabindex="-1">
+          <main>needle alpha</main>
+          <main>needle beta</main>
+          <main>needle gamma</main>
+          <script>
+            window.addEventListener('load', () => {
+              document.body.focus();
+            });
+            window.addEventListener('keydown', (event) => {
+              const key = String(event.key || '').toLowerCase();
+              if (event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey && key === 'g') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                document.title = 'page-handled-cmdg';
+                return;
+              }
+              if (event.metaKey && event.shiftKey && !event.altKey && !event.ctrlKey && key === 'f') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                document.title = 'page-handled-cmdshiftf';
+              }
+            }, true);
+          </script>
+        </body>
+        </html>
+        """
+        return makeDataURL(html)
+    }
+
+    private func makeDataURL(_ html: String) -> String {
+        let encoded = Data(html.utf8).base64EncodedString()
+        return "data:text/html;base64,\(encoded)"
+    }
+
+    private func clickBrowserPane(app: XCUIApplication, browserPanelId: String) {
+        let browserPane = app.otherElements["BrowserPanelContent.\(browserPanelId)"].firstMatch
+        XCTAssertTrue(browserPane.waitForExistence(timeout: 6.0), "Expected browser pane content for click target")
+        browserPane.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
     }
 
     private func refocusWebView(app: XCUIApplication) {
@@ -126,44 +351,24 @@ final class MenuKeyEquivalentRoutingUITests: XCTestCase {
     }
 
     private func waitForGotoSplit(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplit() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadGotoSplit(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
-    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: ([String: String]) -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadGotoSplit(), predicate(data) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    private func waitForGotoSplitMatch(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadGotoSplit() else { return false }
+            return predicate(data)
         }
-        if let data = loadGotoSplit(), predicate(data) {
-            return true
-        }
-        return false
     }
 
     private func waitForKeyequivInt(key: String, toBeAtLeast expected: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            let value = loadKeyequiv()[key].flatMap(Int.init) ?? 0
-            if value >= expected {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            let value = self.loadKeyequiv()[key].flatMap(Int.init) ?? 0
+            return value >= expected
         }
-        let value = loadKeyequiv()[key].flatMap(Int.init) ?? 0
-        return value >= expected
     }
 
     private func loadGotoSplit() -> [String: String]? {
@@ -280,13 +485,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
         // Wait for the app-side repro loop to finish.
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -329,13 +528,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -373,13 +566,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -423,13 +610,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -474,13 +655,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -523,13 +698,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
 
         XCTAssertTrue(waitForAnyData(timeout: 12.0), "Expected split-close-right test data to be written at \(dataPath)")
 
-        let doneDeadline = Date().addingTimeInterval(90.0)
-        while Date() < doneDeadline {
-            if let data = loadData(), data["visualDone"] == "1" {
-                break
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.10))
-        }
+        XCTAssertTrue(waitForVisualDone(timeout: 90.0), "Expected visual repro loop to finish. path=\(dataPath)")
 
         guard let data = loadData() else {
             XCTFail("Missing split-close-right data after waiting. path=\(dataPath)")
@@ -638,13 +807,12 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
 
         // Also guard against a delayed blanking: watch for ~1.5s and fail if it goes blank for sustained streak.
-        let deadline = Date().addingTimeInterval(1.5)
         var blankStreak = 0
-        var sampleIndex = 0
-        while Date() < deadline {
-            sampleIndex += 1
+        for sampleIndex in 1...9 {
             guard let (path, stats) = takeStats("\(label)-watch-\(String(format: "%02d", sampleIndex))", crop: blankCrop) else {
-                RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+                if sampleIndex < 9 {
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+                }
                 continue
             }
             if stats.isProbablyBlank {
@@ -657,7 +825,9 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
                 XCTFail("Pane became blank for sustained period after close. label=\(label) stats=\(stats) shots=\(screenshotDir)")
                 return
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+            if sampleIndex < 9 {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.17))
+            }
         }
     }
 
@@ -852,76 +1022,54 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     }
 
     private func waitForData(keys: [String], timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            return keys.allSatisfy { data[$0] != nil }
         }
-        if let data = loadData(), keys.allSatisfy({ data[$0] != nil }) {
-            return true
-        }
-        return false
     }
 
     private func waitForAnyData(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if loadData() != nil {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.loadData() != nil
         }
-        return loadData() != nil
     }
 
     private func waitForSettledData(timeout: TimeInterval) -> [String: String]? {
-        let deadline = Date().addingTimeInterval(timeout)
         var last: [String: String]?
 
-        while Date() < deadline {
-            if let data = loadData() {
-                last = data
+        _ = waitForCondition(timeout: timeout) {
+            guard let data = self.loadData() else { return false }
+            last = data
 
-                if let setupError = data["setupError"], !setupError.isEmpty {
-                    return data
-                }
-
-                let finalPaneCount = Int(data["finalPaneCount"] ?? "") ?? -1
-                let missingSelected = Int(data["missingSelectedTabCount"] ?? "") ?? -1
-                let missingMapping = Int(data["missingPanelMappingCount"] ?? "") ?? -1
-                let emptyPanels = Int(data["emptyPanelAppearCount"] ?? "") ?? -1
-                let selectedTerminalCount = Int(data["selectedTerminalCount"] ?? "") ?? -1
-                let selectedTerminalAttached = Int(data["selectedTerminalAttachedCount"] ?? "") ?? -1
-                let selectedTerminalZeroSize = Int(data["selectedTerminalZeroSizeCount"] ?? "") ?? -1
-                let selectedTerminalSurfaceNil = Int(data["selectedTerminalSurfaceNilCount"] ?? "") ?? -1
-
-                let settled =
-                    finalPaneCount == 2 &&
-                    missingSelected == 0 &&
-                    missingMapping == 0 &&
-                    emptyPanels == 0 &&
-                    selectedTerminalCount == 2 &&
-                    selectedTerminalAttached == 2 &&
-                    selectedTerminalZeroSize == 0 &&
-                    selectedTerminalSurfaceNil == 0
-
-                if settled {
-                    return data
-                }
-
-                // `recordSplitCloseRightFinalState` streams attempts; give it time to converge.
-                // If the bug is present it will never converge to "settled".
-                let attempt = Int(data["finalAttempt"] ?? "") ?? -1
-                if attempt >= 20 {
-                    return data
-                }
+            if let setupError = data["setupError"], !setupError.isEmpty {
+                return true
             }
 
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
+            let finalPaneCount = Int(data["finalPaneCount"] ?? "") ?? -1
+            let missingSelected = Int(data["missingSelectedTabCount"] ?? "") ?? -1
+            let missingMapping = Int(data["missingPanelMappingCount"] ?? "") ?? -1
+            let emptyPanels = Int(data["emptyPanelAppearCount"] ?? "") ?? -1
+            let selectedTerminalCount = Int(data["selectedTerminalCount"] ?? "") ?? -1
+            let selectedTerminalAttached = Int(data["selectedTerminalAttachedCount"] ?? "") ?? -1
+            let selectedTerminalZeroSize = Int(data["selectedTerminalZeroSizeCount"] ?? "") ?? -1
+            let selectedTerminalSurfaceNil = Int(data["selectedTerminalSurfaceNilCount"] ?? "") ?? -1
 
+            let settled =
+                finalPaneCount == 2 &&
+                missingSelected == 0 &&
+                missingMapping == 0 &&
+                emptyPanels == 0 &&
+                selectedTerminalCount == 2 &&
+                selectedTerminalAttached == 2 &&
+                selectedTerminalZeroSize == 0 &&
+                selectedTerminalSurfaceNil == 0
+            if settled {
+                return true
+            }
+
+            let attempt = Int(data["finalAttempt"] ?? "") ?? -1
+            return attempt >= 20
+        }
         return last
     }
 
@@ -942,14 +1090,15 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
     // MARK: - Automation Socket Client (UI Tests)
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if socketCommand("ping") == "PONG" {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        waitForCondition(timeout: timeout) {
+            self.socketCommand("ping") == "PONG"
         }
-        return socketCommand("ping") == "PONG"
+    }
+
+    private func waitForVisualDone(timeout: TimeInterval) -> Bool {
+        waitForCondition(timeout: timeout) {
+            self.loadData()?["visualDone"] == "1"
+        }
     }
 
     private func socketCommand(_ cmd: String) -> String? {

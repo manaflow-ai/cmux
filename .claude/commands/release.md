@@ -56,7 +56,9 @@ Prepare a new release for cmux. This command updates the changelog, bumps the ve
    - Merge: `gh pr merge --squash --delete-branch`
    - Switch back to main: `git checkout main && git pull`
 
-10. **Create and push the tag**
+10. **Run the pre-tag guard, then create and push the tag**
+    - Run: `./scripts/release-pretag-guard.sh`
+    - If it fails, run `./scripts/bump-version.sh`, commit the build-number bump, push/merge that change, and retry the tag
     - Create tag: `git tag vX.Y.Z`
     - Push tag: `git push origin vX.Y.Z`
 

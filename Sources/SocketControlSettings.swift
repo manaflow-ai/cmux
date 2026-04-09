@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 #if canImport(Security)
 import Security
@@ -62,6 +63,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
 enum SocketControlPasswordStore {
     static let directoryName = "cmux"
     static let fileName = "socket-control-password"
+    static let didChangeNotification = Notification.Name("cmux.socketControlPasswordDidChange")
     private static let keychainMigrationDefaultsKey = "socketControlPasswordMigrationVersion"
     private static let keychainMigrationVersion = 1
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
@@ -195,6 +197,7 @@ enum SocketControlPasswordStore {
         let data = Data(normalized.utf8)
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func clearPassword(fileURL: URL? = nil) throws {
@@ -205,6 +208,7 @@ enum SocketControlPasswordStore {
             return
         }
         try FileManager.default.removeItem(at: fileURL)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func resetLazyKeychainFallbackCacheForTests() {
@@ -292,6 +296,26 @@ struct SocketControlSettings {
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
+    private static let socketDirectoryName = "cmux"
+    private static let stableSocketFileName = "cmux.sock"
+    private static let lastSocketPathFileName = "last-socket-path"
+    static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
+    static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
+
+    static var stableDefaultSocketPath: String {
+        stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
+    }
+
+    static var lastSocketPathFile: String {
+        lastSocketPathFileURL()?.path ?? legacyLastSocketPathFile
+    }
+
+    enum StableDefaultSocketPathEntry: Equatable {
+        case missing
+        case socket(ownerUserID: uid_t)
+        case other(ownerUserID: uid_t)
+        case inaccessible(errnoCode: Int32)
+    }
 
     private static func normalizeMode(_ raw: String) -> String {
         raw
@@ -402,9 +426,28 @@ struct SocketControlSettings {
     static func socketPath(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        isDebugBuild: Bool = SocketControlSettings.isDebugBuild
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        let fallback = defaultSocketPath(bundleIdentifier: bundleIdentifier, isDebugBuild: isDebugBuild)
+        let fallback = defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            isDebugBuild: isDebugBuild,
+            currentUserID: currentUserID,
+            probeStableDefaultPathEntry: probeStableDefaultPathEntry
+        )
+
+        if let taggedDebugPath = taggedDebugSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        ) {
+            if isTruthy(environment[allowSocketPathOverrideKey]),
+               let override = environment["CMUX_SOCKET_PATH"],
+               !override.isEmpty {
+                return override
+            }
+            return taggedDebugPath
+        }
 
         guard let override = environment["CMUX_SOCKET_PATH"], !override.isEmpty else {
             return fallback
@@ -421,7 +464,15 @@ struct SocketControlSettings {
         return fallback
     }
 
-    static func defaultSocketPath(bundleIdentifier: String?, isDebugBuild: Bool) -> String {
+    static func defaultSocketPath(
+        bundleIdentifier: String?,
+        isDebugBuild: Bool,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
+    ) -> String {
+        if let taggedDebugPath = taggedDebugSocketPath(bundleIdentifier: bundleIdentifier, environment: [:]) {
+            return taggedDebugPath
+        }
         if bundleIdentifier == "com.cmuxterm.app.nightly" {
             return "/tmp/cmux-nightly.sock"
         }
@@ -431,7 +482,38 @@ struct SocketControlSettings {
         if isStagingBundleIdentifier(bundleIdentifier) {
             return "/tmp/cmux-staging.sock"
         }
-        return "/tmp/cmux.sock"
+        return resolvedStableDefaultSocketPath(
+            currentUserID: currentUserID,
+            probeStableDefaultPathEntry: probeStableDefaultPathEntry
+        )
+    }
+
+    static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
+            .path ?? "/tmp/cmux-\(currentUserID).sock"
+    }
+
+    static func resolvedStableDefaultSocketPath(
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
+    ) -> String {
+        switch probeStableDefaultPathEntry(stableDefaultSocketPath) {
+        case .missing:
+            return stableDefaultSocketPath
+        case .socket(let ownerUserID) where ownerUserID == currentUserID:
+            return stableDefaultSocketPath
+        case .socket, .other, .inaccessible:
+            return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+    }
+
+    static func recordLastSocketPath(_ path: String, filePath: String = lastSocketPathFile) {
+        let payload = Data((path + "\n").utf8)
+        writeSocketPathMarker(payload, to: filePath)
+        if filePath != legacyLastSocketPathFile {
+            writeSocketPathMarker(payload, to: legacyLastSocketPathFile)
+        }
     }
 
     static func shouldHonorSocketPathOverride(
@@ -454,10 +536,92 @@ struct SocketControlSettings {
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
     }
 
+    /// Tagged DEV builds have bundle IDs like `com.cmuxterm.app.debug.<tag>`.
+    static func isTaggedDevBuild(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier.hasPrefix("\(baseDebugBundleIdentifier).")
+    }
+
+    static func taggedDebugSocketPath(
+        bundleIdentifier: String?,
+        environment: [String: String]
+    ) -> String? {
+        let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if bundleId.hasPrefix("\(baseDebugBundleIdentifier).") {
+            let suffix = String(bundleId.dropFirst(baseDebugBundleIdentifier.count + 1))
+            let slug = suffix
+                .replacingOccurrences(of: ".", with: "-")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            if !slug.isEmpty {
+                return "/tmp/cmux-debug-\(slug).sock"
+            }
+        }
+
+        let tag = launchTag(environment: environment)?
+            .lowercased()
+            .replacingOccurrences(of: ".", with: "-")
+            .replacingOccurrences(of: "_", with: "-")
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+
+        guard bundleId == baseDebugBundleIdentifier,
+              let tag,
+              !tag.isEmpty else {
+            return nil
+        }
+        return "/tmp/cmux-debug-\(tag).sock"
+    }
+
     static func isStagingBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier == "com.cmuxterm.app.staging"
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.staging.")
+    }
+
+    static func stableSocketDirectoryURL(fileManager: FileManager = .default) -> URL? {
+        guard let appSupportDirectory = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        return appSupportDirectory.appendingPathComponent(socketDirectoryName, isDirectory: true)
+    }
+
+    static func stableSocketFileURL(fileManager: FileManager = .default) -> URL? {
+        stableSocketDirectoryURL(fileManager: fileManager)?
+            .appendingPathComponent(stableSocketFileName, isDirectory: false)
+    }
+
+    static func lastSocketPathFileURL(fileManager: FileManager = .default) -> URL? {
+        stableSocketDirectoryURL(fileManager: fileManager)?
+            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
+    }
+
+    private static func writeSocketPathMarker(_ payload: Data, to filePath: String) {
+        let fileURL = URL(fileURLWithPath: filePath)
+        let parentURL = fileURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(
+            at: parentURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? payload.write(to: fileURL, options: .atomic)
+    }
+
+    private static func inspectStableDefaultSocketPathEntry(_ path: String) -> StableDefaultSocketPathEntry {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            let errnoCode = errno
+            if errnoCode == ENOENT {
+                return .missing
+            }
+            return .inaccessible(errnoCode: errnoCode)
+        }
+
+        let fileType = st.st_mode & mode_t(S_IFMT)
+        if fileType == mode_t(S_IFSOCK) {
+            return .socket(ownerUserID: st.st_uid)
+        }
+        return .other(ownerUserID: st.st_uid)
     }
 
     static func isTruthy(_ raw: String?) -> Bool {

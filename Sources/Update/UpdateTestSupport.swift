@@ -6,6 +6,18 @@ enum UpdateTestSupport {
     static func applyIfNeeded(to viewModel: UpdateViewModel) {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_MODE"] == "1" else { return }
+
+        if let detectedVersion = env["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"],
+           !detectedVersion.isEmpty {
+            DispatchQueue.main.async {
+                if let item = makeAppcastItem(displayVersion: detectedVersion) {
+                    viewModel.recordDetectedUpdate(item)
+                } else {
+                    viewModel.detectedUpdateVersion = UpdateViewModel.normalizedDetectedUpdateVersion(from: detectedVersion)
+                }
+            }
+        }
+
         guard let state = env["CMUX_UI_TEST_UPDATE_STATE"] else { return }
 
         DispatchQueue.main.async {
@@ -79,6 +91,7 @@ enum UpdateTestSupport {
         ]
         let dict: [String: Any] = [
             "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)

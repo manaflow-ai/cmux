@@ -59,24 +59,29 @@ def _wait_for_focused_cwd(
     client: cmux,
     expected: str,
     timeout: float = 12.0,
-    exclude_panel: str | None = None,
+    panel: str | None = None,
+    tab: str | None = None,
 ) -> dict[str, str]:
     """Wait for focused_cwd to match expected.
 
-    If exclude_panel is given, also require that focused_panel differs from
-    that value — ensuring we're checking the *new* pane, not the original.
+    If panel is given, also require that focused_panel matches that panel.
+    If tab is given, also require that the selected tab matches that tab.
     """
     def pred():
         state = _parse_sidebar_state(client.sidebar_state())
         cwd = state.get("focused_cwd", "")
         if cwd != expected:
             return None
-        if exclude_panel and state.get("focused_panel", "") == exclude_panel:
+        if panel and state.get("focused_panel", "") != panel:
+            return None
+        if tab and state.get("tab", "") != tab:
             return None
         return state
     label = f"focused_cwd={expected!r}"
-    if exclude_panel:
-        label += f" (panel != {exclude_panel})"
+    if panel:
+        label += f" (panel == {panel})"
+    if tab:
+        label += f" (tab == {tab})"
     return _wait_for(pred, timeout=timeout, interval=0.3, label=label)
 
 
@@ -84,10 +89,23 @@ def _send_cd_and_wait(
     client: cmux,
     target: str,
     timeout: float = 12.0,
+    surface: str | int | None = None,
 ) -> dict[str, str]:
     """cd to target and wait for sidebar focused_cwd to reflect it."""
-    client.send(f"cd {target}\n")
+    if surface is None:
+        client.send(f"cd {target}\n")
+    else:
+        client.send_surface(surface, f"cd {target}\n")
     return _wait_for_focused_cwd(client, target, timeout=timeout)
+
+
+def _focus_first_surface(client: cmux) -> str:
+    surfaces = client.list_surfaces()
+    if not surfaces:
+        raise AssertionError("Current tab has no surfaces")
+    surface_id = surfaces[0][1]
+    client.focus_surface(surface_id)
+    return surface_id
 
 
 def main() -> int:
@@ -119,17 +137,22 @@ def main() -> int:
 
     print("=== Split CWD Inheritance Tests ===")
 
+    print("  [setup] creating isolated workspace tab...")
+    setup_tab = client.new_tab()
+    client.select_tab(setup_tab)
+    time.sleep(1.0)
+    setup_surface = _focus_first_surface(client)
+    time.sleep(0.5)
+
     # --- Setup: cd to test_dir_a in workspace 1 ---
     print("  [setup] cd to test_dir_a and wait for shell integration...")
-    _send_cd_and_wait(client, test_dir_a)
+    _send_cd_and_wait(client, test_dir_a, surface=setup_surface)
     state = _parse_sidebar_state(client.sidebar_state())
     check("setup: focused_cwd is test_dir_a", state.get("focused_cwd") == test_dir_a,
           f"got {state.get('focused_cwd')!r}")
 
     # --- Test 1: New split inherits test_dir_a ---
     print("  [test1] creating right split from test_dir_a...")
-    # Record the original panel so we can verify focus moves to the NEW pane.
-    original_panel = state.get("focused_panel", "")
     split_result = client.new_split("right")
     if not split_result:
         check("split created", False)
@@ -138,15 +161,15 @@ def main() -> int:
         return 1
     check("split created", True)
 
-    # Wait for the NEW pane (different panel ID) to report test_dir_a.
+    # Socket split commands should not steal focus; focus the returned pane
+    # explicitly, then assert that pane inherited the source cwd.
+    new_panel = split_result.strip()
+    client.focus_surface_by_panel(new_panel)
     time.sleep(4)  # wait for new bash to start + run PROMPT_COMMAND
     try:
         state = _wait_for_focused_cwd(
-            client, test_dir_a, timeout=15.0, exclude_panel=original_panel,
+            client, test_dir_a, timeout=15.0, panel=new_panel,
         )
-        new_panel = state.get("focused_panel", "")
-        check("test1: focus moved to new pane", new_panel != original_panel,
-              f"original={original_panel!r}, current={new_panel!r}")
         check("test1: split inherited test_dir_a",
               state.get("focused_cwd") == test_dir_a,
               f"focused_cwd={state.get('focused_cwd')!r}")
@@ -159,8 +182,6 @@ def main() -> int:
     # First cd to test_dir_b so we have a different dir to inherit
     print("  [test2] cd to test_dir_b, then creating new workspace tab...")
     _send_cd_and_wait(client, test_dir_b)
-    state = _parse_sidebar_state(client.sidebar_state())
-    original_tab = state.get("tab", "")
 
     tab_result = client.new_tab()
     if not tab_result:
@@ -170,23 +191,14 @@ def main() -> int:
         return 1
     check("new tab created", True)
 
-    # New workspace should be a different tab AND inherit test_dir_b
+    # Focus the returned workspace explicitly, then assert it inherited cwd.
+    new_tab = tab_result.strip()
+    client.select_tab(new_tab)
     time.sleep(4)
     try:
-        def _new_tab_with_cwd():
-            s = _parse_sidebar_state(client.sidebar_state())
-            tab_id = s.get("tab", "")
-            cwd = s.get("focused_cwd", "")
-            if tab_id != original_tab and cwd == test_dir_b:
-                return s
-            return None
-
-        state = _wait_for(
-            _new_tab_with_cwd, timeout=15.0, interval=0.3,
-            label=f"new tab with focused_cwd={test_dir_b!r}",
+        state = _wait_for_focused_cwd(
+            client, test_dir_b, timeout=15.0, tab=new_tab,
         )
-        check("test2: focus moved to new tab", state.get("tab") != original_tab,
-              f"original={original_tab!r}, current={state.get('tab')!r}")
         check("test2: new workspace inherited test_dir_b",
               state.get("focused_cwd") == test_dir_b,
               f"focused_cwd={state.get('focused_cwd')!r}")

@@ -13,13 +13,13 @@ on:
 
 concurrency:
   group: nightly-build-${{ github.ref_name }}
-  # Queue main pushes instead of hard-canceling older runs. The decide job
-  # already coalesces to the current main HEAD, and we re-check HEAD before
-  # publishing so stale queued runs exit cleanly instead of showing up red.
+  # Queue concurrent runs instead of canceling them so no build is lost.
   cancel-in-progress: false
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 env:
   CREATE_DMG_VERSION: 8.0.0
@@ -100,7 +100,8 @@ jobs:
   build-sign-notarize-nightly:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
-    runs-on: macos-15
+    runs-on: warp-macos-26-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout build ref
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -108,7 +109,29 @@ jobs:
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: recursive
 
+      - name: Check whether build commit is still current main HEAD before build
+        if: needs.decide.outputs.should_publish == 'true'
+        id: current_head_prebuild
+        run: |
+          set -euo pipefail
+          CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+          BUILD_SHA="${{ needs.decide.outputs.head_sha }}"
+          if [ "$CURRENT_MAIN_SHA" = "$BUILD_SHA" ]; then
+            STILL_CURRENT=true
+          else
+            STILL_CURRENT=false
+          fi
+          echo "still_current=${STILL_CURRENT}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Pre-build publish guard"
+            echo
+            echo "- build sha: \`$BUILD_SHA\`"
+            echo "- current main sha: \`$CURRENT_MAIN_SHA\`"
+            echo "- continue build/sign/publish: \`$STILL_CURRENT\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Select Xcode
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -128,21 +151,43 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
 
       - name: Install build deps
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
+          ZIG_REQUIRED="0.15.2"
+          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
+            echo "zig ${ZIG_REQUIRED} already installed"
+          else
+            echo "Installing zig ${ZIG_REQUIRED} from tarball"
+            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
+            tar xf /tmp/zig.tar.xz -C /tmp
+            sudo mkdir -p /usr/local/bin /usr/local/lib
+            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
+            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
+            export PATH="/usr/local/bin:$PATH"
+            zig version
+          fi
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download pre-built GhosttyKit.xcframework
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .spm-cache
           key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
+      - name: Setup Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: daemon/remote/go.mod
+
       - name: Derive Sparkle public key from private key
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -154,16 +199,8 @@ jobs:
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
 
-      - name: Build Apple Silicon app (Release)
-        run: |
-          xcodebuild -scheme cmux -configuration Release -derivedDataPath build-arm \
-            -destination 'platform=macOS,arch=arm64' \
-            -clonedSourcePackagesDirPath .spm-cache \
-            ARCHS="arm64" \
-            ONLY_ACTIVE_ARCH=YES \
-            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
-
-      - name: Build universal app (Release)
+      - name: Build universal nightly app (Release)
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
@@ -173,28 +210,33 @@ jobs:
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
       - name: Verify nightly binary architectures
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
-          ARM_APP_BINARY="build-arm/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
-          ARM_CLI_BINARY="build-arm/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          ARM_APP_ARCHS="$(lipo -archs "$ARM_APP_BINARY")"
-          ARM_CLI_ARCHS="$(lipo -archs "$ARM_CLI_BINARY")"
+          HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
-          echo "Arm app binary architectures: $ARM_APP_ARCHS"
-          echo "Arm CLI binary architectures: $ARM_CLI_ARCHS"
+          HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
-          [[ "$ARM_APP_ARCHS" == "arm64" ]]
-          [[ "$ARM_CLI_ARCHS" == "arm64" ]]
+          echo "Ghostty helper architectures: $HELPER_ARCHS"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
+          [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
 
-      - name: Check whether build commit is still current main HEAD
-        if: needs.decide.outputs.should_publish == 'true'
-        id: current_head
+      - name: Run CLI version memory guard regression
+        if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
+        run: |
+          set -euo pipefail
+          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
+          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
+          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
+
+      - name: Check whether build commit is still current main HEAD after build
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true'
+        id: current_head_postbuild
         run: |
           set -euo pipefail
           CURRENT_MAIN_SHA="$(git ls-remote origin refs/heads/main | awk '{print $1}')"
@@ -206,7 +248,7 @@ jobs:
           fi
           echo "still_current=${STILL_CURRENT}" >> "$GITHUB_OUTPUT"
           {
-            echo "### Publish guard"
+            echo "### Post-build publish guard"
             echo
             echo "- build sha: \`$BUILD_SHA\`"
             echo "- current main sha: \`$CURRENT_MAIN_SHA\`"
@@ -214,14 +256,13 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inject nightly identities and metadata
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         run: |
           set -euo pipefail
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
-          ARM_APP_DIR="build-arm/Build/Products/Release"
-          UNIVERSAL_APP_DIR="build-universal/Build/Products/Release"
+          APP_DIR="build-universal/Build/Products/Release"
 
-          BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${ARM_APP_DIR}/cmux.app/Contents/Info.plist")
+          BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_DIR}/cmux.app/Contents/Info.plist")
           NIGHTLY_DATE=$(date -u +%Y%m%d)
 
           # Build number: unique/monotonic per workflow run attempt so same-day
@@ -232,12 +273,13 @@ jobs:
           else
             NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
           fi
+          NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-nightly.${NIGHTLY_BUILD}"
           echo "NIGHTLY_BUILD=${NIGHTLY_BUILD}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_MARKETING_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
+          echo "NIGHTLY_REMOTE_DAEMON_VERSION=${NIGHTLY_MARKETING_VERSION}" >> "$GITHUB_ENV"
 
-          ARM_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
-          UNIVERSAL_DMG_IMMUTABLE="cmux-nightly-universal-macos-${NIGHTLY_BUILD}.dmg"
-          echo "NIGHTLY_DMG_IMMUTABLE=${ARM_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
-          echo "NIGHTLY_UNIVERSAL_DMG_IMMUTABLE=${UNIVERSAL_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
+          NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-${NIGHTLY_BUILD}.dmg"
+          echo "NIGHTLY_DMG_IMMUTABLE=${NIGHTLY_DMG_IMMUTABLE}" >> "$GITHUB_ENV"
 
           prepare_variant() {
             local app_dir="$1"
@@ -252,7 +294,7 @@ jobs:
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Add :SUFeedURL string ${feed_url}" "$app_plist"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}" "$app_plist"
+            /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${NIGHTLY_MARKETING_VERSION}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${NIGHTLY_BUILD}" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :CMUXCommit" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :CMUXCommit string ${SHORT_SHA}" "$app_plist"
@@ -260,25 +302,66 @@ jobs:
           }
 
           prepare_variant \
-            "$ARM_APP_DIR" \
+            "$APP_DIR" \
             "com.cmuxterm.app.nightly" \
-            "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast.xml"
-          prepare_variant \
-            "$UNIVERSAL_APP_DIR" \
-            "com.cmuxterm.app.nightly.universal" \
-            "https://github.com/manaflow-ai/cmux/releases/download/nightly/appcast-universal.xml"
+            "https://files.cmux.com/nightly/appcast.xml"
 
           echo "Nightly app name: cmux NIGHTLY"
-          echo "Nightly arm64 bundle ID: com.cmuxterm.app.nightly"
-          echo "Nightly universal bundle ID: com.cmuxterm.app.nightly.universal"
-          echo "Nightly marketing version: ${BASE_MARKETING}-nightly.${NIGHTLY_DATE}"
+          echo "Nightly bundle ID: com.cmuxterm.app.nightly"
+          echo "Nightly marketing version: ${NIGHTLY_MARKETING_VERSION}"
           echo "Nightly build number: ${NIGHTLY_BUILD}"
-          echo "Nightly arm64 immutable DMG: ${ARM_DMG_IMMUTABLE}"
-          echo "Nightly universal immutable DMG: ${UNIVERSAL_DMG_IMMUTABLE}"
+          echo "Nightly immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
 
+      - name: Build remote daemon nightly assets and inject manifest
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        run: |
+          set -euo pipefail
+          # Build with --asset-suffix so manifest download URLs point to
+          # immutable, build-specific asset names (e.g. cmuxd-remote-darwin-arm64-2362248028801).
+          # This prevents checksum mismatches when a newer nightly overwrites
+          # the shared "latest" assets on the release.
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$NIGHTLY_REMOTE_DAEMON_VERSION" \
+            --release-tag "nightly" \
+            --repo "manaflow-ai/cmux" \
+            --output-dir "remote-daemon-assets" \
+            --asset-suffix "$NIGHTLY_BUILD"
+          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json")"
+          APP_PLIST="build-universal/Build/Products/Release/cmux NIGHTLY.app/Contents/Info.plist"
+          if [ ! -f "$APP_PLIST" ]; then
+            echo "Missing nightly app Info.plist at $APP_PLIST" >&2
+            exit 1
+          fi
+          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
+          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
+          # Also create unsuffixed "latest" copies for the release page and
+          # any tooling that fetches the generic asset names. The manifest's
+          # downloadURLs still point to the versioned filenames (intentional:
+          # the live manifest is used by the client-side checksum fallback
+          # which only reads sha256, not downloadURL). The unsuffixed copies
+          # are convenience aliases and don't carry build-provenance
+          # attestation (attested versioned files are canonical).
+          for platform in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            cp "remote-daemon-assets/cmuxd-remote-${platform}-${NIGHTLY_BUILD}" \
+               "remote-daemon-assets/cmuxd-remote-${platform}"
+          done
+          # Regenerate unsuffixed checksums with generic filenames so
+          # `shasum -c cmuxd-remote-checksums.txt` works against the aliases.
+          (
+            cd remote-daemon-assets
+            shasum -a 256 \
+              cmuxd-remote-darwin-arm64 \
+              cmuxd-remote-darwin-amd64 \
+              cmuxd-remote-linux-arm64 \
+              cmuxd-remote-linux-amd64 \
+              > cmuxd-remote-checksums.txt
+          )
+          cp "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+             "remote-daemon-assets/cmuxd-remote-manifest.json"
+
       - name: Import signing cert
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -302,7 +385,7 @@ jobs:
           security list-keychains -d user -s build.keychain
 
       - name: Codesign apps
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -312,19 +395,22 @@ jobs:
           fi
           ENTITLEMENTS="cmux.entitlements"
           for APP_PATH in \
-            "build-arm/Build/Products/Release/cmux NIGHTLY.app" \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
             CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
+            HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
             if [ -f "$CLI_PATH" ]; then
               /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+            fi
+            if [ -f "$HELPER_PATH" ]; then
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
             fi
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           done
 
       - name: Notarize apps and dmgs
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -384,16 +470,12 @@ jobs:
           }
 
           notarize_and_package \
-            "build-arm/Build/Products/Release/cmux NIGHTLY.app" \
+            "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
             "cmux-nightly-macos.dmg" \
             "$NIGHTLY_DMG_IMMUTABLE"
-          notarize_and_package \
-            "build-universal/Build/Products/Release/cmux NIGHTLY.app" \
-            "cmux-nightly-universal-macos.dmg" \
-            "$NIGHTLY_UNIVERSAL_DMG_IMMUTABLE"
 
       - name: Upload dSYMs to Sentry
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: manaflow
@@ -405,11 +487,10 @@ jobs:
           fi
           brew install getsentry/tools/sentry-cli || true
           sentry-cli debug-files upload --include-sources \
-            build-arm/Build/Products/Release/ \
             build-universal/Build/Products/Release/
 
       - name: Generate Sparkle appcasts (nightly)
-        if: needs.decide.outputs.should_publish != 'true' || steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
@@ -418,7 +499,21 @@ jobs:
             exit 1
           fi
           ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml
-          ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_UNIVERSAL_DMG_IMMUTABLE" nightly appcast-universal.xml
+          # Keep the legacy universal feed alive long enough for older nightly
+          # installs to migrate onto the unified nightly appcast.
+          cp appcast.xml appcast-universal.xml
+
+      - name: Attest remote daemon nightly assets
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            remote-daemon-assets/cmuxd-remote-darwin-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-darwin-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-arm64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-linux-amd64-${{ env.NIGHTLY_BUILD }}
+            remote-daemon-assets/cmuxd-remote-checksums-${{ env.NIGHTLY_BUILD }}.txt
+            remote-daemon-assets/cmuxd-remote-manifest-${{ env.NIGHTLY_BUILD }}.json
 
       - name: Upload branch nightly artifacts
         if: needs.decide.outputs.should_publish != 'true'
@@ -427,13 +522,13 @@ jobs:
           name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
           path: |
             cmux-nightly-macos*.dmg
-            cmux-nightly-universal-macos*.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           if-no-files-found: error
 
       - name: Move nightly tag to built commit
-        if: needs.decide.outputs.should_publish == 'true' && steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -442,7 +537,7 @@ jobs:
           git push origin refs/tags/nightly --force
 
       - name: Publish nightly release assets
-        if: needs.decide.outputs.should_publish == 'true' && steps.current_head.outputs.still_current == 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           tag_name: nightly
@@ -452,20 +547,41 @@ jobs:
           body: |
             Automated nightly build for `${{ needs.decide.outputs.short_sha }}`.
 
-            **cmux NIGHTLY** has two update tracks:
-            - Apple Silicon: bundle ID `com.cmuxterm.app.nightly`, feed `appcast.xml`
-            - Universal: bundle ID `com.cmuxterm.app.nightly.universal`, feed `appcast-universal.xml`
+            **cmux NIGHTLY** is published as a universal app:
+            - bundle ID `com.cmuxterm.app.nightly`
+            - feed `appcast.xml`
+            - compatibility feed `appcast-universal.xml` for older universal nightlies
 
             [Download cmux-nightly-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
-            [Download cmux-nightly-universal-macos.dmg](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-universal-macos.dmg)
           files: |
             cmux-nightly-macos-${{ github.run_id }}*.dmg
             cmux-nightly-macos.dmg
-            cmux-nightly-universal-macos-${{ github.run_id }}*.dmg
-            cmux-nightly-universal-macos.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
             appcast-universal.xml
           overwrite_files: true
+
+      - name: Upload nightly appcast to R2
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          command -v aws >/dev/null 2>&1 || { echo "Installing AWS CLI..."; brew install awscli; }
+
+          # Upload after GitHub Release publish so the appcast never references
+          # a DMG that doesn't exist yet. R2 PutObject is atomic, so the appcast
+          # is either the old version or the new one, never missing.
+          aws s3 cp appcast.xml \
+            "s3://cmux-binaries/nightly/appcast.xml" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --cache-control "no-cache, no-store, must-revalidate"
+
+          echo "R2 appcast upload complete: https://files.cmux.com/nightly/appcast.xml"
 
       - name: Cleanup keychain
         if: always()

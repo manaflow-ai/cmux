@@ -7,6 +7,7 @@ import AppKit
 @testable import cmux
 #endif
 
+@MainActor
 final class WorkspaceManualUnreadTests: XCTestCase {
     func testShouldClearManualUnreadWhenFocusMovesToDifferentPanel() {
         let previousFocusedPanelId = UUID()
@@ -281,7 +282,7 @@ final class CommandPaletteSwitcherSearchIndexerTests: XCTestCase {
         XCTAssertFalse(keywords.contains("cmd-palette-indexing"))
     }
 
-    func testSurfaceDetailOutranksWorkspaceDetailForPathToken() {
+    func testSurfaceDetailOutranksWorkspaceDetailForPathToken() throws {
         let metadata = CommandPaletteSwitcherSearchMetadata(
             directories: ["/tmp/worktrees/cmux"],
             branches: ["feature/cmd-palette"],
