@@ -332,6 +332,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
+    var panelColors: [String: String]?  // panelId.uuidString -> hex
     var isPinned: Bool
     var currentDirectory: String
     var focusedPanelId: UUID?

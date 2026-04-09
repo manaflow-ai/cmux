@@ -2136,6 +2136,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceClose(params: params))
         case "surface.move":
             return v2Result(id: id, self.v2SurfaceMove(params: params))
+        case "surface.set_color":
+            return v2Result(id: id, self.v2SurfaceSetColor(params: params))
         case "surface.reorder":
             return v2Result(id: id, self.v2SurfaceReorder(params: params))
         case "surface.action":
@@ -4910,6 +4912,38 @@ class TerminalController {
 
             ws.focusPanel(surfaceId)
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+        }
+        return result
+    }
+
+    private func v2SurfaceSetColor(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to set surface color", data: nil)
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard let surfaceId = v2UUID(params, "surface_id"), ws.panels[surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: nil)
+                return
+            }
+
+            let colorRaw = v2String(params, "color")?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let colorRaw, !colorRaw.isEmpty {
+                if let normalized = WorkspaceTabColorSettings.normalizedHex(colorRaw) {
+                    ws.setPanelColor(surfaceId, hex: normalized)
+                    result = .ok(["surface_id": surfaceId.uuidString, "color": normalized])
+                } else {
+                    result = .err(code: "invalid_params", message: "Invalid color hex", data: nil)
+                }
+            } else {
+                ws.setPanelColor(surfaceId, hex: nil)
+                result = .ok(["surface_id": surfaceId.uuidString, "color": NSNull()])
+            }
         }
         return result
     }

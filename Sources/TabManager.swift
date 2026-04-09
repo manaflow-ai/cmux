@@ -3561,6 +3561,53 @@ class TabManager: ObservableObject {
         tab.setCustomColor(color)
     }
 
+    /// Detach a surface from its current workspace and open it in a new workspace as an independent tab.
+    func promoteSurfaceToNewWorkspace(sourceWorkspace: Workspace, panelId: UUID) {
+        guard sourceWorkspace.panels[panelId] != nil else { return }
+        guard sourceWorkspace.panels.count > 1 else { return }
+
+        // Transfer panel color before detach (detach removes it from the source)
+        let panelColor = sourceWorkspace.panelColors[panelId]
+        let panelTitle = sourceWorkspace.panelTitles[panelId]
+
+        guard let transfer = sourceWorkspace.detachSurface(panelId: panelId) else { return }
+
+        let newWorkspace = addWorkspace(
+            title: panelTitle ?? transfer.title,
+            select: true,
+            eagerLoadTerminal: false
+        )
+
+        guard let targetPane = newWorkspace.bonsplitController.allPaneIds.first else {
+            // Rollback: reattach to source
+            if let rollbackPane = sourceWorkspace.bonsplitController.allPaneIds.first {
+                sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, focus: true)
+            }
+            return
+        }
+
+        // Identify the dummy terminal that addWorkspace auto-created
+        let dummyPanelIds = Set(newWorkspace.panels.keys)
+
+        guard newWorkspace.attachDetachedSurface(transfer, inPane: targetPane, focus: true) != nil else {
+            // Rollback: reattach to source
+            if let rollbackPane = sourceWorkspace.bonsplitController.allPaneIds.first {
+                sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, focus: true)
+            }
+            return
+        }
+
+        // Close the dummy terminal surface that was auto-created with the new workspace
+        for dummyId in dummyPanelIds {
+            _ = newWorkspace.closePanel(dummyId, force: true)
+        }
+
+        // Apply the panel color as the new workspace's custom color
+        if let panelColor {
+            newWorkspace.setCustomColor(panelColor)
+        }
+    }
+
     func togglePin(tabId: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
         let tab = tabs[index]

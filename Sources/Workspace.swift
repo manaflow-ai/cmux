@@ -297,6 +297,7 @@ extension Workspace {
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
+            panelColors: panelColors.isEmpty ? nil : Dictionary(uniqueKeysWithValues: panelColors.map { ($0.key.uuidString, $0.value) }),
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -337,6 +338,13 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
+        if let savedPanelColors = snapshot.panelColors {
+            for (key, hex) in savedPanelColors {
+                if let uuid = UUID(uuidString: key) {
+                    setPanelColor(uuid, hex: hex)
+                }
+            }
+        }
         isPinned = snapshot.isPinned
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
@@ -6486,6 +6494,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published var panelColors: [UUID: String] = [:]  // panelId -> hex string
     @Published var currentDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -6658,6 +6667,8 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($remoteConnectionDetail),
             sidebarObservationSignal($activeRemoteTerminalSessionCount),
             sidebarObservationSignal($listeningPorts),
+            sidebarObservationSignal($panelColors),
+            sidebarObservationSignal($panelTitles),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
@@ -7519,6 +7530,14 @@ final class Workspace: Identifiable, ObservableObject {
             customColor = WorkspaceTabColorSettings.normalizedHex(hex)
         } else {
             customColor = nil
+        }
+    }
+
+    func setPanelColor(_ panelId: UUID, hex: String?) {
+        if let hex, let normalized = WorkspaceTabColorSettings.normalizedHex(hex) {
+            panelColors[panelId] = normalized
+        } else {
+            panelColors.removeValue(forKey: panelId)
         }
     }
 

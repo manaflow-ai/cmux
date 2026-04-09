@@ -12994,6 +12994,37 @@ private struct TabItemView: View, Equatable {
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
+
+            // Surface child rows for multi-surface workspaces (agent teams)
+            if tab.panels.count > 1 {
+                let orderedIds = tab.sidebarOrderedPanelIds()
+                let currentFocusedPanelId = tab.focusedPanelId
+                VStack(spacing: 2) {
+                    ForEach(orderedIds, id: \.self) { panelId in
+                        SurfaceChildRow(
+                            title: tab.panelTitles[panelId] ?? String(localized: "sidebar.surfaceChild.defaultTitle", defaultValue: "Terminal"),
+                            colorHex: tab.panelColors[panelId],
+                            isFocused: panelId == currentFocusedPanelId,
+                            isWorkspaceActive: isActive,
+                            colorScheme: colorScheme
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            updateSelection()
+                            tab.focusPanel(panelId)
+                        }
+                        .contextMenu {
+                            Button(String(localized: "sidebar.surfaceChild.openInNewWorkspace", defaultValue: "Open in New Workspace")) {
+                                tabManager.promoteSurfaceToNewWorkspace(
+                                    sourceWorkspace: tab,
+                                    panelId: panelId
+                                )
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: tab.logEntries.count)
         .animation(.easeInOut(duration: 0.2), value: tab.progress != nil)
@@ -13440,12 +13471,21 @@ private struct TabItemView: View, Equatable {
     }
 
     private var resolvedCustomTabColor: Color? {
-        guard let hex = tab.customColor else { return nil }
+        let hex = tab.customColor ?? representativePanelColorHex
+        guard let hex else { return nil }
         return WorkspaceTabColorSettings.displayColor(
             hex: hex,
             colorScheme: colorScheme,
             forceBright: activeTabIndicatorStyle == .leftRail
         )
+    }
+
+    /// When a workspace has no customColor but has panel colors (e.g. from agent teams),
+    /// use the first panel's color as the representative color for the workspace rail.
+    private var representativePanelColorHex: String? {
+        guard tab.customColor == nil, !tab.panelColors.isEmpty else { return nil }
+        let orderedIds = tab.sidebarOrderedPanelIds()
+        return orderedIds.lazy.compactMap { tab.panelColors[$0] }.first
     }
 
     private func tabColorSwatchColor(for hex: String) -> NSColor {
@@ -14169,6 +14209,58 @@ private struct SidebarMetadataRows: View {
 
     private var shouldShowToggle: Bool {
         entries.count > collapsedEntryLimit
+    }
+}
+
+private struct SurfaceChildRow: View {
+    let title: String
+    let colorHex: String?
+    let isFocused: Bool
+    let isWorkspaceActive: Bool
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+            Text(title)
+                .font(.system(size: 10))
+                .foregroundColor(textColor)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isFocused ? focusedBackgroundColor : Color.clear)
+        )
+    }
+
+    private var dotColor: Color {
+        if let hex = colorHex,
+           let color = WorkspaceTabColorSettings.displayColor(hex: hex, colorScheme: colorScheme) {
+            return color
+        }
+        return Color.secondary.opacity(0.5)
+    }
+
+    private var textColor: Color {
+        if isWorkspaceActive {
+            return isFocused
+                ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.95))
+                : Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.7))
+        }
+        return isFocused ? .primary : .secondary
+    }
+
+    private var focusedBackgroundColor: Color {
+        if isWorkspaceActive {
+            return Color.white.opacity(0.1)
+        }
+        return Color.primary.opacity(0.05)
     }
 }
 

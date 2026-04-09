@@ -10146,6 +10146,81 @@ struct CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
+    /// Parse a tmux pane style string (e.g. "bg=colour160,fg=white" or "bg=#C0392B")
+    /// and extract the background color as a normalized #RRGGBB hex string.
+    private func parseTmuxStyleBackgroundHex(_ style: String) -> String? {
+        // Split style into key=value pairs: "bg=colour160,fg=white" → ["bg=colour160", "fg=white"]
+        let pairs = style.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard let bgPair = pairs.first(where: { $0.lowercased().hasPrefix("bg=") }) else {
+            return nil
+        }
+        let bgValue = String(bgPair.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        guard !bgValue.isEmpty, bgValue.lowercased() != "default" else { return nil }
+
+        // Case 1: Already a hex color (#RRGGBB or RRGGBB)
+        let stripped = bgValue.hasPrefix("#") ? String(bgValue.dropFirst()) : bgValue
+        if stripped.count == 6, UInt64(stripped, radix: 16) != nil {
+            return "#" + stripped.uppercased()
+        }
+
+        // Case 2: tmux colour0..colour255 (xterm-256color palette)
+        let lowered = bgValue.lowercased()
+        if lowered.hasPrefix("colour"), let n = Int(lowered.dropFirst("colour".count)), n >= 0, n < 256 {
+            return Self.xterm256ColorHex(n)
+        }
+        if lowered.hasPrefix("color"), let n = Int(lowered.dropFirst("color".count)), n >= 0, n < 256 {
+            return Self.xterm256ColorHex(n)
+        }
+
+        // Case 3: Named tmux colors
+        return Self.tmuxNamedColorHex(lowered)
+    }
+
+    private static func tmuxNamedColorHex(_ name: String) -> String? {
+        switch name {
+        case "black": return "#000000"
+        case "red": return "#CD0000"
+        case "green": return "#00CD00"
+        case "yellow": return "#CDCD00"
+        case "blue": return "#0000EE"
+        case "magenta": return "#CD00CD"
+        case "cyan": return "#00CDCD"
+        case "white": return "#E5E5E5"
+        case "brightblack": return "#7F7F7F"
+        case "brightred": return "#FF0000"
+        case "brightgreen": return "#00FF00"
+        case "brightyellow": return "#FFFF00"
+        case "brightblue": return "#5C5CFF"
+        case "brightmagenta": return "#FF00FF"
+        case "brightcyan": return "#00FFFF"
+        case "brightwhite": return "#FFFFFF"
+        default: return nil
+        }
+    }
+
+    /// Convert xterm-256 color index to #RRGGBB hex.
+    private static func xterm256ColorHex(_ n: Int) -> String? {
+        guard n >= 0, n < 256 else { return nil }
+        // Standard 16 colors (0-15)
+        let standard16: [String] = [
+            "#000000", "#CD0000", "#00CD00", "#CDCD00", "#0000EE", "#CD00CD", "#00CDCD", "#E5E5E5",
+            "#7F7F7F", "#FF0000", "#00FF00", "#FFFF00", "#5C5CFF", "#FF00FF", "#00FFFF", "#FFFFFF"
+        ]
+        if n < 16 { return standard16[n] }
+        // 216-color cube (16-231)
+        if n < 232 {
+            let idx = n - 16
+            let r = idx / 36
+            let g = (idx % 36) / 6
+            let b = idx % 6
+            let vals = [0, 95, 135, 175, 215, 255]
+            return String(format: "#%02X%02X%02X", vals[r], vals[g], vals[b])
+        }
+        // Grayscale ramp (232-255)
+        let gray = 8 + (n - 232) * 10
+        return String(format: "#%02X%02X%02X", gray, gray, gray)
+    }
+
     private func tmuxShellCommandText(commandTokens: [String], cwd: String?) -> String? {
         let trimmedCwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines)
         let commandText = commandTokens.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11500,9 +11575,18 @@ struct CMUXCLI {
 
         case "select-pane", "selectp":
             let parsed = try parseTmuxArguments(rawArgs, valueFlags: ["-P", "-T", "-t"], boolFlags: [])
-            if parsed.value("-P") != nil || parsed.value("-T") != nil {
-                return
+            if let style = parsed.value("-P") {
+                if let hex = parseTmuxStyleBackgroundHex(style) {
+                    if let target = try? tmuxResolveSurfaceTarget(parsed.value("-t"), client: client) {
+                        _ = try? client.sendV2(method: "surface.set_color", params: [
+                            "workspace_id": target.workspaceId,
+                            "surface_id": target.surfaceId,
+                            "color": hex
+                        ])
+                    }
+                }
             }
+            guard parsed.value("-P") == nil, parsed.value("-T") == nil else { return }
             let target = try tmuxResolvePaneTarget(parsed.value("-t"), client: client)
             _ = try client.sendV2(method: "pane.focus", params: [
                 "workspace_id": target.workspaceId,
