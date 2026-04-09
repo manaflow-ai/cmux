@@ -4115,6 +4115,9 @@ struct SettingsView: View {
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
     @AppStorage(NotificationSoundSettings.customCommandKey) private var notificationCustomCommand = NotificationSoundSettings.defaultCustomCommand
     @AppStorage(NotificationBadgeSettings.dockBadgeEnabledKey) private var notificationDockBadgeEnabled = NotificationBadgeSettings.defaultDockBadgeEnabled
+    // TODO(Task 17): replace literal with IslandSettings.enabledKey once
+    // Sources/Island/IslandSettings.swift is registered in project.pbxproj.
+    @AppStorage("island.enabled") private var islandEnabled = false
     @AppStorage(NotificationPaneRingSettings.enabledKey) private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(NotificationPaneFlashSettings.enabledKey) private var notificationPaneFlashEnabled = NotificationPaneFlashSettings.defaultEnabled
     @AppStorage(MenuBarExtraSettings.showInMenuBarKey) private var showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
@@ -5426,6 +5429,29 @@ struct SettingsView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.island", defaultValue: "Island"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("island.enabled"),
+                            String(localized: "island.settings.enable.label", defaultValue: "Show agent session island overlay"),
+                            subtitle: String(localized: "island.settings.enable.help", defaultValue: "A notch-anchored pill that lists active AI agent sessions running inside cmux. Click a row to jump to that workspace and terminal split.")
+                        ) {
+                            Toggle("", isOn: $islandEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsIslandEnabledToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(
+                            String(
+                                localized: "island.settings.known_kinds.help",
+                                defaultValue: "Detects sessions from `cmux set-status` with one of these known keys: claude_code, codex, copilot_cli, opencode, gemini_cli, cursor, amp, droid."
+                            )
+                        )
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.automation", defaultValue: "Automation"))
