@@ -59,6 +59,58 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     }
 }
 
+final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
+    func testRepairsCommandEquivalentWhenFirstResponderFallsBackToWindow() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testRepairsCommandEquivalentWhenResponderHasNoViableOwner() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenResponderHasViableOwner() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testIgnoresNonCommandEvents() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+}
+
 final class ReactGrabShortcutRouteTests: XCTestCase {
     func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
         let browserId = UUID()
