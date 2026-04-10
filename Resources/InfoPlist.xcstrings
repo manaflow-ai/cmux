@@ -1,362 +1,588 @@
 {
-  "sourceLanguage": "en",
-  "version": "1.0",
-  "strings": {
-    "NSCameraUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to use your camera."
-          }
+    "sourceLanguage": "en",
+    "version": "1.0",
+    "strings": {
+        "NSCameraUsageDescription": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "A program running within cmux would like to use your camera."
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \u5185\u3067\u5b9f\u884c\u4e2d\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u304c\u30ab\u30e1\u30e9\u306e\u4f7f\u7528\u3092\u6c42\u3081\u3066\u3044\u307e\u3059\u3002"
+                    }
+                }
+            }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムがカメラの使用を求めています。"
-          }
+        "NSMicrophoneUsageDescription": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "A program running within cmux would like to access your calendar."
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \u5185\u3067\u5b9f\u884c\u4e2d\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u304c\u30de\u30a4\u30af\u306e\u4f7f\u7528\u3092\u6c42\u3081\u3066\u3044\u307e\u3059\u3002"
+                    }
+                },
+                "zh-Hans": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u8fd0\u884c\u7684\u7a0b\u5e8f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea6\u514b\u98ce\u3002"
+                    }
+                },
+                "zh-Hant": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u57f7\u884c\u7684\u7a0b\u5f0f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea5\u514b\u98a8\u3002"
+                    }
+                },
+                "ko": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \ub0b4\uc5d0\uc11c \uc2e4\ud589 \uc911\uc778 \ud504\ub85c\uadf8\ub7a8\uc774 \ub9c8\uc774\ud06c\ub97c \uc0ac\uc6a9\ud558\ub824\uace0 \ud569\ub2c8\ub2e4."
+                    }
+                },
+                "de": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Ein in cmux ausgef\u00fchrtes Programm m\u00f6chte Ihr Mikrofon verwenden."
+                    }
+                },
+                "es": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programa en ejecuci\u00f3n dentro de cmux desea usar tu micr\u00f3fono."
+                    }
+                },
+                "fr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programme s'ex\u00e9cutant dans cmux souhaite utiliser votre microphone."
+                    }
+                },
+                "it": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono."
+                    }
+                },
+                "da": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program, der k\u00f8rer i cmux, vil gerne bruge din mikrofon."
+                    }
+                },
+                "pl": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program dzia\u0142aj\u0105cy w cmux chcia\u0142by u\u017cy\u0107 Twojego mikrofonu."
+                    }
+                },
+                "ru": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u041f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430, \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u0430\u044f \u0432 cmux, \u0445\u043e\u0442\u0435\u043b\u0430 \u0431\u044b \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c \u0432\u0430\u0448 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d."
+                    }
+                },
+                "bs": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program koji se izvr\u0161ava unutar cmux \u017eeli koristiti va\u0161 mikrofon."
+                    }
+                },
+                "ar": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u064a\u0631\u063a\u0628 \u0628\u0631\u0646\u0627\u0645\u062c \u064a\u0639\u0645\u0644 \u062f\u0627\u062e\u0644 cmux \u0641\u064a \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u0645\u064a\u0643\u0631\u0648\u0641\u0648\u0646."
+                    }
+                },
+                "nb": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program som kj\u00f8rer i cmux \u00f8nsker \u00e5 bruke mikrofonen din."
+                    }
+                },
+                "pt-BR": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Um programa em execu\u00e7\u00e3o no cmux gostaria de usar seu microfone."
+                    }
+                },
+                "th": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0e42\u0e1b\u0e23\u0e41\u0e01\u0e23\u0e21\u0e17\u0e35\u0e48\u0e17\u0e33\u0e07\u0e32\u0e19\u0e20\u0e32\u0e22\u0e43\u0e19 cmux \u0e15\u0e49\u0e2d\u0e07\u0e01\u0e32\u0e23\u0e43\u0e0a\u0e49\u0e44\u0e21\u0e42\u0e04\u0e23\u0e42\u0e1f\u0e19\u0e02\u0e2d\u0e07\u0e04\u0e38\u0e13"
+                    }
+                },
+                "tr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux i\u00e7inde \u00e7al\u0131\u015fan bir program mikrofonunuzu kullanmak istiyor."
+                    }
+                }
+            }
+        },
+        "New $(PRODUCT_NAME) Workspace Here": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "New $(PRODUCT_NAME) Workspace Here"
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u3053\u3053\u306b\u65b0\u898f $(PRODUCT_NAME) \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9\u3092\u4f5c\u6210"
+                    }
+                },
+                "zh-Hans": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728\u6b64\u65b0\u5efa $(PRODUCT_NAME) \u5de5\u4f5c\u533a"
+                    }
+                },
+                "zh-Hant": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728\u6b64\u65b0\u589e $(PRODUCT_NAME) \u5de5\u4f5c\u5340"
+                    }
+                },
+                "ko": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\uc5ec\uae30\uc5d0 \uc0c8 $(PRODUCT_NAME) \uc791\uc5c5 \uacf5\uac04"
+                    }
+                },
+                "de": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Neuer $(PRODUCT_NAME)-Arbeitsbereich hier"
+                    }
+                },
+                "es": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nuevo espacio de trabajo de $(PRODUCT_NAME) aqu\u00ed"
+                    }
+                },
+                "fr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nouvel espace de travail $(PRODUCT_NAME) ici"
+                    }
+                },
+                "it": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nuova area di lavoro $(PRODUCT_NAME) qui"
+                    }
+                },
+                "da": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nyt $(PRODUCT_NAME)-arbejdsomr\u00e5de her"
+                    }
+                },
+                "pl": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nowa przestrze\u0144 robocza $(PRODUCT_NAME) tutaj"
+                    }
+                },
+                "ru": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u041d\u043e\u0432\u043e\u0435 \u0440\u0430\u0431\u043e\u0447\u0435\u0435 \u043f\u0440\u043e\u0441\u0442\u0440\u0430\u043d\u0441\u0442\u0432\u043e $(PRODUCT_NAME) \u0437\u0434\u0435\u0441\u044c"
+                    }
+                },
+                "bs": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Novi $(PRODUCT_NAME) radni prostor ovdje"
+                    }
+                },
+                "ar": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 $(PRODUCT_NAME) \u062c\u062f\u064a\u062f\u0629 \u0647\u0646\u0627"
+                    }
+                },
+                "nb": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nytt $(PRODUCT_NAME)-arbeidsomr\u00e5de her"
+                    }
+                },
+                "pt-BR": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nova \u00c1rea de Trabalho do $(PRODUCT_NAME) Aqui"
+                    }
+                },
+                "th": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0e40\u0e27\u0e34\u0e23\u0e4c\u0e01\u0e2a\u0e40\u0e1b\u0e0b $(PRODUCT_NAME) \u0e43\u0e2b\u0e21\u0e48\u0e17\u0e35\u0e48\u0e19\u0e35\u0e48"
+                    }
+                },
+                "tr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Buraya Yeni $(PRODUCT_NAME) \u00c7al\u0131\u015fma Alan\u0131"
+                    }
+                }
+            }
+        },
+        "New $(PRODUCT_NAME) Window Here": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "New $(PRODUCT_NAME) Window Here"
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u3053\u3053\u306b\u65b0\u898f $(PRODUCT_NAME) \u30a6\u30a4\u30f3\u30c9\u30a6\u3092\u4f5c\u6210"
+                    }
+                },
+                "zh-Hans": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728\u6b64\u65b0\u5efa $(PRODUCT_NAME) \u7a97\u53e3"
+                    }
+                },
+                "zh-Hant": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728\u6b64\u65b0\u589e $(PRODUCT_NAME) \u8996\u7a97"
+                    }
+                },
+                "ko": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\uc5ec\uae30\uc5d0 \uc0c8 $(PRODUCT_NAME) \uc708\ub3c4\uc6b0"
+                    }
+                },
+                "de": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Neues $(PRODUCT_NAME)-Fenster hier"
+                    }
+                },
+                "es": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nueva ventana de $(PRODUCT_NAME) aqu\u00ed"
+                    }
+                },
+                "fr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nouvelle fen\u00eatre $(PRODUCT_NAME) ici"
+                    }
+                },
+                "it": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nuova finestra $(PRODUCT_NAME) qui"
+                    }
+                },
+                "da": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nyt $(PRODUCT_NAME)-vindue her"
+                    }
+                },
+                "pl": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nowe okno $(PRODUCT_NAME) tutaj"
+                    }
+                },
+                "ru": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u041d\u043e\u0432\u043e\u0435 \u043e\u043a\u043d\u043e $(PRODUCT_NAME) \u0437\u0434\u0435\u0441\u044c"
+                    }
+                },
+                "bs": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Novi $(PRODUCT_NAME) prozor ovdje"
+                    }
+                },
+                "ar": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0646\u0627\u0641\u0630\u0629 $(PRODUCT_NAME) \u062c\u062f\u064a\u062f\u0629 \u0647\u0646\u0627"
+                    }
+                },
+                "nb": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nytt $(PRODUCT_NAME)-vindu her"
+                    }
+                },
+                "pt-BR": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Nova Janela do $(PRODUCT_NAME) Aqui"
+                    }
+                },
+                "th": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0e2b\u0e19\u0e49\u0e32\u0e15\u0e48\u0e32\u0e07 $(PRODUCT_NAME) \u0e43\u0e2b\u0e21\u0e48\u0e17\u0e35\u0e48\u0e19\u0e35\u0e48"
+                    }
+                },
+                "tr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Buraya Yeni $(PRODUCT_NAME) Penceresi"
+                    }
+                }
+            }
+        },
+        "NSRemindersUsageDescription": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "A program running within cmux would like to access your reminders."
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \u5185\u3067\u5b9f\u884c\u4e2d\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u304c\u30de\u30a4\u30af\u306e\u4f7f\u7528\u3092\u6c42\u3081\u3066\u3044\u307e\u3059\u3002"
+                    }
+                },
+                "zh-Hans": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u8fd0\u884c\u7684\u7a0b\u5e8f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea6\u514b\u98ce\u3002"
+                    }
+                },
+                "zh-Hant": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u57f7\u884c\u7684\u7a0b\u5f0f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea5\u514b\u98a8\u3002"
+                    }
+                },
+                "ko": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \ub0b4\uc5d0\uc11c \uc2e4\ud589 \uc911\uc778 \ud504\ub85c\uadf8\ub7a8\uc774 \ub9c8\uc774\ud06c\ub97c \uc0ac\uc6a9\ud558\ub824\uace0 \ud569\ub2c8\ub2e4."
+                    }
+                },
+                "de": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Ein in cmux ausgef\u00fchrtes Programm m\u00f6chte Ihr Mikrofon verwenden."
+                    }
+                },
+                "es": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programa en ejecuci\u00f3n dentro de cmux desea usar tu micr\u00f3fono."
+                    }
+                },
+                "fr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programme s'ex\u00e9cutant dans cmux souhaite utiliser votre microphone."
+                    }
+                },
+                "it": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono."
+                    }
+                },
+                "da": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program, der k\u00f8rer i cmux, vil gerne bruge din mikrofon."
+                    }
+                },
+                "pl": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program dzia\u0142aj\u0105cy w cmux chcia\u0142by u\u017cy\u0107 Twojego mikrofonu."
+                    }
+                },
+                "ru": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u041f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430, \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u0430\u044f \u0432 cmux, \u0445\u043e\u0442\u0435\u043b\u0430 \u0431\u044b \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c \u0432\u0430\u0448 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d."
+                    }
+                },
+                "bs": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program koji se izvr\u0161ava unutar cmux \u017eeli koristiti va\u0161 mikrofon."
+                    }
+                },
+                "ar": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u064a\u0631\u063a\u0628 \u0628\u0631\u0646\u0627\u0645\u062c \u064a\u0639\u0645\u0644 \u062f\u0627\u062e\u0644 cmux \u0641\u064a \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u0645\u064a\u0643\u0631\u0648\u0641\u0648\u0646."
+                    }
+                },
+                "nb": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program som kj\u00f8rer i cmux \u00f8nsker \u00e5 bruke mikrofonen din."
+                    }
+                },
+                "pt-BR": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Um programa em execu\u00e7\u00e3o no cmux gostaria de usar seu microfone."
+                    }
+                },
+                "th": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0e42\u0e1b\u0e23\u0e41\u0e01\u0e23\u0e21\u0e17\u0e35\u0e48\u0e17\u0e33\u0e07\u0e32\u0e19\u0e20\u0e32\u0e22\u0e43\u0e19 cmux \u0e15\u0e49\u0e2d\u0e07\u0e01\u0e32\u0e23\u0e43\u0e0a\u0e49\u0e44\u0e21\u0e42\u0e04\u0e23\u0e42\u0e1f\u0e19\u0e02\u0e2d\u0e07\u0e04\u0e38\u0e13"
+                    }
+                },
+                "tr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux i\u00e7inde \u00e7al\u0131\u015fan bir program mikrofonunuzu kullanmak istiyor."
+                    }
+                }
+            }
+        },
+        "NSCalendarsUsageDescription": {
+            "extractionState": "manual",
+            "localizations": {
+                "en": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "A program running within cmux would like to access your calendar."
+                    }
+                },
+                "ja": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \u5185\u3067\u5b9f\u884c\u4e2d\u306e\u30d7\u30ed\u30b0\u30e9\u30e0\u304c\u30de\u30a4\u30af\u306e\u4f7f\u7528\u3092\u6c42\u3081\u3066\u3044\u307e\u3059\u3002"
+                    }
+                },
+                "zh-Hans": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u8fd0\u884c\u7684\u7a0b\u5e8f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea6\u514b\u98ce\u3002"
+                    }
+                },
+                "zh-Hant": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u5728 cmux \u4e2d\u57f7\u884c\u7684\u7a0b\u5f0f\u60f3\u8981\u4f7f\u7528\u60a8\u7684\u9ea5\u514b\u98a8\u3002"
+                    }
+                },
+                "ko": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux \ub0b4\uc5d0\uc11c \uc2e4\ud589 \uc911\uc778 \ud504\ub85c\uadf8\ub7a8\uc774 \ub9c8\uc774\ud06c\ub97c \uc0ac\uc6a9\ud558\ub824\uace0 \ud569\ub2c8\ub2e4."
+                    }
+                },
+                "de": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Ein in cmux ausgef\u00fchrtes Programm m\u00f6chte Ihr Mikrofon verwenden."
+                    }
+                },
+                "es": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programa en ejecuci\u00f3n dentro de cmux desea usar tu micr\u00f3fono."
+                    }
+                },
+                "fr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programme s'ex\u00e9cutant dans cmux souhaite utiliser votre microphone."
+                    }
+                },
+                "it": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono."
+                    }
+                },
+                "da": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program, der k\u00f8rer i cmux, vil gerne bruge din mikrofon."
+                    }
+                },
+                "pl": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program dzia\u0142aj\u0105cy w cmux chcia\u0142by u\u017cy\u0107 Twojego mikrofonu."
+                    }
+                },
+                "ru": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u041f\u0440\u043e\u0433\u0440\u0430\u043c\u043c\u0430, \u0437\u0430\u043f\u0443\u0449\u0435\u043d\u043d\u0430\u044f \u0432 cmux, \u0445\u043e\u0442\u0435\u043b\u0430 \u0431\u044b \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c \u0432\u0430\u0448 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d."
+                    }
+                },
+                "bs": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Program koji se izvr\u0161ava unutar cmux \u017eeli koristiti va\u0161 mikrofon."
+                    }
+                },
+                "ar": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u064a\u0631\u063a\u0628 \u0628\u0631\u0646\u0627\u0645\u062c \u064a\u0639\u0645\u0644 \u062f\u0627\u062e\u0644 cmux \u0641\u064a \u0627\u0633\u062a\u062e\u062f\u0627\u0645 \u0627\u0644\u0645\u064a\u0643\u0631\u0648\u0641\u0648\u0646."
+                    }
+                },
+                "nb": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Et program som kj\u00f8rer i cmux \u00f8nsker \u00e5 bruke mikrofonen din."
+                    }
+                },
+                "pt-BR": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "Um programa em execu\u00e7\u00e3o no cmux gostaria de usar seu microfone."
+                    }
+                },
+                "th": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "\u0e42\u0e1b\u0e23\u0e41\u0e01\u0e23\u0e21\u0e17\u0e35\u0e48\u0e17\u0e33\u0e07\u0e32\u0e19\u0e20\u0e32\u0e22\u0e43\u0e19 cmux \u0e15\u0e49\u0e2d\u0e07\u0e01\u0e32\u0e23\u0e43\u0e0a\u0e49\u0e44\u0e21\u0e42\u0e04\u0e23\u0e42\u0e1f\u0e19\u0e02\u0e2d\u0e07\u0e04\u0e38\u0e13"
+                    }
+                },
+                "tr": {
+                    "stringUnit": {
+                        "state": "translated",
+                        "value": "cmux i\u00e7inde \u00e7al\u0131\u015fan bir program mikrofonunuzu kullanmak istiyor."
+                    }
+                }
+            }
         }
-      }
-    },
-    "NSMicrophoneUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to use your microphone."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムがマイクの使用を求めています。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 cmux 中运行的程序想要使用您的麦克风。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在 cmux 中執行的程式想要使用您的麥克風。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 내에서 실행 중인 프로그램이 마이크를 사용하려고 합니다."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ein in cmux ausgeführtes Programm möchte Ihr Mikrofon verwenden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un programa en ejecución dentro de cmux desea usar tu micrófono."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un programme s'exécutant dans cmux souhaite utiliser votre microphone."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Un programma in esecuzione in cmux desidera utilizzare il microfono."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et program, der kører i cmux, vil gerne bruge din mikrofon."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Program działający w cmux chciałby użyć Twojego mikrofonu."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Программа, запущенная в cmux, хотела бы использовать ваш микрофон."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Program koji se izvršava unutar cmux želi koristiti vaš mikrofon."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "يرغب برنامج يعمل داخل cmux في استخدام الميكروفون."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Et program som kjører i cmux ønsker å bruke mikrofonen din."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Um programa em execução no cmux gostaria de usar seu microfone."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการใช้ไมโครโฟนของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux içinde çalışan bir program mikrofonunuzu kullanmak istiyor."
-          }
-        }
-      }
-    },
-    "New $(PRODUCT_NAME) Workspace Here": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New $(PRODUCT_NAME) Workspace Here"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここに新規 $(PRODUCT_NAME) ワークスペースを作成"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此新建 $(PRODUCT_NAME) 工作区"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此新增 $(PRODUCT_NAME) 工作區"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "여기에 새 $(PRODUCT_NAME) 작업 공간"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neuer $(PRODUCT_NAME)-Arbeitsbereich hier"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nuevo espacio de trabajo de $(PRODUCT_NAME) aquí"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouvel espace de travail $(PRODUCT_NAME) ici"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nuova area di lavoro $(PRODUCT_NAME) qui"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nyt $(PRODUCT_NAME)-arbejdsområde her"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nowa przestrzeń robocza $(PRODUCT_NAME) tutaj"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Новое рабочее пространство $(PRODUCT_NAME) здесь"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novi $(PRODUCT_NAME) radni prostor ovdje"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "مساحة عمل $(PRODUCT_NAME) جديدة هنا"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nytt $(PRODUCT_NAME)-arbeidsområde her"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nova Área de Trabalho do $(PRODUCT_NAME) Aqui"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เวิร์กสเปซ $(PRODUCT_NAME) ใหม่ที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buraya Yeni $(PRODUCT_NAME) Çalışma Alanı"
-          }
-        }
-      }
-    },
-    "New $(PRODUCT_NAME) Window Here": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New $(PRODUCT_NAME) Window Here"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここに新規 $(PRODUCT_NAME) ウインドウを作成"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此新建 $(PRODUCT_NAME) 窗口"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此新增 $(PRODUCT_NAME) 視窗"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "여기에 새 $(PRODUCT_NAME) 윈도우"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Neues $(PRODUCT_NAME)-Fenster hier"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nueva ventana de $(PRODUCT_NAME) aquí"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nouvelle fenêtre $(PRODUCT_NAME) ici"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nuova finestra $(PRODUCT_NAME) qui"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nyt $(PRODUCT_NAME)-vindue her"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nowe okno $(PRODUCT_NAME) tutaj"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Новое окно $(PRODUCT_NAME) здесь"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Novi $(PRODUCT_NAME) prozor ovdje"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "نافذة $(PRODUCT_NAME) جديدة هنا"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nytt $(PRODUCT_NAME)-vindu her"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nova Janela do $(PRODUCT_NAME) Aqui"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "หน้าต่าง $(PRODUCT_NAME) ใหม่ที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buraya Yeni $(PRODUCT_NAME) Penceresi"
-          }
-        }
-      }
     }
-  }
 }
