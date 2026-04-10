@@ -118,6 +118,7 @@ final class CmuxWebView: WKWebView {
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
     private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
     static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
     (() => {
       try {
@@ -132,13 +133,68 @@ final class CmuxWebView: WKWebView {
           }
         })();
 
-        const canPasteAsPlainTextInto = (el) => {
-          if (!el) return false;
-          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
-            return !(el.disabled || el.readOnly);
+        const supportedTextInputTypes = new Set(["", "text", "search", "tel", "url", "email", "password"]);
+
+        const deepestActiveElement = (root) => {
+          let active = root?.activeElement ?? null;
+          while (active) {
+            const shadowActive = active.shadowRoot?.activeElement ?? null;
+            if (shadowActive && shadowActive !== active) {
+              active = shadowActive;
+              continue;
+            }
+
+            const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
+            if (tagName === "IFRAME") {
+              try {
+                const frameActive = active.contentDocument?.activeElement ?? null;
+                if (frameActive && frameActive !== active) {
+                  active = frameActive;
+                  continue;
+                }
+              } catch (_) {}
+            }
+
+            break;
           }
-          if (el.isContentEditable) return true;
-          return !!(el.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null);
+          return active;
+        };
+
+        const isPlainTextTextControl = (el) => {
+          if (!el || el.disabled || el.readOnly) return false;
+
+          const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+          if (tagName === "TEXTAREA") return true;
+          if (tagName !== "INPUT") return false;
+
+          const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
+          return supportedTextInputTypes.has(type);
+        };
+
+        const resolvedCandidateElement = (el) => {
+          if (!el) return deepestActiveElement(document);
+
+          const shadowActive = el.shadowRoot?.activeElement ?? null;
+          if (shadowActive && shadowActive !== el) {
+            return deepestActiveElement(el.shadowRoot) ?? shadowActive;
+          }
+
+          const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+          if (tagName === "IFRAME") {
+            try {
+              return deepestActiveElement(el.contentDocument) ?? el;
+            } catch (_) {}
+          }
+
+          return el;
+        };
+
+        const canPasteAsPlainTextInto = (el) => {
+          const candidate = resolvedCandidateElement(el);
+          if (!candidate) return false;
+          if (isPlainTextTextControl(candidate)) return true;
+          if (candidate.isContentEditable) return true;
+          return !!(candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null);
         };
 
         const publish = (canPaste) => {
@@ -149,7 +205,7 @@ final class CmuxWebView: WKWebView {
         };
 
         const publishForElement = (el) => {
-          publish(canPasteAsPlainTextInto(el ?? document.activeElement));
+          publish(canPasteAsPlainTextInto(el));
         };
 
         document.addEventListener("focusin", (ev) => {
@@ -186,16 +242,13 @@ final class CmuxWebView: WKWebView {
     """
 
     private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
-        weak var webView: CmuxWebView?
-
-        init(webView: CmuxWebView) {
-            self.webView = webView
-        }
-
         func userContentController(
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            guard let webView = message.webView as? CmuxWebView else {
+                return
+            }
             guard let body = message.body as? [String: Any],
                   let canPaste = body["canPaste"] as? Bool else {
                 return
@@ -205,6 +258,8 @@ final class CmuxWebView: WKWebView {
             }
         }
     }
+
+    private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
@@ -250,7 +305,6 @@ final class CmuxWebView: WKWebView {
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
-    private var pasteAsPlainTextFocusMessageHandler: PasteAsPlainTextFocusMessageHandler?
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
@@ -266,16 +320,25 @@ final class CmuxWebView: WKWebView {
         installPasteAsPlainTextFocusTracking()
     }
 
-    deinit {
-        configuration.userContentController.removeScriptMessageHandler(
-            forName: Self.pasteAsPlainTextFocusMessageHandlerName
-        )
-    }
-
     private func installPasteAsPlainTextFocusTracking() {
-        let handler = PasteAsPlainTextFocusMessageHandler(webView: self)
-        pasteAsPlainTextFocusMessageHandler = handler
-        configuration.userContentController.add(handler, name: Self.pasteAsPlainTextFocusMessageHandlerName)
+        let userContentController = configuration.userContentController
+        if objc_getAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey
+        ) != nil {
+            return
+        }
+
+        userContentController.add(
+            Self.sharedPasteAsPlainTextFocusMessageHandler,
+            name: Self.pasteAsPlainTextFocusMessageHandlerName
+        )
+        objc_setAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
     }
 
     private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
@@ -348,6 +411,35 @@ final class CmuxWebView: WKWebView {
         return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
     }
 
+    private func evaluateJavaScriptSynchronously(
+        _ script: String,
+        timeout: TimeInterval = 0.25
+    ) -> (completed: Bool, result: Any?, error: Error?) {
+        var completed = false
+        var result: Any?
+        var error: Error?
+
+        evaluateJavaScript(script) { jsResult, jsError in
+            result = jsResult
+            error = jsError
+            completed = true
+        }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !completed {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+
+            let sliceEnd = Date(timeIntervalSinceNow: min(remaining, 0.01))
+            _ = RunLoop.current.run(mode: .default, before: sliceEnd)
+            if !completed {
+                _ = RunLoop.current.run(mode: .eventTracking, before: sliceEnd)
+            }
+        }
+
+        return (completed, result, error)
+    }
+
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard() -> Bool {
         guard pasteAsPlainTextTargetAvailable,
@@ -359,104 +451,149 @@ final class CmuxWebView: WKWebView {
         let script = """
         (() => {
             const text = \(textLiteral);
-            const active = document.activeElement;
-            const makeInputEvent = () => {
-                try {
-                    return new InputEvent('input', {
-                        bubbles: true,
-                        inputType: 'insertFromPaste',
-                        data: text
-                    });
-                } catch (_) {
-                    return new Event('input', { bubbles: true });
-                }
-            };
+            const supportedTextInputTypes = new Set(['', 'text', 'search', 'tel', 'url', 'email', 'password']);
+            const deepestActiveElement = (root) => {
+                let active = root?.activeElement ?? null;
+                while (active) {
+                    const shadowActive = active.shadowRoot?.activeElement ?? null;
+                    if (shadowActive && shadowActive !== active) {
+                        active = shadowActive;
+                        continue;
+                    }
 
+                    const tagName = typeof active.tagName === 'string' ? active.tagName.toUpperCase() : '';
+                    if (tagName === 'IFRAME') {
+                        try {
+                            const frameActive = active.contentDocument?.activeElement ?? null;
+                            if (frameActive && frameActive !== active) {
+                                active = frameActive;
+                                continue;
+                            }
+                        } catch (_) {}
+                    }
+
+                    break;
+                }
+                return active;
+            };
+            const isPlainTextTextControl = (el) => {
+                if (!el || el.disabled || el.readOnly) return false;
+
+                const tagName = typeof el.tagName === 'string' ? el.tagName.toUpperCase() : '';
+                if (tagName === 'TEXTAREA') return true;
+                if (tagName !== 'INPUT') return false;
+
+                const type = typeof el.type === 'string' ? el.type.toLowerCase() : 'text';
+                return supportedTextInputTypes.has(type);
+            };
+            const active = deepestActiveElement(document);
             const editableTarget = (() => {
                 if (!active) return null;
-                if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
-                    if (active.disabled || active.readOnly) return null;
-                    return active;
-                }
+                if (isPlainTextTextControl(active)) return active;
                 if (active.isContentEditable) return active;
                 return active.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
             })();
-
             if (!editableTarget) return false;
 
-            if (editableTarget instanceof HTMLInputElement || editableTarget instanceof HTMLTextAreaElement) {
-                const hasSelection = (() => {
-                    try {
-                        return typeof editableTarget.selectionStart === 'number'
-                            && typeof editableTarget.selectionEnd === 'number';
-                    } catch (_) {
-                        return false;
+            const ownerDocument = editableTarget.ownerDocument ?? document;
+            const ownerWindow = ownerDocument.defaultView ?? window;
+            const makeInputEvent = () => {
+                try {
+                    const InputEventCtor = ownerWindow.InputEvent;
+                    if (typeof InputEventCtor === 'function') {
+                        return new InputEventCtor('input', {
+                            bubbles: true,
+                            inputType: 'insertFromPaste',
+                            data: text
+                        });
                     }
-                })();
-                const start = hasSelection ? editableTarget.selectionStart : editableTarget.value.length;
-                const end = hasSelection ? editableTarget.selectionEnd : start;
+                } catch (_) {}
 
                 try {
-                    if (hasSelection && typeof editableTarget.setRangeText === 'function') {
+                    const EventCtor = ownerWindow.Event;
+                    if (typeof EventCtor === 'function') {
+                        return new EventCtor('input', { bubbles: true });
+                    }
+                } catch (_) {}
+
+                return null;
+            };
+
+            if (isPlainTextTextControl(editableTarget)) {
+                const value = typeof editableTarget.value === 'string' ? editableTarget.value : '';
+                const start = typeof editableTarget.selectionStart === 'number'
+                    ? editableTarget.selectionStart
+                    : value.length;
+                const end = typeof editableTarget.selectionEnd === 'number'
+                    ? editableTarget.selectionEnd
+                    : start;
+
+                try {
+                    if (typeof editableTarget.setRangeText === 'function') {
                         editableTarget.setRangeText(text, start, end, 'end');
-                    } else if (hasSelection) {
-                        const value = editableTarget.value;
+                    } else {
                         editableTarget.value = value.slice(0, start) + text + value.slice(end);
                         if (typeof editableTarget.setSelectionRange === 'function') {
                             const caret = start + text.length;
                             editableTarget.setSelectionRange(caret, caret);
                         }
-                    } else {
-                        editableTarget.value = text;
                     }
                 } catch (_) {
                     return false;
                 }
 
-                editableTarget.dispatchEvent(makeInputEvent());
+                const inputEvent = makeInputEvent();
+                if (inputEvent) {
+                    editableTarget.dispatchEvent(inputEvent);
+                }
                 return true;
             }
 
-            if (typeof document.execCommand === 'function') {
+            if (typeof ownerDocument.execCommand === 'function') {
                 try {
-                    if (document.execCommand('insertText', false, text)) {
+                    if (ownerDocument.execCommand('insertText', false, text)) {
                         return true;
                     }
                 } catch (_) {}
             }
 
-            const selection = window.getSelection();
+            const selection = typeof ownerWindow.getSelection === 'function'
+                ? ownerWindow.getSelection()
+                : null;
             if (!selection || selection.rangeCount === 0) return false;
 
             const range = selection.getRangeAt(0);
             range.deleteContents();
-            const node = document.createTextNode(text);
+            const node = ownerDocument.createTextNode(text);
             range.insertNode(node);
             range.setStartAfter(node);
             range.setEndAfter(node);
             selection.removeAllRanges();
             selection.addRange(range);
-            editableTarget.dispatchEvent(makeInputEvent());
+
+            const inputEvent = makeInputEvent();
+            if (inputEvent) {
+                editableTarget.dispatchEvent(inputEvent);
+            }
             return true;
         })();
         """
 
-        evaluateJavaScript(script) { result, error in
+        // NSResponder key-equivalent handling is synchronous. Wait briefly so failed page-side
+        // insertion can fall through to WebKit/page handlers instead of being consumed here.
+        let evaluation = evaluateJavaScriptSynchronously(script)
+        let inserted = evaluation.completed && ((evaluation.result as? Bool) ?? false)
 #if DEBUG
-            let inserted = (result as? Bool) ?? false
-            dlog(
-                "browser.pasteAsPlainText " +
-                "web=\(ObjectIdentifier(self)) inserted=\(inserted ? 1 : 0) " +
-                "error=\(error?.localizedDescription ?? "nil")"
-            )
-#else
-            _ = result
-            _ = error
+        let errorDescription = evaluation.completed
+            ? (evaluation.error?.localizedDescription ?? "nil")
+            : "timeout"
+        dlog(
+            "browser.pasteAsPlainText " +
+            "web=\(ObjectIdentifier(self)) inserted=\(inserted ? 1 : 0) " +
+            "error=\(errorDescription)"
+        )
 #endif
-        }
-        // The editable-target cache is kept in sync from the page, so consuming the
-        // shortcut here avoids double-routing while JS performs the paste asynchronously.
-        return true
+        return inserted
     }
 
     @IBAction func pasteAsPlainText(_ sender: Any?) {
@@ -502,12 +639,12 @@ final class CmuxWebView: WKWebView {
             return result
         }
 
-        if Self.isPasteAsPlainTextCommandEquivalent(event),
-           performPasteAsPlainTextFromPasteboard() {
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
 #if DEBUG
-            handled = true
+            handled = result
 #endif
-            return true
+            return result
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
@@ -578,12 +715,14 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
-        if Self.isPasteAsPlainTextCommandEquivalent(event),
-           performPasteAsPlainTextFromPasteboard() {
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            let didPaste = performPasteAsPlainTextFromPasteboard()
 #if DEBUG
-            route = "pasteAsPlainText"
+            route = didPaste ? "pasteAsPlainText" : "super"
 #endif
-            return
+            if didPaste {
+                return
+            }
         }
 
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
