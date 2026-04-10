@@ -14637,9 +14637,8 @@ class TerminalController {
         let parsedURL: URL?
         if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
             guard let candidate = URL(string: rawURL),
-                  let scheme = candidate.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else {
-                return "ERROR: Invalid metadata URL '\(rawURL)' — expected http(s) URL"
+                  candidate.scheme != nil else {
+                return "ERROR: Invalid metadata URL '\(rawURL)' — expected a URL with a scheme (e.g., https://, x-apple-reminderkit://)"
             }
             parsedURL = candidate
         } else {
