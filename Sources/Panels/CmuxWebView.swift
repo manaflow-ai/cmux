@@ -117,6 +117,94 @@ final class CmuxWebView: WKWebView {
 
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
+    (() => {
+      try {
+        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
+        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
+
+        const handler = (() => {
+          try {
+            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
+          } catch (_) {
+            return null;
+          }
+        })();
+
+        const canPasteAsPlainTextInto = (el) => {
+          if (!el) return false;
+          if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+            return !(el.disabled || el.readOnly);
+          }
+          if (el.isContentEditable) return true;
+          return !!(el.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null);
+        };
+
+        const publish = (canPaste) => {
+          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
+          try {
+            handler?.postMessage({ canPaste });
+          } catch (_) {}
+        };
+
+        const publishForElement = (el) => {
+          publish(canPasteAsPlainTextInto(el ?? document.activeElement));
+        };
+
+        document.addEventListener("focusin", (ev) => {
+          publishForElement(ev && ev.target ? ev.target : document.activeElement);
+        }, true);
+        document.addEventListener("focusout", () => {
+          requestAnimationFrame(() => publishForElement(document.activeElement));
+        }, true);
+        document.addEventListener("selectionchange", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("input", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("change", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("mousedown", (ev) => {
+          const target = ev && ev.target ? ev.target : null;
+          if (!canPasteAsPlainTextInto(target)) {
+            publish(false);
+          }
+        }, true);
+        window.addEventListener("beforeunload", () => {
+          publish(false);
+        }, true);
+
+        publishForElement(document.activeElement);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
+
+    private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
+        weak var webView: CmuxWebView?
+
+        init(webView: CmuxWebView) {
+            self.webView = webView
+        }
+
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard let body = message.body as? [String: Any],
+                  let canPaste = body["canPaste"] as? Bool else {
+                return
+            }
+            Task { @MainActor [weak webView] in
+                webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
+            }
+        }
+    }
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
@@ -149,7 +237,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-    private static let pasteAsPlainTextKeyCode: UInt16 = 9
+    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
@@ -161,10 +249,45 @@ final class CmuxWebView: WKWebView {
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
+    private var pasteAsPlainTextTargetAvailable = false
+    private var pasteAsPlainTextFocusMessageHandler: PasteAsPlainTextFocusMessageHandler?
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        installPasteAsPlainTextFocusTracking()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installPasteAsPlainTextFocusTracking()
+    }
+
+    deinit {
+        configuration.userContentController.removeScriptMessageHandler(
+            forName: Self.pasteAsPlainTextFocusMessageHandlerName
+        )
+    }
+
+    private func installPasteAsPlainTextFocusTracking() {
+        let handler = PasteAsPlainTextFocusMessageHandler(webView: self)
+        pasteAsPlainTextFocusMessageHandler = handler
+        configuration.userContentController.add(handler, name: Self.pasteAsPlainTextFocusMessageHandlerName)
+    }
+
+    private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
+        guard pasteAsPlainTextTargetAvailable != available else { return }
+        pasteAsPlainTextTargetAvailable = available
+#if DEBUG
+        dlog(
+            "browser.pasteAsPlainText.target " +
+            "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
+        )
+#endif
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -226,6 +349,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static func javaScriptLiteral(_ value: String) -> String? {
+        // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
         guard let data = try? JSONSerialization.data(withJSONObject: [value]),
               let arrayLiteral = String(data: data, encoding: .utf8),
               arrayLiteral.count >= 2 else {
@@ -236,7 +360,8 @@ final class CmuxWebView: WKWebView {
 
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard() -> Bool {
-        guard let text = NSPasteboard.general.string(forType: .string),
+        guard pasteAsPlainTextTargetAvailable,
+              let text = NSPasteboard.general.string(forType: .string),
               let textLiteral = Self.javaScriptLiteral(text) else {
             return false
         }
@@ -270,21 +395,32 @@ final class CmuxWebView: WKWebView {
             if (!editableTarget) return false;
 
             if (editableTarget instanceof HTMLInputElement || editableTarget instanceof HTMLTextAreaElement) {
-                const hasSelection =
-                    typeof editableTarget.selectionStart === 'number'
-                    && typeof editableTarget.selectionEnd === 'number';
+                const hasSelection = (() => {
+                    try {
+                        return typeof editableTarget.selectionStart === 'number'
+                            && typeof editableTarget.selectionEnd === 'number';
+                    } catch (_) {
+                        return false;
+                    }
+                })();
                 const start = hasSelection ? editableTarget.selectionStart : editableTarget.value.length;
                 const end = hasSelection ? editableTarget.selectionEnd : start;
 
-                if (typeof editableTarget.setRangeText === 'function') {
-                    editableTarget.setRangeText(text, start, end, 'end');
-                } else {
-                    const value = editableTarget.value;
-                    editableTarget.value = value.slice(0, start) + text + value.slice(end);
-                    if (typeof editableTarget.setSelectionRange === 'function') {
-                        const caret = start + text.length;
-                        editableTarget.setSelectionRange(caret, caret);
+                try {
+                    if (hasSelection && typeof editableTarget.setRangeText === 'function') {
+                        editableTarget.setRangeText(text, start, end, 'end');
+                    } else if (hasSelection) {
+                        const value = editableTarget.value;
+                        editableTarget.value = value.slice(0, start) + text + value.slice(end);
+                        if (typeof editableTarget.setSelectionRange === 'function') {
+                            const caret = start + text.length;
+                            editableTarget.setSelectionRange(caret, caret);
+                        }
+                    } else {
+                        editableTarget.value = text;
                     }
+                } catch (_) {
+                    return false;
                 }
 
                 editableTarget.dispatchEvent(makeInputEvent());
@@ -328,6 +464,8 @@ final class CmuxWebView: WKWebView {
             _ = error
 #endif
         }
+        // The editable-target cache is kept in sync from the page, so consuming the
+        // shortcut here avoids double-routing while JS performs the paste asynchronously.
         return true
     }
 
@@ -338,7 +476,8 @@ final class CmuxWebView: WKWebView {
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) {
-            return NSPasteboard.general.string(forType: .string) != nil
+            return pasteAsPlainTextTargetAvailable
+                && NSPasteboard.general.string(forType: .string) != nil
         }
         return super.validateUserInterfaceItem(item)
     }
