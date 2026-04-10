@@ -11635,6 +11635,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func focusBrowserAddressBar(in panel: BrowserPanel) {
+        guard panel.showsBrowserChrome else {
+            browserAddressBarFocusedPanelId = nil
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panel.id)
+            return
+        }
 #if DEBUG
         let requestId = panel.requestAddressBarFocus()
         dlog(

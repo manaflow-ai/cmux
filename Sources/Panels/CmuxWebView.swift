@@ -149,13 +149,17 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
+    private static let browserChromeToggleMenuItemIdentifier =
+        NSUserInterfaceItemIdentifier("cmux.browser.toggleChrome")
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
     var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    var onContextMenuToggleBrowserChrome: (() -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    var contextMenuBrowserChromeToggleTitleProvider: (() -> String)?
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
@@ -1634,6 +1638,8 @@ final class CmuxWebView: WKWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
+
+        appendBrowserChromeToggleMenuItem(to: menu)
     }
 
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
@@ -1651,6 +1657,11 @@ final class CmuxWebView: WKWebView {
             guard let self, let url else { return }
             self.onContextMenuOpenLinkInNewTab?(url)
         }
+    }
+
+    @objc private func contextMenuToggleBrowserChrome(_ sender: Any?) {
+        _ = sender
+        onContextMenuToggleBrowserChrome?()
     }
 
     @objc private func contextMenuCopyImage(_ sender: Any?) {
@@ -1864,6 +1875,29 @@ final class CmuxWebView: WKWebView {
                 )
             }
         }
+    }
+
+    private func appendBrowserChromeToggleMenuItem(to menu: NSMenu) {
+        guard menu.items.contains(where: { $0.identifier == Self.browserChromeToggleMenuItemIdentifier }) == false,
+              let rawTitle = contextMenuBrowserChromeToggleTitleProvider?() else {
+            return
+        }
+
+        let title = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return }
+
+        if let last = menu.items.last, !last.isSeparatorItem {
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(contextMenuToggleBrowserChrome(_:)),
+            keyEquivalent: ""
+        )
+        item.identifier = Self.browserChromeToggleMenuItemIdentifier
+        item.target = self
+        menu.addItem(item)
     }
 
     @objc private func contextMenuDownloadLinkedFile(_ sender: Any?) {

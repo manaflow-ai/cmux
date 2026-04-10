@@ -2134,6 +2134,9 @@ final class BrowserPanel: Panel, ObservableObject {
     /// New browser tabs stay in an empty "new tab" state until first navigation.
     @Published private(set) var shouldRenderWebView: Bool = false
 
+    /// When true, hide the browser address bar and navigation controls.
+    @Published private(set) var chromeless: Bool = false
+
     /// True when the browser is showing the internal empty new-tab page (no WKWebView attached yet).
     var isShowingNewTabPage: Bool {
         !shouldRenderWebView
@@ -2313,6 +2316,35 @@ final class BrowserPanel: Panel, ObservableObject {
 
     var currentBrowserThemeMode: BrowserThemeMode {
         browserThemeMode
+    }
+
+    var showsBrowserChrome: Bool {
+        !chromeless
+    }
+
+    func setChromeless(_ chromeless: Bool) {
+        guard self.chromeless != chromeless else { return }
+        self.chromeless = chromeless
+
+        if chromeless {
+            pendingAddressBarFocusRequestId = nil
+            if preferredFocusIntent == .addressBar {
+                preferredFocusIntent = .webView
+            }
+            endSuppressWebViewFocusForAddressBar()
+            clearWebViewFocusSuppression()
+            invalidateAddressBarPageFocusRestoreAttempts()
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+            return
+        }
+
+        if searchState == nil && !shouldRenderWebView {
+            preferredFocusIntent = .addressBar
+        }
+    }
+
+    func toggleChromeless() {
+        setChromeless(!chromeless)
     }
 
     private static let portalHostAreaThreshold: CGFloat = 4
@@ -2561,6 +2593,22 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.onContextMenuOpenLinkInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
         }
+        webView.onContextMenuToggleBrowserChrome = { [weak self] in
+            self?.toggleChromeless()
+        }
+        webView.contextMenuBrowserChromeToggleTitleProvider = { [weak self] in
+            guard let self else { return "" }
+            if self.chromeless {
+                return String(
+                    localized: "browser.contextMenu.showChrome",
+                    defaultValue: "Show Browser Chrome"
+                )
+            }
+            return String(
+                localized: "browser.contextMenu.hideChrome",
+                defaultValue: "Hide Browser Chrome"
+            )
+        }
         configureNavigationDelegateCallbacks()
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
@@ -2607,6 +2655,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
+        chromeless: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2620,6 +2669,7 @@ final class BrowserPanel: Panel, ObservableObject {
             : BrowserProfileStore.shared.builtInDefaultProfileID
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
+        self.chromeless = chromeless
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
@@ -3045,6 +3095,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func restoreSessionSnapshot(_ snapshot: SessionBrowserPanelSnapshot) {
         let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        setChromeless(snapshot.chromeless)
 
         restoreSessionNavigationHistory(
             backHistoryURLStrings: snapshot.backHistoryURLStrings ?? [],
@@ -4043,7 +4094,7 @@ extension BrowserPanel {
         abandonRestoredSessionHistoryIfNeeded()
 
         pendingAddressBarFocusRequestId = nil
-        preferredFocusIntent = .addressBar
+        preferredFocusIntent = chromeless ? .webView : .addressBar
         suppressOmnibarAutofocusUntil = nil
         suppressWebViewFocusUntil = nil
         endSuppressWebViewFocusForAddressBar()
@@ -4224,7 +4275,8 @@ extension BrowserPanel {
             url: url,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
+            chromeless: chromeless
         )
 #if DEBUG
         dlog(
@@ -5080,6 +5132,14 @@ extension BrowserPanel {
 
     @discardableResult
     func requestAddressBarFocus() -> UUID {
+        guard !chromeless else {
+            clearWebViewFocusSuppression()
+            endSuppressWebViewFocusForAddressBar()
+            pendingAddressBarFocusRequestId = nil
+            preferredFocusIntent = .webView
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: id)
+            return UUID()
+        }
         preferredFocusIntent = .addressBar
         invalidateSearchFocusRequests(reason: "requestAddressBarFocus")
         beginSuppressWebViewFocusForAddressBar()
@@ -5129,6 +5189,13 @@ extension BrowserPanel {
     }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
+        if chromeless {
+            if searchState != nil && preferredFocusIntent == .findField {
+                return .browser(.findField)
+            }
+            return .browser(.webView)
+        }
+
         if pendingAddressBarFocusRequestId != nil || AppDelegate.shared?.focusedBrowserAddressBarPanelId() == id {
             return .browser(.addressBar)
         }
@@ -5146,6 +5213,13 @@ extension BrowserPanel {
     }
 
     func preferredFocusIntentForActivation() -> PanelFocusIntent {
+        if chromeless {
+            if searchState != nil && preferredFocusIntent == .findField {
+                return .browser(.findField)
+            }
+            return .browser(.webView)
+        }
+
         if pendingAddressBarFocusRequestId != nil {
             return .browser(.addressBar)
         }
@@ -5164,6 +5238,12 @@ extension BrowserPanel {
             invalidateSearchFocusRequests(reason: "prepareWebView")
             endSuppressWebViewFocusForAddressBar()
         case .addressBar:
+            guard !chromeless else {
+                preferredFocusIntent = .webView
+                invalidateSearchFocusRequests(reason: "prepareAddressBar.chromeless")
+                endSuppressWebViewFocusForAddressBar()
+                break
+            }
             preferredFocusIntent = .addressBar
             invalidateSearchFocusRequests(reason: "prepareAddressBar")
             beginSuppressWebViewFocusForAddressBar()

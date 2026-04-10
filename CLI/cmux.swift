@@ -2218,11 +2218,13 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let direction = optionValue(commandArgs, name: "--direction") ?? "right"
             let url = optionValue(commandArgs, name: "--url")
+            let chromeless = hasFlag(commandArgs, name: "--chromeless") || hasFlag(commandArgs, name: "--no-nav")
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if chromeless { params["chromeless"] = true }
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -2231,6 +2233,7 @@ struct CMUXCLI {
             let type = optionValue(commandArgs, name: "--type")
             let paneRaw = optionValue(commandArgs, name: "--pane")
             let url = optionValue(commandArgs, name: "--url")
+            let chromeless = hasFlag(commandArgs, name: "--chromeless") || hasFlag(commandArgs, name: "--no-nav")
             var params: [String: Any] = [:]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
             if let wsId { params["workspace_id"] = wsId }
@@ -2238,6 +2241,7 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
+            if chromeless { params["chromeless"] = true }
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -5543,7 +5547,9 @@ struct CMUXCLI {
 
         if subcommand == "open" || subcommand == "open-split" || subcommand == "new" {
             // Parse routing flags before URL assembly so they never leak into the URL string.
-            let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
+            let chromeless = hasFlag(subArgs, name: "--chromeless") || hasFlag(subArgs, name: "--no-nav")
+            let openArgs = subArgs.filter { $0 != "--chromeless" && $0 != "--no-nav" }
+            let (workspaceOpt, argsAfterWorkspace) = parseOption(openArgs, name: "--workspace")
             let (windowOpt, urlArgs) = parseOption(argsAfterWorkspace, name: "--window")
             let url = urlArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
             let respectExternalOpenRules: Bool = {
@@ -5584,6 +5590,9 @@ struct CMUXCLI {
             }
             if respectExternalOpenRules {
                 params["respect_external_open_rules"] = true
+            }
+            if chromeless {
+                params["chromeless"] = true
             }
             if let windowRaw = windowOpt {
                 if let window = try normalizeWindowHandle(windowRaw, client: client) {
@@ -7351,10 +7360,12 @@ struct CMUXCLI {
               --direction <left|right|up|down>    Split direction (default: right)
               --workspace <id|ref>                Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                         URL for browser panes
+              --chromeless, --no-nav             Hide browser chrome for browser panes
 
             Example:
               cmux new-pane
               cmux new-pane --type browser --direction down --url https://example.com
+              cmux new-pane --type browser --chromeless --url https://example.com
             """
         case "new-surface":
             return """
@@ -7367,10 +7378,12 @@ struct CMUXCLI {
               --pane <id|ref>             Target pane
               --workspace <id|ref>        Target workspace (default: $CMUX_WORKSPACE_ID)
               --url <url>                 URL for browser surfaces
+              --chromeless, --no-nav      Hide browser chrome for browser surfaces
 
             Example:
               cmux new-surface
               cmux new-surface --type browser --pane pane:1 --url https://example.com
+              cmux new-surface --type browser --pane pane:1 --chromeless --url https://example.com
             """
         case "close-surface":
             return """
@@ -8060,6 +8073,7 @@ struct CMUXCLI {
 
             Example:
               cmux browser open https://example.com
+              cmux browser open --chromeless https://example.com
               cmux browser surface:1 navigate https://google.com
               cmux browser --surface surface:1 snapshot --interactive
             """
@@ -14380,8 +14394,8 @@ struct CMUXCLI {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>]
+          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--chromeless|--no-nav]
+          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--chromeless|--no-nav]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           reorder-surface --surface <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>)
@@ -14435,8 +14449,9 @@ struct CMUXCLI {
           markdown [open] <path>             (open markdown file in formatted viewer panel with live reload)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
-          browser open [url]                   (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-          browser open-split [url]
+          browser open [url] [--chromeless|--no-nav]
+                                             (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] [--chromeless|--no-nav]
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
           browser url|get-url

@@ -95,6 +95,9 @@ export default function BrowserAutomationPage() {
       <CodeBlock lang="bash">{`# Open a new browser split
 cmux browser open https://example.com
 
+# Open a chromeless browser pane for dashboards or embedded UI
+cmux new-pane --type browser --chromeless --url https://example.com
+
 # Discover focused IDs and browser metadata
 cmux browser identify
 cmux browser identify --surface surface:2

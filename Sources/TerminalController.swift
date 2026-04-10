@@ -4655,7 +4655,8 @@ class TerminalController {
                 guard let newPanel = workspace.newBrowserSurface(
                     inPane: paneId,
                     url: browserPanel.currentURL,
-                    focus: true
+                    focus: true,
+                    chromeless: browserPanel.chromeless
                 ) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
@@ -4969,6 +4970,7 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let chromeless = (v2Bool(params, "chromeless") ?? v2Bool(params, "no_nav")) ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -4994,7 +4996,12 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
+                newPanelId = ws.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: v2FocusAllowed(),
+                    chromeless: chromeless
+                )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
@@ -5014,7 +5021,8 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
-                "type": panelType.rawValue
+                "type": panelType.rawValue,
+                "chromeless": panelType == .browser ? chromeless : false
             ])
         }
         return result
@@ -6293,6 +6301,7 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let chromeless = (v2Bool(params, "chromeless") ?? v2Bool(params, "no_nav")) ?? false
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -6317,6 +6326,7 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    chromeless: chromeless,
                     focus: v2FocusAllowed()
                 )?.id
             } else {
@@ -6343,7 +6353,8 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
-                "type": panelType.rawValue
+                "type": panelType.rawValue,
+                "chromeless": panelType == .browser ? chromeless : false
             ])
         }
         return result
@@ -7679,6 +7690,7 @@ class TerminalController {
         }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let chromeless = (v2Bool(params, "chromeless") ?? v2Bool(params, "no_nav")) ?? false
         let respectExternalOpenRules = v2Bool(params, "respect_external_open_rules") ?? false
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
@@ -7734,11 +7746,21 @@ class TerminalController {
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredBrowserTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: true)
+                createdPanel = ws.newBrowserSurface(
+                    inPane: targetPane,
+                    url: url,
+                    focus: true,
+                    chromeless: chromeless
+                )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url)
+                createdPanel = ws.newBrowserSplit(
+                    from: sourceSurfaceId,
+                    orientation: .horizontal,
+                    url: url,
+                    chromeless: chromeless
+                )
             }
 
             guard let browserPanelId = createdPanel?.id else {
@@ -7764,7 +7786,8 @@ class TerminalController {
                 "target_pane_id": v2OrNull(targetPaneUUID?.uuidString),
                 "target_pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "created_split": createdSplit,
-                "placement_strategy": placementStrategy
+                "placement_strategy": placementStrategy,
+                "chromeless": createdPanel?.chromeless ?? chromeless
             ])
         }
         return result
@@ -10233,6 +10256,7 @@ class TerminalController {
         }
 
         let url = v2String(params, "url").flatMap(URL.init(string:))
+        let chromeless = (v2Bool(params, "chromeless") ?? v2Bool(params, "no_nav")) ?? false
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -10250,7 +10274,12 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: true) else {
+            guard let panel = ws.newBrowserSurface(
+                inPane: pane,
+                url: url,
+                focus: true,
+                chromeless: chromeless
+            ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -10261,7 +10290,8 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: pane.id),
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "url": panel.currentURL?.absoluteString ?? ""
+                "url": panel.currentURL?.absoluteString ?? "",
+                "chromeless": panel.chromeless
             ])
         }
         return result
@@ -11375,8 +11405,8 @@ class TerminalController {
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
-          new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...]
+          new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...] [--chromeless|--no-nav]
+          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...] [--chromeless|--no-nav]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
           list_panes                      - List all panes with IDs
           list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane
@@ -11433,7 +11463,7 @@ class TerminalController {
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
         Browser commands:
-          open_browser [url]              - Create browser panel with optional URL
+          open_browser [url] [--chromeless|--no-nav] - Create browser panel with optional URL
           navigate <panel_id> <url>       - Navigate browser to URL
           browser_back <panel_id>         - Go back in browser history
           browser_forward <panel_id>      - Go forward in browser history
@@ -13851,8 +13881,19 @@ class TerminalController {
     private func openBrowser(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
-        let url: URL? = trimmed.isEmpty ? nil : URL(string: trimmed)
+        let parts = args.split(separator: " ").map(String.init)
+        var urlString: String?
+        var chromeless = false
+        for part in parts {
+            if part == "--chromeless" || part == "--no-nav" {
+                chromeless = true
+            } else if part.hasPrefix("--url=") {
+                urlString = String(part.dropFirst(6))
+            } else if !part.hasPrefix("--"), urlString == nil {
+                urlString = part
+            }
+        }
+        let url = urlString.flatMap(URL.init(string:))
 
         var result = "ERROR: Failed to create browser panel"
         let focus = socketCommandAllowsInAppFocusMutations()
@@ -13867,6 +13908,7 @@ class TerminalController {
                 from: focusedPanelId,
                 orientation: .horizontal,
                 url: url,
+                chromeless: chromeless,
                 focus: focus
             )?.id {
                 result = "OK \(browserPanelId.uuidString)"
@@ -14239,10 +14281,11 @@ class TerminalController {
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=... [--chromeless|--no-nav]
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
         var url: URL? = nil
+        var chromeless = false
         var invalidDirection = false
 
         let parts = args.split(separator: " ")
@@ -14261,6 +14304,8 @@ class TerminalController {
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
+            } else if partStr == "--chromeless" || partStr == "--no-nav" {
+                chromeless = true
             }
         }
 
@@ -14287,6 +14332,7 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    chromeless: chromeless,
                     focus: focus
                 )?.id
             } else {
@@ -15771,10 +15817,11 @@ class TerminalController {
     private func newSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
+        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=... [--chromeless|--no-nav]
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var url: URL? = nil
+        var chromeless = false
 
         let parts = args.split(separator: " ")
         for part in parts {
@@ -15787,6 +15834,8 @@ class TerminalController {
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
+            } else if partStr == "--chromeless" || partStr == "--no-nav" {
+                chromeless = true
             }
         }
 
@@ -15820,7 +15869,12 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+                newPanelId = tab.newBrowserSurface(
+                    inPane: targetPaneId,
+                    url: url,
+                    focus: focus,
+                    chromeless: chromeless
+                )?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

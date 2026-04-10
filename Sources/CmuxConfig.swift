@@ -248,6 +248,7 @@ struct CmuxSurfaceDefinition: Codable, Sendable {
     var cwd: String?
     var env: [String: String]?
     var url: String?
+    var chromeless: Bool?
     var focus: Bool?
 }
 

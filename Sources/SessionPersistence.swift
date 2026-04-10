@@ -230,10 +230,54 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
     var shouldRenderWebView: Bool
+    var chromeless: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
     var backHistoryURLStrings: [String]?
     var forwardHistoryURLStrings: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case urlString
+        case profileID
+        case shouldRenderWebView
+        case chromeless
+        case pageZoom
+        case developerToolsVisible
+        case backHistoryURLStrings
+        case forwardHistoryURLStrings
+    }
+
+    init(
+        urlString: String?,
+        profileID: UUID?,
+        shouldRenderWebView: Bool,
+        chromeless: Bool,
+        pageZoom: Double,
+        developerToolsVisible: Bool,
+        backHistoryURLStrings: [String]?,
+        forwardHistoryURLStrings: [String]?
+    ) {
+        self.urlString = urlString
+        self.profileID = profileID
+        self.shouldRenderWebView = shouldRenderWebView
+        self.chromeless = chromeless
+        self.pageZoom = pageZoom
+        self.developerToolsVisible = developerToolsVisible
+        self.backHistoryURLStrings = backHistoryURLStrings
+        self.forwardHistoryURLStrings = forwardHistoryURLStrings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
+        profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
+        shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
+        chromeless = try container.decodeIfPresent(Bool.self, forKey: .chromeless) ?? false
+        pageZoom = try container.decode(Double.self, forKey: .pageZoom)
+        developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
+        backHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .backHistoryURLStrings)
+        forwardHistoryURLStrings = try container.decodeIfPresent([String].self, forKey: .forwardHistoryURLStrings)
+    }
 }
 
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {

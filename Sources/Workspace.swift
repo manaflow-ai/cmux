@@ -480,6 +480,7 @@ extension Workspace {
                 urlString: browserPanel.preferredURLStringForOmnibar(),
                 profileID: browserPanel.profileID,
                 shouldRenderWebView: browserPanel.shouldRenderWebView,
+                chromeless: browserPanel.chromeless,
                 pageZoom: Double(browserPanel.currentPageZoomFactor()),
                 developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
@@ -664,7 +665,8 @@ extension Workspace {
                 inPane: paneId,
                 url: nil,
                 focus: false,
-                preferredProfileID: snapshot.browser?.profileID
+                preferredProfileID: snapshot.browser?.profileID,
+                chromeless: snapshot.browser?.chromeless ?? false
             ) else {
                 return nil
             }
@@ -889,7 +891,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                chromeless: surface.chromeless == true
+            ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -919,7 +926,12 @@ extension Workspace {
 
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
-            if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+            if let panel = newBrowserSurface(
+                inPane: paneId,
+                url: url,
+                focus: false,
+                chromeless: surface.chromeless == true
+            ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
@@ -6469,6 +6481,7 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let workspaceId: UUID
     let url: URL?
     let profileID: UUID?
+    let chromeless: Bool
     let originalPaneId: UUID
     let originalTabIndex: Int
     let fallbackSplitOrientation: SplitOrientation?
@@ -9009,6 +9022,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
+        chromeless: Bool = false,
         focus: Bool = true
     ) -> BrowserPanel? {
         // Find the pane containing the source panel
@@ -9032,6 +9046,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: panelId
             ),
             initialURL: url,
+            chromeless: chromeless,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -9096,7 +9111,8 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
-        bypassInsecureHTTPHostOnce: String? = nil
+        bypassInsecureHTTPHostOnce: String? = nil,
+        chromeless: Bool = false
     ) -> BrowserPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let sourcePanelId = effectiveSelectedPanelId(inPane: paneId)
@@ -9110,6 +9126,7 @@ final class Workspace: Identifiable, ObservableObject {
                 sourcePanelId: sourcePanelId
             ),
             initialURL: url,
+            chromeless: chromeless,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -9555,6 +9572,7 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
+            chromeless: browserPanel.chromeless,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
@@ -10969,7 +10987,8 @@ final class Workspace: Identifiable, ObservableObject {
             inPane: paneId,
             url: browser.currentURL,
             focus: true,
-            preferredProfileID: browser.profileID
+            preferredProfileID: browser.profileID,
+            chromeless: browser.chromeless
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }

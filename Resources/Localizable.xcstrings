@@ -7644,6 +7644,23 @@
         }
       }
     },
+    "browser.contextMenu.hideChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Browser Chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのUIを隠す"
+          }
+        }
+      }
+    },
     "browser.contextMenu.openLinkInNewTab": {
       "extractionState": "manual",
       "localizations": {
@@ -7759,6 +7776,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкрити посилання в новій вкладці"
+          }
+        }
+      }
+    },
+    "browser.contextMenu.showChrome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Browser Chrome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザのUIを表示"
           }
         }
       }
