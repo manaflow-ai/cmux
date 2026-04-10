@@ -1830,16 +1830,30 @@ func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
     return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
 }
 
+func focusedTerminalKeyRepairNeeded(
+    responderIsWindow: Bool,
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
+) -> Bool {
+    responderIsWindow || !responderHasViableKeyRoutingOwner || !responderMatchesPreferredKeyboardFocus
+}
+
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool
+    responderHasViableKeyRoutingOwner: Bool,
+    responderMatchesPreferredKeyboardFocus: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should only repair focus when the responder has fallen
-    // back to the window itself or another non-routable owner.
-    return responderIsWindow || !responderHasViableKeyRoutingOwner
+    // Command shortcuts should repair for the same failure states as plain
+    // keyDown routing, including same-window SwiftUI responder drift where a
+    // visible owner still exists but no longer matches the focused terminal.
+    return focusedTerminalKeyRepairNeeded(
+        responderIsWindow: responderIsWindow,
+        responderHasViableKeyRoutingOwner: responderHasViableKeyRoutingOwner,
+        responderMatchesPreferredKeyboardFocus: responderMatchesPreferredKeyboardFocus
+    )
 }
 
 func shouldRouteTerminalFontZoomShortcutToGhostty(
@@ -5701,14 +5715,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         hostedView: GhosttySurfaceScrollView
     ) -> Bool {
         guard let responder else { return true }
-        if responder is NSWindow { return true }
-        guard responderHasViableKeyRoutingOwner(responder, in: window) else {
-            return true
-        }
-        if hostedView.responderMatchesPreferredKeyboardFocus(responder) {
-            return false
-        }
-        return true
+        return focusedTerminalKeyRepairNeeded(
+            responderIsWindow: responder is NSWindow,
+            responderHasViableKeyRoutingOwner: responderHasViableKeyRoutingOwner(responder, in: window),
+            responderMatchesPreferredKeyboardFocus: hostedView.responderMatchesPreferredKeyboardFocus(responder)
+        )
     }
 
     func repairFocusedTerminalKeyboardRoutingIfNeeded(
@@ -5728,10 +5739,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         let firstResponder = window.firstResponder
         let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
+        let responderMatchesPreferredFocus = firstResponder.map {
+            terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus($0)
+        } ?? false
         let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
             flags: normalizedFlags,
             responderIsWindow: firstResponder is NSWindow,
-            responderHasViableKeyRoutingOwner: responderHasViableOwner
+            responderHasViableKeyRoutingOwner: responderHasViableOwner,
+            responderMatchesPreferredKeyboardFocus: responderMatchesPreferredFocus
         )
         if normalizedFlags.contains(.command) {
             guard commandEquivalentNeedsRepair else { return }
