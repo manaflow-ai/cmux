@@ -11402,8 +11402,8 @@ final class GhosttySurfaceScrollView: NSView {
         return true
     }
 
-    private func surfaceHasScrollback() -> Bool {
-        guard let scrollbar = surfaceView.scrollbar else { return false }
+    private func surfaceHasScrollback() -> Bool? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
         // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
         // viewport with no additional scrollback (`total <= len`). Treat that
         // as the signal to suppress the overlay scrollbar so full-screen apps
@@ -11412,7 +11412,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        terminalScrollBarAllowedBySettings() && surfaceHasScrollback()
+        guard terminalScrollBarAllowedBySettings() else { return false }
+        guard let hasScrollback = surfaceHasScrollback() else {
+            // Ghostty reports scrollback asynchronously. Until the first packet
+            // arrives, keep the scroller visible so restored/reattached
+            // surfaces with existing scrollback do not appear broken.
+            return true
+        }
+        return hasScrollback
     }
 
 }
