@@ -9403,6 +9403,8 @@ final class GhosttySurfaceScrollView: NSView {
         let workspace = terminalSurface.owningWorkspace()
         cachedOwningWorkspace = workspace
         updateWorkspaceTerminalScrollBarObserver(workspace)
+        // Preserve the bootstrap 800x600 surface until the host has real bounds.
+        guard bounds.width > 0, bounds.height > 0 else { return }
         _ = synchronizeGeometryAndContent()
     }
 

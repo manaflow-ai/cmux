@@ -6637,6 +6637,7 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
+            sidebarObservationSignal($terminalScrollBarHidden),
         ]
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()

@@ -9940,7 +9940,6 @@ struct VerticalTabsSidebar: View {
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
-        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
         let selectedRemoteContextMenuTargets = orderedSelectedTabs.filter { $0.isRemoteWorkspace }
@@ -9970,10 +9969,6 @@ struct VerticalTabsSidebar: View {
                                 let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
                                     ? selectedRemoteContextMenuWorkspaceIds
                                     : (tab.isRemoteWorkspace ? [tab.id] : [])
-                                let allContextMenuWorkspacesHideTerminalScrollBar = !contextMenuWorkspaceIds.isEmpty &&
-                                    contextMenuWorkspaceIds.allSatisfy { workspaceId in
-                                        tabsById[workspaceId]?.terminalScrollBarHidden == true
-                                    }
                                 let allRemoteContextMenuTargetsConnecting = usesSelectedContextMenuTargets
                                     ? allSelectedRemoteContextMenuTargetsConnecting
                                     : (tab.isRemoteWorkspace && tab.remoteConnectionState == .connecting)
@@ -10024,7 +10019,6 @@ struct VerticalTabsSidebar: View {
                                     draggedTabId: $draggedTabId,
                                     dropIndicator: $dropIndicator,
                                     contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
                                     remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
                                     allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
                                     allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -12433,7 +12427,6 @@ private struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
-        lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -12464,7 +12457,6 @@ private struct TabItemView: View, Equatable {
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
     let contextMenuWorkspaceIds: [UUID]
-    let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
@@ -13178,11 +13170,19 @@ private struct TabItemView: View, Equatable {
         }
     }
 
+    private func allTargetWorkspacesHideTerminalScrollBar(_ targetIds: [UUID]) -> Bool {
+        guard !targetIds.isEmpty else { return false }
+        return targetIds.allSatisfy { targetId in
+            tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
+        }
+    }
+
     @ViewBuilder
     private var workspaceContextMenu: some View {
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
+        let hidesTerminalScrollBarForAllTargets = allTargetWorkspacesHideTerminalScrollBar(targetIds)
         let shouldPin = !tab.isPinned
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
@@ -13290,7 +13290,7 @@ private struct TabItemView: View, Equatable {
                 Label {
                     Text(String(localized: "contextMenu.workspaceSettings.hideTerminalScrollBar", defaultValue: "Hide Terminal Scroll Bar"))
                 } icon: {
-                    if allContextMenuWorkspacesHideTerminalScrollBar {
+                    if hidesTerminalScrollBarForAllTargets {
                         Image(systemName: "checkmark")
                     }
                 }
