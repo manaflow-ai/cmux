@@ -11349,7 +11349,9 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func updateWorkspaceTerminalScrollBarObserver(_ workspace: Workspace?) {
-        guard observedWorkspaceTerminalScrollBar !== workspace || workspaceTerminalScrollBarObserver == nil else {
+        if let observedWorkspaceTerminalScrollBar,
+           observedWorkspaceTerminalScrollBar === workspace,
+           workspaceTerminalScrollBarObserver != nil {
             return
         }
 
