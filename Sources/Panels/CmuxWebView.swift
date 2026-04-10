@@ -124,7 +124,21 @@ final class CmuxWebView: WKWebView {
       const existing = window.__cmuxPasteAsPlainTextHelpers;
       if (existing) return existing;
 
-      const supportedTextInputTypes = new Set(["", "text", "search", "tel", "url", "email", "password"]);
+      const supportedTextInputTypes = new Set([
+        "",
+        "text",
+        "search",
+        "tel",
+        "url",
+        "email",
+        "password",
+        "number",
+        "date",
+        "datetime-local",
+        "month",
+        "time",
+        "week"
+      ]);
 
       const deepestActiveElement = (root) => {
         let active = root?.activeElement ?? null;
@@ -162,6 +176,17 @@ final class CmuxWebView: WKWebView {
         return supportedTextInputTypes.has(type);
       };
 
+      const isFocusedCrossOriginFrameElement = (el) => {
+        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName !== "IFRAME") return false;
+        try {
+          void el.contentDocument;
+          return false;
+        } catch (_) {
+          return true;
+        }
+      };
+
       const resolvedCandidateElement = (el) => {
         if (!el) return deepestActiveElement(document);
 
@@ -184,6 +209,7 @@ final class CmuxWebView: WKWebView {
         const candidate = resolvedCandidateElement(el);
         if (!candidate) return null;
         if (isPlainTextTextControl(candidate)) return candidate;
+        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
         if (candidate.isContentEditable) return candidate;
         return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
       };
@@ -191,6 +217,7 @@ final class CmuxWebView: WKWebView {
       const helpers = {
         deepestActiveElement,
         isPlainTextTextControl,
+        isFocusedCrossOriginFrameElement,
         resolvedCandidateElement,
         editableTarget,
         canPasteAsPlainTextInto(el) {
