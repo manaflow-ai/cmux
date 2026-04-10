@@ -149,6 +149,7 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
+    private static let pasteAsPlainTextKeyCode: UInt16 = 9
 
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     /// Called when "Open Link in New Tab" context menu is selected.
@@ -218,6 +219,130 @@ final class CmuxWebView: WKWebView {
         return body()
     }
 
+    private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+    }
+
+    private static func javaScriptLiteral(_ value: String) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+              let arrayLiteral = String(data: data, encoding: .utf8),
+              arrayLiteral.count >= 2 else {
+            return nil
+        }
+        return String(arrayLiteral.dropFirst().dropLast())
+    }
+
+    @discardableResult
+    private func performPasteAsPlainTextFromPasteboard() -> Bool {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              let textLiteral = Self.javaScriptLiteral(text) else {
+            return false
+        }
+
+        let script = """
+        (() => {
+            const text = \(textLiteral);
+            const active = document.activeElement;
+            const makeInputEvent = () => {
+                try {
+                    return new InputEvent('input', {
+                        bubbles: true,
+                        inputType: 'insertFromPaste',
+                        data: text
+                    });
+                } catch (_) {
+                    return new Event('input', { bubbles: true });
+                }
+            };
+
+            const editableTarget = (() => {
+                if (!active) return null;
+                if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+                    if (active.disabled || active.readOnly) return null;
+                    return active;
+                }
+                if (active.isContentEditable) return active;
+                return active.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
+            })();
+
+            if (!editableTarget) return false;
+
+            if (editableTarget instanceof HTMLInputElement || editableTarget instanceof HTMLTextAreaElement) {
+                const hasSelection =
+                    typeof editableTarget.selectionStart === 'number'
+                    && typeof editableTarget.selectionEnd === 'number';
+                const start = hasSelection ? editableTarget.selectionStart : editableTarget.value.length;
+                const end = hasSelection ? editableTarget.selectionEnd : start;
+
+                if (typeof editableTarget.setRangeText === 'function') {
+                    editableTarget.setRangeText(text, start, end, 'end');
+                } else {
+                    const value = editableTarget.value;
+                    editableTarget.value = value.slice(0, start) + text + value.slice(end);
+                    if (typeof editableTarget.setSelectionRange === 'function') {
+                        const caret = start + text.length;
+                        editableTarget.setSelectionRange(caret, caret);
+                    }
+                }
+
+                editableTarget.dispatchEvent(makeInputEvent());
+                return true;
+            }
+
+            if (typeof document.execCommand === 'function') {
+                try {
+                    if (document.execCommand('insertText', false, text)) {
+                        return true;
+                    }
+                } catch (_) {}
+            }
+
+            const selection = window.getSelection();
+            if (!selection || selection.rangeCount === 0) return false;
+
+            const range = selection.getRangeAt(0);
+            range.deleteContents();
+            const node = document.createTextNode(text);
+            range.insertNode(node);
+            range.setStartAfter(node);
+            range.setEndAfter(node);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            editableTarget.dispatchEvent(makeInputEvent());
+            return true;
+        })();
+        """
+
+        evaluateJavaScript(script) { result, error in
+#if DEBUG
+            let inserted = (result as? Bool) ?? false
+            dlog(
+                "browser.pasteAsPlainText " +
+                "web=\(ObjectIdentifier(self)) inserted=\(inserted ? 1 : 0) " +
+                "error=\(error?.localizedDescription ?? "nil")"
+            )
+#else
+            _ = result
+            _ = error
+#endif
+        }
+        return true
+    }
+
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        _ = sender
+        _ = performPasteAsPlainTextFromPasteboard()
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(pasteAsPlainText(_:)) {
+            return NSPasteboard.general.string(forType: .string) != nil
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -246,6 +371,14 @@ final class CmuxWebView: WKWebView {
             handled = result
 #endif
             return result
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event),
+           performPasteAsPlainTextFromPasteboard() {
+#if DEBUG
+            handled = true
+#endif
+            return true
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
@@ -316,6 +449,14 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if Self.isPasteAsPlainTextCommandEquivalent(event),
+           performPasteAsPlainTextFromPasteboard() {
+#if DEBUG
+            route = "pasteAsPlainText"
+#endif
+            return
+        }
+
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
