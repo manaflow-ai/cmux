@@ -11725,12 +11725,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
         let shortcutResponder = shortcutWindow?.firstResponder
-        let responderIsOmnibar = isBrowserOmnibarResponder(shortcutResponder)
-        let pendingAddressBarHandoff =
-            panel.pendingAddressBarFocusRequestId != nil &&
-            workspace.focusedPanelId == panelId
 
-        guard responderIsOmnibar || pendingAddressBarHandoff else {
+        guard isBrowserOmnibarResponder(shortcutResponder) else {
 #if DEBUG
             let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             dlog(
@@ -11744,10 +11740,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        let acceptReason = responderIsOmnibar ? "omnibar_responder" : "pending_handoff"
         dlog(
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-            "accepted=1 reason=\(acceptReason) workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
             "event=\(NSWindow.keyDescription(event))"
         )
 #endif
@@ -11755,17 +11750,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isBrowserOmnibarResponder(_ responder: NSResponder?) -> Bool {
-        guard let ownerView = keyRoutingOwnerView(for: responder) else { return false }
-
-        var current: NSView? = ownerView
-        while let candidate = current {
-            if candidate.identifier == browserOmnibarTextFieldIdentifier {
-                return true
-            }
-            current = candidate.superview
-        }
-
-        return false
+        keyRoutingOwnerView(for: responder)?.identifier == browserOmnibarTextFieldIdentifier
     }
 
     @discardableResult
@@ -12757,6 +12742,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             guard let webView = notification.object as? CmuxWebView,
                   let panel = self.browserPanelOwning(webView) else { return }
+
+            if let trackedPanelId = self.browserAddressBarFocusedPanelId,
+               trackedPanelId != panel.id,
+               let trackedPanel = self.browserPanel(for: trackedPanelId),
+               !self.isBrowserOmnibarResponder(trackedPanel.webView.window?.firstResponder) {
+                trackedPanel.endSuppressWebViewFocusForAddressBar()
+                self.browserAddressBarFocusedPanelId = nil
+                self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+                dlog(
+                    "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
+                    "reason=stale_other_panel_webViewFirstResponder"
+                )
+#endif
+            }
+
             guard panel.pendingAddressBarFocusRequestId == nil ||
                     self.browserAddressBarFocusedPanelId != panel.id else {
 #if DEBUG
