@@ -1830,6 +1830,18 @@ func shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
     return tinyGeometry || hostedHiddenInHierarchy || !hostedAttachedToWindow
 }
 
+func shouldRepairFocusedTerminalCommandEquivalentInputs(
+    flags: NSEvent.ModifierFlags,
+    responderIsWindow: Bool,
+    responderHasViableKeyRoutingOwner: Bool
+) -> Bool {
+    let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
+    guard normalizedFlags.contains(.command) else { return false }
+    // Command shortcuts should only repair focus when the responder has fallen
+    // back to the window itself or another non-routable owner.
+    return responderIsWindow || !responderHasViableKeyRoutingOwner
+}
+
 func shouldRouteTerminalFontZoomShortcutToGhostty(
     firstResponderIsGhostty: Bool,
     flags: NSEvent.ModifierFlags,
@@ -5705,7 +5717,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard event.type == .keyDown else { return }
         let normalizedFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard !normalizedFlags.contains(.command) else { return }
         guard isMainTerminalWindow(window) else { return }
         guard window.attachedSheet == nil else { return }
         guard !isCommandPaletteEffectivelyVisible(in: window) else { return }
@@ -5715,19 +5726,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let terminalPanel = workspace.terminalPanel(for: panelId) else {
             return
         }
-        guard responderNeedsFocusedTerminalKeyRepair(
-            window.firstResponder,
-            in: window,
-            hostedView: terminalPanel.hostedView
-        ) else { return }
+        let firstResponder = window.firstResponder
+        let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
+        let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
+            flags: normalizedFlags,
+            responderIsWindow: firstResponder is NSWindow,
+            responderHasViableKeyRoutingOwner: responderHasViableOwner
+        )
+        if normalizedFlags.contains(.command) {
+            guard commandEquivalentNeedsRepair else { return }
+        } else {
+            guard responderNeedsFocusedTerminalKeyRepair(
+                firstResponder,
+                in: window,
+                hostedView: terminalPanel.hostedView
+            ) else { return }
+        }
 
 #if DEBUG
-        let before = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        let before = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let target = terminalPanel.hostedView.preferredPanelFocusIntentForActivation()
+        let mode = normalizedFlags.contains(.command) ? "command" : "plain"
         dlog(
             "focus.keyRepair attempt window=\(ObjectIdentifier(window)) " +
             "workspace=\(String(workspace.id.uuidString.prefix(5))) " +
             "panel=\(String(panelId.uuidString.prefix(5))) " +
+            "mode=\(mode) " +
             "target=\(target == .findField ? "searchField" : "surface") " +
             "fr=\(before) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
         )
