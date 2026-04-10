@@ -47,6 +47,10 @@
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within cmux would like to access your Calendar.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within cmux would like to access your reminders.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
