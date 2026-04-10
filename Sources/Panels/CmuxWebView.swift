@@ -253,7 +253,7 @@ final class CmuxWebView: WKWebView {
         }, true);
         document.addEventListener("mousedown", (ev) => {
           const target = ev && ev.target ? ev.target : null;
-          if (!canPasteAsPlainTextInto(target)) {
+          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
             publish(false);
           }
         }, true);
@@ -509,126 +509,25 @@ final class CmuxWebView: WKWebView {
     }
 
     @discardableResult
-    private func performPasteAsPlainTextFromPasteboard() -> Bool {
-        guard let text = NSPasteboard.general.string(forType: .string),
+    private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
+        guard NSPasteboard.general.string(forType: .string) != nil,
               pageCanAcceptPlainTextPaste() else {
             return false
         }
-        let textLiteral = "\"\(BrowserFindJavaScript.jsStringEscape(text))\""
 
-        let script = """
-        (() => {
-            const text = \(textLiteral);
-            \(Self.pasteAsPlainTextSharedHelpersScriptSource)
-            const editableTarget = __cmuxPasteAsPlainTextHelpers.editableTarget(document.activeElement);
-            if (!editableTarget) return false;
-
-            const ownerDocument = editableTarget.ownerDocument ?? document;
-            const ownerWindow = ownerDocument.defaultView ?? window;
-            const makeInputEvent = () => {
-                try {
-                    const InputEventCtor = ownerWindow.InputEvent;
-                    if (typeof InputEventCtor === 'function') {
-                        return new InputEventCtor('input', {
-                            bubbles: true,
-                            inputType: 'insertFromPaste',
-                            data: text
-                        });
-                    }
-                } catch (_) {}
-
-                try {
-                    const EventCtor = ownerWindow.Event;
-                    if (typeof EventCtor === 'function') {
-                        return new EventCtor('input', { bubbles: true });
-                    }
-                } catch (_) {}
-
-                return null;
-            };
-
-            if (__cmuxPasteAsPlainTextHelpers.isPlainTextTextControl(editableTarget)) {
-                const value = typeof editableTarget.value === 'string' ? editableTarget.value : '';
-                const start = typeof editableTarget.selectionStart === 'number'
-                    ? editableTarget.selectionStart
-                    : value.length;
-                const end = typeof editableTarget.selectionEnd === 'number'
-                    ? editableTarget.selectionEnd
-                    : start;
-
-                try {
-                    if (typeof editableTarget.setRangeText === 'function') {
-                        editableTarget.setRangeText(text, start, end, 'end');
-                    } else {
-                        editableTarget.value = value.slice(0, start) + text + value.slice(end);
-                        if (typeof editableTarget.setSelectionRange === 'function') {
-                            const caret = start + text.length;
-                            editableTarget.setSelectionRange(caret, caret);
-                        }
-                    }
-                } catch (_) {
-                    return false;
-                }
-
-                const inputEvent = makeInputEvent();
-                if (inputEvent) {
-                    editableTarget.dispatchEvent(inputEvent);
-                }
-                return true;
-            }
-
-            if (typeof ownerDocument.execCommand === 'function') {
-                try {
-                    if (ownerDocument.execCommand('insertText', false, text)) {
-                        return true;
-                    }
-                } catch (_) {}
-            }
-
-            const selection = typeof ownerWindow.getSelection === 'function'
-                ? ownerWindow.getSelection()
-                : null;
-            if (!selection || selection.rangeCount === 0) return false;
-
-            const range = selection.getRangeAt(0);
-            range.deleteContents();
-            const node = ownerDocument.createTextNode(text);
-            range.insertNode(node);
-            range.setStartAfter(node);
-            range.setEndAfter(node);
-            selection.removeAllRanges();
-            selection.addRange(range);
-
-            const inputEvent = makeInputEvent();
-            if (inputEvent) {
-                editableTarget.dispatchEvent(inputEvent);
-            }
-            return true;
-        })();
-        """
-
-        evaluateJavaScript(script) { [weak self] result, error in
-            guard let self else { return }
+        webKitPasteAsPlainTextFallback(sender)
 #if DEBUG
-            let inserted = (result as? Bool) ?? false
-            dlog(
-                "browser.pasteAsPlainText " +
-                "web=\(ObjectIdentifier(self)) inserted=\(inserted ? 1 : 0) " +
-                "error=\(error?.localizedDescription ?? "nil")"
-            )
-#else
-            _ = result
-            _ = error
+        dlog(
+            "browser.pasteAsPlainText " +
+            "web=\(ObjectIdentifier(self)) routedNative=1"
+        )
 #endif
-        }
-        // Key-equivalent routing cannot await the page-side insertion result. Once the
-        // preflight confirms a live editable target, dispatch the insertion and consume.
         return true
     }
 
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         _ = sender
-        if !performPasteAsPlainTextFromPasteboard() {
+        if !performPasteAsPlainTextFromPasteboard(sender) {
             webKitPasteAsPlainTextFallback(sender)
         }
     }
