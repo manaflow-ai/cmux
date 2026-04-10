@@ -9937,7 +9937,6 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
-        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
@@ -9967,10 +9966,6 @@ struct VerticalTabsSidebar: View {
                                 let contextMenuWorkspaceIds = usesSelectedContextMenuTargets
                                     ? selectedContextTargetIds
                                     : [tab.id]
-                                let allContextMenuWorkspacesHideTerminalScrollBar = !contextMenuWorkspaceIds.isEmpty &&
-                                    contextMenuWorkspaceIds.allSatisfy { workspaceId in
-                                        tabsById[workspaceId]?.terminalScrollBarHidden == true
-                                    }
                                 let remoteContextMenuWorkspaceIds = usesSelectedContextMenuTargets
                                     ? selectedRemoteContextMenuWorkspaceIds
                                     : (tab.isRemoteWorkspace ? [tab.id] : [])
@@ -10024,7 +10019,6 @@ struct VerticalTabsSidebar: View {
                                     draggedTabId: $draggedTabId,
                                     dropIndicator: $dropIndicator,
                                     contextMenuWorkspaceIds: contextMenuWorkspaceIds,
-                                    allContextMenuWorkspacesHideTerminalScrollBar: allContextMenuWorkspacesHideTerminalScrollBar,
                                     remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
                                     allRemoteContextMenuTargetsConnecting: allRemoteContextMenuTargetsConnecting,
                                     allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
@@ -12433,7 +12427,6 @@ private struct TabItemView: View, Equatable {
         lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
-        lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
         lhs.allRemoteContextMenuTargetsConnecting == rhs.allRemoteContextMenuTargetsConnecting &&
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
@@ -12464,7 +12457,6 @@ private struct TabItemView: View, Equatable {
     @Binding var draggedTabId: UUID?
     @Binding var dropIndicator: SidebarDropIndicator?
     let contextMenuWorkspaceIds: [UUID]
-    let allContextMenuWorkspacesHideTerminalScrollBar: Bool
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool
     let allRemoteContextMenuTargetsDisconnected: Bool
@@ -12697,6 +12689,10 @@ private struct TabItemView: View, Equatable {
 
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
+    }
+
+    private var allContextMenuWorkspacesHideTerminalScrollBar: Bool {
+        allWorkspacesHideTerminalScrollBar(targetIds: contextMenuWorkspaceIds)
     }
 
     var body: some View {
@@ -13175,6 +13171,14 @@ private struct TabItemView: View, Equatable {
         guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
         return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
             tabManager.tabs.first(where: { $0.id == workspaceId })
+        }
+    }
+
+    private func allWorkspacesHideTerminalScrollBar(targetIds: [UUID]) -> Bool {
+        guard !targetIds.isEmpty else { return false }
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
+        return targetIds.allSatisfy { targetId in
+            workspacesById[targetId]?.terminalScrollBarHidden == true
         }
     }
 
@@ -14001,10 +14005,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
-        let workspacesById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
-        let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
-            workspacesById[targetId]?.terminalScrollBarHidden == true
-        }
+        let currentlyHidden = allWorkspacesHideTerminalScrollBar(targetIds: targetIds)
         let hideScrollBar = !currentlyHidden
         for targetId in targetIds {
             tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
