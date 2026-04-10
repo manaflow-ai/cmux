@@ -9179,10 +9179,7 @@ final class GhosttySurfaceScrollView: NSView {
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
-        let targetSize = CGSize(
-            width: max(0, scrollView.bounds.width - terminalScrollBarReservedWidth()),
-            height: scrollView.bounds.height
-        )
+        let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
 #endif
@@ -9403,8 +9400,9 @@ final class GhosttySurfaceScrollView: NSView {
         let workspace = terminalSurface.owningWorkspace()
         cachedOwningWorkspace = workspace
         updateWorkspaceTerminalScrollBarObserver(workspace)
-        // Preserve the bootstrap 800x600 surface until the host has real bounds.
-        guard bounds.width > 0, bounds.height > 0 else { return }
+        // Preserve the bootstrap 800x600 surface until portal reattach churn
+        // has produced a real host size instead of a transient 1x1 placeholder.
+        guard bounds.width > 1, bounds.height > 1 else { return }
         _ = synchronizeGeometryAndContent()
     }
 
@@ -11417,12 +11415,6 @@ final class GhosttySurfaceScrollView: NSView {
         terminalScrollBarAllowedBySettings() && surfaceHasScrollback()
     }
 
-    private func terminalScrollBarReservedWidth() -> CGFloat {
-        // Keep the PTY width stable while scrollback appears/disappears so
-        // entering alternate-screen TUIs does not reflow the surface.
-        guard terminalScrollBarAllowedBySettings() else { return 0 }
-        return ceil(NSScroller.scrollerWidth(for: .regular, scrollerStyle: .overlay))
-    }
 }
 
 // MARK: - NSTextInputClient
