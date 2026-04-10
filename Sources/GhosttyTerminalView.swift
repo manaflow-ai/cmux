@@ -1204,6 +1204,7 @@ class GhosttyApp {
     private(set) var defaultBackgroundColor: NSColor = .windowBackgroundColor
     private(set) var defaultBackgroundOpacity: Double = 1.0
     private(set) var usesHostLayerBackground = true
+    private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL {
@@ -1624,6 +1625,12 @@ class GhosttyApp {
                 prefix: "cmux-layer-bg",
                 logLabel: "layer background (fallback)"
             )
+            loadInlineGhosttyConfig(
+                "shell-integration = none",
+                into: fallbackConfig,
+                prefix: "cmux-shell-integration-override",
+                logLabel: "shell integration override (fallback)"
+            )
             usesHostLayerBackground = true
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
@@ -1740,6 +1747,26 @@ class GhosttyApp {
                 logLabel: "layer background"
             )
         }
+        // Save the user's preference before we force it to none.
+        userGhosttyShellIntegrationMode = "detect"
+        do {
+            var value: UnsafePointer<Int8>?
+            let key = "shell-integration"
+            if ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
+               let value {
+                userGhosttyShellIntegrationMode = String(cString: value)
+            }
+        }
+
+        // Prevent Ghostty from overriding ZDOTDIR — cmux handles shell
+        // integration itself via the .zshenv bootstrap (#2594).
+        loadInlineGhosttyConfig(
+            "shell-integration = none",
+            into: config,
+            prefix: "cmux-shell-integration-override",
+            logLabel: "shell integration override"
+        )
+
         ghostty_config_finalize(config)
     }
 
@@ -2490,17 +2517,6 @@ class GhosttyApp {
         let key = "macos-applescript"
         _ = ghostty_config_get(config, &enabled, key, UInt(key.lengthOfBytes(using: .utf8)))
         return enabled
-    }
-
-    fileprivate func shellIntegrationMode() -> String {
-        guard let config else { return "detect" }
-        var value: UnsafePointer<Int8>?
-        let key = "shell-integration"
-        guard ghostty_config_get(config, &value, key, UInt(key.lengthOfBytes(using: .utf8))),
-              let value else {
-            return "detect"
-        }
-        return String(cString: value)
     }
 
     private func bellFeatures() -> CUnsignedInt {
@@ -4157,7 +4173,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 ?? "/bin/zsh"
             let shellName = URL(fileURLWithPath: shell).lastPathComponent
             if shellName == "zsh" {
-                if GhosttyApp.shared.shellIntegrationMode() != "none" {
+                if GhosttyApp.shared.userGhosttyShellIntegrationMode != "none" {
                     setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1")
                 }
                 let candidateZdotdir = (env["ZDOTDIR"]?.isEmpty == false ? env["ZDOTDIR"] : nil)
@@ -4181,7 +4197,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
                 setManagedEnvironmentValue("ZDOTDIR", integrationDir)
             } else if shellName == "bash" {
-                if GhosttyApp.shared.shellIntegrationMode() != "none" {
+                if GhosttyApp.shared.userGhosttyShellIntegrationMode != "none" {
                     setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1")
                 }
                 // macOS ships /bin/bash 3.2, where Ghostty's automatic bash
