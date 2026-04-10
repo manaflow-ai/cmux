@@ -9,6 +9,17 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
+func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
+    guard let value else { return nil }
+    // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
+    guard let data = try? JSONSerialization.data(withJSONObject: [value]),
+          let arrayLiteral = String(data: data, encoding: .utf8),
+          arrayLiteral.count >= 2 else {
+        return nil
+    }
+    return String(arrayLiteral.dropFirst().dropLast())
+}
+
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
 
@@ -9041,16 +9052,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in evaluate() }
     }
 
-    private func javaScriptLiteral(_ value: String?) -> String {
-        guard let value else { return "null" }
-        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-              let arrayLiteral = String(data: data, encoding: .utf8),
-              arrayLiteral.count >= 2 else {
-            return "null"
-        }
-        return String(arrayLiteral.dropFirst().dropLast())
-    }
-
     private func setupFocusedInputForGotoSplitUITest(panel: BrowserPanel) {
         let script = """
         (() => {
@@ -9344,7 +9345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         awaitingInputId: String? = nil,
         completion: @escaping ([String: String]) -> Void
     ) {
-        let expectedInputIdLiteral = javaScriptLiteral(awaitingInputId)
+        let expectedInputIdLiteral = cmuxJavaScriptStringLiteral(awaitingInputId) ?? "null"
         let script = """
         (() => {
           const expectedInputId = \(expectedInputIdLiteral);

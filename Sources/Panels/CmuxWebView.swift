@@ -348,21 +348,11 @@ final class CmuxWebView: WKWebView {
         return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
     }
 
-    private static func javaScriptLiteral(_ value: String) -> String? {
-        // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
-        guard let data = try? JSONSerialization.data(withJSONObject: [value]),
-              let arrayLiteral = String(data: data, encoding: .utf8),
-              arrayLiteral.count >= 2 else {
-            return nil
-        }
-        return String(arrayLiteral.dropFirst().dropLast())
-    }
-
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard() -> Bool {
         guard pasteAsPlainTextTargetAvailable,
               let text = NSPasteboard.general.string(forType: .string),
-              let textLiteral = Self.javaScriptLiteral(text) else {
+              let textLiteral = cmuxJavaScriptStringLiteral(text) else {
             return false
         }
 
