@@ -136,8 +136,8 @@ enum UITestLaunchManifest {
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject private var sidebarState = SidebarState()
+    @StateObject private var notificationStore: TerminalNotificationStore
+    @StateObject private var sidebarState: SidebarState
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
     @StateObject private var cmuxConfigStore = CmuxConfigStore()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
@@ -170,7 +170,12 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let startupTabManager = TabManager()
+        let startupNotificationStore = TerminalNotificationStore.shared
+        let startupSidebarState = SidebarState()
+        _tabManager = StateObject(wrappedValue: startupTabManager)
+        _notificationStore = StateObject(wrappedValue: startupNotificationStore)
+        _sidebarState = StateObject(wrappedValue: startupSidebarState)
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -194,8 +199,14 @@ struct cmuxApp: App {
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
-        // callbacks (e.g. `.onAppear`) are delayed or skipped.
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        // callbacks (e.g. `.onAppear`) are delayed or skipped. Use the same concrete
+        // instances here that back the StateObjects so SwiftUI does not synthesize
+        // transient startup objects before view installation.
+        appDelegate.configure(
+            tabManager: startupTabManager,
+            notificationStore: startupNotificationStore,
+            sidebarState: startupSidebarState
+        )
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
@@ -4141,6 +4152,8 @@ struct SettingsView: View {
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
     @AppStorage("sidebarNotificationBadgeColorHex") private var sidebarNotificationBadgeColorHex: String?
     @AppStorage("sidebarShowBranchDirectory") private var sidebarShowBranchDirectory = true
+    @AppStorage(GitMetadataWatcherSettings.disabledKey)
+    private var sidebarDisableGitMetadataWatcher = GitMetadataWatcherSettings.defaultDisabled
     @AppStorage("sidebarShowPullRequest") private var sidebarShowPullRequest = true
     @AppStorage(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey)
     private var openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
@@ -5075,6 +5088,20 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("sidebar.disableGitMetadataWatcher"),
+                            String(localized: "settings.app.disableGitMetadataWatcher", defaultValue: "Disable Git Metadata Watcher"),
+                            subtitle: sidebarDisableGitMetadataWatcher
+                                ? String(localized: "settings.app.disableGitMetadataWatcher.subtitleOn", defaultValue: "Stop the background repo watcher and PR refresher for sidebar git metadata.")
+                                : String(localized: "settings.app.disableGitMetadataWatcher.subtitleOff", defaultValue: "Use FSEvents to refresh branch, dirty-state, and PR metadata only when repo files change.")
+                        ) {
+                            Toggle("", isOn: $sidebarDisableGitMetadataWatcher)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
 
                         SettingsCardDivider()
 
@@ -6224,6 +6251,7 @@ struct SettingsView: View {
         sidebarSelectionColorHex = nil
         sidebarNotificationBadgeColorHex = nil
         sidebarShowBranchDirectory = true
+        sidebarDisableGitMetadataWatcher = GitMetadataWatcherSettings.defaultDisabled
         sidebarShowPullRequest = true
         openSidebarPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser
         openSidebarPortLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser

@@ -122,6 +122,36 @@ private func runGit(
     return result.stdout
 }
 
+private func makeTempGitRepoWithInitialCommit(
+    prefix: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) throws -> URL {
+    let fileManager = FileManager.default
+    let repoURL = fileManager.temporaryDirectory.appendingPathComponent(
+        "\(prefix)-\(UUID().uuidString)",
+        isDirectory: true
+    )
+    try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
+
+    do {
+        try runGit(["init", "-b", "main"], in: repoURL, file: file, line: line)
+        try runGit(["config", "user.name", "cmux tests"], in: repoURL, file: file, line: line)
+        try runGit(["config", "user.email", "cmux@example.invalid"], in: repoURL, file: file, line: line)
+        try "seed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try runGit(["add", "README.md"], in: repoURL, file: file, line: line)
+        try runGit(["commit", "-m", "Initial commit"], in: repoURL, file: file, line: line)
+        return repoURL
+    } catch {
+        try? fileManager.removeItem(at: repoURL)
+        throw error
+    }
+}
+
 @MainActor
 final class TabManagerChildExitCloseTests: XCTestCase {
     func testChildExitOnLastPanelClosesSelectedWorkspaceAndKeepsIndexStable() {
@@ -404,26 +434,86 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.shouldSkipWorkspacePullRequestLookup(branch: "release/master-fix"))
     }
 
-    func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerAndPeriodicReasons() {
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "periodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "selectedPeriodicPoll.followUp"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
-        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
-
+    func testWorkspacePullRequestRefreshDoesNotAllowRepoCacheForCurrentReasons() {
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "localGitProbe"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "localGitProbe.followUp"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "gitFsEvent"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "gitFsEvent.followUp"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
+        XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "directoryChange"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
     }
 
-    func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
+    func testWorkspacePullRequestRefreshAllowsRepoCacheForTimerReasons() {
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer"))
+        XCTAssertTrue(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "timer.followUp"))
+    }
+
+    func testWorkspacePullRequestTimerRefreshRetriesEmptyCachedRepositorySlugs() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-pr-slug-retry")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git"], in: repoURL)
+
+        XCTAssertEqual(
+            TabManager.resolvedRepositorySlugsForPullRequestRefreshForTesting(
+                directory: repoURL.path,
+                cachedRepositorySlugs: [],
+                reason: "timer"
+            ),
+            ["manaflow-ai/cmux"]
+        )
+    }
+
+    func testWorkspacePullRequestOnDemandRefreshUsesCurrentPanelDirectoryAfterRepoSwitch() throws {
+        let fileManager = FileManager.default
+        let oldRepoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-pr-old-repo")
+        let newRepoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-pr-new-repo")
+        defer {
+            try? fileManager.removeItem(at: oldRepoURL)
+            try? fileManager.removeItem(at: newRepoURL)
+        }
+
+        try runGit(["remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git"], in: oldRepoURL)
+        try runGit(["remote", "add", "origin", "https://github.com/ghostty-org/ghostty.git"], in: newRepoURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: oldRepoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id)
+                    .contains(panelId)
+            }
+        )
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: newRepoURL.path)
+
+        XCTAssertEqual(
+            manager.resolvedRepositorySlugsForPanelPullRequestRefreshForTesting(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                reason: "shellPrompt"
+            ),
+            ["ghostty-org/ghostty"]
+        )
+    }
+
+    func testWorkspacePullRequestShouldRefreshHonorsScheduledPollsAndTerminalSweeps() {
         let now = Date(timeIntervalSince1970: 1_000)
         let recentTerminalRefresh = now.addingTimeInterval(-60)
 
         XCTAssertTrue(
-            TabManager.shouldRefreshWorkspacePullRequest(
+            TabManager.shouldRefreshWorkspacePullRequestForTesting(
                 now: now,
                 nextPollAt: .distantPast,
                 lastTerminalStateRefreshAt: recentTerminalRefresh,
@@ -431,11 +521,50 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            TabManager.shouldRefreshWorkspacePullRequest(
+            TabManager.shouldRefreshWorkspacePullRequestForTesting(
                 now: now,
                 nextPollAt: now.addingTimeInterval(60),
                 lastTerminalStateRefreshAt: recentTerminalRefresh,
                 currentPullRequestStatus: .closed
+            )
+        )
+        XCTAssertFalse(
+            TabManager.shouldRefreshWorkspacePullRequestForTesting(
+                now: now,
+                nextPollAt: now.addingTimeInterval(60),
+                lastTerminalStateRefreshAt: nil,
+                currentPullRequestStatus: .open
+            )
+        )
+    }
+
+    func testWorkspacePullRequestRefreshThrottlesKnownAbsentBranchWithinCacheLifetime() {
+        XCTAssertFalse(
+            TabManager.shouldRefreshKnownAbsentWorkspacePullRequestForTesting(
+                branch: "feature/no-pr",
+                absentBranch: "feature/no-pr",
+                absentAge: 14
+            )
+        )
+        XCTAssertTrue(
+            TabManager.shouldRefreshKnownAbsentWorkspacePullRequestForTesting(
+                branch: "feature/no-pr",
+                absentBranch: "feature/no-pr",
+                absentAge: 16
+            )
+        )
+        XCTAssertTrue(
+            TabManager.shouldRefreshKnownAbsentWorkspacePullRequestForTesting(
+                branch: "feature/no-pr",
+                absentBranch: "feature/other",
+                absentAge: 1
+            )
+        )
+        XCTAssertTrue(
+            TabManager.shouldRefreshKnownAbsentWorkspacePullRequestForTesting(
+                branch: "feature/no-pr",
+                absentBranch: nil,
+                absentAge: nil
             )
         )
     }
@@ -651,6 +780,1050 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
             }
         )
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
+    }
+
+    func testPeriodicWorkspaceGitMetadataRefreshClearsDirtyStateWhenWatcherOptsOut() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-dirty-optout-refresh")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main" &&
+                    workspace.panelGitBranches[panelId]?.isDirty == true
+            }
+        )
+
+        try "".write(
+            to: repoURL.appendingPathComponent(".cmuxignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main" &&
+                    workspace.panelGitBranches[panelId]?.isDirty == false
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+    }
+
+    func testFallbackWorkspaceGitMetadataRefreshUpdatesDirtyStateWhenWatcherStartFails() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-fallback-refresh")
+        TabManager.setWorkspaceGitWatcherForceStartFailureForTesting(true)
+        defer {
+            TabManager.setWorkspaceGitWatcherForceStartFailureForTesting(false)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        manager.refreshFallbackWorkspaceGitMetadataForTesting(now: .distantFuture)
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == true
+            }
+        )
+    }
+
+    func testFallbackWorkspaceGitMetadataRefreshRecoversAfterOptOutIsRemoved() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-fallback-optout-recovery")
+        TabManager.setWorkspaceGitWatcherForceStartFailureForTesting(true)
+        defer {
+            TabManager.setWorkspaceGitWatcherForceStartFailureForTesting(false)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try "".write(
+            to: repoURL.appendingPathComponent(".cmuxignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+                    && manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+
+        try fileManager.removeItem(at: repoURL.appendingPathComponent(".cmuxignore"))
+
+        manager.refreshFallbackWorkspaceGitMetadataForTesting(now: .distantFuture)
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == true
+            }
+        )
+    }
+
+    func testWorkspaceGitProbeResetsDirtyStateWhenStatusUnavailableAfterRepositoryChange() throws {
+        let fileManager = FileManager.default
+        let dirtyRepoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-status-fallback-dirty")
+        let cleanRepoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-status-fallback-clean")
+        defer {
+            try? fileManager.removeItem(at: dirtyRepoURL)
+            try? fileManager.removeItem(at: cleanRepoURL)
+        }
+
+        try "changed\n".write(
+            to: dirtyRepoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: dirtyRepoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == true
+            }
+        )
+
+        TabManager.setWorkspaceGitStatusFailureForTesting(true)
+        defer { TabManager.setWorkspaceGitStatusFailureForTesting(false) }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: cleanRepoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            }
+        )
+    }
+
+    func testDirectoryChangeClearsStaleSidebarGitMetadataWhenWorkspaceWatcherDisabled() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-disabled-dir-change")
+        let nextDirectoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-disabled-dir-change-target-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: nextDirectoryURL)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try fileManager.createDirectory(at: nextDirectoryURL, withIntermediateDirectories: true)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        manager.setWorkspaceGitMetadataWatcherDisabled(workspaceIds: [workspace.id], disabled: true)
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/stale-sidebar", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2048,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2048")),
+            status: .open,
+            branch: "feature/stale-sidebar"
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/stale-sidebar")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2048)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: nextDirectoryURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId] == nil
+                    && workspace.panelPullRequests[panelId] == nil
+                    && workspace.gitBranch == nil
+                    && workspace.pullRequest == nil
+            }
+        )
+        XCTAssertTrue(workspace.sidebarGitBranchesInDisplayOrder().isEmpty)
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
+    func testGlobalGitMetadataWatcherDisableClearsUnscopedSidebarMetadata() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+
+        workspace.gitBranch = SidebarGitBranchState(branch: "feature/unscoped", isDirty: true)
+        workspace.pullRequest = SidebarPullRequestState(
+            number: 2718,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2718")),
+            status: .open,
+            branch: "feature/unscoped",
+            isStale: false
+        )
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.gitBranch == nil && workspace.pullRequest == nil
+            }
+        )
+    }
+
+    func testGlobalGitMetadataWatcherDisablePreservesRemoteWorkspaceMetadata() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "cmux-macmini",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: 64017,
+                relayID: String(repeating: "a", count: 16),
+                relayToken: String(repeating: "b", count: 64),
+                localSocketPath: "/tmp/cmux-debug-test.sock",
+                terminalStartupCommand: "ssh cmux-macmini"
+            ),
+            autoConnect: false
+        )
+        drainMainQueue()
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/remote", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 3001,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/3001")),
+            status: .open,
+            branch: "feature/remote"
+        )
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/remote")
+        XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 3001)
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/remote")
+        XCTAssertEqual(workspace.pullRequest?.number, 3001)
+    }
+
+    func testGlobalGitMetadataWatcherDisableClearsSidebarMetadataFromDefaultsChange() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/global-disable", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 2723,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2723")),
+            status: .open,
+            branch: "feature/global-disable"
+        )
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId] == nil
+                    && workspace.panelPullRequests[panelId] == nil
+                    && workspace.gitBranch == nil
+                    && workspace.pullRequest == nil
+            }
+        )
+        XCTAssertTrue(workspace.sidebarGitBranchesInDisplayOrder().isEmpty)
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
+    func testGlobalGitMetadataWatcherEnableSkipsFocusedBrowserPanelReprobe() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-browser-reenable")
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalPanelId = workspace.focusedPanelId,
+              let paneId = workspace.paneId(forPanelId: terminalPanelId) else {
+            XCTFail("Expected selected workspace with focused terminal")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: terminalPanelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[terminalPanelId]?.branch == "main"
+            }
+        )
+
+        guard let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) else {
+            XCTFail("Expected browser panel")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[terminalPanelId] == nil
+                    && workspace.panelGitBranches[browserPanel.id] == nil
+                    && workspace.gitBranch == nil
+            }
+        )
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+        manager.handleGitMetadataWatcherDefaultsChangeForTesting()
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.focusedPanelId == browserPanel.id
+                    && workspace.panelGitBranches[terminalPanelId]?.branch == "main"
+                    && workspace.panelGitBranches[browserPanel.id] == nil
+                    && workspace.panelPullRequests[browserPanel.id] == nil
+                    && workspace.gitBranch == nil
+                    && workspace.pullRequest == nil
+            }
+        )
+    }
+
+    func testRepoLevelGitOptOutExcludesPanelFromPullRequestRefreshCandidates() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-pr-optout")
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        try runGit(["checkout", "-b", "feature/optout-pr"], in: repoURL)
+        try "".write(
+            to: repoURL.appendingPathComponent(".cmuxignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "feature/optout-pr"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            }
+        )
+
+        XCTAssertEqual(
+            manager.trackedWorkspacePullRequestRefreshCandidatePanelIdsForTesting(workspaceId: workspace.id),
+            Set<UUID>()
+        )
+    }
+
+    func testIncludedGitConfigWatcherRefreshesDirtyStateAfterLiveOptOutChange() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-live-include-watch")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let gitDirectoryURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        let configURL = gitDirectoryURL.appendingPathComponent("config")
+        let includedConfigURL = gitDirectoryURL.appendingPathComponent("cmux-live-include.cfg")
+        let existingConfig = try String(contentsOf: configURL, encoding: .utf8)
+        try (
+            existingConfig
+            + """
+
+            [include]
+                path = cmux-live-include.cfg
+            """
+        ).write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        [cmux]
+            metadataWatcher = false
+        """.write(to: includedConfigURL, atomically: false, encoding: .utf8)
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+                    && manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id)
+                    .contains(panelId)
+            }
+        )
+
+        try """
+        [cmux]
+            metadataWatcher = true
+        """.write(to: includedConfigURL, atomically: false, encoding: .utf8)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == true
+            }
+        )
+        XCTAssertEqual(workspace.gitBranch?.branch, "main")
+        XCTAssertEqual(workspace.gitBranch?.isDirty, true)
+    }
+
+    func testWorkspaceGitMetadataSummaryHonorsCmuxIgnoreOptOut() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-ignore-optout")
+        defer { try? fileManager.removeItem(at: repoURL) }
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "".write(
+            to: repoURL.appendingPathComponent(".cmuxignore"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertNil(summary.isDirty)
+        XCTAssertTrue(summary.isWatcherOptedOut)
+        XCTAssertFalse(fileManager.fileExists(atPath: repoURL.appendingPathComponent(".git/index.lock").path))
+    }
+
+    func testWorkspaceGitMetadataSummaryHonorsGitConfigOptOut() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-config-optout")
+        defer { try? fileManager.removeItem(at: repoURL) }
+        try runGit(["config", "cmux.metadataWatcher", "false"], in: repoURL)
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertNil(summary.isDirty)
+        XCTAssertTrue(summary.isWatcherOptedOut)
+        XCTAssertFalse(fileManager.fileExists(atPath: repoURL.appendingPathComponent(".git/index.lock").path))
+    }
+
+    func testWorkspaceGitMetadataSummaryHonorsIncludedGitConfigOptOut() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-include-optout")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let gitDirectoryURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        let configURL = gitDirectoryURL.appendingPathComponent("config")
+        let existingConfig = try String(contentsOf: configURL, encoding: .utf8)
+        try (
+            existingConfig
+            + """
+
+            [include]
+                path = cmux-include.cfg
+            """
+        ).write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        [cmux]
+            metadataWatcher = false
+        """.write(
+            to: gitDirectoryURL.appendingPathComponent("cmux-include.cfg"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertNil(summary.isDirty)
+        XCTAssertTrue(summary.isWatcherOptedOut)
+    }
+
+    func testWorkspaceGitMetadataSummaryHonorsIncludeIfGitConfigOptOut() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-include-if-optout")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let gitDirectoryURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        let configURL = gitDirectoryURL.appendingPathComponent("config")
+        let existingConfig = try String(contentsOf: configURL, encoding: .utf8)
+        try (
+            existingConfig
+            + """
+
+            [includeIf "onbranch:main"]
+                path = cmux-include-if.cfg
+            """
+        ).write(to: configURL, atomically: true, encoding: .utf8)
+        try """
+        [cmux]
+            metadataWatcher = false
+        """.write(
+            to: gitDirectoryURL.appendingPathComponent("cmux-include-if.cfg"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertNil(summary.isDirty)
+        XCTAssertTrue(summary.isWatcherOptedOut)
+    }
+
+    func testWorkspaceGitMetadataSummaryKeepsCleanRepoClean() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-clean")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertEqual(summary.isDirty, false)
+        XCTAssertFalse(summary.isWatcherOptedOut)
+        XCTAssertFalse(fileManager.fileExists(atPath: repoURL.appendingPathComponent(".git/index.lock").path))
+    }
+
+    func testWorkspaceGitMetadataSummaryReadsDirtyRepoWithoutCreatingIndexLock() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-no-lock")
+        defer { try? fileManager.removeItem(at: repoURL) }
+        try "changed\n".write(
+            to: repoURL.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertEqual(summary.isDirty, true)
+        XCTAssertFalse(summary.isWatcherOptedOut)
+        XCTAssertFalse(fileManager.fileExists(atPath: repoURL.appendingPathComponent(".git/index.lock").path))
+    }
+
+    func testWorkspaceGitMetadataSummaryUsesGlobalOptionalLocksFlagForStatus() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-global-optional-locks")
+        let shimDirectoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-shim-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let shimURL = shimDirectoryURL.appendingPathComponent("git")
+        let originalPath = ProcessInfo.processInfo.environment["PATH"]
+        defer {
+            if let originalPath {
+                setenv("PATH", originalPath, 1)
+            } else {
+                unsetenv("PATH")
+            }
+            try? fileManager.removeItem(at: shimDirectoryURL)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try fileManager.createDirectory(at: shimDirectoryURL, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        if [ "$1" = "--no-optional-locks" ]; then
+          shift
+        fi
+        if [ "$1" = "status" ]; then
+          if [ "${GIT_OPTIONAL_LOCKS:-}" != "0" ]; then
+            echo "status missing GIT_OPTIONAL_LOCKS=0" >&2
+            exit 98
+          fi
+          case " $* " in
+            *" --no-optional-locks "*) echo "status received --no-optional-locks after subcommand" >&2; exit 97 ;;
+          esac
+        fi
+        exec /usr/bin/git "$@"
+        """.write(to: shimURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shimURL.path)
+
+        let shimPath = "\(shimDirectoryURL.path):\(originalPath ?? "/usr/bin:/bin:/usr/sbin:/sbin")"
+        setenv("PATH", shimPath, 1)
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: repoURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertEqual(summary.isDirty, false)
+        XCTAssertFalse(summary.isWatcherOptedOut)
+    }
+
+    func testWorkspaceGitMetadataSummaryResolvesSymlinkedRepoDirectory() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-symlink")
+        let nestedDirectoryURL = repoURL
+            .appendingPathComponent("nested", isDirectory: true)
+            .appendingPathComponent("subdir", isDirectory: true)
+        let symlinkURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-symlink-link-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: symlinkURL)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try fileManager.createDirectory(at: nestedDirectoryURL, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(atPath: symlinkURL.path, withDestinationPath: nestedDirectoryURL.path)
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: symlinkURL.path)
+        XCTAssertEqual(summary.branch, "main")
+        XCTAssertEqual(summary.isDirty, false)
+        XCTAssertFalse(summary.isWatcherOptedOut)
+    }
+
+    func testGitHubRepositorySlugsForTestingReadsGitConfigRemotes() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-config-remotes")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        try runGit(["remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git"], in: repoURL)
+        try runGit(["remote", "add", "upstream", "git@github.com:ghostty-org/ghostty.git"], in: repoURL)
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugsForTesting(directory: repoURL.path),
+            ["ghostty-org/ghostty", "manaflow-ai/cmux"]
+        )
+    }
+
+    func testWorkspaceGitMetadataSummaryHonorsGitConfigOptOutInLinkedWorktree() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-worktree-optout")
+        let worktreeURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-worktree-optout-linked-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: worktreeURL)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try runGit(["config", "cmux.metadataWatcher", "false"], in: repoURL)
+        try runGit(["worktree", "add", "-b", "feature/worktree-optout", worktreeURL.path], in: repoURL)
+
+        let summary = TabManager.workspaceGitMetadataSummaryForTesting(directory: worktreeURL.path)
+        XCTAssertEqual(summary.branch, "feature/worktree-optout")
+        XCTAssertNil(summary.isDirty)
+        XCTAssertTrue(summary.isWatcherOptedOut)
+    }
+
+    func testGitHubRepositorySlugsForTestingReadsRewrittenRemotesInLinkedWorktree() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-worktree-rewrite")
+        let worktreeURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-worktree-rewrite-linked-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? fileManager.removeItem(at: worktreeURL)
+            try? fileManager.removeItem(at: repoURL)
+        }
+
+        try runGit(["config", "url.git@github.com:.insteadOf", "gh:"], in: repoURL)
+        try runGit(["remote", "add", "origin", "gh:manaflow-ai/cmux.git"], in: repoURL)
+        try runGit(["remote", "add", "upstream", "gh:ghostty-org/ghostty.git"], in: repoURL)
+        try runGit(["worktree", "add", "-b", "feature/worktree-rewrite", worktreeURL.path], in: repoURL)
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugsForTesting(directory: worktreeURL.path),
+            ["ghostty-org/ghostty", "manaflow-ai/cmux"]
+        )
+    }
+
+    func testAttachWorkspaceReattachesGitWatcherAfterCrossWindowMove() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-move-watcher")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let sourceManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        sourceManager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                sourceManager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id)
+                    .contains(panelId)
+            }
+        )
+
+        let destinationManager = TabManager()
+        let movedWorkspace = try XCTUnwrap(sourceManager.detachWorkspace(tabId: workspace.id))
+
+        XCTAssertEqual(
+            sourceManager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: movedWorkspace.id),
+            Set<UUID>()
+        )
+
+        destinationManager.attachWorkspace(movedWorkspace)
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                destinationManager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: movedWorkspace.id)
+                    .contains(panelId)
+            }
+        )
+    }
+
+    func testAttachWorkspaceClearsGitMetadataWhenDestinationManagerGloballyDisabled() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let sourceManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/moved-disabled", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 411,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/411")),
+            status: .open,
+            branch: "feature/moved-disabled"
+        )
+
+        let movedWorkspace = try XCTUnwrap(sourceManager.detachWorkspace(tabId: workspace.id))
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let destinationManager = TabManager()
+        destinationManager.attachWorkspace(movedWorkspace)
+
+        XCTAssertTrue(
+            waitForCondition {
+                movedWorkspace.panelGitBranches[panelId] == nil
+                    && movedWorkspace.panelPullRequests[panelId] == nil
+                    && movedWorkspace.gitBranch == nil
+                    && movedWorkspace.pullRequest == nil
+            }
+        )
+    }
+
+    func testAttachWorkspaceClearsGitMetadataWhenWorkspaceWatcherDisabled() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let sourceManager = TabManager()
+        guard let workspace = sourceManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/workspace-disabled", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 512,
+            label: "PR",
+            url: try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/512")),
+            status: .open,
+            branch: "feature/workspace-disabled"
+        )
+
+        let movedWorkspace = try XCTUnwrap(sourceManager.detachWorkspace(tabId: workspace.id))
+        movedWorkspace.gitMetadataWatcherDisabled = true
+
+        let destinationManager = TabManager()
+        destinationManager.attachWorkspace(movedWorkspace)
+
+        XCTAssertTrue(
+            waitForCondition {
+                movedWorkspace.panelGitBranches[panelId] == nil
+                    && movedWorkspace.panelPullRequests[panelId] == nil
+                    && movedWorkspace.gitBranch == nil
+                    && movedWorkspace.pullRequest == nil
+            }
+        )
+    }
+
+    func testRestoreSessionSnapshotClearsGitWatchersForReplacedWorkspaces() throws {
+        let fileManager = FileManager.default
+        let repoURL = try makeTempGitRepoWithInitialCommit(prefix: "cmux-git-restore-watchers")
+        defer { try? fileManager.removeItem(at: repoURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: repoURL.path)
+        XCTAssertTrue(
+            waitForCondition(timeout: 12.0) {
+                manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id)
+                    .contains(panelId)
+            }
+        )
+
+        manager.restoreSessionSnapshot(
+            SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: nil,
+                workspaces: []
+            )
+        )
+
+        XCTAssertEqual(
+            manager.attachedWorkspaceGitWatcherPanelIdsForTesting(workspaceId: workspace.id),
+            Set<UUID>()
+        )
+    }
+
+    func testRestoreSessionSnapshotClearsUnscopedGitBranchWhenGlobalWatcherDisabled() throws {
+        let defaults = UserDefaults.standard
+        let originalSetting = defaults.object(forKey: GitMetadataWatcherSettings.disabledKey)
+        defer {
+            if let originalSetting {
+                defaults.set(originalSetting, forKey: GitMetadataWatcherSettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: GitMetadataWatcherSettings.disabledKey)
+            }
+        }
+
+        defaults.set(false, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let sourceManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace else {
+            XCTFail("Expected source workspace")
+            return
+        }
+
+        sourceWorkspace.gitBranch = SidebarGitBranchState(branch: "feature/restored", isDirty: true)
+        let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+
+        defaults.set(true, forKey: GitMetadataWatcherSettings.disabledKey)
+
+        let restoredManager = TabManager()
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(
+            waitForCondition {
+                restoredManager.selectedWorkspace?.gitBranch == nil
+            }
+        )
+    }
+
+    func testRestoreSessionSnapshotClearsPanelGitBranchesWhenWorkspaceWatcherDisabled() {
+        let sourceManager = TabManager()
+        guard let sourceWorkspace = sourceManager.selectedWorkspace,
+              let panelId = sourceWorkspace.focusedPanelId else {
+            XCTFail("Expected source workspace with focused panel")
+            return
+        }
+
+        sourceWorkspace.updatePanelGitBranch(
+            panelId: panelId,
+            branch: "feature/restored-disabled",
+            isDirty: true
+        )
+        sourceWorkspace.gitMetadataWatcherDisabled = true
+
+        let snapshot = sourceManager.sessionSnapshot(includeScrollback: false)
+        let restoredManager = TabManager()
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        XCTAssertTrue(
+            waitForCondition {
+                guard let restoredWorkspace = restoredManager.selectedWorkspace else {
+                    return false
+                }
+                return restoredWorkspace.gitMetadataWatcherDisabled
+                    && restoredWorkspace.gitBranch == nil
+                    && restoredWorkspace.panelGitBranches.isEmpty
+                    && restoredWorkspace.sidebarGitBranchesInDisplayOrder().isEmpty
+            }
+        )
     }
 
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {

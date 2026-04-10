@@ -1792,6 +1792,12 @@ func installFileDropOverlay(on window: NSWindow, tabManager: TabManager) {
 }
 
 struct ContentView: View {
+    enum WorkspaceGitMetadataWatcherContextMenuMode: Equatable {
+        case hidden
+        case enable
+        case disable
+    }
+
     @ObservedObject var updateViewModel: UpdateViewModel
     let windowId: UUID
     @EnvironmentObject var tabManager: TabManager
@@ -2331,6 +2337,21 @@ struct ContentView: View {
             return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
         }
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+    }
+
+    static func workspaceGitMetadataWatcherContextMenuMode(
+        targetWorkspaces: [Workspace],
+        globalDisabled: Bool
+    ) -> WorkspaceGitMetadataWatcherContextMenuMode {
+        guard !targetWorkspaces.isEmpty,
+              targetWorkspaces.allSatisfy({ !$0.isRemoteWorkspace }) else {
+            return .hidden
+        }
+
+        let allEffectivelyDisabled = targetWorkspaces.allSatisfy { workspace in
+            globalDisabled || workspace.gitMetadataWatcherDisabled
+        }
+        return allEffectivelyDisabled ? .enable : .disable
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -8670,23 +8691,26 @@ struct ContentView: View {
         guard !pullRequests.isEmpty else { return false }
 
         var openedCount = 0
-        if openSidebarPullRequestLinksInCmuxBrowser {
-            for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
-                    openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
-                    openedCount += 1
-                }
-            }
-            return openedCount > 0
-        }
-
         for pullRequest in pullRequests {
-            if NSWorkspace.shared.open(pullRequest.url) {
+            if openWorkspacePullRequestLink(pullRequest.url, workspaceId: workspace.id) {
                 openedCount += 1
             }
         }
         return openedCount > 0
+    }
+
+    private func openWorkspacePullRequestLink(_ url: URL, workspaceId: UUID) -> Bool {
+        if openSidebarPullRequestLinksInCmuxBrowser {
+            if tabManager.openBrowser(
+                inWorkspace: workspaceId,
+                url: url,
+                preferSplitRight: true,
+                insertAtEnd: true
+            ) != nil {
+                return true
+            }
+        }
+        return NSWorkspace.shared.open(url)
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
@@ -9765,6 +9789,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let sidebarShortcutHintXOffset: Double
     let sidebarShortcutHintYOffset: Double
     let alwaysShowShortcutHints: Bool
+    let gitMetadataWatcherGloballyDisabled: Bool
     let showsGitBranch: Bool
     let usesVerticalBranchLayout: Bool
     let showsGitBranchIcon: Bool
@@ -9793,6 +9818,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
             key: ShortcutHintDebugSettings.alwaysShowHintsKey,
             defaultValue: ShortcutHintDebugSettings.defaultAlwaysShowHints
         )
+        gitMetadataWatcherGloballyDisabled = GitMetadataWatcherSettings.isDisabled(defaults: defaults)
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         usesVerticalBranchLayout = SidebarBranchLayoutSettings.usesVerticalLayout(defaults: defaults)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
@@ -12814,6 +12840,35 @@ private struct TabItemView: View, Equatable {
                     .multilineTextAlignment(.leading)
             }
 
+            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(pullRequestRows) { pullRequest in
+                        Button(action: {
+                            openPullRequestLink(pullRequest.url)
+                        }) {
+                            HStack(spacing: 4) {
+                                PullRequestStatusIcon(
+                                    status: pullRequest.status,
+                                    color: pullRequestForegroundColor
+                                )
+                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                    .underline()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
+                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                    }
+                }
+            }
+
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
@@ -12926,36 +12981,6 @@ private struct TabItemView: View, Equatable {
                             .foregroundColor(activeSecondaryColor(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
-                    }
-                }
-            }
-
-            // Pull request rows
-            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(pullRequestRows) { pullRequest in
-                        Button(action: {
-                            openPullRequestLink(pullRequest.url)
-                        }) {
-                            HStack(spacing: 4) {
-                                PullRequestStatusIcon(
-                                    status: pullRequest.status,
-                                    color: pullRequestForegroundColor
-                                )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
-                                    .underline()
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pullRequestForegroundColor)
-                            .opacity(pullRequest.isStale ? 0.5 : 1)
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
                     }
                 }
             }
@@ -13158,9 +13183,16 @@ private struct TabItemView: View, Equatable {
     @ViewBuilder
     private var workspaceContextMenu: some View {
         let targetIds = contextMenuWorkspaceIds
+        let targetWorkspaces = targetIds.compactMap { workspaceId in
+            tabManager.tabs.first(where: { $0.id == workspaceId })
+        }
         let isMulti = targetIds.count > 1
         let tabColorPalette = WorkspaceTabColorSettings.palette()
         let shouldPin = !tab.isPinned
+        let gitMetadataWatcherMenuMode = ContentView.workspaceGitMetadataWatcherContextMenuMode(
+            targetWorkspaces: targetWorkspaces,
+            globalDisabled: settings.gitMetadataWatcherGloballyDisabled
+        )
         let reconnectLabel = contextMenuLabel(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),
             single: String(localized: "contextMenu.reconnectWorkspace", defaultValue: "Reconnect Workspace"),
@@ -13239,6 +13271,19 @@ private struct TabItemView: View, Equatable {
                 Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
                     tabManager.clearCustomDescription(tabId: tab.id)
                 }
+            }
+        }
+
+        if gitMetadataWatcherMenuMode != .hidden {
+            Button(
+                gitMetadataWatcherMenuMode == .enable
+                    ? String(localized: "contextMenu.enableGitMetadataWatcher", defaultValue: "Enable Git Metadata Watcher")
+                    : String(localized: "contextMenu.disableGitMetadataWatcher", defaultValue: "Disable Git Metadata Watcher")
+            ) {
+                tabManager.setWorkspaceGitMetadataWatcherDisabled(
+                    workspaceIds: targetIds,
+                    disabled: gitMetadataWatcherMenuMode == .disable
+                )
             }
         }
 
