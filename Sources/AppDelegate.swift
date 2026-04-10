@@ -1587,6 +1587,25 @@ func shouldDispatchBrowserReturnViaFirstResponderKeyDown(
     return browserOmnibarShouldSubmitOnReturn(flags: flags)
 }
 
+func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowser: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowser else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard keyCode == 125 || keyCode == 126 else { return false }
+
+    // Keep this narrow to avoid stealing app/browser shortcuts that layer onto
+    // modified arrow keys. Plain up/down should always flow through keyDown so
+    // web content such as Google Docs receives the event directly.
+    let normalizedFlags = flags
+        .intersection(.deviceIndependentFlagsMask)
+        .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags.isEmpty
+}
+
 func shouldToggleMainWindowFullScreenForCommandControlFShortcut(
     flags: NSEvent.ModifierFlags,
     chars: String,
@@ -2274,6 +2293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
     private var browserAddressBarBlurObserver: NSObjectProtocol?
+    private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     private let updateController = UpdateController()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(viewModel: updateViewModel)
     private let windowDecorationsController = WindowDecorationsController()
@@ -10911,14 +10931,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
-        if let delta = commandOmnibarSelectionDelta(flags: flags, chars: chars) {
+        if let delta = commandOmnibarSelectionDelta(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            flags: flags,
+            chars: chars
+        ) {
             dispatchBrowserOmnibarSelectionMove(delta: delta)
             startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
             return true
         }
 
         if let delta = browserOmnibarSelectionDeltaForArrowNavigation(
-            hasFocusedAddressBar: browserAddressBarFocusedPanelId != nil,
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: event.modifierFlags,
             keyCode: event.keyCode
         ) {
@@ -10935,7 +10959,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
         // address bar is focused. Without this, app-level Cmd+N can steal focus.
-        if shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
+        if hasFocusedAddressBarInShortcutContext,
+           shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
             return false
         }
 
@@ -11717,7 +11742,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        guard workspace.browserPanel(for: panelId) != nil else {
+        guard let panel = workspace.browserPanel(for: panelId) else {
 #if DEBUG
             dlog(
                 "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
@@ -11728,13 +11753,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let shortcutResponder = shortcutWindow?.firstResponder
+
+        guard isBrowserOmnibarResponder(shortcutResponder) else {
+#if DEBUG
+            let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
+            dlog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=responder_not_omnibar responder=\(shortcutResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
+                "pending=\(panel.pendingAddressBarFocusRequestId != nil ? 1 : 0) focusedPanel=\(focusedPanel) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
 #if DEBUG
         dlog(
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-            "accepted=1 workspace=\(workspace.id.uuidString.prefix(5)) event=\(NSWindow.keyDescription(event))"
+            "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "event=\(NSWindow.keyDescription(event))"
         )
 #endif
         return panelId
+    }
+
+    private func browserOmnibarOwnerView(for responder: NSResponder?) -> NSView? {
+        guard let responder else { return nil }
+
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           let delegateView = textView.delegate as? NSView,
+           delegateView.identifier == browserOmnibarTextFieldIdentifier {
+            return delegateView
+        }
+
+        let ownerView = keyRoutingOwnerView(for: responder)
+        guard ownerView?.identifier == browserOmnibarTextFieldIdentifier else { return nil }
+        return ownerView
+    }
+
+    private func isBrowserOmnibarResponder(_ responder: NSResponder?) -> Bool {
+        guard let ownerView = browserOmnibarOwnerView(for: responder) else { return false }
+
+        if let fieldEditor = responder as? NSTextView,
+           fieldEditor.isFieldEditor {
+            return (ownerView as? NSTextField)?.currentEditor() === fieldEditor
+        }
+
+        return true
+    }
+
+    private func shouldPreserveBrowserAddressBarTracking(for panel: BrowserPanel) -> Bool {
+        guard browserAddressBarFocusedPanelId == panel.id else { return false }
+        if isBrowserOmnibarResponder(panel.webView.window?.firstResponder) {
+            return true
+        }
+        return panel.preferredFocusIntent == .addressBar && panel.shouldSuppressWebViewFocus()
     }
 
     @discardableResult
@@ -11764,11 +11840,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func commandOmnibarSelectionDelta(
+        hasFocusedAddressBar: Bool,
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Int? {
         browserOmnibarSelectionDeltaForCommandNavigation(
-            hasFocusedAddressBar: browserAddressBarFocusedPanelId != nil,
+            hasFocusedAddressBar: hasFocusedAddressBar,
             flags: flags,
             chars: chars
         )
@@ -12681,7 +12758,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func installBrowserAddressBarFocusObservers() {
-        guard browserAddressBarFocusObserver == nil, browserAddressBarBlurObserver == nil else { return }
+        guard browserAddressBarFocusObserver == nil,
+              browserAddressBarBlurObserver == nil,
+              browserWebViewFirstResponderObserver == nil else { return }
 
         browserAddressBarFocusObserver = NotificationCenter.default.addObserver(
             forName: .browserDidFocusAddressBar,
@@ -12714,10 +12793,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             }
         }
+
+        browserWebViewFirstResponderObserver = NotificationCenter.default.addObserver(
+            forName: .browserDidBecomeFirstResponderWebView,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let webView = notification.object as? CmuxWebView,
+                  let panel = self.browserPanelOwning(webView) else { return }
+
+            if let trackedPanelId = self.browserAddressBarFocusedPanelId,
+               trackedPanelId != panel.id,
+               let trackedPanel = self.browserPanel(for: trackedPanelId),
+               !self.shouldPreserveBrowserAddressBarTracking(for: trackedPanel) {
+                trackedPanel.endSuppressWebViewFocusForAddressBar()
+                self.browserAddressBarFocusedPanelId = nil
+                self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+                dlog(
+                    "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
+                    "reason=stale_other_panel_webViewFirstResponder"
+                )
+#endif
+            }
+
+            guard !self.shouldPreserveBrowserAddressBarTracking(for: panel) else {
+#if DEBUG
+                dlog(
+                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
+                    "reason=skip_preserve_omnibar_handoff"
+                )
+#endif
+                return
+            }
+            panel.endSuppressWebViewFocusForAddressBar()
+            if self.browserAddressBarFocusedPanelId == panel.id {
+                self.browserAddressBarFocusedPanelId = nil
+                self.stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+                dlog(
+                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
+                    "reason=webViewFirstResponder"
+                )
+#endif
+            }
+        }
     }
 
     private func browserPanel(for panelId: UUID) -> BrowserPanel? {
-        return tabManager?.selectedWorkspace?.browserPanel(for: panelId)
+        return workspaceContainingPanel(panelId: panelId)?.workspace.browserPanel(for: panelId)
     }
 
     fileprivate func browserFindBarIsVisible(for webView: CmuxWebView) -> Bool {
@@ -13871,6 +13996,7 @@ private var cmuxFirstResponderGuardCurrentEventContext: NSEvent?
 private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
+private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -14256,6 +14382,32 @@ private extension NSWindow {
             defer { cmuxBrowserReturnForwardingDepth = max(0, cmuxBrowserReturnForwardingDepth - 1) }
 #if DEBUG
             dlog("  → browser Return/Enter routed to firstResponder.keyDown")
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        // Some browser content (notably Google Docs) loses plain up/down when
+        // NSWindow.performKeyEquivalent claims the arrow before WebKit sees
+        // keyDown. Route those arrows directly to the first responder instead.
+        if shouldDispatchBrowserArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsBrowser: firstResponderWebView != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            // Match the Return/Enter forwarding guard: AppKit/WebKit can re-enter
+            // performKeyEquivalent while the synthesized keyDown is in flight.
+            if cmuxBrowserArrowForwardingDepth > 0 {
+#if DEBUG
+                dlog("  → browser Up/Down reentry; using normal dispatch")
+#endif
+                return false
+            }
+            cmuxBrowserArrowForwardingDepth += 1
+            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
+#if DEBUG
+            dlog("  → browser Up/Down routed to firstResponder.keyDown")
 #endif
             self.firstResponder?.keyDown(with: event)
             return true
