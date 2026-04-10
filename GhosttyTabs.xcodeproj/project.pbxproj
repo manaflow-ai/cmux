@@ -133,6 +133,8 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */; };
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
+		A5001700 /* TextBoxInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001703 /* TextBoxInput.swift */; };
+				FA000000A1B2C3D4E5F60718 /* TextBoxInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* TextBoxInputTests.swift */; };
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		/* End PBXBuildFile section */
 
@@ -331,6 +333,8 @@
 				EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWidthPolicyTests.swift; sourceTree = "<group>"; };
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		A5001703 /* TextBoxInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInput.swift; sourceTree = "<group>"; };
+				FA000001A1B2C3D4E5F60718 /* TextBoxInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxInputTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -463,6 +467,7 @@
 					A50012F0 /* Backport.swift */,
 					A50012F2 /* KeyboardShortcutSettings.swift */,
 					A5F10010A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift */,
+					A5001703 /* TextBoxInput.swift */,
 					A50012F4 /* KeyboardLayout.swift */,
 					A5001013 /* TabManager.swift */,
 					A5001511 /* UITestRecorder.swift */,
@@ -611,6 +616,7 @@
 					EE0171AF1F49F7547191CEE5 /* SidebarWidthPolicyTests.swift */,
 					491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */,
 					10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */,
+					FA000001A1B2C3D4E5F60718 /* TextBoxInputTests.swift */,
 					C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */,
 				);
 				path = cmuxTests;
@@ -789,6 +795,7 @@
 					A50012F1 /* Backport.swift in Sources */,
 					A50012F3 /* KeyboardShortcutSettings.swift in Sources */,
 					A5F10011A1B2C3D4E5F60719 /* KeyboardShortcutSettingsFileStore.swift in Sources */,
+					A5001700 /* TextBoxInput.swift in Sources */,
 					A50012F5 /* KeyboardLayout.swift in Sources */,
 						A5001003 /* TabManager.swift in Sources */,
 						A5001501 /* UITestRecorder.swift in Sources */,
@@ -911,6 +918,7 @@
 					CA39C0304FE351A21C372429 /* SidebarWidthPolicyTests.swift in Sources */,
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */,
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
+					FA000000A1B2C3D4E5F60718 /* TextBoxInputTests.swift in Sources */,
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
 				);
 				runOnlyForDeploymentPostprocessing = 0;

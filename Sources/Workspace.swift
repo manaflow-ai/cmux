@@ -6540,6 +6540,83 @@ final class Workspace: Identifiable, ObservableObject {
         return panel
     }
 
+    // [TextBox] Toggle TextBox for terminal panels in this workspace.
+    func toggleTextBoxMode(_ target: TextBoxToggleTarget) {
+        let terminalPanels = panels.values.compactMap { $0 as? TerminalPanel }
+
+        let firstResponder = NSApp.keyWindow?.firstResponder
+        let activePanel = terminalPanels.first(where: { $0.inputTextView === firstResponder })
+            ?? focusedTerminalPanel
+
+        let behavior = TextBoxInputSettings.shortcutBehavior()
+
+        switch target {
+        case .active:
+            switch behavior {
+            case .toggleDisplay:
+                if activePanel?.isTextBoxActive == true {
+                    activePanel?.isTextBoxActive = false
+                    activePanel?.surface.focusTerminalView()
+                } else {
+                    activePanel?.isTextBoxActive = true
+                }
+            case .toggleFocus:
+                guard let panel = activePanel else { return }
+                let isFocused = panel.inputTextView != nil
+                    && firstResponder === panel.inputTextView
+                if !panel.isTextBoxActive {
+                    panel.isTextBoxActive = true
+                } else if isFocused {
+                    panel.surface.focusTerminalView()
+                } else if let textView = panel.inputTextView {
+                    textView.window?.makeFirstResponder(textView)
+                }
+            }
+
+        case .all:
+            let anyActive = terminalPanels.contains { $0.isTextBoxActive }
+            switch behavior {
+            case .toggleDisplay:
+                if anyActive {
+                    for panel in terminalPanels {
+                        panel.isTextBoxActive = false
+                    }
+                    activePanel?.surface.focusTerminalView()
+                } else {
+                    for panel in terminalPanels {
+                        panel.isTextBoxActive = true
+                    }
+                    let panel = activePanel
+                    DispatchQueue.main.async {
+                        if let textView = panel?.inputTextView {
+                            textView.window?.makeFirstResponder(textView)
+                        }
+                    }
+                }
+            case .toggleFocus:
+                if !anyActive {
+                    for panel in terminalPanels {
+                        panel.isTextBoxActive = true
+                    }
+                }
+                guard let panel = activePanel else { return }
+                let isFocused = panel.inputTextView != nil
+                    && firstResponder === panel.inputTextView
+                if isFocused {
+                    panel.surface.focusTerminalView()
+                } else if let textView = panel.inputTextView {
+                    textView.window?.makeFirstResponder(textView)
+                } else {
+                    DispatchQueue.main.async {
+                        if let textView = panel.inputTextView {
+                            textView.window?.makeFirstResponder(textView)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func effectiveSelectedPanelId(inPane paneId: PaneID) -> UUID? {
         bonsplitController.selectedTab(inPane: paneId).flatMap { panelIdFromSurfaceId($0.id) }
     }
@@ -7750,6 +7827,12 @@ final class Workspace: Identifiable, ObservableObject {
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
+        }
+
+        // [TextBox] Keep TerminalPanel.title in sync so TextBox key routing
+        // can detect running apps (Claude Code, Codex) by terminal process title.
+        if didMutate, let terminalPanel = panels[panelId] as? TerminalPanel {
+            terminalPanel.updateTitle(trimmed)
         }
 
         // Update bonsplit tab title only when this panel's title changed.

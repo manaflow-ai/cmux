@@ -87527,6 +87527,194 @@
           }
         }
       }
+    },
+    "menu.view.toggleTextBoxInput": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Toggle TextBox Input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストボックス入力を切り替え"
+          }
+        }
+      }
+    },
+    "settings.section.textBoxInput": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "TextBox Input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストボックス入力"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.enableMode": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Enable Mode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストボックスを有効化"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.enableMode.subtitle": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Add a text box for terminal input. Supports standard editing, IME, and clipboard shortcuts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル入力のためのテキストボックスを追加します。標準的な編集、IME、クリップボードのショートカットに対応しています。"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.escapeBehavior": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Escape Key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escapeキー"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.escapeBehavior.subtitle": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Action when pressing Escape in the TextBox."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストボックスでEscapeキーを押したときの動作"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.sendOnReturn": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Send on Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enterで送信"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.sendOnReturn.subtitle": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Insert new line with Shift+Return"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift+Enterで改行"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.shortcutBehavior": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Keyboard Shortcut (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キーボードショートカット（%@）"
+          }
+        }
+      }
+    },
+    "settings.textBoxInput.shortcutBehavior.subtitle": {
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Shortcut key can be changed in Keyboard Shortcuts settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカット設定からキーを変更可能"
+          }
+        }
+      }
+    },
+    "shortcut.toggleTextBoxInput.label": {
+      "comment": "Label for the Toggle TextBox Input keyboard shortcut.",
+      "extractionState": "extracted_with_value",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Toggle TextBox Input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストボックス入力を切り替え"
+          }
+        }
+      }
     }
   }
 }

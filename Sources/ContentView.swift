@@ -690,6 +690,11 @@ final class FileDropOverlayView: NSView {
             preparedDragWebView = webView
             return webView.prepareForDragOperation(sender)
         }
+        // [TextBox] Accept drops over TextBox even when no terminal is under cursor
+        if shouldCapture, textBoxUnderPoint(sender.draggingLocation) != nil {
+            return true
+        }
+
         preparedDragWebView = nil
         return hasTerminalTarget
     }
@@ -724,6 +729,18 @@ final class FileDropOverlayView: NSView {
             preparedDragWebView = webView
             return webView.performDragOperation(sender)
         }
+        // [TextBox] Forward file drops to TextBox when the cursor is over it.
+        if let textBox = textBoxUnderPoint(sender.draggingLocation) {
+            if let fileURLs = sender.draggingPasteboard.readObjects(
+                forClasses: [NSURL.self],
+                options: [.urlReadingFileURLsOnly: true]
+            ) as? [URL], !fileURLs.isEmpty {
+                textBox.insertDroppedFilePaths(fileURLs)
+                return true
+            }
+            return false
+        }
+
         preparedDragWebView = nil
         activeDragWebView = nil
         guard let terminal else { return false }
@@ -761,6 +778,12 @@ final class FileDropOverlayView: NSView {
                 return webView.draggingEntered(sender)
             }
             return webView.draggingUpdated(sender)
+        }
+
+        // [TextBox] When the cursor is over the TextBox, return .copy so the
+        // green "+" badge appears and the drop is accepted.
+        if shouldCapture, textBoxUnderPoint(loc) != nil {
+            return .copy
         }
 
         let hasTerminalTarget = terminalUnderPoint(loc) != nil
@@ -931,6 +954,28 @@ final class FileDropOverlayView: NSView {
         )
     }
 #endif
+    /// [TextBox] Finds an InputTextView (TextBox) under the given window point.
+    func textBoxUnderPoint(_ windowPoint: NSPoint) -> InputTextView? {
+        guard let window, let contentView = window.contentView else { return nil }
+        return findTextBox(in: contentView, windowPoint: windowPoint)
+    }
+
+    /// [TextBox] Recursively walks the view hierarchy returning the first InputTextView at `windowPoint`.
+    private func findTextBox(in view: NSView, windowPoint: NSPoint) -> InputTextView? {
+        if let textBox = view as? InputTextView {
+            let localPoint = textBox.convert(windowPoint, from: nil)
+            if textBox.bounds.contains(localPoint) {
+                return textBox
+            }
+        }
+        for subview in view.subviews {
+            if let found = findTextBox(in: subview, windowPoint: windowPoint) {
+                return found
+            }
+        }
+        return nil
+    }
+
     /// Hit-tests the window to find the GhosttyNSView under the cursor.
     func terminalUnderPoint(_ windowPoint: NSPoint) -> GhosttyNSView? {
         if let window,
