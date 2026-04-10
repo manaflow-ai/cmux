@@ -65,8 +65,7 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false,
-                responderMatchesPreferredKeyboardFocus: false
+                responderHasViableKeyRoutingOwner: false
             )
         )
     }
@@ -76,19 +75,17 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: false,
-                responderMatchesPreferredKeyboardFocus: false
+                responderHasViableKeyRoutingOwner: false
             )
         )
     }
 
-    func testRepairsCommandEquivalentWhenResponderDriftsWithinSameWindow() {
-        XCTAssertTrue(
+    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
+        XCTAssertFalse(
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true,
-                responderMatchesPreferredKeyboardFocus: false
+                responderHasViableKeyRoutingOwner: true
             )
         )
     }
@@ -98,8 +95,7 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [.command],
                 responderIsWindow: false,
-                responderHasViableKeyRoutingOwner: true,
-                responderMatchesPreferredKeyboardFocus: true
+                responderHasViableKeyRoutingOwner: true
             )
         )
     }
@@ -109,8 +105,7 @@ final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
             shouldRepairFocusedTerminalCommandEquivalentInputs(
                 flags: [],
                 responderIsWindow: true,
-                responderHasViableKeyRoutingOwner: false,
-                responderMatchesPreferredKeyboardFocus: false
+                responderHasViableKeyRoutingOwner: false
             )
         )
     }

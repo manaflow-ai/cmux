@@ -1841,19 +1841,14 @@ func focusedTerminalKeyRepairNeeded(
 func shouldRepairFocusedTerminalCommandEquivalentInputs(
     flags: NSEvent.ModifierFlags,
     responderIsWindow: Bool,
-    responderHasViableKeyRoutingOwner: Bool,
-    responderMatchesPreferredKeyboardFocus: Bool
+    responderHasViableKeyRoutingOwner: Bool
 ) -> Bool {
     let normalizedFlags = flags.intersection(.deviceIndependentFlagsMask)
     guard normalizedFlags.contains(.command) else { return false }
-    // Command shortcuts should repair for the same failure states as plain
-    // keyDown routing, including same-window SwiftUI responder drift where a
-    // visible owner still exists but no longer matches the focused terminal.
-    return focusedTerminalKeyRepairNeeded(
-        responderIsWindow: responderIsWindow,
-        responderHasViableKeyRoutingOwner: responderHasViableKeyRoutingOwner,
-        responderMatchesPreferredKeyboardFocus: responderMatchesPreferredKeyboardFocus
-    )
+    // Command shortcuts should only repair genuinely broken responder states.
+    // If another live view already owns first responder, let menu routing use
+    // that responder rather than retargeting to the selected terminal pane.
+    return responderIsWindow || !responderHasViableKeyRoutingOwner
 }
 
 func shouldRouteTerminalFontZoomShortcutToGhostty(
@@ -5738,17 +5733,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let firstResponder = window.firstResponder
-        let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
-        let responderMatchesPreferredFocus = firstResponder.map {
-            terminalPanel.hostedView.responderMatchesPreferredKeyboardFocus($0)
-        } ?? false
-        let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
-            flags: normalizedFlags,
-            responderIsWindow: firstResponder is NSWindow,
-            responderHasViableKeyRoutingOwner: responderHasViableOwner,
-            responderMatchesPreferredKeyboardFocus: responderMatchesPreferredFocus
-        )
         if normalizedFlags.contains(.command) {
+            let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
+            let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: normalizedFlags,
+                responderIsWindow: firstResponder is NSWindow,
+                responderHasViableKeyRoutingOwner: responderHasViableOwner
+            )
             guard commandEquivalentNeedsRepair else { return }
         } else {
             guard responderNeedsFocusedTerminalKeyRepair(
