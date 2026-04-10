@@ -547,7 +547,8 @@ final class CmuxWebView: WKWebView {
 
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
-        guard NSPasteboard.general.string(forType: .string) != nil,
+        guard pasteAsPlainTextTargetAvailable,
+              NSPasteboard.general.string(forType: .string) != nil,
               pageCanAcceptPlainTextPaste() else {
             return false
         }
