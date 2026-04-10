@@ -3783,6 +3783,8 @@ final class AppIconAppearanceObserver: NSObject {
     static let shared = AppIconAppearanceObserver()
     private let environment: Environment
     private var observation: AppIconAppearanceObservation?
+    private var launchObserver: NSObjectProtocol?
+    private var hasDeferredStartPending = false
 
     init(environment: Environment = .live()) {
         self.environment = environment
@@ -3790,6 +3792,14 @@ final class AppIconAppearanceObserver: NSObject {
     }
 
     func startObserving() {
+        // Tahoe crashes if effectiveAppearance is touched during App.init(),
+        // so defer the first automatic-icon apply until launch completes.
+        if !environment.isApplicationFinishedLaunching() {
+            deferStartUntilLaunchIfNeeded()
+            return
+        }
+
+        cancelDeferredStart()
         applyIconForCurrentAppearance()
         guard observation == nil else { return }
         observation = environment.startEffectiveAppearanceObservation { [weak self] in
@@ -3801,9 +3811,28 @@ final class AppIconAppearanceObserver: NSObject {
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        cancelDeferredStart()
+    }
+
+    private func deferStartUntilLaunchIfNeeded() {
+        hasDeferredStartPending = true
+        guard launchObserver == nil else { return }
+        launchObserver = environment.addDidFinishLaunchingObserver { [weak self] in
+            guard let self, self.hasDeferredStartPending else { return }
+            self.cancelDeferredStart()
+            self.startObserving()
+        }
+    }
+
+    private func cancelDeferredStart() {
+        hasDeferredStartPending = false
+        guard let launchObserver else { return }
+        environment.removeObserver(launchObserver)
+        self.launchObserver = nil
     }
 
     private func applyIconForCurrentAppearance() {
+        guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
         if let icon = environment.imageForName(imageName) {
