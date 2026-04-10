@@ -333,6 +333,7 @@ final class CmuxWebView: WKWebView {
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
+    private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
@@ -508,6 +509,15 @@ final class CmuxWebView: WKWebView {
         return canPaste
     }
 
+    private func shouldSkipRepeatedPasteAsPlainTextPreflight(for event: NSEvent) -> Bool {
+        guard event.timestamp > 0,
+              let lastTimestamp = lastPasteAsPlainTextPerformKeyEventTimestamp else {
+            return false
+        }
+        lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+        return lastTimestamp == event.timestamp
+    }
+
     @discardableResult
     private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
         guard NSPasteboard.general.string(forType: .string) != nil,
@@ -571,7 +581,15 @@ final class CmuxWebView: WKWebView {
         }
 
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if event.timestamp > 0 {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
+            } else {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
             let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
+            if result {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
 #if DEBUG
             handled = result
 #endif
@@ -647,12 +665,18 @@ final class CmuxWebView: WKWebView {
         }
 #endif
         if Self.isPasteAsPlainTextCommandEquivalent(event) {
-            let didPaste = performPasteAsPlainTextFromPasteboard()
+            if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
 #if DEBUG
-            route = didPaste ? "pasteAsPlainText" : "super"
+                route = "super"
 #endif
-            if didPaste {
-                return
+            } else {
+                let didPaste = performPasteAsPlainTextFromPasteboard()
+#if DEBUG
+                route = didPaste ? "pasteAsPlainText" : "super"
+#endif
+                if didPaste {
+                    return
+                }
             }
         }
 
