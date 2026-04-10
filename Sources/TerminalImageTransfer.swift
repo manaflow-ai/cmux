@@ -265,6 +265,11 @@ enum TerminalImageTransferPlanner {
             return .fileURLs([imageURL])
         }
 
+        // Clipboard managers can advertise unusable image types alongside valid text.
+        if let string = GhosttyPasteboardHelper.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
+            return .insertText(string)
+        }
+
         if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty {
             return .insertText(escapeForShell(rawURL))
         }

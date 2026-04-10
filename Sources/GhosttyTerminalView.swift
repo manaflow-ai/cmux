@@ -160,6 +160,10 @@ enum GhosttyPasteboardHelper {
         return hasPasteableContents(in: pasteboard)
     }
 
+    static func fallbackPlainTextContents(from pasteboard: NSPasteboard) -> String? {
+        plainTextContents(from: pasteboard)
+    }
+
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
         guard let pasteboard = pasteboard(for: location) else { return }
         pasteboard.clearContents()
