@@ -4446,7 +4446,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     /// Force a full size recalculation and surface redraw.
-    func forceRefresh(reason: String = "unspecified") {
+    @discardableResult
+    func forceRefresh(reason: String = "unspecified") -> Bool {
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
@@ -4465,9 +4466,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
-            return
+            return false
         }
-        guard let currentSurface = self.surface else { return }
+        guard let currentSurface = self.surface else { return false }
 
         // Re-read self.surface before each ghostty call to guard against the surface
         // being freed during wake-from-sleep geometry reconciliation (issue #432).
@@ -4483,8 +4484,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         view.forceRefreshSurface()
-        guard let surface = self.surface else { return }
+        guard let surface = self.surface else { return false }
         ghostty_surface_refresh(surface)
+        return true
     }
 
     func applyWindowBackgroundIfActive() {
@@ -8595,6 +8597,9 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
+    private var pendingWorkspaceSwitchRedraw = false
+    private var workspaceSwitchRedrawDrainScheduled = false
+    private var pendingWorkspaceSwitchRedrawTrigger = "unknown"
     // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
@@ -9153,6 +9158,7 @@ final class GhosttySurfaceScrollView: NSView {
     override func layout() {
         super.layout()
         synchronizeGeometryAndContent()
+        drainWorkspaceSwitchRedrawIfNeeded()
     }
 
     override func viewDidMoveToSuperview() {
@@ -9181,8 +9187,9 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
-    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+    @discardableResult
+    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") -> Bool {
+        surfaceView.terminalSurface?.forceRefresh(reason: reason) ?? false
     }
 
     @discardableResult
@@ -9405,6 +9412,7 @@ final class GhosttySurfaceScrollView: NSView {
         if window.isKeyWindow {
             scheduleAutomaticFirstResponderApply(reason: "viewDidMoveToWindow")
         }
+        drainWorkspaceSwitchRedrawIfNeeded()
     }
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
@@ -10090,6 +10098,9 @@ final class GhosttySurfaceScrollView: NSView {
             }
         } else {
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
+            if !wasVisible {
+                scheduleWorkspaceSwitchRedraw(trigger: "visible")
+            }
         }
     }
 
@@ -10121,6 +10132,7 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         if active {
             scheduleAutomaticFirstResponderApply(reason: "setActive")
+            drainWorkspaceSwitchRedrawIfNeeded()
         } else {
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
@@ -10522,6 +10534,81 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
             self.applyFirstResponderIfNeeded()
         }
+    }
+
+    private func scheduleWorkspaceSwitchRedraw(trigger: String) {
+        pendingWorkspaceSwitchRedrawTrigger = trigger
+        pendingWorkspaceSwitchRedraw = true
+        guard !workspaceSwitchRedrawDrainScheduled else {
+#if DEBUG
+            let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+            dlog("ws.redraw.defer surface=\(surfaceShort) trigger=\(trigger) result=skip reason=drain_scheduled")
+#endif
+            return
+        }
+        workspaceSwitchRedrawDrainScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.workspaceSwitchRedrawDrainScheduled = false
+            self.drainWorkspaceSwitchRedrawIfNeeded()
+        }
+    }
+
+    private func drainWorkspaceSwitchRedrawIfNeeded() {
+        guard pendingWorkspaceSwitchRedraw else { return }
+        let trigger = pendingWorkspaceSwitchRedrawTrigger
+        guard runWorkspaceSwitchRedrawIfNeeded(trigger: trigger) else { return }
+        pendingWorkspaceSwitchRedraw = false
+        pendingWorkspaceSwitchRedrawTrigger = "unknown"
+    }
+
+    @discardableResult
+    private func runWorkspaceSwitchRedrawIfNeeded(trigger: String) -> Bool {
+        let surfaceShort = surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil"
+        let size = bounds.size
+        let hiddenInHierarchy = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+
+        guard surfaceView.terminalSurface != nil else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_surface")
+#endif
+            return false
+        }
+        guard surfaceView.isVisibleInUI else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=not_visible")
+#endif
+            return false
+        }
+        guard isActive else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=inactive")
+#endif
+            return false
+        }
+        guard window != nil else {
+#if DEBUG
+            dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip reason=no_window")
+#endif
+            return false
+        }
+        guard !hiddenInHierarchy, size.width > 1, size.height > 1 else {
+#if DEBUG
+            let sizeText = String(format: "%.1fx%.1f", size.width, size.height)
+            dlog(
+                "ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=skip " +
+                "reason=hidden_or_tiny hidden=\(hiddenInHierarchy ? 1 : 0) frame=\(sizeText)"
+            )
+#endif
+            return false
+        }
+
+#if DEBUG
+        let sizeText = String(format: "%.1fx%.1f", size.width, size.height)
+        dlog("ws.redraw.run surface=\(surfaceShort) trigger=\(trigger) result=run frame=\(sizeText)")
+#endif
+        reconcileGeometryNow()
+        return refreshSurfaceNow(reason: "workspace.\(trigger)")
     }
 
     private func reassertTerminalSurfaceFocus(reason: String) {
