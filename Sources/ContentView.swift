@@ -10154,8 +10154,6 @@ enum ShortcutHintModifierPolicy {
         for modifierFlags: NSEvent.ModifierFlags,
         defaults: UserDefaults = .standard
     ) -> Bool {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
-        guard !shortcut.hasChord else { return false }
         let normalized = modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         guard normalized == [.command] else {
@@ -12378,18 +12376,8 @@ enum SidebarTrailingAccessoryWidthPolicy {
     static let closeButtonWidth: CGFloat = 16
 
     static func width(
-        canCloseWorkspace: Bool,
-        showsWorkspaceShortcutHint: Bool,
-        workspaceShortcutLabel: String?,
-        debugXOffset: Double
+        canCloseWorkspace: Bool
     ) -> CGFloat {
-        if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-            return SidebarWorkspaceShortcutHintMetrics.slotWidth(
-                label: workspaceShortcutLabel,
-                debugXOffset: debugXOffset
-            )
-        }
-
         return canCloseWorkspace ? closeButtonWidth : 0
     }
 }
@@ -12601,10 +12589,7 @@ private struct TabItemView: View, Equatable {
 
     private var trailingAccessoryWidth: CGFloat {
         SidebarTrailingAccessoryWidthPolicy.width(
-            canCloseWorkspace: canCloseWorkspace,
-            showsWorkspaceShortcutHint: showsWorkspaceShortcutHint,
-            workspaceShortcutLabel: workspaceShortcutLabel,
-            debugXOffset: sidebarShortcutHintXOffset
+            canCloseWorkspace: canCloseWorkspace
         )
     }
 
