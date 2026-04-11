@@ -70,14 +70,19 @@ def _defaults_read(key: str) -> str | None:
 
 
 def _enable_focus_resize(ratio: float = 0.75) -> None:
+<<<<<<< HEAD
     """Save existing UserDefaults values, then enable focus-resize with the given ratio."""
     PREV_DEFAULTS[ENABLED_KEY] = _defaults_read(ENABLED_KEY)
     PREV_DEFAULTS[RATIO_KEY] = _defaults_read(RATIO_KEY)
+=======
+    """Enable the focus-resize feature and set the ratio via UserDefaults."""
+>>>>>>> 7cce1a2e (fix: add missing docstring)
     _defaults_write(ENABLED_KEY, "bool", "true")
     _defaults_write(RATIO_KEY, "float", str(ratio))
 
 
 def _disable_focus_resize() -> None:
+<<<<<<< HEAD
     """Restore previous UserDefaults values, or delete keys if originally absent."""
     for key in (ENABLED_KEY, RATIO_KEY):
         prev = PREV_DEFAULTS.get(key)
@@ -87,6 +92,11 @@ def _disable_focus_resize() -> None:
             # `defaults read` returns "1"/"0" for bools, floats as strings
             _defaults_write(key, "string", prev)
     PREV_DEFAULTS.clear()
+=======
+    """Disable focus-resize by removing both keys from UserDefaults."""
+    _defaults_delete(ENABLED_KEY)
+    _defaults_delete(RATIO_KEY)
+>>>>>>> 7cce1a2e (fix: add missing docstring)
 
 
 def _pane_ratio(client: cmux, pane_id: str, other_pane_id: str, axis: str) -> float:
