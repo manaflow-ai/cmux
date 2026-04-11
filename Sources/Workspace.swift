@@ -6996,6 +6996,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Deterministic tab selection to apply after a tab closes.
     /// Keyed by the closing tab ID, value is the tab ID we want to select next.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
+    /// Deterministic panel focus to apply after a pane-collapsing tab close.
+    /// Keyed by the closing tab ID, value is the surviving panel we want focused next.
+    private var postCloseFocusPanelId: [TabID: UUID] = [:]
     /// Panel IDs that were in a pane when a pane-close operation was approved.
     /// Bonsplit pane-close does not emit per-tab didClose callbacks.
     private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
@@ -9300,6 +9303,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Returns true when a bonsplit tab close request was issued.
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
+            recordPostCloseFocus(forClosingTabId: tabId)
             if force {
                 forceCloseTabIds.insert(tabId)
             }
@@ -9331,6 +9335,7 @@ final class Workspace: Identifiable, ObservableObject {
         if force {
             forceCloseTabIds.insert(selected.id)
         }
+        recordPostCloseFocus(forClosingTabId: selected.id)
         let closed = bonsplitController.closeTab(selected.id)
 #if DEBUG
         dlog(
@@ -9342,6 +9347,207 @@ final class Workspace: Identifiable, ObservableObject {
         return closed
     }
 
+    private enum CloseFocusDirection: CaseIterable {
+        case left
+        case right
+        case up
+        case down
+    }
+
+    private struct PostCloseFocusCandidate {
+        let paneId: String
+        let frame: CGRect
+    }
+
+    private func recordPostCloseFocus(forClosingTabId tabId: TabID) {
+        guard let closingPanelId = panelIdFromSurfaceId(tabId),
+              let closingPaneId = paneId(forPanelId: closingPanelId),
+              bonsplitController.tabs(inPane: closingPaneId).count == 1,
+              bonsplitController.allPaneIds.count > 1 else {
+            postCloseFocusPanelId.removeValue(forKey: tabId)
+            return
+        }
+
+        if let currentFocusedPanelId = focusedPanelId,
+           currentFocusedPanelId != closingPanelId,
+           panels[currentFocusedPanelId] != nil {
+            postCloseFocusPanelId[tabId] = currentFocusedPanelId
+            return
+        }
+
+        guard let targetPaneId = preferredPostCloseFocusPane(whenClosing: closingPaneId),
+              let targetPanelId = selectedPanelId(inPane: targetPaneId) else {
+            postCloseFocusPanelId.removeValue(forKey: tabId)
+            return
+        }
+
+        postCloseFocusPanelId[tabId] = targetPanelId
+    }
+
+    private func preferredPostCloseFocusPane(whenClosing closingPaneId: PaneID) -> PaneID? {
+        let tree = bonsplitController.treeSnapshot()
+        let paneById = Dictionary(uniqueKeysWithValues: bonsplitController.allPaneIds.map { ($0.id.uuidString, $0) })
+        var paneBounds: [String: CGRect] = [:]
+        collectNormalizedPaneBounds(
+            node: tree,
+            availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
+            into: &paneBounds
+        )
+
+        guard let closingFrame = paneBounds[closingPaneId.id.uuidString] else {
+            return bonsplitController.allPaneIds.first(where: { $0.id != closingPaneId.id })
+        }
+
+        let candidates = paneBounds.compactMap { entry -> PostCloseFocusCandidate? in
+            let (paneId, frame) = entry
+            guard paneId != closingPaneId.id.uuidString else { return nil }
+            return PostCloseFocusCandidate(paneId: paneId, frame: frame)
+        }
+
+        var candidateByDirection: [CloseFocusDirection: PostCloseFocusCandidate] = [:]
+        for direction in CloseFocusDirection.allCases {
+            guard let candidate = bestPostCloseFocusCandidate(
+                from: closingFrame,
+                direction: direction,
+                candidates: candidates
+            ) else {
+                continue
+            }
+            candidateByDirection[direction] = candidate
+        }
+
+        for requirePeerBandMatch in [true, false] {
+            for direction in CloseFocusDirection.allCases {
+                guard let geometry = candidateByDirection[direction] else { continue }
+                let isPeerBandMatch = isPeerPostCloseFocusCandidate(
+                    geometry,
+                    relativeTo: closingFrame,
+                    direction: direction
+                )
+                if requirePeerBandMatch != isPeerBandMatch { continue }
+                if let paneId = paneById[geometry.paneId] {
+                    return paneId
+                }
+            }
+        }
+
+        return bonsplitController.allPaneIds.first(where: { $0.id != closingPaneId.id })
+    }
+
+    private func isPeerPostCloseFocusCandidate(
+        _ candidate: PostCloseFocusCandidate,
+        relativeTo closingFrame: CGRect,
+        direction: CloseFocusDirection
+    ) -> Bool {
+        let peerBandTolerance: CGFloat = 0.1
+        let orthogonalSpanDelta: CGFloat
+
+        switch direction {
+        case .left, .right:
+            orthogonalSpanDelta = abs(candidate.frame.height - closingFrame.height)
+        case .up, .down:
+            orthogonalSpanDelta = abs(candidate.frame.width - closingFrame.width)
+        }
+
+        return orthogonalSpanDelta <= peerBandTolerance
+    }
+
+    private func bestPostCloseFocusCandidate(
+        from closingFrame: CGRect,
+        direction: CloseFocusDirection,
+        candidates: [PostCloseFocusCandidate]
+    ) -> PostCloseFocusCandidate? {
+        struct ScoredCandidate {
+            let geometry: PostCloseFocusCandidate
+            let overlap: CGFloat
+            let distance: CGFloat
+            let centerDelta: CGFloat
+        }
+
+        let epsilon: CGFloat = 0.001
+
+        let scored = candidates.compactMap { geometry -> ScoredCandidate? in
+            let candidateFrame = geometry.frame
+            let overlap: CGFloat
+            let distance: CGFloat
+            let centerDelta: CGFloat
+
+            switch direction {
+            case .left:
+                guard candidateFrame.maxX <= closingFrame.minX + epsilon else { return nil }
+                overlap = max(0, min(closingFrame.maxY, candidateFrame.maxY) - max(closingFrame.minY, candidateFrame.minY))
+                distance = closingFrame.minX - candidateFrame.maxX
+                centerDelta = abs(closingFrame.midY - candidateFrame.midY)
+            case .right:
+                guard candidateFrame.minX >= closingFrame.maxX - epsilon else { return nil }
+                overlap = max(0, min(closingFrame.maxY, candidateFrame.maxY) - max(closingFrame.minY, candidateFrame.minY))
+                distance = candidateFrame.minX - closingFrame.maxX
+                centerDelta = abs(closingFrame.midY - candidateFrame.midY)
+            case .up:
+                guard candidateFrame.maxY <= closingFrame.minY + epsilon else { return nil }
+                overlap = max(0, min(closingFrame.maxX, candidateFrame.maxX) - max(closingFrame.minX, candidateFrame.minX))
+                distance = closingFrame.minY - candidateFrame.maxY
+                centerDelta = abs(closingFrame.midX - candidateFrame.midX)
+            case .down:
+                guard candidateFrame.minY >= closingFrame.maxY - epsilon else { return nil }
+                overlap = max(0, min(closingFrame.maxX, candidateFrame.maxX) - max(closingFrame.minX, candidateFrame.minX))
+                distance = candidateFrame.minY - closingFrame.maxY
+                centerDelta = abs(closingFrame.midX - candidateFrame.midX)
+            }
+
+            return ScoredCandidate(
+                geometry: geometry,
+                overlap: overlap,
+                distance: distance,
+                centerDelta: centerDelta
+            )
+        }
+
+        return scored.sorted { lhs, rhs in
+            if abs(lhs.overlap - rhs.overlap) > epsilon { return lhs.overlap > rhs.overlap }
+            if abs(lhs.distance - rhs.distance) > epsilon { return lhs.distance < rhs.distance }
+            if abs(lhs.centerDelta - rhs.centerDelta) > epsilon { return lhs.centerDelta < rhs.centerDelta }
+            return lhs.geometry.paneId < rhs.geometry.paneId
+        }.first?.geometry
+    }
+
+    private func selectedPanelId(inPane paneId: PaneID) -> UUID? {
+        if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
+           let panelId = panelIdFromSurfaceId(selectedTabId) {
+            return panelId
+        }
+
+        if let firstTabId = bonsplitController.tabs(inPane: paneId).first?.id {
+            return panelIdFromSurfaceId(firstTabId)
+        }
+
+        return nil
+    }
+
+#if DEBUG
+    private func debugPanelLifecycleState(panelId: UUID, panel: (any Panel)?) -> String {
+        guard let panel else { return "panelState=missing" }
+        if let terminal = panel as? TerminalPanel {
+            let hosted = terminal.hostedView
+            let frame = String(format: "%.1fx%.1f", hosted.frame.width, hosted.frame.height)
+            let bounds = String(format: "%.1fx%.1f", hosted.bounds.width, hosted.bounds.height)
+            let hasRuntimeSurface = terminal.surface.surface != nil ? 1 : 0
+            return
+                "panelState=terminal panel=\(panelId.uuidString.prefix(5)) " +
+                "surface=\(terminal.id.uuidString.prefix(5)) runtimeSurface=\(hasRuntimeSurface) " +
+                "inWindow=\(hosted.window != nil ? 1 : 0) hasSuperview=\(hosted.superview != nil ? 1 : 0) " +
+                "hidden=\(hosted.isHidden ? 1 : 0) frame=\(frame) bounds=\(bounds)"
+        }
+        if let browser = panel as? BrowserPanel {
+            let webView = browser.webView
+            let frame = String(format: "%.1fx%.1f", webView.frame.width, webView.frame.height)
+            return
+                "panelState=browser panel=\(panelId.uuidString.prefix(5)) " +
+                "webInWindow=\(webView.window != nil ? 1 : 0) webHasSuperview=\(webView.superview != nil ? 1 : 0) frame=\(frame)"
+        }
+        return "panelState=\(String(describing: type(of: panel))) panel=\(panelId.uuidString.prefix(5))"
+    }
+#endif
     func paneId(forPanelId panelId: UUID) -> PaneID? {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
         return bonsplitController.allPaneIds.first { paneId in
@@ -9411,7 +9617,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let paneById = Dictionary(uniqueKeysWithValues: paneIds.map { ($0.id.uuidString, $0) })
         var paneBounds: [String: CGRect] = [:]
-        browserCollectNormalizedPaneBounds(
+        collectNormalizedPaneBounds(
             node: bonsplitController.treeSnapshot(),
             availableRect: CGRect(x: 0, y: 0, width: 1, height: 1),
             into: &paneBounds
@@ -9482,7 +9688,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
-    private func browserCollectNormalizedPaneBounds(
+    private func collectNormalizedPaneBounds(
         node: ExternalTreeNode,
         availableRect: CGRect,
         into output: inout [String: CGRect]
@@ -9525,8 +9731,8 @@ final class Workspace: Identifiable, ObservableObject {
                 )
             }
 
-            browserCollectNormalizedPaneBounds(node: splitNode.first, availableRect: firstRect, into: &output)
-            browserCollectNormalizedPaneBounds(node: splitNode.second, availableRect: secondRect, into: &output)
+            collectNormalizedPaneBounds(node: splitNode.first, availableRect: firstRect, into: &output)
+            collectNormalizedPaneBounds(node: splitNode.second, availableRect: secondRect, into: &output)
         }
     }
 
@@ -11673,6 +11879,7 @@ extension Workspace: BonsplitDelegate {
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
+        let focusPanelId = postCloseFocusPanelId.removeValue(forKey: tabId)
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
         let isDetaching = detachingTabIds.remove(tabId) != nil || isDetachingCloseTransaction
 
@@ -11788,6 +11995,11 @@ extension Workspace: BonsplitDelegate {
             // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
             // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
             applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
+        }
+
+        if let focusPanelId,
+           panels[focusPanelId] != nil {
+            focusPanel(focusPanelId)
         }
 
         if bonsplitController.allPaneIds.contains(pane) {

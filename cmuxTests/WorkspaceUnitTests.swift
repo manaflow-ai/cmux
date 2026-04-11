@@ -2869,6 +2869,110 @@ final class WorkspaceBrowserProfileSelectionTests: XCTestCase {
 }
 
 
+private final class RejectingFirstCloseWorkspaceDelegate: BonsplitDelegate {
+    private unowned let workspace: Workspace
+    private var rejectedTabIds: Set<TabID> = []
+
+    @MainActor
+    init(workspace: Workspace) {
+        self.workspace = workspace
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        if rejectedTabIds.insert(tab.id).inserted {
+            return false
+        }
+        return MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, shouldCloseTab: tab, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, shouldCreateTab: tab, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didCreateTab: tab, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didCloseTab: tabId, fromPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didSelectTab: tab, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didMoveTab: tab, fromPane: source, toPane: destination)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didFocusPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didFocusPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didClosePane: paneId)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, shouldClosePane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, shouldSplitPane: pane, orientation: orientation)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didSplitPane: originalPane, newPane: newPane, orientation: orientation)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didRequestNewTab: kind, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didRequestTabContextAction action: TabContextAction, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didRequestTabContextAction: action, for: tab, inPane: pane)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, didChangeGeometry: snapshot)
+        }
+    }
+
+    func splitTabBar(_ controller: BonsplitController, shouldNotifyDuringDrag: Bool) -> Bool {
+        MainActor.assumeIsolated {
+            workspace.splitTabBar(controller, shouldNotifyDuringDrag: shouldNotifyDuringDrag)
+        }
+    }
+}
+
+
 @MainActor
 final class WorkspacePanelGitBranchTests: XCTestCase {
     private func drainMainQueue() {
@@ -3216,6 +3320,78 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, firstPanelId, "Expected surviving panel to become focused")
         XCTAssertEqual(workspace.gitBranch?.branch, "main")
         XCTAssertEqual(workspace.gitBranch?.isDirty, false)
+    }
+
+    func testClosingRightColumnBottomFirstKeepsFocusOnBottomLeftPanel() {
+        let workspace = Workspace()
+        guard let topLeftPanelId = workspace.focusedPanelId,
+              let topRightPanel = workspace.newTerminalSplit(from: topLeftPanelId, orientation: .horizontal),
+              let bottomLeftPanel = workspace.newTerminalSplit(from: topLeftPanelId, orientation: .vertical),
+              let bottomRightPanel = workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) else {
+            XCTFail("Expected 2x2 split setup to succeed")
+            return
+        }
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            bottomRightPanel.id,
+            "Expected the bottom-right panel to be focused before the close sequence"
+        )
+
+        XCTAssertTrue(workspace.closePanel(bottomRightPanel.id, force: true), "Expected bottom-right close to succeed")
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            bottomLeftPanel.id,
+            "Expected the first close to restore focus to the bottom-left panel"
+        )
+        XCTAssertTrue(workspace.closePanel(topRightPanel.id, force: true), "Expected top-right close to succeed")
+        XCTAssertEqual(workspace.panels.count, 2, "Expected only the left column to remain")
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            bottomLeftPanel.id,
+            "Expected focus to stay on the bottom-left panel after closing the right column bottom-first"
+        )
+    }
+
+    func testRetryingPaneCollapseClosePreservesRecordedFocusTarget() {
+        let workspace = Workspace()
+        guard let topLeftPanelId = workspace.focusedPanelId,
+              let topRightPanel = workspace.newTerminalSplit(from: topLeftPanelId, orientation: .horizontal),
+              workspace.newTerminalSplit(from: topLeftPanelId, orientation: .vertical) != nil,
+              workspace.newTerminalSplit(from: topRightPanel.id, orientation: .vertical) != nil,
+              let closingTabId = workspace.surfaceIdFromPanelId(topRightPanel.id) else {
+            XCTFail("Expected 2x2 split setup to succeed")
+            return
+        }
+
+        let interceptingDelegate = RejectingFirstCloseWorkspaceDelegate(workspace: workspace)
+        workspace.bonsplitController.delegate = interceptingDelegate
+
+        workspace.focusPanel(topRightPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, topRightPanel.id)
+
+        XCTAssertFalse(
+            workspace.closePanel(topRightPanel.id, force: true),
+            "Expected the first close attempt to be vetoed"
+        )
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            topRightPanel.id,
+            "Expected the vetoed close to leave focus on the still-open panel"
+        )
+
+        XCTAssertTrue(
+            workspace.bonsplitController.closeTab(closingTabId),
+            "Expected the retry close to succeed without re-recording focus intent"
+        )
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            topLeftPanelId,
+            "Expected the recorded peer focus target to survive the retry path"
+        )
     }
 
     func testSidebarGitBranchesFollowLeftToRightSplitOrder() {
