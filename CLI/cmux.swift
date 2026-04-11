@@ -2992,8 +2992,7 @@ struct CMUXCLI {
             }
         }
         if let paneRaw = paneOpt {
-            let wsHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
-            if let pane = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsHandle) {
+            if let pane = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceRaw) {
                 params["pane_id"] = pane
             }
         }
