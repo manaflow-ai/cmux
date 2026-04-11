@@ -14010,18 +14010,11 @@ extension Workspace: BonsplitDelegate {
         focusResizeLastEnabled = enabled
         focusResizeLastRatio = ratio
 
-<<<<<<< HEAD
         // Disabled → cancel any pending work and stop any in-flight animation
         if !enabled {
             focusResizeRatioDebounceWorkItem?.cancel()
             focusResizeRatioDebounceWorkItem = nil
             focusResizeStopAnimation(snapToFinal: false)
-=======
-        // Disabled → cancel any pending work and stop
-        if !enabled {
-            focusResizeRatioDebounceWorkItem?.cancel()
-            focusResizeRatioDebounceWorkItem = nil
->>>>>>> b80dbd59 (fix: address review feedback)
             return
         }
 
