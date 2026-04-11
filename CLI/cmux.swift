@@ -11,6 +11,174 @@ import Security
 import Sentry
 #endif
 
+// MARK: - Custom Build Identifier
+private let cmuxCustomBuildTag = "custom-redis-hooks"
+private let cmuxCustomBuildVersion = "1.0.0"
+
+// MARK: - Redis Stream Emitter
+
+/// Emits Claude Code hook events to a Redis Stream via raw RESP protocol.
+/// 2-tier storage: lightweight promoted fields in Stream, full raw_input in workspace-grouped Hash.
+/// Fire-and-forget: errors are silently ignored to avoid blocking the hook pipeline.
+private struct RedisStreamEmitter {
+    private let host: String
+    private let port: UInt16
+    private let streamKey: String
+    private let timeoutMs: Int
+    private let schemaVersion: Int
+
+    static var isEnabled: Bool {
+        ProcessInfo.processInfo.environment["CMUX_REDIS_ENABLED"] == "1"
+    }
+
+    init() {
+        let url = ProcessInfo.processInfo.environment["CMUX_REDIS_URL"] ?? "127.0.0.1"
+        let parts = url.replacingOccurrences(of: "redis://", with: "").split(separator: ":")
+        self.host = String(parts.first ?? "127.0.0.1")
+        self.port = parts.count > 1 ? UInt16(parts[1]) ?? 6379 : 6379
+        self.streamKey = ProcessInfo.processInfo.environment["CMUX_REDIS_STREAM"] ?? "cmux:hooks"
+        self.timeoutMs = Int(ProcessInfo.processInfo.environment["CMUX_REDIS_TIMEOUT_MS"] ?? "100") ?? 100
+        self.schemaVersion = Int(ProcessInfo.processInfo.environment["CMUX_REDIS_SCHEMA_VERSION"] ?? "2") ?? 2
+    }
+
+    /// Send a hook event to the Redis Stream. Fails silently.
+    /// Schema v2: XADD with promoted fields + HSET full data to workspace-grouped Hash (pipelined).
+    /// Schema v1: legacy XADD with raw_input inline (rollback mode).
+    func emit(
+        subcommand: String,
+        workspaceId: String?,
+        surfaceId: String?,
+        sessionId: String?,
+        cwd: String?,
+        rawInput: String,
+        promotedFields: [(String, String)] = []
+    ) {
+        let wid = workspaceId ?? ""
+        let sid = surfaceId ?? ""
+        let sessId = sessionId ?? ""
+        let cwdVal = cwd ?? ""
+        let ts = ISO8601DateFormatter().string(from: Date())
+        let hn = ProcessInfo.processInfo.hostName
+
+        var resp: String
+
+        if schemaVersion >= 2 {
+            // Schema v2: lightweight stream entry + Hash detail
+            let detailUUID = String(UUID().uuidString.lowercased().prefix(8))
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyyMMdd"
+            let dateStr = dateFormatter.string(from: Date())
+            let detailHash = "cmux:ws:\(wid):events:\(dateStr)"
+
+            // Truncate rawInput for Hash storage (256KB limit)
+            let maxRawSize = 256 * 1024
+            let rawForHash: String
+            if rawInput.utf8.count > maxRawSize {
+                // Try to parse as JSON, add _truncated flag
+                let truncated = String(rawInput.prefix(maxRawSize))
+                rawForHash = truncated
+            } else {
+                rawForHash = rawInput
+            }
+
+            // Build XADD fields (promoted, no raw_input)
+            var fields: [(String, String)] = [
+                ("subcommand", subcommand),
+                ("workspace_id", wid),
+                ("surface_id", sid),
+                ("session_id", sessId),
+                ("cwd", String(cwdVal.suffix(100))),
+                ("timestamp", ts),
+                ("hostname", hn),
+                ("custom_build", cmuxCustomBuildTag),
+                ("detail_ref", detailUUID),
+                ("detail_hash", detailHash),
+                ("schema_version", "2"),
+            ]
+            fields.append(contentsOf: promotedFields)
+
+            // XADD command
+            let xaddArgCount = 3 + fields.count * 2
+            var xadd = "*\(xaddArgCount)\r\n"
+            xadd += encodeRESPBulkString("XADD")
+            xadd += encodeRESPBulkString(streamKey)
+            xadd += encodeRESPBulkString("*")
+            for (key, value) in fields {
+                xadd += encodeRESPBulkString(key)
+                xadd += encodeRESPBulkString(value)
+            }
+
+            // HSET command: HSET <detailHash> <detailUUID> <rawForHash>
+            var hset = "*4\r\n"
+            hset += encodeRESPBulkString("HSET")
+            hset += encodeRESPBulkString(detailHash)
+            hset += encodeRESPBulkString(detailUUID)
+            hset += encodeRESPBulkString(rawForHash)
+
+            // Pipeline both commands
+            resp = xadd + hset
+        } else {
+            // Schema v1: legacy mode with raw_input inline
+            let fields: [(String, String)] = [
+                ("subcommand", subcommand),
+                ("workspace_id", wid),
+                ("surface_id", sid),
+                ("session_id", sessId),
+                ("cwd", cwdVal),
+                ("raw_input", rawInput),
+                ("timestamp", ts),
+                ("hostname", hn),
+                ("custom_build", cmuxCustomBuildTag),
+            ]
+            let totalArgs = 3 + fields.count * 2
+            resp = "*\(totalArgs)\r\n"
+            resp += encodeRESPBulkString("XADD")
+            resp += encodeRESPBulkString(streamKey)
+            resp += encodeRESPBulkString("*")
+            for (key, value) in fields {
+                resp += encodeRESPBulkString(key)
+                resp += encodeRESPBulkString(value)
+            }
+        }
+
+        // TCP connect + send with timeout
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else { return }
+        defer { close(sock) }
+
+        var tv = timeval(tv_sec: 0, tv_usec: Int32(timeoutMs * 1000))
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        inet_pton(AF_INET, host, &addr.sin_addr)
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.connect(sock, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard connectResult == 0 else { return }
+
+        // Write pipelined commands as raw bytes to handle binary-safe content
+        let data = Array(resp.utf8)
+        data.withUnsafeBufferPointer { ptr in
+            _ = Darwin.write(sock, ptr.baseAddress!, data.count)
+        }
+
+        // Read responses (XADD returns stream ID, HSET returns integer; don't care about either)
+        var buf = [UInt8](repeating: 0, count: 512)
+        _ = Darwin.read(sock, &buf, buf.count)
+    }
+
+    private func encodeRESPBulkString(_ s: String) -> String {
+        let utf8 = s.utf8
+        return "$\(utf8.count)\r\n\(s)\r\n"
+    }
+}
+
 struct CLIError: Error, CustomStringConvertible {
     let message: String
 
@@ -12304,6 +12472,64 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+
+        // Emit hook event to Redis Stream (fire-and-forget, errors silently ignored)
+        if RedisStreamEmitter.isEnabled {
+            // Extract promoted fields from parsed input for v2 schema
+            var promotedFields: [(String, String)] = []
+            if let object = parsedInput.object {
+                switch subcommand {
+                case "session-start", "active":
+                    if let model = firstString(in: object, keys: ["model"]) {
+                        promotedFields.append(("model", String(model.prefix(40))))
+                    }
+                    if let source = firstString(in: object, keys: ["source"]) {
+                        promotedFields.append(("source", String(source.prefix(20))))
+                    }
+                case "prompt-submit":
+                    if let preview = compactClaudeHookStringValue(object["prompt"], maxLength: 200) {
+                        promotedFields.append(("prompt_preview", preview))
+                    }
+                case "pre-tool-use":
+                    if let toolName = firstString(in: object, keys: ["tool_name"]) {
+                        promotedFields.append(("tool_name", String(toolName.prefix(60))))
+                    }
+                    if let toolSummary = describeToolUse(object) {
+                        promotedFields.append(("tool_summary", String(toolSummary.prefix(120))))
+                    }
+                case "stop", "idle":
+                    if let preview = compactClaudeHookStringValue(
+                        object["last_assistant_message"] ?? object["lastAssistantMessage"],
+                        maxLength: 200
+                    ) {
+                        promotedFields.append(("response_preview", preview))
+                    }
+                    if let reason = firstString(in: object, keys: ["reason"]) {
+                        promotedFields.append(("stop_reason", String(reason.prefix(40))))
+                    }
+                case "notification", "notify":
+                    let summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
+                    promotedFields.append(("notify_type", summary.subtitle))
+                    promotedFields.append(("notify_message", String(summary.body.prefix(200))))
+                case "session-end":
+                    let reason = firstString(in: object, keys: ["reason"]) ?? "normal"
+                    promotedFields.append(("end_reason", String(reason.prefix(60))))
+                default:
+                    break
+                }
+            }
+
+            RedisStreamEmitter().emit(
+                subcommand: subcommand,
+                workspaceId: workspaceArg,
+                surfaceId: surfaceArg,
+                sessionId: parsedInput.sessionId,
+                cwd: parsedInput.cwd,
+                rawInput: rawInput,
+                promotedFields: promotedFields
+            )
+        }
+
         telemetry.breadcrumb(
             "claude-hook.input",
             data: [
@@ -13955,8 +14181,9 @@ struct CMUXCLI {
         } else {
             baseSummary = "cmux version unknown"
         }
-        guard let commit else { return baseSummary }
-        return "\(baseSummary) [\(commit)]"
+        let customSuffix = " [CUSTOM:\(cmuxCustomBuildTag) v\(cmuxCustomBuildVersion)]"
+        let base = commit != nil ? "\(baseSummary) [\(commit!)]" : baseSummary
+        return base + customSuffix
     }
 
     private func printWelcome() {
