@@ -7615,35 +7615,58 @@ class TerminalController {
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
-            let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
-            guard let sourceSurfaceId else {
-                result = .err(code: "not_found", message: "No focused surface to split", data: nil)
-                return
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+            let requestedPaneUUID = v2UUID(params, "pane_id")
+
+            let markdownPanelId: UUID?
+            let sourceSurfaceId: UUID?
+            let sourcePaneUUID: UUID?
+
+            if let requestedPaneUUID {
+                // --pane mode: add as tab in existing pane
+                guard let paneId = ws.bonsplitController.allPaneIds.first(where: { $0.id == requestedPaneUUID }) else {
+                    result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": requestedPaneUUID.uuidString])
+                    return
+                }
+                sourceSurfaceId = nil
+                sourcePaneUUID = paneId.id
+                markdownPanelId = ws.newMarkdownSurface(
+                    inPane: paneId,
+                    filePath: filePath,
+                    focus: focus
+                )?.id
+            } else {
+                // Default: split from source surface
+                let resolvedSourceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
+                guard let resolvedSourceId else {
+                    result = .err(code: "not_found", message: "No focused surface to split", data: nil)
+                    return
+                }
+                guard ws.panels[resolvedSourceId] != nil else {
+                    result = .err(code: "not_found", message: "Source surface not found", data: ["surface_id": resolvedSourceId.uuidString])
+                    return
+                }
+                sourceSurfaceId = resolvedSourceId
+                sourcePaneUUID = ws.paneId(forPanelId: resolvedSourceId)?.id
+
+                let directionStr = v2String(params, "direction") ?? "right"
+                guard let direction = parseSplitDirection(directionStr) else {
+                    result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
+                    return
+                }
+                let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
+                let insertFirst = (direction == .left || direction == .up)
+
+                markdownPanelId = ws.newMarkdownSplit(
+                    from: resolvedSourceId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    filePath: filePath,
+                    focus: focus
+                )?.id
             }
-            guard ws.panels[sourceSurfaceId] != nil else {
-                result = .err(code: "not_found", message: "Source surface not found", data: ["surface_id": sourceSurfaceId.uuidString])
-                return
-            }
 
-            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
-
-            let directionStr = v2String(params, "direction") ?? "right"
-            guard let direction = parseSplitDirection(directionStr) else {
-                result = .err(code: "invalid_params", message: "Invalid direction '\(directionStr)' (left|right|up|down)", data: nil)
-                return
-            }
-            let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
-            let insertFirst = (direction == .left || direction == .up)
-
-            let createdPanel = ws.newMarkdownSplit(
-                from: sourceSurfaceId,
-                orientation: orientation,
-                insertFirst: insertFirst,
-                filePath: filePath,
-                focus: v2FocusAllowed()
-            )
-
-            guard let markdownPanelId = createdPanel?.id else {
+            guard let markdownPanelId else {
                 result = .err(code: "internal_error", message: "Failed to create markdown panel", data: nil)
                 return
             }
@@ -7659,7 +7682,7 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "surface_id": markdownPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: markdownPanelId),
-                "source_surface_id": sourceSurfaceId.uuidString,
+                "source_surface_id": v2OrNull(sourceSurfaceId?.uuidString),
                 "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
                 "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),

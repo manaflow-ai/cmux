@@ -2922,7 +2922,9 @@ struct CMUXCLI {
         let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
-        args = argsAfterDirection
+        let (paneOpt, argsAfterPane) = parseOption(argsAfterDirection, name: "--pane")
+        let noFocus = argsAfterPane.contains("--no-focus")
+        args = argsAfterPane.filter { $0 != "--no-focus" }
 
         // Determine subcommand. Explicit "open" is supported, otherwise treat
         // a single positional argument as shorthand path.
@@ -2937,7 +2939,7 @@ struct CMUXCLI {
             if let first = args.first, first.hasPrefix("-") {
                 throw CLIError(
                     message:
-                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                        "markdown open: unknown flag '\(first)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--pane <id|ref|index>] [--no-focus]"
                 )
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
@@ -2955,13 +2957,13 @@ struct CMUXCLI {
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(
                 message:
-                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                    "markdown open: unknown flag '\(unknownFlag)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--pane <id|ref|index>] [--no-focus]"
             )
         }
         if let extraArg = trailingArgs.first {
             throw CLIError(
                 message:
-                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up]"
+                    "markdown open: unexpected argument '\(extraArg)'. Usage: cmux markdown open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--direction right|down|left|up] [--pane <id|ref|index>] [--no-focus]"
             )
         }
 
@@ -2970,6 +2972,9 @@ struct CMUXCLI {
         // Build params
         let direction = directionOpt ?? "right"
         var params: [String: Any] = ["path": absolutePath, "direction": direction]
+        if noFocus {
+            params["focus"] = false
+        }
         if let surfaceRaw = surfaceOpt {
             if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = surface
@@ -2984,6 +2989,12 @@ struct CMUXCLI {
         if let windowRaw = windowOpt {
             if let window = try normalizeWindowHandle(windowRaw, client: client) {
                 params["window_id"] = window
+            }
+        }
+        if let paneRaw = paneOpt {
+            let wsHandle = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+            if let pane = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: wsHandle) {
+                params["pane_id"] = pane
             }
         }
 
@@ -8094,12 +8105,16 @@ struct CMUXCLI {
               --surface <id|ref|index>     Source surface to split from (default: focused surface)
               --window <id|ref|index>      Target window
               --direction <left|right|up|down>  Split direction (default: right)
+              --pane <id|ref|index>        Add as tab in existing pane instead of splitting
+              --no-focus                   Open without focusing the new panel
 
             Examples:
               cmux markdown open plan.md
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+              cmux markdown open plan.md --pane pane:5
+              cmux markdown open plan.md --no-focus
             """
         default:
             return nil
