@@ -77,4 +77,12 @@ final class FocusResizeSettingsTests: XCTestCase {
         UserDefaults.standard.set(0.9, forKey: ratioKey)
         XCTAssertEqual(FocusResizeSettings.ratio(), 0.9, accuracy: 0.001)
     }
+
+    func testRatioReadsFloatBackedNSNumber() {
+        // Simulates what `defaults write ... -float 0.8` produces: a Float-backed NSNumber.
+        // The old `object(forKey:) as? Double` would fail this cast and return the default.
+        let floatValue: Float = 0.8
+        UserDefaults.standard.set(floatValue, forKey: ratioKey)
+        XCTAssertEqual(FocusResizeSettings.ratio(), 0.8, accuracy: 0.001)
+    }
 }
