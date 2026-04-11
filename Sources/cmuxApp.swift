@@ -3,6 +3,7 @@ import SwiftUI
 import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
+
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
@@ -5238,6 +5239,10 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(FocusResizeSettings.enabledKey)
+    private var focusResizeEnabled = FocusResizeSettings.defaultEnabled
+    @AppStorage(FocusResizeSettings.ratioKey)
+    private var focusResizeRatio = FocusResizeSettings.defaultRatio
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5938,6 +5943,37 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.focusResize"),
+                            String(localized: "settings.app.focusResize", defaultValue: "Resize Focused Pane"),
+                            subtitle: String(localized: "settings.app.focusResize.subtitle", defaultValue: "Automatically resizes the focused pane to take more space when switching between split panes")
+                        ) {
+                            Toggle("", isOn: $focusResizeEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.focusResize", defaultValue: "Resize Focused Pane")
+                                )
+                        }
+
+                        if focusResizeEnabled {
+                            SettingsCardDivider()
+
+                            SettingsCardRow(
+                                configurationReview: .json("app.focusResizeRatio"),
+                                String(localized: "settings.app.focusResizeRatio", defaultValue: "Focus Resize Amount"),
+                                subtitle: focusResizeRatio.formatted(.percent.precision(.fractionLength(0)))
+                            ) {
+                                Slider(value: $focusResizeRatio, in: 0.5...0.9, step: 0.05)
+                                    .frame(width: 150)
+                                    .accessibilityLabel(
+                                        String(localized: "settings.app.focusResizeRatio", defaultValue: "Focus Resize Amount")
+                                    )
+                            }
                         }
 
                         SettingsCardDivider()
@@ -7396,6 +7432,8 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        focusResizeEnabled = FocusResizeSettings.defaultEnabled
+        focusResizeRatio = FocusResizeSettings.defaultRatio
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails

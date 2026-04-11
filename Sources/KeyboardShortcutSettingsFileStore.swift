@@ -39,6 +39,8 @@ final class CmuxSettingsFileStore {
         "app.minimalMode",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
+        "app.focusResize",
+        "app.focusResizeRatio",
         "app.preferredEditor",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
@@ -434,6 +436,13 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["focusPaneOnFirstClick"]) {
             snapshot.managedUserDefaults[PaneFirstClickFocusSettings.enabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["focusResize"]) {
+            snapshot.managedUserDefaults[FocusResizeSettings.enabledKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["focusResizeRatio"]) {
+            let clamped = min(max(value, 0.5), 0.9)
+            snapshot.managedUserDefaults[FocusResizeSettings.ratioKey] = .double(clamped)
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
@@ -1242,6 +1251,8 @@ final class CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "focusResize": FocusResizeSettings.defaultEnabled,
+                    "focusResizeRatio": FocusResizeSettings.defaultRatio,
                     "preferredEditor": "",
                     "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,

@@ -7389,6 +7389,45 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    // MARK: - Focus Resize
+
+    /// Split IDs where the user has manually dragged the divider (suppresses auto-resize until focus changes)
+    private var focusResizeDragOverrideSplits: Set<UUID> = []
+
+    /// The last pane that triggered a focus-resize, used to detect focus changes for clearing drag overrides
+    private var focusResizeLastPaneId: UUID?
+
+    /// Active timer for focus-resize animation
+    private var focusResizeTimer: Timer?
+
+    /// Whether a focus-resize animation is currently running (suppresses drag-override detection)
+    private var focusResizeIsAnimating = false
+
+    /// Animation state for the in-flight focus-resize
+    private var focusResizeAnimation: FocusResizeAnimationState?
+
+    /// Debounced work item for live-preview when the ratio slider changes
+    private var focusResizeRatioDebounceWorkItem: DispatchWorkItem?
+
+    /// Observer for ratio UserDefaults changes
+    private var focusResizeRatioObserver: NSObjectProtocol?
+
+    /// Cached settings state to avoid reacting to unrelated UserDefaults changes
+    private var focusResizeLastEnabled: Bool = FocusResizeSettings.defaultEnabled
+    private var focusResizeLastRatio: Double = FocusResizeSettings.defaultRatio
+
+    private struct FocusResizeSplitTarget {
+        let splitId: UUID
+        let startPosition: CGFloat
+        let targetPosition: CGFloat
+    }
+
+    private struct FocusResizeAnimationState {
+        let splits: [FocusResizeSplitTarget]
+        let startTime: CFTimeInterval
+        let duration: CFTimeInterval
+    }
+
     // MARK: - Initialization
 
     private static func currentSplitButtonTooltips() -> BonsplitConfiguration.SplitButtonTooltips {
@@ -7810,6 +7849,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        installFocusResizeSettingsObserver()
     }
 
     deinit {
@@ -7819,6 +7859,12 @@ final class Workspace: Identifiable, ObservableObject {
                     NotificationCenter.default.removeObserver(observer)
                 }
             }
+        }
+        focusResizeTimer?.invalidate()
+        focusResizeTimer = nil
+        focusResizeRatioDebounceWorkItem?.cancel()
+        if let observer = focusResizeRatioObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
@@ -13444,6 +13490,27 @@ extension Workspace: BonsplitDelegate {
            let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.applyWindowBackgroundIfActive()
         }
+
+        // Focus-resize: animate parent split divider to give focused pane more space
+        if FocusResizeSettings.isEnabled() {
+            let paneUUID = pane.id
+            let focusChanged = focusResizeLastPaneId != paneUUID
+
+            if focusChanged {
+                focusResizeDragOverrideSplits.removeAll()
+                focusResizeLastPaneId = paneUUID
+            }
+
+            let ratio = CGFloat(FocusResizeSettings.ratio())
+            let tree = bonsplitController.treeSnapshot()
+            let targets = focusResizeBuildTargets(
+                forPane: paneUUID.uuidString, ratio: ratio, tree: tree
+            )
+
+            if !targets.isEmpty {
+                focusResizeStartAnimation(targets: targets)
+            }
+        }
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
@@ -13893,6 +13960,215 @@ extension Workspace: BonsplitDelegate {
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
         }
+
+        // Track manual divider drags to suppress focus-resize for that split
+        if !focusResizeIsAnimating, FocusResizeSettings.isEnabled() {
+            if let lastPaneId = focusResizeLastPaneId {
+                let tree = bonsplitController.treeSnapshot()
+                let ratio = CGFloat(FocusResizeSettings.ratio())
+                let ancestors = focusResizeFindAncestorSplits(ofPane: lastPaneId.uuidString, in: tree)
+                let eligible = ancestors.filter { !focusResizeDragOverrideSplits.contains($0.splitId) }
+                let hCount = eligible.filter { $0.orientation == "horizontal" }.count
+                let vCount = eligible.filter { $0.orientation == "vertical" }.count
+
+                for (splitId, isFirst, orientation) in ancestors {
+                    guard !focusResizeDragOverrideSplits.contains(splitId) else { continue }
+                    let count = orientation == "horizontal" ? hCount : vCount
+                    let factor = count > 1 ? pow(ratio, 1.0 / CGFloat(count)) : ratio
+                    let expectedTarget = isFirst ? factor : (1.0 - factor)
+                    if let currentPos = focusResizeFindDividerPosition(forSplit: splitId.uuidString, in: tree) {
+                        if abs(currentPos - expectedTarget) > 0.02 {
+                            focusResizeDragOverrideSplits.insert(splitId)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Focus Resize Settings Observer
+
+    private func installFocusResizeSettingsObserver() {
+        focusResizeLastEnabled = FocusResizeSettings.isEnabled()
+        focusResizeLastRatio = FocusResizeSettings.ratio()
+
+        focusResizeRatioObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.focusResizeSettingsDidChange()
+        }
+    }
+
+    /// Only reacts when focus-resize settings actually changed, ignoring unrelated UserDefaults writes.
+    private func focusResizeSettingsDidChange() {
+        let enabled = FocusResizeSettings.isEnabled()
+        let ratio = FocusResizeSettings.ratio()
+
+        guard enabled != focusResizeLastEnabled || abs(ratio - focusResizeLastRatio) > 0.001 else { return }
+        focusResizeLastEnabled = enabled
+        focusResizeLastRatio = ratio
+
+        // Disabled → cancel any pending work and stop any in-flight animation
+        if !enabled {
+            focusResizeRatioDebounceWorkItem?.cancel()
+            focusResizeRatioDebounceWorkItem = nil
+            focusResizeStopAnimation(snapToFinal: false)
+            return
+        }
+
+        guard focusResizeLastPaneId != nil else { return }
+
+        focusResizeRatioDebounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.focusResizeApplyCurrentSettings()
+        }
+        focusResizeRatioDebounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: workItem)
+    }
+
+    /// Re-apply focus-resize with current settings for the already-focused pane.
+    private func focusResizeApplyCurrentSettings() {
+        guard FocusResizeSettings.isEnabled(),
+              let paneId = focusResizeLastPaneId else { return }
+
+        let ratio = CGFloat(FocusResizeSettings.ratio())
+        let tree = bonsplitController.treeSnapshot()
+        let targets = focusResizeBuildTargets(
+            forPane: paneId.uuidString, ratio: ratio, tree: tree
+        )
+
+        if !targets.isEmpty {
+            focusResizeStartAnimation(targets: targets)
+        }
+    }
+
+    // MARK: - Focus Resize Helpers
+
+    /// Find all ancestor splits from root down to the pane, with which side the pane is on at each level.
+    /// Build animation targets for all ancestor splits, distributing the ratio per-orientation
+    /// so same-orientation ancestors don't compound (e.g., two horizontal splits each get sqrt(ratio)
+    /// instead of ratio, making their product equal to ratio).
+    private func focusResizeBuildTargets(
+        forPane paneIdString: String, ratio: CGFloat, tree: ExternalTreeNode
+    ) -> [FocusResizeSplitTarget] {
+        let ancestors = focusResizeFindAncestorSplits(ofPane: paneIdString, in: tree)
+        let eligible = ancestors.filter { !focusResizeDragOverrideSplits.contains($0.splitId) }
+        guard !eligible.isEmpty else { return [] }
+
+        let hCount = eligible.filter { $0.orientation == "horizontal" }.count
+        let vCount = eligible.filter { $0.orientation == "vertical" }.count
+
+        var targets: [FocusResizeSplitTarget] = []
+        let threshold: CGFloat = 0.01
+
+        for (splitId, isFirst, orientation) in eligible {
+            let count = orientation == "horizontal" ? hCount : vCount
+            let factor = count > 1 ? pow(ratio, 1.0 / CGFloat(count)) : ratio
+            let targetPosition = isFirst ? factor : (1.0 - factor)
+            if let currentPosition = focusResizeFindDividerPosition(forSplit: splitId.uuidString, in: tree) {
+                if abs(currentPosition - targetPosition) > threshold {
+                    targets.append(FocusResizeSplitTarget(splitId: splitId, startPosition: currentPosition, targetPosition: targetPosition))
+                }
+            }
+        }
+
+        return targets
+    }
+
+    /// Returns an array ordered from root to immediate parent.
+    private func focusResizeFindAncestorSplits(ofPane paneIdString: String, in node: ExternalTreeNode) -> [(splitId: UUID, isFirst: Bool, orientation: String)] {
+        guard case .split(let splitNode) = node else { return [] }
+        guard let splitUUID = UUID(uuidString: splitNode.id) else { return [] }
+        let orient = splitNode.orientation
+
+        // Check if the pane is a direct child on either side
+        if case .pane(let firstPane) = splitNode.first, firstPane.id == paneIdString {
+            return [(splitUUID, true, orient)]
+        }
+        if case .pane(let secondPane) = splitNode.second, secondPane.id == paneIdString {
+            return [(splitUUID, false, orient)]
+        }
+
+        // Recurse into children — prepend this split if the pane is found in a subtree
+        let firstResult = focusResizeFindAncestorSplits(ofPane: paneIdString, in: splitNode.first)
+        if !firstResult.isEmpty {
+            return [(splitUUID, true, orient)] + firstResult
+        }
+        let secondResult = focusResizeFindAncestorSplits(ofPane: paneIdString, in: splitNode.second)
+        if !secondResult.isEmpty {
+            return [(splitUUID, false, orient)] + secondResult
+        }
+
+        return []
+    }
+
+    private func focusResizeFindDividerPosition(forSplit splitIdString: String, in node: ExternalTreeNode) -> CGFloat? {
+        guard case .split(let splitNode) = node else { return nil }
+        if splitNode.id == splitIdString {
+            return CGFloat(splitNode.dividerPosition)
+        }
+        return focusResizeFindDividerPosition(forSplit: splitIdString, in: splitNode.first)
+            ?? focusResizeFindDividerPosition(forSplit: splitIdString, in: splitNode.second)
+    }
+
+    // MARK: - Focus Resize Animation
+
+    private func focusResizeStartAnimation(targets: [FocusResizeSplitTarget]) {
+        // Cancel without snapping to the old animation's final positions —
+        // the new animation will smoothly continue from wherever dividers are now.
+        focusResizeStopAnimation(snapToFinal: false)
+
+        let state = FocusResizeAnimationState(
+            splits: targets,
+            startTime: CACurrentMediaTime(),
+            duration: 0.2
+        )
+        focusResizeAnimation = state
+        focusResizeIsAnimating = true
+
+        let timer = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in
+            self?.focusResizeTickAnimation()
+        }
+        // .common includes .eventTracking so the animation continues during mouse drags
+        RunLoop.current.add(timer, forMode: .common)
+        focusResizeTimer = timer
+    }
+
+    private func focusResizeTickAnimation() {
+        guard let anim = focusResizeAnimation else {
+            focusResizeStopAnimation(snapToFinal: false)
+            return
+        }
+
+        let elapsed = CACurrentMediaTime() - anim.startTime
+        let progress = min(elapsed / anim.duration, 1.0)
+        // Exponential ease-out (matches Bonsplit's SplitAnimator curve)
+        let eased = 1.0 - pow(2.0, -10.0 * progress)
+
+        for split in anim.splits {
+            let current = split.startPosition + (split.targetPosition - split.startPosition) * CGFloat(eased)
+            _ = bonsplitController.setDividerPosition(current, forSplit: split.splitId, fromExternal: true)
+        }
+
+        if progress >= 1.0 {
+            // Clear animation state before stopping to avoid double setDividerPosition
+            focusResizeAnimation = nil
+            focusResizeStopAnimation(snapToFinal: false)
+        }
+    }
+
+    private func focusResizeStopAnimation(snapToFinal: Bool = true) {
+        focusResizeTimer?.invalidate()
+        focusResizeTimer = nil
+        if snapToFinal, let anim = focusResizeAnimation {
+            for split in anim.splits {
+                _ = bonsplitController.setDividerPosition(split.targetPosition, forSplit: split.splitId, fromExternal: true)
+            }
+        }
+        focusResizeAnimation = nil
+        focusResizeIsAnimating = false
     }
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.

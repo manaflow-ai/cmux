@@ -52627,6 +52627,75 @@
         }
       }
     },
+    "settings.app.focusResize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resize Focused Pane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスペインのリサイズ"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити розмір активної панелі"
+          }
+        }
+      }
+    },
+    "settings.app.focusResize.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically resizes the focused pane to take more space when switching between split panes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割ペインの切り替え時にフォーカスしたペインを自動的にリサイズしてスペースを広げます"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматично змінює розмір активної панелі для виділення більше місця при перемиканні між розділеними панелями"
+          }
+        }
+      }
+    },
+    "settings.app.focusResizeRatio": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Resize Amount"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスリサイズ量"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб зміни розміру"
+          }
+        }
+      }
+    },
     "settings.app.paneFirstClickFocus": {
       "extractionState": "manual",
       "localizations": {

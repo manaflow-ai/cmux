@@ -109,6 +109,22 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum FocusResizeSettings {
+    static let enabledKey = "focusResize.enabled"
+    static let ratioKey = "focusResize.ratio"
+    static let defaultEnabled = false
+    static let defaultRatio: Double = 0.75
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func ratio(defaults: UserDefaults = .standard) -> Double {
+        let value = defaults.object(forKey: ratioKey) != nil ? defaults.double(forKey: ratioKey) : defaultRatio
+        return min(max(value, 0.5), 0.9)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
