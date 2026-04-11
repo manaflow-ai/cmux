@@ -125,7 +125,6 @@ final class GhosttyConfigTests: XCTestCase {
             withDestinationPath: targetConfig.path
         )
 
-        GhosttyConfig.invalidateLoadCache()
         let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
 
         XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
