@@ -53,6 +53,10 @@
 	<string>A program running within cmux would like to use Bluetooth.</string>
 	<key>NSCalendarsUsageDescription</key>
 	<string>A program running within cmux would like to access your Calendar.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>A program running within cmux would like to have full access to your Calendar.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>A program running within cmux would like to add events to your Calendar.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>A program running within cmux would like to access your Contacts.</string>
 	<key>NSLocalNetworkUsageDescription</key>
@@ -68,7 +72,9 @@
 	<key>NSRemindersUsageDescription</key>
 	<string>A program running within cmux would like to access your reminders.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>A program running within cmux would like to access your reminders.</string>
+	<string>A program running within cmux would like to have full access to your reminders.</string>
+	<key>NSRemindersWriteOnlyAccessUsageDescription</key>
+	<string>A program running within cmux would like to add reminders.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>A program running within cmux would like to use speech recognition.</string>
 	<key>NSDesktopFolderUsageDescription</key>
