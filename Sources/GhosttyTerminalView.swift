@@ -507,6 +507,10 @@ func cmuxResolveQuicklookPathForTesting(
         }
     )
 }
+
+func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
+    token
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
