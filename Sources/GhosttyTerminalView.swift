@@ -11248,23 +11248,15 @@ final class GhosttySurfaceScrollView: NSView {
                 let offsetY =
                     CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
 
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                // While reviewing scrollback, still honor non-bottom scrollbar updates so
+                // streaming output and resize churn preserve the same visible rows. Only
+                // passive packets that would snap us back to bottom stay suppressed.
+                let shouldAutoScroll =
+                    allowExplicitScrollbarSync ||
+                    !userScrolledAwayFromBottom ||
+                    !scrollbarIsAtBottom(scrollbar)
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -11312,7 +11304,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
+            userScrolledAwayFromBottom = !scrollbarIsAtBottom(scrollbar)
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
@@ -11345,6 +11337,10 @@ final class GhosttySurfaceScrollView: NSView {
         // geometry; the broader reconcile path caused visible content glitches.
         scrollView.tile()
         _ = synchronizeCoreSurface()
+    }
+
+    private func scrollbarIsAtBottom(_ scrollbar: GhosttyScrollbar) -> Bool {
+        scrollbar.offset >= scrollbar.total || scrollbar.len >= scrollbar.total - scrollbar.offset
     }
 
     private func documentHeight() -> CGFloat {
