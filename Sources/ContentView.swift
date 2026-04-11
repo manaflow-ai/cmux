@@ -12814,6 +12814,35 @@ private struct TabItemView: View, Equatable {
                     .multilineTextAlignment(.leading)
             }
 
+            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(pullRequestRows) { pullRequest in
+                        Button(action: {
+                            openPullRequestLink(pullRequest.url)
+                        }) {
+                            HStack(spacing: 4) {
+                                PullRequestStatusIcon(
+                                    status: pullRequest.status,
+                                    color: pullRequestForegroundColor
+                                )
+                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                    .underline()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(pullRequestStatusLabel(pullRequest.status))
+                                    .lineLimit(1)
+                                Spacer(minLength: 0)
+                            }
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(pullRequestForegroundColor)
+                            .opacity(pullRequest.isStale ? 0.5 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
+                    }
+                }
+            }
+
             remoteWorkspaceSection
 
             if detailVisibility.showsMetadata {
@@ -12931,35 +12960,6 @@ private struct TabItemView: View, Equatable {
             }
 
             // Pull request rows
-            if detailVisibility.showsPullRequests, !pullRequestRows.isEmpty {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(pullRequestRows) { pullRequest in
-                        Button(action: {
-                            openPullRequestLink(pullRequest.url)
-                        }) {
-                            HStack(spacing: 4) {
-                                PullRequestStatusIcon(
-                                    status: pullRequest.status,
-                                    color: pullRequestForegroundColor
-                                )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
-                                    .underline()
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Text(pullRequestStatusLabel(pullRequest.status))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(pullRequestForegroundColor)
-                            .opacity(pullRequest.isStale ? 0.5 : 1)
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequest.label) #\(pullRequest.number)"))
-                    }
-                }
-            }
-
             // Ports row
             if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
