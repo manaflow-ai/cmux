@@ -74,7 +74,10 @@ final class FileSystemWatcher {
             nil, Self.eventCallback, &fsContext, paths,
             FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
             0.2, flags
-        ) else { return }
+        ) else {
+            Unmanaged<StreamContext>.fromOpaque(contextPtr).release()
+            return
+        }
 
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.global(qos: .utility))
