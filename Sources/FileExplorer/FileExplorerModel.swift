@@ -83,6 +83,7 @@ final class FileExplorerModel: ObservableObject {
 
     private var rootItems: [FileExplorerItem] = []
     private let watcher = FileSystemWatcher()
+    private var loadGeneration: UInt = 0
 
     // MARK: - Public API
 
@@ -132,6 +133,8 @@ final class FileExplorerModel: ObservableObject {
     // MARK: - Loading
 
     private func loadRootAsync() {
+        loadGeneration &+= 1
+        let generation = loadGeneration
         guard let rootURL else {
             rootItems = []
             recomputeFlatItems()
@@ -142,7 +145,7 @@ final class FileExplorerModel: ObservableObject {
             let items = Self.loadDirectory(rootURL)
             let reloaded = items.map { Self.reloadAllExpanded(in: $0, expanded: expanded) }
             await MainActor.run { [weak self] in
-                guard let self else { return }
+                guard let self, self.loadGeneration == generation else { return }
                 self.rootItems = reloaded
                 self.recomputeFlatItems()
             }
