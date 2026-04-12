@@ -9275,6 +9275,13 @@ final class GhosttySurfaceScrollView: NSView {
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
     func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
+        // Portal reparent/reveal can settle geometry a tick before AppKit finishes
+        // realizing the terminal subtree's backing layer state. Flush display for the
+        // hosted subtree first so forceRefresh does not race a still-unrealized layer.
+        layoutSubtreeIfNeeded()
+        surfaceView.layoutSubtreeIfNeeded()
+        displayIfNeeded()
+        surfaceView.displayIfNeeded()
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
