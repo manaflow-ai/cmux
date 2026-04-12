@@ -47,5 +47,6 @@ struct SidebarModeStrip: View {
         }
         .buttonStyle(.plain)
         .help(tooltip)
+        .accessibilityLabel(Text(tooltip))
     }
 }
