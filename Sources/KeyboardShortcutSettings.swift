@@ -982,10 +982,14 @@ struct ShortcutStroke: Equatable {
     }
 
     static func from(event: NSEvent, requireModifier: Bool = true) -> ShortcutStroke? {
-        guard !isEscapeCancelEvent(event),
-              let key = storedKey(from: event) else { return nil }
-
+        guard !isEscapeCancelEvent(event) else { return nil }
         let flags = normalizedModifierFlags(from: event.modifierFlags)
+        let preferPhysicalKey = flags.contains(.command) || flags.contains(.control)
+        guard let key = storedKey(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+            preferPhysicalKey: preferPhysicalKey
+        ) else { return nil }
 
         let stroke = ShortcutStroke(
             key: key,
@@ -1034,6 +1038,16 @@ struct ShortcutStroke: Equatable {
             return keyCode == 36 || keyCode == 76
         }
 
+        // For Command-based shortcuts, match by physical key position (ANSI key
+        // code) first. macOS uses QWERTY positions for Cmd shortcuts regardless
+        // of the active keyboard layout. Without this, alternative Latin layouts
+        // (Dvorak, Colemak) produce false positives — e.g. physical W in Dvorak
+        // sends "," which incorrectly matches Cmd+, instead of Cmd+W.
+        if flags.contains(.command),
+           let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
+            return keyCode == expectedKeyCode
+        }
+
         if Self.shortcutCharacterMatches(
             eventCharacter: eventCharacter,
             shortcutKey: shortcutKey,
@@ -1052,13 +1066,6 @@ struct ShortcutStroke: Equatable {
            Self.digitForNumberKeyCode(keyCode) == nil {
             return false
         }
-        if hasEventChars,
-           eventCharsAreASCII,
-           flags.contains(.command),
-           !flags.contains(.control),
-           Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey) {
-            return false
-        }
 
         let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
         if Self.shortcutCharacterMatches(
@@ -1070,15 +1077,7 @@ struct ShortcutStroke: Equatable {
             return true
         }
 
-        let allowANSIKeyCodeFallback = flags.contains(.control)
-            || (flags.contains(.command)
-                && !flags.contains(.control)
-                && (
-                    !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (hasEventChars && !eventCharsAreASCII)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
-                ))
-        if allowANSIKeyCodeFallback,
+        if flags.contains(.control),
            let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
             return keyCode == expectedKeyCode
         }
@@ -1086,38 +1085,19 @@ struct ShortcutStroke: Equatable {
         return false
     }
 
-    private static func storedKey(from event: NSEvent) -> String? {
-        storedKey(
-            keyCode: event.keyCode,
-            charactersIgnoringModifiers: event.charactersIgnoringModifiers
-        )
-    }
-
     private static func storedKey(
         keyCode: UInt16,
-        charactersIgnoringModifiers: String?
+        charactersIgnoringModifiers: String?,
+        preferPhysicalKey: Bool = false
     ) -> String? {
-        // Prefer keyCode mapping so shifted symbol keys (e.g. "}") record as "]".
-        switch keyCode {
-        case 123: return "←" // left arrow
-        case 124: return "→" // right arrow
-        case 125: return "↓" // down arrow
-        case 126: return "↑" // up arrow
-        case 48: return "\t" // tab
-        case 36, 76: return "\r" // return, keypad enter
-        case 33: return "["  // kVK_ANSI_LeftBracket
-        case 30: return "]"  // kVK_ANSI_RightBracket
-        case 27: return "-"  // kVK_ANSI_Minus
-        case 24: return "="  // kVK_ANSI_Equal
-        case 43: return ","  // kVK_ANSI_Comma
-        case 47: return "."  // kVK_ANSI_Period
-        case 44: return "/"  // kVK_ANSI_Slash
-        case 41: return ";"  // kVK_ANSI_Semicolon
-        case 39: return "'"  // kVK_ANSI_Quote
-        case 50: return "`"  // kVK_ANSI_Grave
-        case 42: return "\\" // kVK_ANSI_Backslash
-        default:
-            break
+        // For Command/Control shortcuts, use physical key position (QWERTY ANSI
+        // key code) so the stored key is layout-independent. This ensures
+        // shortcuts recorded on Dvorak, Colemak, or other alternative layouts
+        // match correctly via keyCode-first matching. Non-Command/Control
+        // shortcuts (Option-only, chord second strokes) keep character-based
+        // recording to match their character-based matching path.
+        if preferPhysicalKey, let physicalKey = shortcutKeyForKeyCode(keyCode) {
+            return physicalKey
         }
 
         guard let chars = charactersIgnoringModifiers?.lowercased(),
@@ -1165,13 +1145,6 @@ struct ShortcutStroke: Equatable {
         }
     }
 
-    private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
-        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
-            return false
-        }
-        return CharacterSet.letters.contains(scalar)
-    }
-
     private static func shortcutCharacterMatches(
         eventCharacter: String?,
         shortcutKey: String,
@@ -1184,6 +1157,66 @@ struct ShortcutStroke: Equatable {
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
             eventKeyCode: eventKeyCode
         ) == shortcutKey
+    }
+
+    static func shortcutKeyForKeyCode(_ keyCode: UInt16) -> String? {
+        switch keyCode {
+        case 0: return "a"
+        case 1: return "s"
+        case 2: return "d"
+        case 3: return "f"
+        case 4: return "h"
+        case 5: return "g"
+        case 6: return "z"
+        case 7: return "x"
+        case 8: return "c"
+        case 9: return "v"
+        case 11: return "b"
+        case 12: return "q"
+        case 13: return "w"
+        case 14: return "e"
+        case 15: return "r"
+        case 16: return "y"
+        case 17: return "t"
+        case 18: return "1"
+        case 19: return "2"
+        case 20: return "3"
+        case 21: return "4"
+        case 22: return "6"
+        case 23: return "5"
+        case 24: return "="
+        case 25: return "9"
+        case 26: return "7"
+        case 27: return "-"
+        case 28: return "8"
+        case 29: return "0"
+        case 30: return "]"
+        case 31: return "o"
+        case 32: return "u"
+        case 33: return "["
+        case 34: return "i"
+        case 35: return "p"
+        case 36: return "\r"
+        case 37: return "l"
+        case 38: return "j"
+        case 39: return "'"
+        case 40: return "k"
+        case 41: return ";"
+        case 42: return "\\"
+        case 43: return ","
+        case 44: return "/"
+        case 45: return "n"
+        case 46: return "m"
+        case 47: return "."
+        case 48: return "\t"
+        case 50: return "`"
+        case 76: return "\r"
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        default: return nil
+        }
     }
 
     private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {

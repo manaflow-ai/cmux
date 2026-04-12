@@ -1160,25 +1160,90 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
-    func testMatchingUsesRecordedCharacterForRemappedCommandLetter() {
-        let shortcut = StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
-
+    func testCommandShortcutMatchesByPhysicalKeyPosition() {
+        // Cmd+W (key "w") should match keyCode 13 (physical W) regardless of
+        // what character the layout produces. On Dvorak, physical W sends ",".
         XCTAssertTrue(
-            shortcut.matches(
-                keyCode: 13,
-                modifierFlags: [.command],
-                eventCharacter: "q",
-                layoutCharacterProvider: { _, _ in nil }
-            )
-        )
-        XCTAssertFalse(
             StoredShortcut(key: "w", command: true, shift: false, option: false, control: false).matches(
-                keyCode: 13,
+                keyCode: 13, // kVK_ANSI_W
+                modifierFlags: [.command],
+                eventCharacter: ",", // Dvorak character for physical W
+                layoutCharacterProvider: { _, _ in nil }
+            )
+        )
+        // Cmd+Q (key "q") should NOT match keyCode 13 (physical W) even if the
+        // event character happens to be "q" (impossible on standard layouts, but
+        // verifies that character matching does not override keyCode).
+        XCTAssertFalse(
+            StoredShortcut(key: "q", command: true, shift: false, option: false, control: false).matches(
+                keyCode: 13, // kVK_ANSI_W, not kVK_ANSI_Q (12)
                 modifierFlags: [.command],
                 eventCharacter: "q",
                 layoutCharacterProvider: { _, _ in nil }
             )
         )
+    }
+
+    func testDvorakCmdWDoesNotMatchOpenSettings() {
+        // On Dvorak, physical W (keyCode 13) produces ",". This must NOT match
+        // the Settings shortcut (Cmd+,) — it must match Close Tab (Cmd+W).
+        let settingsShortcut = StoredShortcut(key: ",", command: true, shift: false, option: false, control: false)
+        let closeTabShortcut = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+
+        // Physical W on Dvorak: keyCode 13, character ","
+        XCTAssertFalse(
+            settingsShortcut.matches(
+                keyCode: 13, // kVK_ANSI_W
+                modifierFlags: [.command],
+                eventCharacter: ",",
+                layoutCharacterProvider: { _, _ in nil }
+            ),
+            "Cmd+, must not match physical W (keyCode 13) on Dvorak"
+        )
+        XCTAssertTrue(
+            closeTabShortcut.matches(
+                keyCode: 13, // kVK_ANSI_W
+                modifierFlags: [.command],
+                eventCharacter: ",",
+                layoutCharacterProvider: { _, _ in nil }
+            ),
+            "Cmd+W must match physical W (keyCode 13) on Dvorak"
+        )
+
+        // Physical comma on Dvorak: keyCode 43, should match Settings
+        XCTAssertTrue(
+            settingsShortcut.matches(
+                keyCode: 43, // kVK_ANSI_Comma
+                modifierFlags: [.command],
+                eventCharacter: "w", // Dvorak character for physical comma position
+                layoutCharacterProvider: { _, _ in nil }
+            ),
+            "Cmd+, must match physical comma (keyCode 43) on Dvorak"
+        )
+    }
+
+    func testRecorderStoresPhysicalKeyOnAlternativeLayout() {
+        // On Dvorak, physical W (keyCode 13) produces ",". The recorder should
+        // store "w" (QWERTY position), not "," (layout character).
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: ",",
+            charactersIgnoringModifiers: ",",
+            isARepeat: false,
+            keyCode: 13 // kVK_ANSI_W
+        ) else {
+            XCTFail("Failed to construct Dvorak Cmd+W event")
+            return
+        }
+
+        let stroke = ShortcutStroke.from(event: event, requireModifier: false)
+        XCTAssertEqual(stroke?.key, "w", "Recorder must store physical key 'w', not Dvorak character ','")
+        XCTAssertTrue(stroke?.command ?? false)
     }
 
     func testMatchingTreatsKeypadEnterAsReturn() {
