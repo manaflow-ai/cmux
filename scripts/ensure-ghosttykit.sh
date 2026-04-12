@@ -120,7 +120,9 @@ else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
     (
       cd ghostty
-      zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      # Ghostty's xcframework build implicitly enables the macOS app bundle
+      # unless we turn it off explicitly, which causes avoidable app-side effects.
+      zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"
