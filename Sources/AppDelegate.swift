@@ -1620,10 +1620,10 @@ func commandPaletteSelectionDeltaForKeyboardNavigation(
 
     if normalizedFlags == [.control] {
         // Control modifiers can surface as either printable chars or ASCII control chars.
+        // Keep Emacs-style next/previous navigation, but leave other control bindings
+        // (for example Ctrl+K text editing in the palette search field) to AppKit.
         if keyCode == 45 || normalizedChars == "n" || normalizedChars == "\u{0e}" { return 1 }    // Ctrl+N
         if keyCode == 35 || normalizedChars == "p" || normalizedChars == "\u{10}" { return -1 }   // Ctrl+P
-        if keyCode == 38 || normalizedChars == "j" || normalizedChars == "\u{0a}" { return 1 }    // Ctrl+J
-        if keyCode == 40 || normalizedChars == "k" || normalizedChars == "\u{0b}" { return -1 }   // Ctrl+K
     }
 
     return nil
@@ -4988,14 +4988,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func focusMainWindow(windowId: UUID) -> Bool {
         guard let window = windowForMainWindowId(windowId) else { return false }
-        if TerminalController.shouldSuppressSocketCommandActivation() {
-            if window.isMiniaturized {
-                window.deminiaturize(nil)
-            }
-            if TerminalController.socketCommandAllowsInAppFocusMutations() {
-                window.orderFront(nil)
-                setActiveMainWindow(window)
-            }
+        if TerminalController.shouldSuppressSocketCommandActivation(),
+           !TerminalController.socketCommandAllowsInAppFocusMutations() {
+            setActiveMainWindow(window)
             return true
         }
         bringToFront(window)
@@ -5658,6 +5653,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workingDirectory: url.path,
                 debugSource: "shortcut.openFolder"
             )
+        }
+    }
+
+    @discardableResult
+    func openDirectoryInInlineVSCode(
+        _ directoryURL: URL,
+        tabManager preferredTabManager: TabManager? = nil
+    ) -> Bool {
+        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL() else {
+            return false
+        }
+
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.open.target")?.tabManager
+        guard let targetTabManager else {
+            return false
+        }
+
+        let targetWorkspaceId = targetTabManager.selectedWorkspace?.id
+            ?? targetTabManager.tabs.first?.id
+            ?? targetTabManager.addWorkspace(select: true).id
+        let normalizedDirectoryURL = directoryURL.standardizedFileURL
+
+        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
+            guard let serveWebURL,
+                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                      baseWebUIURL: serveWebURL,
+                      directoryPath: normalizedDirectoryURL.path
+                  ) else {
+                NSSound.beep()
+                return
+            }
+
+            guard targetTabManager.openBrowser(
+                inWorkspace: targetWorkspaceId,
+                url: openFolderURL,
+                preferSplitRight: true
+            ) != nil else {
+                NSSound.beep()
+                return
+            }
+        }
+
+        return true
+    }
+
+    func showOpenFolderInInlineVSCodePanel(tabManager preferredTabManager: TabManager? = nil) {
+        guard TerminalDirectoryOpenTarget.vscodeInline.isAvailable() else {
+            NSSound.beep()
+            return
+        }
+
+        let targetTabManager = preferredTabManager
+            ?? preferredMainWindowContextForWorkspaceCreation(debugSource: "inlineVSCode.panel.target")?.tabManager
+        guard let targetTabManager else {
+            NSSound.beep()
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.title = String(
+            localized: "menu.file.openFolderInVSCodeInline.panelTitle",
+            defaultValue: "Open Folder in VS Code (Inline)"
+        )
+        panel.prompt = String(
+            localized: "menu.file.openFolderInVSCodeInline.panelPrompt",
+            defaultValue: "Open in VS Code"
+        )
+        if let cwd = targetTabManager.selectedWorkspace?.currentDirectory,
+           !cwd.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: cwd)
+        }
+
+        if panel.runModal() == .OK,
+           let url = panel.url,
+           !openDirectoryInInlineVSCode(url, tabManager: targetTabManager) {
+            NSSound.beep()
         }
     }
 
@@ -11810,6 +11885,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func bringToFront(_ window: NSWindow) {
+        if TerminalController.shouldSuppressSocketCommandActivation(),
+           !TerminalController.socketCommandAllowsInAppFocusMutations() {
+            return
+        }
+        setActiveMainWindow(window)
         if window.isMiniaturized {
             window.deminiaturize(nil)
         }

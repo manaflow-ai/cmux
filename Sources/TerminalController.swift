@@ -6606,7 +6606,7 @@ class TerminalController {
     private func v2FeedbackOpen(params: [String: Any]) -> V2CallResult {
         let workspaceId = v2UUID(params, "workspace_id")
         let windowId = v2UUID(params, "window_id")
-        let shouldActivate = v2Bool(params, "activate") ?? false
+        let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? false)
         DispatchQueue.main.async {
             let targetWindow: NSWindow?
             if let windowId, let app = AppDelegate.shared {
@@ -6633,7 +6633,7 @@ class TerminalController {
 
     private func v2SettingsOpen(params: [String: Any]) -> V2CallResult {
         let targetRaw = v2String(params, "target")
-        let shouldActivate = v2Bool(params, "activate") ?? true
+        let shouldActivate = v2FocusAllowed(requested: v2Bool(params, "activate") ?? true)
 
         let navigationTarget: SettingsNavigationTarget?
         switch targetRaw {
@@ -10457,8 +10457,10 @@ class TerminalController {
                 result = .err(code: "not_found", message: "No window", data: nil)
                 return
             }
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            if socketCommandAllowsInAppFocusMutations() {
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+            }
             guard let fr = window.firstResponder else {
                 result = .err(code: "not_found", message: "No first responder", data: nil)
                 return
@@ -11232,7 +11234,8 @@ class TerminalController {
     }
 
     private func prepareWindowForSyntheticInput(_ window: NSWindow?) {
-        guard let window else { return }
+        guard socketCommandAllowsInAppFocusMutations(),
+              let window else { return }
         // Keep socket-driven input simulation focused on the intended window without
         // paying repeated activation/order-front costs for every synthetic key event.
         if !NSApp.isActive {

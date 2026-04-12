@@ -164,6 +164,8 @@ struct cmuxApp: App {
     private var toggleBrowserDeveloperToolsShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultsKey)
     private var showBrowserJavaScriptConsoleShortcutData = Data()
+    @AppStorage(KeyboardShortcutSettings.Action.toggleReactGrab.defaultsKey)
+    private var toggleReactGrabShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserRight.defaultsKey) private var splitBrowserRightShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.splitBrowserDown.defaultsKey) private var splitBrowserDownShortcutData = Data()
     @AppStorage(KeyboardShortcutSettings.Action.renameWorkspace.defaultsKey) private var renameWorkspaceShortcutData = Data()
@@ -474,14 +476,12 @@ struct cmuxApp: App {
 
                 Divider()
                 Menu("Debug Windows") {
-                    Button("Debug Window Controls…") {
-                        DebugWindowControlsWindowController.shared.show()
+                    Button("Background Debug…") {
+                        BackgroundDebugWindowController.shared.show()
                     }
-
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
-
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",
@@ -490,26 +490,21 @@ struct cmuxApp: App {
                     ) {
                         BrowserProfilePopoverDebugWindowController.shared.show()
                     }
-
-                    Button("Settings/About Titlebar Debug…") {
-                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    Button("Debug Window Controls…") {
+                        DebugWindowControlsWindowController.shared.show()
                     }
-
-                    Divider()
-                    Button("Sidebar Debug…") {
-                        SidebarDebugWindowController.shared.show()
-                    }
-
-                    Button("Background Debug…") {
-                        BackgroundDebugWindowController.shared.show()
-                    }
-
                     Button("Menu Bar Extra Debug…") {
                         MenuBarExtraDebugWindowController.shared.show()
                     }
-
-                    Divider()
-
+                    Button("Settings/About Titlebar Debug…") {
+                        SettingsAboutTitlebarDebugWindowController.shared.show()
+                    }
+                    Button("Sidebar Debug…") {
+                        SidebarDebugWindowController.shared.show()
+                    }
+                    Button("Split Button Layout Debug…") {
+                        SplitButtonLayoutDebugWindowController.shared.show()
+                    }
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
                     }
@@ -593,6 +588,16 @@ struct cmuxApp: App {
                 splitCommandButton(title: String(localized: "menu.file.openFolder", defaultValue: "Open Folder…"), shortcut: openFolderMenuShortcut) {
                     AppDelegate.shared?.showOpenFolderPanel()
                 }
+
+                Button(
+                    String(
+                        localized: "menu.file.openFolderInVSCodeInline",
+                        defaultValue: "Open Folder in VS Code (Inline)…"
+                    )
+                ) {
+                    AppDelegate.shared?.showOpenFolderInInlineVSCodePanel()
+                }
+                .disabled(!TerminalDirectoryOpenTarget.vscodeInline.isAvailable())
             }
 
             // Close tab/workspace
@@ -727,6 +732,10 @@ struct cmuxApp: App {
                     if !manager.showJavaScriptConsoleFocusedBrowser() {
                         NSSound.beep()
                     }
+                }
+
+                splitCommandButton(title: String(localized: "menu.view.toggleReactGrab", defaultValue: "Toggle React Grab"), shortcut: toggleReactGrabMenuShortcut) {
+                    activeTabManager.toggleReactGrabFocusedBrowser()
                 }
 
                 Button(String(localized: "menu.view.zoomIn", defaultValue: "Zoom In")) {
@@ -934,6 +943,13 @@ struct cmuxApp: App {
         decodeShortcut(
             from: showBrowserJavaScriptConsoleShortcutData,
             fallback: KeyboardShortcutSettings.Action.showBrowserJavaScriptConsole.defaultShortcut
+        )
+    }
+
+    private var toggleReactGrabMenuShortcut: StoredShortcut {
+        decodeShortcut(
+            from: toggleReactGrabShortcutData,
+            fallback: KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
         )
     }
 
@@ -3337,6 +3353,76 @@ private struct MenuBarExtraDebugView: View {
     }
 }
 
+// MARK: - Split Button Layout Debug Window
+
+private final class SplitButtonLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = SplitButtonLayoutDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Split Button Layout"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.splitButtonLayoutDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: SplitButtonLayoutDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct SplitButtonLayoutDebugView: View {
+    @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
+
+    private let options: [(Int, String)] = [
+        (0, "Pre-composited paneBackground"),
+        (1, "Raw paneBackground (opaque)"),
+        (2, "barBackground (tab chrome)"),
+        (3, "windowBackgroundColor"),
+        (4, "controlBackgroundColor"),
+        (5, "Pre-composited barBackground"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Button Backdrop Color")
+                .font(.headline)
+
+            ForEach(options, id: \.0) { id, label in
+                HStack {
+                    Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
+                        .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
+                    Text(label)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { backdropStyle = id }
+            }
+
+            Text("Changes apply live.")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
 // MARK: - Background Debug Window
 
 private final class BackgroundDebugWindowController: NSWindowController, NSWindowDelegate {
@@ -3820,22 +3906,6 @@ enum CommandPaletteRenameSelectionSettings {
     }
 }
 
-enum TerminalCopyOnSelectSettings {
-    static let enabledKey = "terminalCopyOnSelectEnabled"
-    static let defaultEnabled = false
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-
-    static func overrideConfigLine(defaults: UserDefaults = .standard) -> String {
-        isEnabled(defaults: defaults) ? "copy-on-select = clipboard" : "copy-on-select = false"
-    }
-}
-
 enum CommandPaletteSwitcherSearchSettings {
     static let searchAllSurfacesKey = "commandPalette.switcherSearchAllSurfaces"
     static let defaultSearchAllSurfaces = false
@@ -3947,6 +4017,7 @@ struct SettingsView: View {
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
+    @AppStorage(ReactGrabSettings.versionKey) private var reactGrabVersion = ReactGrabSettings.defaultVersion
     @AppStorage(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) private var openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
     @AppStorage(BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
     private var interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.initialInterceptTerminalOpenCommandInCmuxBrowserValue()
@@ -3965,8 +4036,6 @@ struct SettingsView: View {
     @AppStorage(QuitWarningSettings.warnBeforeQuitKey) private var warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
     @AppStorage(CommandPaletteRenameSelectionSettings.selectAllOnFocusKey)
     private var commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-    @AppStorage(TerminalCopyOnSelectSettings.enabledKey)
-    private var terminalCopyOnSelectEnabled = TerminalCopyOnSelectSettings.defaultEnabled
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
@@ -4085,19 +4154,6 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.paneFirstClickFocus.subtitleOff",
             defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
-        )
-    }
-
-    private var terminalCopyOnSelectSubtitle: String {
-        if terminalCopyOnSelectEnabled {
-            return String(
-                localized: "settings.app.copyOnSelect.subtitleOn",
-                defaultValue: "Automatically copy selected terminal text to the system clipboard."
-            )
-        }
-        return String(
-            localized: "settings.app.copyOnSelect.subtitleOff",
-            defaultValue: "Selecting terminal text does not copy it to the system clipboard."
         )
     }
 
@@ -4617,20 +4673,6 @@ struct SettingsView: View {
                                 .controlSize(.small)
                                 .accessibilityLabel(
                                     String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click")
-                                )
-                        }
-
-                        SettingsCardDivider()
-
-                        SettingsCardRow(
-                            String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select"),
-                            subtitle: terminalCopyOnSelectSubtitle
-                        ) {
-                            Toggle("", isOn: $terminalCopyOnSelectEnabled)
-                                .labelsHidden()
-                                .controlSize(.small)
-                                .accessibilityLabel(
-                                    String(localized: "settings.app.copyOnSelect", defaultValue: "Copy on Select")
                                 )
                         }
 
@@ -5640,6 +5682,19 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"),
+                            subtitle: String(localized: "settings.browser.reactGrabVersion.subtitle", defaultValue: "Pinned npm version of react-grab injected by the toolbar button (Cmd+Shift+G). Only versions with a known integrity hash are accepted.")
+                        ) {
+                            TextField("", text: $reactGrabVersion)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 100)
+                                .font(.system(.body, design: .monospaced))
+                                .accessibilityIdentifier("SettingsReactGrabVersionField")
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(String(localized: "settings.browser.history", defaultValue: "Browsing History"), subtitle: browserHistorySubtitle) {
                             Button(String(localized: "settings.browser.history.clearButton", defaultValue: "Clear History…")) {
                                 showClearBrowserHistoryConfirmation = true
@@ -5793,9 +5848,6 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
-        .onChange(of: terminalCopyOnSelectEnabled) { _, _ in
-            GhosttyApp.shared.reloadConfiguration(source: "settings.copy_on_select")
-        }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             if browserInsecureHTTPAllowlistDraft == oldValue {
@@ -5920,7 +5972,6 @@ struct SettingsView: View {
         showMenuBarExtra = MenuBarExtraSettings.defaultShowInMenuBar
         warnBeforeQuitShortcut = QuitWarningSettings.defaultWarnBeforeQuit
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
-        terminalCopyOnSelectEnabled = TerminalCopyOnSelectSettings.defaultEnabled
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         ShortcutHintDebugSettings.resetVisibilityDefaults()
         alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints

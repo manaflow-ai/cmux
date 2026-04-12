@@ -116,6 +116,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         )
         XCTAssertTrue(triggerFlash.insideSuppressed)
         XCTAssertFalse(triggerFlash.insideAllowsFocus)
+
+        let simulateShortcut = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "simulate_shortcut",
+            isV2: false
+        )
+        XCTAssertTrue(simulateShortcut.insideSuppressed)
+        XCTAssertFalse(simulateShortcut.insideAllowsFocus)
+
+        let settingsOpen = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "settings.open",
+            isV2: true
+        )
+        XCTAssertTrue(settingsOpen.insideSuppressed)
+        XCTAssertFalse(settingsOpen.insideAllowsFocus)
+
+        let feedbackOpen = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "feedback.open",
+            isV2: true
+        )
+        XCTAssertTrue(feedbackOpen.insideSuppressed)
+        XCTAssertFalse(feedbackOpen.insideAllowsFocus)
+
+        let debugType = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "debug.type",
+            isV2: true
+        )
+        XCTAssertTrue(debugType.insideSuppressed)
+        XCTAssertFalse(debugType.insideAllowsFocus)
 #else
         throw XCTSkip("Socket command policy snapshot helper is debug-only.")
 #endif

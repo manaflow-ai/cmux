@@ -2348,7 +2348,10 @@ struct ContentView: View {
     }
 
     private var effectiveTitlebarPadding: CGFloat {
-        isMinimalMode ? -titlebarPadding : titlebarPadding
+        if isMinimalMode {
+            return isFullScreen ? 0 : -titlebarPadding
+        }
+        return titlebarPadding
     }
 
     private var terminalContent: some View {
@@ -2378,6 +2381,7 @@ struct ContentView: View {
                         workspace: tab,
                         isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
+                        isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
                             scheduleTitlebarThemeRefreshFromWorkspace(
@@ -2496,14 +2500,13 @@ struct ContentView: View {
         .contentShape(Rectangle())
         .background(TitlebarDoubleClickMonitorView())
         .background({
-            // The terminal area has two stacked semi-transparent layers: the Bonsplit
-            // container chrome background plus Ghostty's own Metal-rendered background.
-            // Compute the effective composited opacity so the titlebar matches visually.
+            // The terminal background is provided by a single CALayer
+            // (backgroundView in GhosttySurfaceScrollView), so the titlebar
+            // opacity matches the configured value directly.
             let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return TitlebarLayerBackground(
                 backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                opacity: effective
+                opacity: alpha
             )
         }())
         .overlay(alignment: .bottom) {
@@ -2514,7 +2517,7 @@ struct ContentView: View {
     }
 
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible) ? 80 : 0
+        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen) ? 80 : 0
         for tab in tabManager.tabs {
             if tab.bonsplitController.configuration.appearance.tabBarLeadingInset != inset {
                 tab.bonsplitController.configuration.appearance.tabBarLeadingInset = inset
@@ -3051,6 +3054,7 @@ struct ContentView: View {
             isFullScreen = true
             setTitlebarControlsHidden(true, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { notification in
@@ -3059,6 +3063,7 @@ struct ContentView: View {
             isFullScreen = false
             setTitlebarControlsHidden(false, in: window)
             AppDelegate.shared?.fullscreenControlsViewModel = nil
+            syncTrafficLightInset()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { notification in
@@ -3665,6 +3670,7 @@ struct ContentView: View {
                         ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, result in
                             let isSelected = index == selectedIndex
                             let isHovered = commandPaletteHoveredResultIndex == index
+                            let trailingLabel = commandPaletteTrailingLabel(for: result.command)
                             let rowBackground: Color = isSelected
                                 ? cmuxAccentColor().opacity(0.12)
                                 : (isHovered ? Color.primary.opacity(0.08) : .clear)
@@ -3672,37 +3678,16 @@ struct ContentView: View {
                             Button {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
-                                HStack(spacing: 8) {
-                                    commandPaletteHighlightedTitleText(
-                                        result.command.title,
-                                        matchedIndices: result.titleMatchIndices
-                                    )
-                                        .font(.system(size: 13, weight: .regular))
-                                        .lineLimit(1)
-                                    Spacer()
-
-                                    if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
-                                        switch trailingLabel.style {
-                                        case .shortcut:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .medium))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
-                                                .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                        case .kind:
-                                            Text(trailingLabel.text)
-                                                .font(.system(size: 11, weight: .regular))
-                                                .foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(rowBackground)
-                                .contentShape(Rectangle())
+                                Self.commandPaletteResultLabelContent(
+                                    title: result.command.title,
+                                    matchedIndices: result.titleMatchIndices,
+                                    trailingLabel: trailingLabel
+                                )
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(rowBackground)
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("CommandPaletteResultRow.\(index)")
@@ -4728,7 +4713,7 @@ struct ContentView: View {
         return Self.commandPaletteSwitcherFingerprint(windowContexts: fingerprintContexts)
     }
 
-    private func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
+    private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
         guard !matchedIndices.isEmpty else {
             return Text(title).foregroundColor(.primary)
         }
@@ -4754,6 +4739,46 @@ struct ContentView: View {
         }
 
         return result
+    }
+
+    @ViewBuilder
+    private static func commandPaletteTrailingLabelView(_ trailingLabel: CommandPaletteTrailingLabel?) -> some View {
+        if let trailingLabel {
+            switch trailingLabel.style {
+            case .shortcut:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(
+                        Color.primary.opacity(0.08),
+                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    )
+            case .kind:
+                Text(trailingLabel.text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private static func commandPaletteResultLabelContent(
+        title: String,
+        matchedIndices: Set<Int>,
+        trailingLabel: CommandPaletteTrailingLabel?
+    ) -> some View {
+        HStack(spacing: 8) {
+            commandPaletteHighlightedTitleText(
+                title,
+                matchedIndices: matchedIndices
+            )
+                .font(.system(size: 13, weight: .regular))
+                .lineLimit(1)
+            Spacer()
+            commandPaletteTrailingLabelView(trailingLabel)
+        }
     }
 
     private func commandPaletteTrailingLabel(for command: CommandPaletteCommand) -> CommandPaletteTrailingLabel? {
@@ -4810,7 +4835,7 @@ struct ContentView: View {
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
-                        subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
+                        subtitle: Self.commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
@@ -4855,7 +4880,7 @@ struct ContentView: View {
                             id: surfaceCommandId,
                             rank: nextRank,
                             title: surfaceName,
-                            subtitle: commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
+                            subtitle: Self.commandPaletteSwitcherSubtitle(base: workspaceName, windowLabel: context.windowLabel),
                             shortcutHint: nil,
                             kindLabel: surfaceKindLabel,
                             keywords: surfaceKeywords,
@@ -4927,7 +4952,7 @@ struct ContentView: View {
         return contexts
     }
 
-    private func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
+    private static func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
         guard let windowLabel else { return base }
         return "\(base) • \(windowLabel)"
     }
@@ -5158,6 +5183,8 @@ struct ContentView: View {
             return .toggleBrowserDeveloperTools
         case "palette.browserConsole":
             return .showBrowserJavaScriptConsole
+        case "palette.browserReactGrab":
+            return .toggleReactGrab
         case "palette.browserSplitRight", "palette.terminalSplitBrowserRight":
             return .splitBrowserRight
         case "palette.browserSplitDown", "palette.terminalSplitBrowserDown":
@@ -5354,6 +5381,25 @@ struct ContentView: View {
                 title: constant(String(localized: "command.openFolder.title", defaultValue: "Open Folder…")),
                 subtitle: constant(String(localized: "command.openFolder.subtitle", defaultValue: "Workspace")),
                 keywords: ["open", "folder", "repository", "project", "directory"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openFolderInVSCodeInline",
+                title: constant(
+                    String(
+                        localized: "command.openFolderInVSCodeInline.title",
+                        defaultValue: "Open Folder in VS Code (Inline)…"
+                    )
+                ),
+                subtitle: constant(
+                    String(
+                        localized: "command.openFolderInVSCodeInline.subtitle",
+                        defaultValue: "VS Code Inline"
+                    )
+                ),
+                keywords: ["open", "folder", "directory", "project", "vs", "code", "inline", "editor", "browser"],
+                when: { _ in TerminalDirectoryOpenTarget.vscodeInline.isAvailable() }
             )
         )
         contributions.append(
@@ -5786,6 +5832,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.browserReactGrab",
+                title: constant(String(localized: "command.browserReactGrab.title", defaultValue: "Toggle React Grab")),
+                subtitle: browserPanelSubtitle,
+                keywords: ["browser", "react", "grab", "inspect", "element"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsBrowser) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.browserZoomIn",
                 title: constant(String(localized: "command.browserZoomIn.title", defaultValue: "Zoom In")),
                 subtitle: browserPanelSubtitle,
@@ -6041,6 +6096,11 @@ struct ContentView: View {
                 }
             }
         }
+        registry.register(commandId: "palette.openFolderInVSCodeInline") {
+            DispatchQueue.main.async {
+                AppDelegate.shared?.showOpenFolderInInlineVSCodePanel(tabManager: tabManager)
+            }
+        }
         registry.register(commandId: "palette.newWindow") {
             AppDelegate.shared?.openNewMainWindow(nil)
         }
@@ -6268,6 +6328,9 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
+        registry.register(commandId: "palette.browserReactGrab") {
+            tabManager.toggleReactGrabFocusedBrowser()
+        }
         registry.register(commandId: "palette.browserZoomIn") {
             if !tabManager.zoomInFocusedBrowser() {
                 NSSound.beep()
@@ -6380,13 +6443,17 @@ struct ContentView: View {
         return (workspace, panelId, panel)
     }
 
-    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+    private static func commandPaletteWorkspaceDisplayName(_ workspace: Workspace) -> String {
         let custom = workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !custom.isEmpty {
             return custom
         }
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : title
+    }
+
+    private func workspaceDisplayName(_ workspace: Workspace) -> String {
+        Self.commandPaletteWorkspaceDisplayName(workspace)
     }
 
     private func panelDisplayName(workspace: Workspace, panelId: UUID, fallback: String) -> String {
@@ -6825,13 +6892,13 @@ struct ContentView: View {
         }
 
         let rows = Array(commandPaletteVisibleResults.prefix(20)).map { result in
-            CommandPaletteDebugResultRow(
-                commandId: result.command.id,
-                title: result.command.title,
-                shortcutHint: result.command.shortcutHint,
-                trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
-                score: result.score
-            )
+                CommandPaletteDebugResultRow(
+                    commandId: result.command.id,
+                    title: result.command.title,
+                    shortcutHint: result.command.shortcutHint,
+                    trailingLabel: commandPaletteTrailingLabel(for: result.command)?.text,
+                    score: result.score
+                )
         }
 
         return CommandPaletteDebugSnapshot(
@@ -7432,35 +7499,7 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectoryInInlineVSCode(_ directoryURL: URL) -> Bool {
-        guard let vscodeApplicationURL = TerminalDirectoryOpenTarget.vscodeInline.applicationURL(),
-              let workspace = tabManager.selectedWorkspace,
-              let sourcePanelId = workspace.focusedPanelId else {
-            return false
-        }
-        let sourceTabId = workspace.id
-        let tabManager = tabManager
-        VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
-            guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
-                      baseWebUIURL: serveWebURL,
-                      directoryPath: directoryURL.path
-                  ) else {
-                NSSound.beep()
-                return
-            }
-            guard tabManager.newBrowserSplit(
-                tabId: sourceTabId,
-                fromPanelId: sourcePanelId,
-                orientation: SplitDirection.right.orientation,
-                insertFirst: SplitDirection.right.insertFirst,
-                url: openFolderURL,
-                focus: true
-            ) != nil else {
-                NSSound.beep()
-                return
-            }
-        }
-        return true
+        AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
     }
 
     private func stopInlineVSCodeServeWeb() {
@@ -11120,7 +11159,7 @@ enum SidebarTrailingAccessoryWidthPolicy {
 // Reactive workspace state inside the row must not rely on parent diffs alone:
 // `.equatable()` can otherwise leave sidebar badges/details stale until an
 // unrelated parent change sneaks through. Keep the workspace reference plain
-// and bridge its objectWillChange into local state instead.
+// and bridge only sidebar-visible workspace changes into local state.
 // Do NOT add @EnvironmentObject or new @Binding without updating ==.
 // Do NOT remove .equatable() from the ForEach call site in VerticalTabsSidebar.
 private struct TabItemView: View, Equatable {
@@ -11752,7 +11791,7 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onReceive(
-            tab.objectWillChange
+            tab.sidebarObservationPublisher
                 .receive(on: RunLoop.main)
                 // Prompt-time sidebar telemetry can arrive as a short burst
                 // (pwd, branch, PR, shell state). Coalesce that burst so the
@@ -14002,14 +14041,13 @@ private struct SidebarBackdrop: View {
         let cornerRadius = CGFloat(max(0, sidebarCornerRadius))
 
         if matchTerminalBackground {
-            // The terminal area has two stacked semi-transparent layers (Bonsplit chrome +
-            // Ghostty Metal background). Compute the effective composited opacity to match.
+            // The terminal background is provided by a single CALayer, so
+            // the sidebar uses the configured opacity directly.
             let alpha = CGFloat(GhosttyApp.shared.defaultBackgroundOpacity)
-            let effective = alpha >= 0.999 ? alpha : 1.0 - pow(1.0 - alpha, 2)
             return AnyView(
                 SidebarTerminalBackgroundView(
                     backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-                    opacity: effective
+                    opacity: alpha
                 )
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in

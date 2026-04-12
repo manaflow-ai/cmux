@@ -1303,6 +1303,12 @@ class GhosttyApp {
                 return
             }
 
+            loadInlineGhosttyConfig(
+                "macos-background-from-layer = true",
+                into: fallbackConfig,
+                prefix: "cmux-layer-bg",
+                logLabel: "layer background (fallback)"
+            )
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
 
@@ -1374,22 +1380,21 @@ class GhosttyApp {
         }
     }
 
-    private func loadCopyOnSelectOverride(_ config: ghostty_config_t) {
-        loadInlineGhosttyConfig(
-            TerminalCopyOnSelectSettings.overrideConfigLine(),
-            into: config,
-            prefix: "cmux-copy-on-select",
-            logLabel: "copy-on-select override"
-        )
-    }
-
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
-        loadCopyOnSelectOverride(config)
         loadCJKFontFallbackIfNeeded(config)
+        // cmux provides the terminal background via backgroundView (CALayer)
+        // instead of the GPU full-screen bg pass, so the layer can provide
+        // instant coverage during sidebar toggle and other layout transitions.
+        loadInlineGhosttyConfig(
+            "macos-background-from-layer = true",
+            into: config,
+            prefix: "cmux-layer-bg",
+            logLabel: "layer background"
+        )
         ghostty_config_finalize(config)
     }
 
@@ -7392,11 +7397,6 @@ final class GhosttySurfaceScrollView: NSView {
     }
     private(set) var searchFocusTarget: SearchFocusTarget = .searchField
 
-    private static func panelBackgroundFillColor(for terminalBackgroundColor: NSColor) -> NSColor {
-        // The Ghostty renderer already draws translucent terminal backgrounds. If we paint an
-        // additional translucent layer here, alpha stacks and appears effectively opaque.
-        terminalBackgroundColor.alphaComponent < 0.999 ? .clear : terminalBackgroundColor
-    }
 
 #if DEBUG
     private var lastDropZoneOverlayLogSignature: String?
@@ -7584,9 +7584,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.wantsLayer = true
         let initialTerminalBackground = GhosttyApp.shared.defaultBackgroundColor
             .withAlphaComponent(GhosttyApp.shared.defaultBackgroundOpacity)
-        let initialPanelFill = Self.panelBackgroundFillColor(for: initialTerminalBackground)
-        backgroundView.layer?.backgroundColor = initialPanelFill.cgColor
-        backgroundView.layer?.isOpaque = initialPanelFill.alphaComponent >= 1.0
+        backgroundView.layer?.backgroundColor = initialTerminalBackground.cgColor
+        backgroundView.layer?.isOpaque = initialTerminalBackground.alphaComponent >= 1.0
         addSubview(backgroundView)
         addSubview(scrollView)
         inactiveOverlayView.wantsLayer = true
@@ -8152,11 +8151,10 @@ final class GhosttySurfaceScrollView: NSView {
 
     func setBackgroundColor(_ color: NSColor) {
         guard let layer = backgroundView.layer else { return }
-        let fillColor = Self.panelBackgroundFillColor(for: color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.backgroundColor = fillColor.cgColor
-        layer.isOpaque = fillColor.alphaComponent >= 1.0
+        layer.backgroundColor = color.cgColor
+        layer.isOpaque = color.alphaComponent >= 1.0
         CATransaction.commit()
     }
 

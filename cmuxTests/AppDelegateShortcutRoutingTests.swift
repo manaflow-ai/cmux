@@ -2351,8 +2351,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugMarkCommandPaletteOpenPending is only available in DEBUG")
 #endif
 
-        // Simulate a visibility sync lag/race where AppDelegate does not yet know the palette is open.
-        appDelegate.setCommandPaletteVisible(false, for: window)
+        // Model the normal open-palette state so the test reads like the user-facing scenario.
+        appDelegate.setCommandPaletteVisible(true, for: window)
 
         guard let escapeEvent = makeKeyDownEvent(
             key: "\u{1b}",
@@ -2443,6 +2443,72 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         wait(for: [moveExpectation], timeout: 1.0)
         XCTAssertEqual(observedWindow?.windowNumber, window.windowNumber)
         XCTAssertEqual(observedDelta, 1)
+    }
+
+    func testControlKDoesNotRoutePaletteMoveSelectionWhenSearchFieldIsFocused() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer {
+            closeWindow(withId: windowId)
+        }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        let overlayContainer = NSView(frame: contentView.bounds)
+        overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
+        overlayContainer.alphaValue = 1
+        overlayContainer.isHidden = false
+        contentView.addSubview(overlayContainer)
+
+        let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        fieldEditor.isFieldEditor = true
+        overlayContainer.addSubview(fieldEditor)
+        XCTAssertTrue(window.makeFirstResponder(fieldEditor))
+
+        appDelegate.setCommandPaletteVisible(false, for: window)
+        defer {
+            overlayContainer.removeFromSuperview()
+            fieldEditor.removeFromSuperview()
+        }
+
+        let moveExpectation = expectation(
+            description: "Ctrl+K should not be rerouted as command palette move-selection"
+        )
+        moveExpectation.isInverted = true
+        let moveToken = NotificationCenter.default.addObserver(
+            forName: .commandPaletteMoveSelection,
+            object: nil,
+            queue: nil
+        ) { _ in
+            moveExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        guard let controlKEvent = makeKeyDownEvent(
+            key: "\u{0b}",
+            modifiers: [.control],
+            keyCode: 40,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Ctrl+K event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: controlKEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+        wait(for: [moveExpectation], timeout: 0.2)
     }
 
     func testEscapeDismissesCommandPaletteWhenVisibilityStateStaysStalePastInitialPendingWindow() {

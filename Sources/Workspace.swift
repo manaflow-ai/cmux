@@ -112,7 +112,7 @@ func cmuxInheritedSurfaceConfig(
     return config
 }
 
-struct SidebarStatusEntry {
+struct SidebarStatusEntry: Equatable {
     let key: String
     let value: String
     let icon: String?
@@ -143,7 +143,7 @@ struct SidebarStatusEntry {
     }
 }
 
-struct SidebarMetadataBlock {
+struct SidebarMetadataBlock: Equatable {
     let key: String
     let markdown: String
     let priority: Int
@@ -4896,21 +4896,29 @@ enum SidebarLogLevel: String {
     case error
 }
 
-struct SidebarLogEntry {
+struct SidebarLogEntry: Equatable {
     let message: String
     let level: SidebarLogLevel
     let source: String?
     let timestamp: Date
 }
 
-struct SidebarProgressState {
+struct SidebarProgressState: Equatable {
     let value: Double
     let label: String?
 }
 
-struct SidebarGitBranchState {
+struct SidebarGitBranchState: Equatable {
     let branch: String
     let isDirty: Bool
+}
+
+private struct SidebarPanelObservationState: Equatable {
+    let panelIds: [UUID]
+
+    init(panels: [UUID: any Panel]) {
+        panelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
+    }
 }
 
 enum WorkspaceRemoteConnectionState: String {
@@ -5582,6 +5590,47 @@ final class Workspace: Identifiable, ObservableObject {
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
+
+    private func sidebarObservationSignal<Value: Equatable>(
+        _ publisher: Published<Value>.Publisher
+    ) -> AnyPublisher<Void, Never> {
+        publisher
+            .dropFirst()
+            .removeDuplicates()
+            .map { _ in () }
+            .eraseToAnyPublisher()
+    }
+
+    lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
+        let publishers: [AnyPublisher<Void, Never>] = [
+            sidebarObservationSignal($title),
+            sidebarObservationSignal($isPinned),
+            sidebarObservationSignal($customColor),
+            sidebarObservationSignal($currentDirectory),
+            $panels
+                .map(SidebarPanelObservationState.init)
+                .dropFirst()
+                .removeDuplicates()
+                .map { _ in () }
+                .eraseToAnyPublisher(),
+            sidebarObservationSignal($panelDirectories),
+            sidebarObservationSignal($statusEntries),
+            sidebarObservationSignal($metadataBlocks),
+            sidebarObservationSignal($logEntries),
+            sidebarObservationSignal($progress),
+            sidebarObservationSignal($gitBranch),
+            sidebarObservationSignal($panelGitBranches),
+            sidebarObservationSignal($pullRequest),
+            sidebarObservationSignal($panelPullRequests),
+            sidebarObservationSignal($remoteConfiguration),
+            sidebarObservationSignal($remoteConnectionState),
+            sidebarObservationSignal($remoteConnectionDetail),
+            sidebarObservationSignal($activeRemoteTerminalSessionCount),
+            sidebarObservationSignal($listeningPorts),
+        ]
+
+        return Publishers.MergeMany(publishers).eraseToAnyPublisher()
+    }()
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()
@@ -6449,22 +6498,32 @@ final class Workspace: Identifiable, ObservableObject {
             panelGitBranches[panelId] = state
         }
         if branchChanged {
-            panelPullRequests.removeValue(forKey: panelId)
-            if panelId == focusedPanelId {
+            if panelPullRequests[panelId] != nil {
+                panelPullRequests.removeValue(forKey: panelId)
+            }
+            if panelId == focusedPanelId, pullRequest != nil {
                 pullRequest = nil
             }
         }
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
     }
 
     func clearPanelGitBranch(panelId: UUID) {
-        panelGitBranches.removeValue(forKey: panelId)
-        panelPullRequests.removeValue(forKey: panelId)
+        if panelGitBranches[panelId] != nil {
+            panelGitBranches.removeValue(forKey: panelId)
+        }
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
         if panelId == focusedPanelId {
-            gitBranch = nil
-            pullRequest = nil
+            if gitBranch != nil {
+                gitBranch = nil
+            }
+            if pullRequest != nil {
+                pullRequest = nil
+            }
         }
     }
 
@@ -6520,14 +6579,16 @@ final class Workspace: Identifiable, ObservableObject {
         if existing != state {
             panelPullRequests[panelId] = state
         }
-        if panelId == focusedPanelId {
+        if panelId == focusedPanelId, pullRequest != state {
             pullRequest = state
         }
     }
 
     func clearPanelPullRequest(panelId: UUID) {
-        panelPullRequests.removeValue(forKey: panelId)
-        if panelId == focusedPanelId {
+        if panelPullRequests[panelId] != nil {
+            panelPullRequests.removeValue(forKey: panelId)
+        }
+        if panelId == focusedPanelId, pullRequest != nil {
             pullRequest = nil
         }
     }
@@ -9636,15 +9697,15 @@ final class Workspace: Identifiable, ObservableObject {
               let panel = panels[panelId] else { return }
 
         let alert = NSAlert()
-        alert.messageText = "Rename Tab"
-        alert.informativeText = "Enter a custom name for this tab."
+        alert.messageText = String(localized: "alert.renameTab.title", defaultValue: "Rename Tab")
+        alert.informativeText = String(localized: "alert.renameTab.message", defaultValue: "Enter a custom name for this tab.")
         let currentTitle = panelCustomTitles[panelId] ?? panelTitles[panelId] ?? panel.displayTitle
         let input = NSTextField(string: currentTitle)
-        input.placeholderString = "Tab name"
+        input.placeholderString = String(localized: "alert.renameTab.placeholder", defaultValue: "Tab name")
         input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
         alert.accessoryView = input
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "alert.renameTab.rename", defaultValue: "Rename"))
+        alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
         let alertWindow = alert.window
         alertWindow.initialFirstResponder = input
         DispatchQueue.main.async {
@@ -9673,24 +9734,24 @@ final class Workspace: Identifiable, ObservableObject {
         )
 
         var options: [(title: String, destination: PanelMoveDestination)] = [
-            ("New Workspace in Current Window", .newWorkspaceInCurrentWindow),
-            ("Selected Workspace in New Window", .selectedWorkspaceInNewWindow),
+            (String(localized: "alert.moveTab.newWorkspaceInCurrentWindow", defaultValue: "New Workspace in Current Window"), .newWorkspaceInCurrentWindow),
+            (String(localized: "alert.moveTab.selectedWorkspaceInNewWindow", defaultValue: "Selected Workspace in New Window"), .selectedWorkspaceInNewWindow),
         ]
         options.append(contentsOf: workspaceTargets.map { target in
             (target.label, .existingWorkspace(target.workspaceId))
         })
 
         let alert = NSAlert()
-        alert.messageText = "Move Tab"
-        alert.informativeText = "Choose a destination for this tab."
+        alert.messageText = String(localized: "alert.moveTab.title", defaultValue: "Move Tab")
+        alert.informativeText = String(localized: "alert.moveTab.message", defaultValue: "Choose a destination for this tab.")
         let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 320, height: 26), pullsDown: false)
         for option in options {
             popup.addItem(withTitle: option.title)
         }
         popup.selectItem(at: 0)
         alert.accessoryView = popup
-        alert.addButton(withTitle: "Move")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "alert.moveTab.move", defaultValue: "Move"))
+        alert.addButton(withTitle: String(localized: "alert.cancel", defaultValue: "Cancel"))
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let selectedIndex = max(0, min(popup.indexOfSelectedItem, options.count - 1))
@@ -9736,9 +9797,9 @@ final class Workspace: Identifiable, ObservableObject {
         if !moved {
             let failure = NSAlert()
             failure.alertStyle = .warning
-            failure.messageText = "Move Failed"
-            failure.informativeText = "cmux could not move this tab to the selected destination."
-            failure.addButton(withTitle: "OK")
+            failure.messageText = String(localized: "alert.moveTab.failed.title", defaultValue: "Move Failed")
+            failure.informativeText = String(localized: "alert.moveTab.failed.message", defaultValue: "cmux could not move this tab to the selected destination.")
+            failure.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
             _ = failure.runModal()
         }
     }
