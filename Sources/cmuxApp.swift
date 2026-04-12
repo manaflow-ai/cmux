@@ -3662,12 +3662,32 @@ enum AppIconMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppIconLaunchState {
+    private static let lock = NSLock()
+    private static var didFinishLaunching = false
+
+    static func markDidFinishLaunching() {
+        lock.lock()
+        defer { lock.unlock() }
+        didFinishLaunching = true
+    }
+
+    static func isApplicationFinishedLaunching() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let hasFinishedLaunching = didFinishLaunching
+        return hasFinishedLaunching
+    }
+}
+
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+    private static var liveEnvironmentProvider: () -> Environment = { .live() }
 
     struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
@@ -3676,6 +3696,9 @@ enum AppIconSettings {
 
         static func live() -> Self {
             Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
@@ -3709,7 +3732,13 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
+    static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+        let environment = environment ?? liveEnvironmentProvider()
+        // Tahoe can crash or wedge when app icon work runs during App.init(),
+        // so leave settings replay to update defaults only and let AppDelegate
+        // apply the resolved icon once didFinishLaunching begins.
+        guard environment.isApplicationFinishedLaunching() else { return }
+
         switch mode {
         case .automatic:
             environment.startAppearanceObservation()
@@ -3724,6 +3753,14 @@ enum AppIconSettings {
         }
 
         environment.notifyDockTilePlugin()
+    }
+
+    static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> Environment) {
+        liveEnvironmentProvider = provider
+    }
+
+    static func resetLiveEnvironmentProviderForTesting() {
+        liveEnvironmentProvider = { .live() }
     }
 }
 
@@ -3745,7 +3782,9 @@ final class AppIconAppearanceObserver: NSObject {
 
         static func live() -> Self {
             Self(
-                isApplicationFinishedLaunching: { NSRunningApplication.current.isFinishedLaunching },
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
                 startEffectiveAppearanceObservation: { handler in
                     guard let app = NSApp else { return nil }
                     return app.observe(\.effectiveAppearance, options: []) { _, _ in
