@@ -163,13 +163,11 @@ final class FileExplorerModel: ObservableObject {
     }
 
     private func loadChildrenAsync(for directoryURL: URL) {
-        loadGeneration &+= 1
-        let generation = loadGeneration
         let currentItems = rootItems
         Task.detached(priority: .utility) {
             let updated = currentItems.map { Self.updateChildren(in: $0, targetURL: directoryURL, forceReload: false) }
             await MainActor.run { [weak self] in
-                guard let self, self.loadGeneration == generation else { return }
+                guard let self, self.expandedDirectories.contains(directoryURL) else { return }
                 self.rootItems = updated
                 self.recomputeFlatItems()
             }
