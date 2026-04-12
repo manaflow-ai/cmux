@@ -32,6 +32,107 @@ _cmux_send() {
     esac
 }
 
+_cmux_socket_is_unix() {
+    [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
+}
+
+_cmux_relay_cli_path() {
+    if [[ -n "${CMUX_BUNDLED_CLI_PATH:-}" && -x "${CMUX_BUNDLED_CLI_PATH}" ]]; then
+        printf '%s\n' "${CMUX_BUNDLED_CLI_PATH}"
+        return 0
+    fi
+    command -v cmux 2>/dev/null
+}
+
+_cmux_socket_uses_remote_relay() {
+    [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
+    [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
+    [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
+    [[ -n "$(_cmux_relay_cli_path)" ]]
+}
+
+_cmux_has_port_scan_transport() {
+    _cmux_socket_is_unix && return 0
+    _cmux_socket_uses_remote_relay
+}
+
+_cmux_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s\n' "$value"
+}
+
+_cmux_relay_rpc_bg() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    _cmux_socket_uses_remote_relay || return 1
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    {
+        "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 || true
+    } >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+}
+
+_cmux_relay_rpc() {
+    local method="$1"
+    local params="$2"
+    local relay_cli=""
+    local response=""
+    _cmux_socket_uses_remote_relay || return 1
+    # Relay `cmux rpc` exits nonzero on server error. The real remote CLI prints
+    # only the JSON result payload on success, while some test stubs return the
+    # full `{"ok":...}` envelope. Retry only on explicit `ok:false`.
+    relay_cli="$(_cmux_relay_cli_path)" || return 1
+    response="$("$relay_cli" rpc "$method" "$params" 2>/dev/null)" || return 1
+    response="${response//$'\n'/}"
+    response="${response//$'\r'/}"
+    [[ "$response" == *'"ok":false'* || "$response" == *'"ok": false'* ]] && return 1
+    return 0
+}
+
+_cmux_relay_workspace_id() {
+    if [[ -n "$CMUX_WORKSPACE_ID" ]]; then
+        printf '%s\n' "$CMUX_WORKSPACE_ID"
+        return 0
+    fi
+    [[ -n "$CMUX_TAB_ID" ]] || return 1
+    printf '%s\n' "$CMUX_TAB_ID"
+}
+
+_cmux_report_tty_via_relay() {
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    [[ -n "$_CMUX_TTY_NAME" ]] || return 1
+
+    local tty_name_json params
+    tty_name_json="$(_cmux_json_escape "$_CMUX_TTY_NAME")"
+    params="{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc "surface.report_tty" "$params"
+}
+
+_cmux_ports_kick_via_relay() {
+    local reason="${1:-command}"
+    _cmux_socket_uses_remote_relay || return 1
+    local workspace_id=""
+    workspace_id="$(_cmux_relay_workspace_id)" || return 1
+    local params="{\"workspace_id\":\"$workspace_id\",\"reason\":\"$reason\""
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
+    fi
+    params+="}"
+    _cmux_relay_rpc_bg "surface.ports_kick" "$params"
+}
+
 _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
@@ -43,7 +144,31 @@ _cmux_restore_scrollback_once() {
     fi
 }
 _cmux_restore_scrollback_once
+_CMUX_CLAUDE_WRAPPER="${_CMUX_CLAUDE_WRAPPER:-}"
+_cmux_install_claude_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    local existing_type=""
+    [[ -n "$integration_dir" ]] || return 0
 
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/claude"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    existing_type="$(type -t claude 2>/dev/null || true)"
+    case "$existing_type" in
+        alias|function)
+            return 0
+            ;;
+    esac
+
+    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing `alias claude=...` cannot break parsing.
+    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
+    unalias claude >/dev/null 2>&1 || true
+    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+}
+_cmux_install_claude_wrapper
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }
@@ -65,6 +190,8 @@ _CMUX_PR_POLL_INTERVAL="${_CMUX_PR_POLL_INTERVAL:-45}"
 _CMUX_PR_FORCE="${_CMUX_PR_FORCE:-0}"
 _CMUX_PR_DEBUG="${_CMUX_PR_DEBUG:-0}"
 _CMUX_ASYNC_JOB_TIMEOUT="${_CMUX_ASYNC_JOB_TIMEOUT:-20}"
+_CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
+_CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -246,16 +373,23 @@ _cmux_report_tty_once() {
     # Send the TTY name to the app once per session so the batched port scanner
     # knows which TTY belongs to this panel.
     (( _CMUX_TTY_REPORTED )) && return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
 
-    local payload=""
-    payload="$(_cmux_report_tty_payload)"
-    [[ -n "$payload" ]] || return 0
-
-    _CMUX_TTY_REPORTED=1
-    {
-        _cmux_send "$payload"
-    } >/dev/null 2>&1 & disown
+    if _cmux_socket_is_unix; then
+        local payload=""
+        payload="$(_cmux_report_tty_payload)"
+        [[ -n "$payload" ]] || return 0
+        _CMUX_TTY_REPORTED=1
+        {
+            _cmux_send "$payload"
+        } >/dev/null 2>&1 & disown
+    else
+        [[ -n "$_CMUX_TTY_NAME" ]] || return 0
+        # Keep the first relay TTY report synchronous so the server can resolve
+        # the target surface before command-start kicks begin their scan burst.
+        _cmux_report_tty_via_relay || return 0
+        _CMUX_TTY_REPORTED=1
+    fi
 }
 
 _cmux_report_shell_activity_state() {
@@ -272,15 +406,22 @@ _cmux_report_shell_activity_state() {
 }
 
 _cmux_ports_kick() {
+    local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
     # The app coalesces kicks across all panels and runs a single ps+lsof.
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _CMUX_PORTS_LAST_RUN=$SECONDS
-    {
-        _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
-    } >/dev/null 2>&1 & disown
+    if _cmux_socket_is_unix; then
+        [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    fi
+    _CMUX_PORTS_LAST_RUN="$(_cmux_now)"
+    if _cmux_socket_is_unix; then
+        {
+            _cmux_send "ports_kick --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID --reason=$reason"
+        } >/dev/null 2>&1 & disown
+    else
+        _cmux_ports_kick_via_relay "$reason"
+    fi
 }
 
 _cmux_clear_pr_for_panel() {
@@ -289,6 +430,95 @@ _cmux_clear_pr_for_panel() {
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     # Synchronous: must arrive before the next report_pr from the poll loop.
     _cmux_send "clear_pr --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_record_pr_command_hint() {
+    local cmd="$1"
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
+
+    local -a words=()
+    read -r -a words <<< "$cmd"
+
+    local index=0
+    local word base
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index < ${#words[@]} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word##*/}"
+        [[ "$base" == "gh" ]] || return 0
+        index=$(( index + 1 ))
+        break
+    done
+
+    (( index + 1 < ${#words[@]} )) || return 0
+    [[ "${words[index]}" == "pr" ]] || return 0
+    local action="${words[index + 1]}"
+    action="$(printf '%s' "$action" | tr '[:upper:]' '[:lower:]')"
+    case "$action" in
+        merge|close|reopen|create|checkout|ready|edit|view)
+            _CMUX_LAST_PR_ACTION="$action" ;;
+        *)
+            return 0 ;;
+    esac
+
+    index=$(( index + 2 ))
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+        case "$word" in
+            --*=*)
+                index=$(( index + 1 ))
+                continue ;;
+            --*)
+                index=$(( index + 2 ))
+                continue ;;
+            -*)
+                index=$(( index + 1 ))
+                continue ;;
+            *)
+                _CMUX_LAST_PR_TARGET="$word"
+                break ;;
+        esac
+    done
+}
+
+_cmux_emit_pr_command_hint() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ -n "$_CMUX_LAST_PR_ACTION" ]] || return 0
+
+    local payload="report_pr_action $_CMUX_LAST_PR_ACTION --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if [[ -n "$_CMUX_LAST_PR_TARGET" ]]; then
+        local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
+        payload+=" --target=\"$quoted_target\""
+    fi
+    {
+        _cmux_send "$payload"
+    } >/dev/null 2>&1 & disown
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
 }
 
 _cmux_pr_output_indicates_no_pull_request() {
@@ -564,7 +794,7 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
-_cmux_stop_pr_poll_loop() {
+_cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
         # negative PID kills the loop + all descendants (gh, sleep) without
@@ -576,6 +806,10 @@ _cmux_stop_pr_poll_loop() {
     [[ -n "$signal_path" ]] && /bin/rm -f -- "$signal_path" >/dev/null 2>&1 || true
     _CMUX_PR_POLL_PID=""
     _CMUX_PR_POLL_PWD=""
+}
+
+_cmux_stop_pr_poll_loop() {
+    _cmux_halt_pr_poll_loop
     _cmux_pr_cache_clear
 }
 
@@ -595,7 +829,7 @@ _cmux_start_pr_poll_loop() {
     fi
 
     if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        _cmux_stop_pr_poll_loop
+        _cmux_halt_pr_poll_loop
     else
         _CMUX_PR_POLL_PID=""
     fi
@@ -632,12 +866,65 @@ _cmux_bash_cleanup() {
     _cmux_stop_pr_poll_loop
 }
 
+_cmux_command_starts_nested_shell() {
+    local cmd="$1"
+    local -a words=()
+    read -r -a words <<< "$cmd"
+
+    local index=0
+    local word base
+    while (( index < ${#words[@]} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index < ${#words[@]} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word##*/}"
+        case "$base" in
+            bash|zsh|sh|fish|nu|nix-shell)
+                return 0 ;;
+            nix)
+                local next_index=$(( index + 1 ))
+                local next_word="${words[next_index]:-}"
+                case "$next_word" in
+                    develop|shell)
+                        return 0 ;;
+                esac ;;
+        esac
+
+        return 1
+    done
+
+    return 1
+}
+
 _cmux_preexec_command() {
+    local cmd="${1:-${BASH_COMMAND:-}}"
     _cmux_tmux_sync_cmux_environment
 
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    local cmux_has_unix_socket=0
+    _cmux_socket_is_unix && cmux_has_unix_socket=1
+    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    _cmux_record_pr_command_hint "$cmd"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -648,23 +935,48 @@ _cmux_preexec_command() {
 
     _cmux_report_shell_activity_state running
     _cmux_report_tty_once
-    _cmux_ports_kick
+    _cmux_ports_kick command
+    _cmux_halt_pr_poll_loop
+    if _cmux_command_starts_nested_shell "$cmd"; then
+        return 0
+    fi
 }
 
 _cmux_bash_preexec_hook() {
-    _cmux_preexec_command
+    _cmux_preexec_command "$@"
 }
 
 _cmux_prompt_command() {
+    local last_status=$?
     _cmux_tmux_sync_cmux_environment
 
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    local cmux_has_unix_socket=0
+    _cmux_socket_is_unix && cmux_has_unix_socket=1
+    (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
-    [[ -n "$CMUX_PANEL_ID" ]] || return 0
-    _cmux_report_shell_activity_state prompt
+
+    if [[ -z "$_CMUX_TTY_NAME" ]]; then
+        local t
+        t="$(tty 2>/dev/null || true)"
+        t="${t##*/}"
+        [[ "$t" != "not a tty" ]] && _CMUX_TTY_NAME="$t"
+    fi
+
+    if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_report_shell_activity_state prompt
+    fi
+    _cmux_report_tty_once
 
     local now
     now="$(_cmux_now)"
+    if (( ! cmux_has_unix_socket )); then
+        if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
+            _cmux_ports_kick refresh
+        fi
+        return 0
+    fi
+
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
     local pwd="$PWD"
 
     # Post-wake socket writes can occasionally leave a probe process wedged.
@@ -758,46 +1070,20 @@ _cmux_prompt_command() {
         _CMUX_GIT_JOB_STARTED_AT=$now
     fi
 
-    # Pull request metadata is remote state. Keep polling while the shell sits
-    # at a prompt so newly created or merged PRs appear without another command.
-    local should_restart_pr_poll=0
-    local should_signal_pr_probe=0
-    local pr_context_changed=0
-    if [[ -n "$_CMUX_PR_POLL_PWD" && "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
-        pr_context_changed=1
-    elif [[ "$git_head_changed" == "1" ]]; then
-        pr_context_changed=1
-    fi
-    if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" || "$git_head_changed" == "1" ]]; then
-        should_restart_pr_poll=1
-    elif (( _CMUX_PR_FORCE )); then
-        if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-            should_signal_pr_probe=1
-        else
-            should_restart_pr_poll=1
-        fi
-    elif [[ -z "$_CMUX_PR_POLL_PID" ]] || ! kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        should_restart_pr_poll=1
-    fi
-
-    if (( pr_context_changed )); then
+    if [[ "$git_head_changed" == "1" ]]; then
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
     fi
-
-    if (( should_signal_pr_probe )); then
-        _CMUX_PR_FORCE=0
-        _cmux_pr_request_probe
-    fi
-
-    if (( should_restart_pr_poll )); then
-        _CMUX_PR_FORCE=0
-        _cmux_start_pr_poll_loop "$pwd" 1
+    if (( last_status == 0 )); then
+        _cmux_emit_pr_command_hint
+    else
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
     fi
 
     # Ports: lightweight kick to the app's batched scanner every ~10s.
     if (( now - _CMUX_PORTS_LAST_RUN >= 10 )); then
-        _cmux_ports_kick
+        _cmux_ports_kick refresh
     fi
 }
 
@@ -829,11 +1115,11 @@ _cmux_install_prompt_command() {
         esac
     fi
 
-    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
+        if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) )); then
         if (( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 3) )); then
-            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook; }'
+            builtin readonly _CMUX_BASH_PS0='${ _cmux_bash_preexec_hook "$BASH_COMMAND"; }'
         else
-            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook >/dev/null)'
+            builtin readonly _CMUX_BASH_PS0='$(_cmux_bash_preexec_hook "$BASH_COMMAND" >/dev/null)'
         fi
         if [[ "$PS0" != *"${_CMUX_BASH_PS0}"* ]]; then
             PS0=$PS0"${_CMUX_BASH_PS0}"

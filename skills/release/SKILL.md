@@ -53,7 +53,9 @@ Run this workflow to prepare and publish a cmux release.
 - `gh pr merge --squash --delete-branch`
 - `git checkout main && git pull --ff-only`
 
-10. Create and push tag:
+10. Run the pre-tag guard, then create and push tag:
+- `./scripts/release-pretag-guard.sh`
+- If it fails, run `./scripts/bump-version.sh`, commit the build-number bump, push/merge that change, and retry the tag.
 - `git tag vX.Y.Z`
 - `git push origin vX.Y.Z`
 

@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
+if (hadOriginalNodeOptions) {
+  process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
+} else {
+  delete process.env.NODE_OPTIONS;
+}
+delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
+delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+`
+
 // runClaudeTeamsRelay implements `cmux claude-teams` on the remote side.
 // It creates tmux shim scripts, sets up environment variables, gets the
 // focused context via system.identify, and exec's into `claude`.
@@ -31,16 +41,19 @@ func runClaudeTeamsRelay(socketPath string, args []string, refreshAddr func() st
 	focused := getFocusedContext(rc)
 
 	configureAgentEnvironment(agentConfig{
-		shimDir:         shimDir,
-		socketPath:      socketPath,
-		focused:         focused,
-		tmuxPathPrefix:  "cmux-claude-teams",
-		cmuxBinEnvVar:   "CMUX_CLAUDE_TEAMS_CMUX_BIN",
-		termEnvVar:      "CMUX_CLAUDE_TEAMS_TERM",
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-claude-teams",
+		cmuxBinEnvVar:  "CMUX_CLAUDE_TEAMS_CMUX_BIN",
+		termEnvVar:     "CMUX_CLAUDE_TEAMS_TERM",
 		extraEnv: map[string]string{
 			"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
 		},
 	})
+	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
+		configureClaudeNodeOptions(restoreModulePath)
+	}
 
 	launchArgs := claudeTeamsLaunchArgs(args)
 
@@ -119,6 +132,85 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	return 1
 }
 
+// runOMXRelay implements `cmux omx` on the remote side.
+func runOMXRelay(socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	shimDir, err := createTmuxShimDir("omx-bin", omxShimScript)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omx: failed to create shim directory: %v\n", err)
+		return 1
+	}
+
+	originalPath := os.Getenv("PATH")
+	omxPath := findExecutableInPath("omx", originalPath, shimDir)
+	if omxPath == "" {
+		fmt.Fprintf(os.Stderr, "cmux omx: omx not found in PATH\n"+
+			"Install it first:\n  npm install -g oh-my-codex\n")
+		return 1
+	}
+
+	focused := getFocusedContext(rc)
+
+	configureAgentEnvironment(agentConfig{
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omx",
+		cmuxBinEnvVar:  "CMUX_OMX_CMUX_BIN",
+		termEnvVar:     "CMUX_OMX_TERM",
+		extraEnv:       map[string]string{},
+	})
+
+	launchPath, launchArgv := resolveNodeScriptExec(omxPath, args, originalPath, shimDir)
+	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
+	fmt.Fprintf(os.Stderr, "cmux omx: exec failed: %v\n", execErr)
+	return 1
+}
+
+// runOMCRelay implements `cmux omc` on the remote side.
+func runOMCRelay(socketPath string, args []string, refreshAddr func() string) int {
+	rc := &rpcContext{socketPath: socketPath, refreshAddr: refreshAddr}
+
+	shimDir, err := createTmuxShimDir("omc-bin", omcShimScript)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cmux omc: failed to create shim directory: %v\n", err)
+		return 1
+	}
+
+	originalPath := os.Getenv("PATH")
+	omcPath := findExecutableInPath("omc", originalPath, shimDir)
+	if omcPath == "" {
+		fmt.Fprintf(os.Stderr, "cmux omc: omc not found in PATH\n"+
+			"Install it first:\n  npm install -g oh-my-claude-sisyphus\n")
+		return 1
+	}
+
+	focused := getFocusedContext(rc)
+
+	configureAgentEnvironment(agentConfig{
+		shimDir:        shimDir,
+		socketPath:     socketPath,
+		focused:        focused,
+		tmuxPathPrefix: "cmux-omc",
+		cmuxBinEnvVar:  "CMUX_OMC_CMUX_BIN",
+		termEnvVar:     "CMUX_OMC_TERM",
+		extraEnv:       map[string]string{},
+	})
+
+	// omc wraps Claude Code, so configure NODE_OPTIONS restore module
+	if restoreModulePath, err := ensureClaudeNodeOptionsRestoreModule(); err == nil {
+		configureClaudeNodeOptions(restoreModulePath)
+	} else {
+		fmt.Fprintf(os.Stderr, "cmux omc: warning: failed to create NODE_OPTIONS restore module: %v\n", err)
+	}
+
+	launchPath, launchArgv := resolveNodeScriptExec(omcPath, args, originalPath, shimDir)
+	execErr := syscall.Exec(launchPath, launchArgv, os.Environ())
+	fmt.Fprintf(os.Stderr, "cmux omc: exec failed: %v\n", execErr)
+	return 1
+}
+
 // --- Shim creation ---
 
 const claudeTeamsShimScript = `#!/usr/bin/env bash
@@ -134,6 +226,22 @@ case "${1:-}" in
   -V|-v) echo "tmux 3.4"; exit 0 ;;
 esac
 exec "${CMUX_OMO_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
+const omxShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMX_CMUX_BIN:-cmux}" __tmux-compat "$@"
+`
+
+const omcShimScript = `#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -V|-v) echo "tmux 3.4"; exit 0 ;;
+esac
+exec "${CMUX_OMC_CMUX_BIN:-cmux}" __tmux-compat "$@"
 `
 
 const omoNotifierShimScript = `#!/usr/bin/env bash
@@ -182,10 +290,39 @@ func writeShimIfChanged(path string, content string) error {
 	if err == nil && string(existing) == content {
 		return nil
 	}
-	if err := os.WriteFile(path, []byte(content), 0755); err != nil {
+	dir := filepath.Dir(path)
+	tempFile, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+	if _, err := tempFile.WriteString(content); err != nil {
+		tempFile.Close()
+		return err
+	}
+	if err := tempFile.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tempPath, 0755); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
 		return err
 	}
 	return nil
+}
+
+func ensureClaudeNodeOptionsRestoreModule() (string, error) {
+	dir := filepath.Join(os.TempDir(), "cmux-claude-node-options")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	restoreModulePath := filepath.Join(dir, "restore-node-options.cjs")
+	if err := writeShimIfChanged(restoreModulePath, claudeNodeOptionsRestoreModuleScript); err != nil {
+		return "", err
+	}
+	return restoreModulePath, nil
 }
 
 // --- Focused context ---
@@ -235,6 +372,51 @@ func getFocusedContext(rc *rpcContext) *focusedContext {
 		paneHandle:  strings.TrimSpace(paneId),
 		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
 	}
+}
+
+func configureClaudeNodeOptions(restoreModulePath string) {
+	existing, hadExisting := os.LookupEnv("NODE_OPTIONS")
+	if hadExisting {
+		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "1")
+		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS", existing)
+	} else {
+		os.Setenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT", "0")
+		os.Unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
+	}
+	os.Setenv("NODE_OPTIONS", mergeNodeOptions(existing, restoreModulePath))
+}
+
+func mergeNodeOptions(existing string, restoreModulePath string) string {
+	requireFlag := "--require=" + restoreModulePath
+	const memoryFlag = "--max-old-space-size=4096"
+	cleaned := cleanedNodeOptions(existing)
+	if cleaned == "" {
+		return requireFlag + " " + memoryFlag
+	}
+	return requireFlag + " " + memoryFlag + " " + cleaned
+}
+
+func cleanedNodeOptions(existing string) string {
+	tokens := strings.Fields(existing)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	filtered := make([]string, 0, len(tokens))
+	for i := 0; i < len(tokens); i++ {
+		token := tokens[i]
+		if token == "--max-old-space-size" {
+			if i+1 < len(tokens) {
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(token, "--max-old-space-size=") {
+			continue
+		}
+		filtered = append(filtered, token)
+	}
+	return strings.Join(filtered, " ")
 }
 
 func stringFromAny(values ...any) string {

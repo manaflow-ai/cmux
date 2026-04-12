@@ -1213,6 +1213,15 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
         XCTAssertFalse(shortcut.shift)
         XCTAssertFalse(shortcut.control)
     }
+
+    func testDefaultShortcutForToggleReactGrabUsesCommandShiftG() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleReactGrab.defaultShortcut
+        XCTAssertEqual(shortcut.key, "g")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.option)
+        XCTAssertTrue(shortcut.shift)
+        XCTAssertFalse(shortcut.control)
+    }
 }
 
 

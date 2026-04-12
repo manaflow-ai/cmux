@@ -1024,7 +1024,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
 private struct NotificationsPopoverView: View {
     @ObservedObject var notificationStore: TerminalNotificationStore
-    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     let onDismiss: () -> Void
 
     var body: some View {
@@ -1098,22 +1098,12 @@ private struct NotificationsPopoverView: View {
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        decodeShortcut(
-            from: jumpToUnreadShortcutData,
-            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
-        )
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
     }
 
     private var hasUnreadNotifications: Bool {
         notificationStore.notifications.contains(where: { !$0.isRead })
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
     }
 
     private func jumpToLatestUnread() {

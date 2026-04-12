@@ -59,6 +59,208 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     }
 }
 
+final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
+    func testRepairsCommandEquivalentWhenFirstResponderFallsBackToWindow() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testRepairsCommandEquivalentWhenResponderHasNoViableOwner() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenResponderHasViableOwner() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testIgnoresNonCommandEvents() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+}
+
+final class ReactGrabShortcutRouteTests: XCTestCase {
+    func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: true),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: nil)
+        )
+    }
+
+    func testFocusedTerminalRoutesToOnlyBrowserAndRemembersPastebackTarget() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: terminalId)
+        )
+    }
+
+    func testFocusedTerminalDoesNotRouteWhenMultipleBrowsersExist() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+
+    func testFocusedTerminalDoesNotRouteWithoutBrowser() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+}
+
+
+@MainActor
+final class ReactGrabPastebackTargetTests: XCTestCase {
+    func testPrefersExplicitTerminalTargetWhenBrowserPanelIsFocused() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+        guard let browserPanel = workspace.newBrowserSplit(
+            from: terminalId,
+            orientation: .horizontal
+        ) else {
+            XCTFail("Expected browser split panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: terminalId
+            )?.id,
+            terminalId
+        )
+    }
+
+    func testDoesNotFallbackWhenPreferredTerminalTargetIsMissing() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace split")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertNil(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: UUID()
+            )
+        )
+    }
+
+    func testShortcutStillRoutesTerminalPastebackWhenWebViewFocusIsDeferred() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+
+        XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+    }
+
+    func testShortcutClearsSplitZoomBeforeRoutingToBrowserPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: terminalId))
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+
+        XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+    }
+}
+
 
 final class FullScreenShortcutTests: XCTestCase {
     func testMatchesCommandControlF() {
@@ -299,6 +501,37 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
                 flags: [.control],
                 chars: "x",
                 keyCode: 7
+            )
+        )
+    }
+
+    func testInlineTextHandlingDisablesPaletteSelectionNavigationRouting() {
+        XCTAssertTrue(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: true
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: nil,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: 1,
+                isInteractive: false,
+                usesInlineTextHandling: false
             )
         )
     }
@@ -590,6 +823,57 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
     func testCommandHintDefaultsToEnabledWhenSettingMissing() {
         withDefaultsSuite { defaults in
             defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutIsCustomized() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutUsesChord() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "2",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            ),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
 
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
