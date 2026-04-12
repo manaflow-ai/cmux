@@ -102,7 +102,8 @@ struct FileExplorerView: View {
                             isExpanded: model.isExpanded(entry.item),
                             indentWidth: indentWidth,
                             rowHeight: rowHeight,
-                            onToggle: { model.toggleExpansion(entry.item) }
+                            onToggle: { model.toggleExpansion(entry.item) },
+                            onOpenFile: { NSWorkspace.shared.open(entry.item.url) }
                         )
                         .contextMenu {
                             fileExplorerContextMenu(for: entry.item)
@@ -172,6 +173,7 @@ private struct FileExplorerRowView: View {
     let indentWidth: CGFloat
     let rowHeight: CGFloat
     let onToggle: () -> Void
+    let onOpenFile: () -> Void
 
     @State private var isHovering = false
 
@@ -205,7 +207,7 @@ private struct FileExplorerRowView: View {
         .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
-            if item.isDirectory { onToggle() }
+            if item.isDirectory { onToggle() } else { onOpenFile() }
         }
         .onHover { isHovering = $0 }
     }
