@@ -12600,9 +12600,9 @@ struct CMUXCLI {
                     icon: "pause.circle",
                     color: "#8E8E93"
                 )
-            case .none:
-                // auth_success and other non-status events should not clobber
-                // the existing running/idle state.
+            case .noStatus:
+                // auth_success, completion, and other non-attention events
+                // should not clobber the existing running/idle pill state.
                 break
             }
             print(response)
@@ -13301,7 +13301,7 @@ struct CMUXCLI {
     enum ClaudeNotificationStatusKind {
         case needsInput  // permission_prompt, elicitation_dialog, unknown attention-class messages
         case idle        // idle_prompt — session parked, no action required
-        case none        // auth_success and other non-status events
+        case noStatus    // auth_success, completion, and other events that should not clobber the existing pill
     }
 
     private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String, statusKind: ClaudeNotificationStatusKind) {
@@ -13316,10 +13316,13 @@ struct CMUXCLI {
         // The authoritative Notification hook type field per Claude Code docs.
         let notificationType = firstString(in: object, keys: ["notification_type"])
             ?? firstString(in: nested, keys: ["notification_type"])
+        // Include notification_type in signalParts so unknown-but-classifiable
+        // type values (e.g. future values not yet enumerated below) still
+        // influence the keyword-based fallback instead of being dropped.
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "type", "kind"]),
-            firstString(in: object, keys: ["matcher", "reason"]),
-            firstString(in: nested, keys: ["type", "kind", "reason"])
+            firstString(in: object, keys: ["notification_type", "matcher", "reason"]),
+            firstString(in: nested, keys: ["notification_type", "type", "kind", "reason"])
         ]
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
@@ -13354,7 +13357,7 @@ struct CMUXCLI {
             case "idle_prompt":
                 return ("Idle", message.isEmpty ? "Session idle" : message, .idle)
             case "auth_success":
-                return ("Auth", message.isEmpty ? "Authentication successful" : message, .none)
+                return ("Auth", message.isEmpty ? "Authentication successful" : message, .noStatus)
             default:
                 break  // fall through to keyword-based classification
             }
@@ -13368,7 +13371,10 @@ struct CMUXCLI {
             return ("Error", message.isEmpty ? "Claude reported an error" : message, .needsInput)
         }
         if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
-            return ("Completed", message.isEmpty ? "Task completed" : message, .needsInput)
+            // Completion events should not clobber the current status with a
+            // blue "Needs input" bell; the Stop hook is responsible for moving
+            // the pill to Idle.
+            return ("Completed", message.isEmpty ? "Task completed" : message, .noStatus)
         }
         if lower.contains("idle_prompt") || lower.contains("idle prompt") {
             return ("Idle", message.isEmpty ? "Session idle" : message, .idle)
