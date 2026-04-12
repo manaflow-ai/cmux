@@ -13328,7 +13328,12 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        // Keep the message empty when the payload doesn't supply one, so the
+        // per-type body defaults below ("Session idle", "Authentication
+        // successful", etc.) are chosen instead of the generic needs-input
+        // placeholder. Only fall back to the placeholder when the classifier
+        // actually produces a needs-input event with no body of its own.
+        let message = messageCandidates.compactMap { $0 }.first ?? ""
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(
@@ -13336,6 +13341,10 @@ struct CMUXCLI {
             signal: signal,
             message: normalizedMessage
         )
+
+        if classified.statusKind == .needsInput, classified.body.isEmpty {
+            classified.body = "Claude needs your input"
+        }
 
         classified.body = truncate(classified.body, maxLength: 180)
         return classified
