@@ -10104,7 +10104,7 @@ struct VerticalTabsSidebar: View {
     @State private var dropIndicator: SidebarDropIndicator?
     @State private var frozenTabItemPresentation: SidebarTabItemPresentationSnapshot?
     @State private var terminalScrollBarVisibilityGeneration: UInt64 = 0
-    @State private var sidebarPanelMode: SidebarPanelMode = .workspaces
+    @AppStorage("sidebarPanelMode") private var sidebarPanelMode: SidebarPanelMode = .workspaces
     @StateObject private var fileExplorerModel = FileExplorerModel()
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue

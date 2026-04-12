@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The sidebar's internal panel mode — controls which content the sidebar shows.
-enum SidebarPanelMode {
+enum SidebarPanelMode: String {
     case workspaces
     case files
 }

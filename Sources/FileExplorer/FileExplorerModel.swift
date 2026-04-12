@@ -90,7 +90,7 @@ final class FileExplorerModel: ObservableObject {
         guard url != rootURL else { return }
         rootURL = url
         expandedDirectories.removeAll()
-        loadRoot()
+        loadRootAsync()
         watcher.start(watching: url) { [weak self] in
             self?.refresh()
         }
@@ -112,7 +112,7 @@ final class FileExplorerModel: ObservableObject {
     }
 
     func refresh() {
-        loadRoot()
+        loadRootAsync()
     }
 
     func stopWatching() {
@@ -131,18 +131,31 @@ final class FileExplorerModel: ObservableObject {
 
     // MARK: - Loading
 
-    private func loadRoot() {
+    private func loadRootAsync() {
         guard let rootURL else {
             rootItems = []
             recomputeFlatItems()
             return
         }
-        rootItems = loadDirectory(rootURL)
-        rootItems = rootItems.map { reloadAllExpanded(in: $0) }
-        recomputeFlatItems()
+        let expanded = expandedDirectories
+        Task.detached(priority: .utility) {
+            let items = Self.loadDirectory(rootURL)
+            let reloaded = items.map { Self.reloadAllExpanded(in: $0, expanded: expanded) }
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.rootItems = reloaded
+                self.recomputeFlatItems()
+            }
+        }
     }
 
-    private func loadDirectory(_ url: URL) -> [FileExplorerItem] {
+    private func loadChildrenIfNeeded(for directoryURL: URL) {
+        rootItems = rootItems.map { Self.updateChildren(in: $0, targetURL: directoryURL, forceReload: false) }
+    }
+
+    // MARK: - Static (nonisolated) directory I/O
+
+    private nonisolated static func loadDirectory(_ url: URL) -> [FileExplorerItem] {
         let fm = FileManager.default
         guard let urls = try? fm.contentsOfDirectory(
             at: url,
@@ -160,12 +173,7 @@ final class FileExplorerModel: ObservableObject {
         }
     }
 
-    private func loadChildrenIfNeeded(for directoryURL: URL) {
-        rootItems = rootItems.map { updateChildren(in: $0, targetURL: directoryURL, forceReload: false) }
-    }
-
-    /// Single parameterized tree walk for both lazy-loading and reloading children.
-    private func updateChildren(in item: FileExplorerItem, targetURL: URL, forceReload: Bool) -> FileExplorerItem {
+    private nonisolated static func updateChildren(in item: FileExplorerItem, targetURL: URL, forceReload: Bool) -> FileExplorerItem {
         if item.url == targetURL && item.isDirectory && (forceReload || item.children == nil) {
             var updated = item
             updated.children = loadDirectory(targetURL)
@@ -177,15 +185,14 @@ final class FileExplorerModel: ObservableObject {
         return updated
     }
 
-    /// Single-pass reload of all expanded directories — O(n) instead of O(E * N).
-    private func reloadAllExpanded(in item: FileExplorerItem) -> FileExplorerItem {
+    private nonisolated static func reloadAllExpanded(in item: FileExplorerItem, expanded: Set<URL>) -> FileExplorerItem {
         guard item.isDirectory else { return item }
         var updated = item
-        if expandedDirectories.contains(item.url) {
+        if expanded.contains(item.url) {
             updated.children = loadDirectory(item.url)
         }
         if let children = updated.children {
-            updated.children = children.map { reloadAllExpanded(in: $0) }
+            updated.children = children.map { reloadAllExpanded(in: $0, expanded: expanded) }
         }
         return updated
     }
