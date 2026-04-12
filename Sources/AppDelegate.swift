@@ -20,6 +20,51 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+private let cmuxBundledHelperDirectoryRelativePath = "Contents/Helpers"
+private let cmuxBundledResourceBinDirectoryRelativePath = "Contents/Resources/bin"
+
+func cmuxBundledExecutableURL(named executableName: String, bundle: Bundle = .main) -> URL? {
+    let fileManager = FileManager.default
+    let candidates = [
+        bundle.bundleURL.appendingPathComponent("\(cmuxBundledHelperDirectoryRelativePath)/\(executableName)", isDirectory: false),
+        bundle.bundleURL.appendingPathComponent("\(cmuxBundledResourceBinDirectoryRelativePath)/\(executableName)", isDirectory: false),
+    ]
+
+    if let executableCandidate = candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) }) {
+        return executableCandidate
+    }
+
+    return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
+}
+
+func cmuxBundledExecutableExpectedPath(named executableName: String, bundle: Bundle = .main) -> String {
+    cmuxBundledExecutableURL(named: executableName, bundle: bundle)?.path
+        ?? bundle.bundleURL
+            .appendingPathComponent("\(cmuxBundledHelperDirectoryRelativePath)/\(executableName)", isDirectory: false)
+            .path
+}
+
+func cmuxBundledBinDirectoryPaths(bundle: Bundle = .main) -> [String] {
+    let fileManager = FileManager.default
+    let candidateDirectories = [
+        bundle.bundleURL.appendingPathComponent(cmuxBundledHelperDirectoryRelativePath, isDirectory: true),
+        bundle.bundleURL.appendingPathComponent(cmuxBundledResourceBinDirectoryRelativePath, isDirectory: true),
+    ]
+
+    var resolvedDirectories: [String] = []
+    for candidate in candidateDirectories {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: candidate.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            continue
+        }
+        if !resolvedDirectories.contains(candidate.path) {
+            resolvedDirectories.append(candidate.path)
+        }
+    }
+
+    return resolvedDirectories
+}
+
 final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
 
@@ -1430,13 +1475,11 @@ struct CmuxCLIPathInstaller {
     }
 
     private static func defaultBundledCLIURL(bundle: Bundle = .main) -> URL? {
-        bundle.resourceURL?.appendingPathComponent("bin/cmux", isDirectory: false)
+        cmuxBundledExecutableURL(named: "cmux", bundle: bundle)
     }
 
     private static func defaultBundledCLIExpectedPath(bundle: Bundle = .main) -> String {
-        bundle.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .path
+        cmuxBundledExecutableExpectedPath(named: "cmux", bundle: bundle)
     }
 
     private static func installWithAdministratorPrivileges(sourceURL: URL, destinationURL: URL) throws {
@@ -12655,8 +12698,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else { return }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        let embeddedCLIURL = URL(fileURLWithPath: cmuxBundledExecutableExpectedPath(named: "cmux"))
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier

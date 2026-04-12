@@ -4220,7 +4220,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
         // Backward-compatible alias expected by older scripts and third-party integrations.
         setManagedEnvironmentValue("CMUX_SOCKET", socketPath)
-        if let bundledCLIURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+        if let bundledCLIURL = cmuxBundledExecutableURL(named: "cmux"),
            FileManager.default.isExecutableFile(atPath: bundledCLIURL.path) {
             setManagedEnvironmentValue("CMUX_BUNDLED_CLI_PATH", bundledCLIURL.path)
         }
@@ -4250,15 +4250,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
             setManagedEnvironmentValue("CMUX_GEMINI_HOOKS_DISABLED", "1")
         }
 
-        if let cliBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        let bundledBinDirectoryPaths = cmuxBundledBinDirectoryPaths()
+        if !bundledBinDirectoryPaths.isEmpty {
             let currentPath = env["PATH"]
                 ?? getenv("PATH").map { String(cString: $0) }
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
-            if !currentPath.split(separator: ":").contains(Substring(cliBinPath)) {
-                let separator = currentPath.isEmpty ? "" : ":"
-                setManagedEnvironmentValue("PATH", "\(cliBinPath)\(separator)\(currentPath)")
-            }
+            let currentParts = currentPath
+                .split(separator: ":")
+                .map(String.init)
+            let filteredParts = currentParts.filter { !bundledBinDirectoryPaths.contains($0) }
+            let combinedParts = bundledBinDirectoryPaths + filteredParts
+            setManagedEnvironmentValue("PATH", combinedParts.joined(separator: ":"))
         }
 
         // Shell integration: inject ZDOTDIR wrapper for zsh shells.

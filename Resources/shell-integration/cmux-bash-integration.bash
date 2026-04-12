@@ -1127,20 +1127,37 @@ _cmux_install_prompt_command() {
     fi
 }
 
-# Ensure Resources/bin is at the front of PATH, and remove the app's
-# Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
+# Ensure bundled helper and wrapper directories are at the front of PATH, and
+# remove the app's Contents/MacOS entry so the GUI cmux binary cannot shadow
+# the CLI cmux.
 # Shell init (.bashrc/.bash_profile) may prepend other dirs after launch.
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
-        if [[ -d "$bin_dir" ]]; then
+        local bundle_dir="${gui_dir%/MacOS}"
+        local helper_dir="${bundle_dir}/Helpers"
+        local wrapper_dir="${bundle_dir}/Resources/bin"
+        local -a preferred_dirs=()
+
+        [[ -d "$helper_dir" ]] && preferred_dirs+=("$helper_dir")
+        [[ -d "$wrapper_dir" ]] && preferred_dirs+=("$wrapper_dir")
+
+        if [[ ${#preferred_dirs[@]} -gt 0 ]]; then
             local new_path=":${PATH}:"
-            new_path="${new_path//:${bin_dir}:/:}"
+            local dir
+            for dir in "${preferred_dirs[@]}"; do
+                new_path="${new_path//:${dir}:/:}"
+            done
             new_path="${new_path//:${gui_dir}:/:}"
             new_path="${new_path#:}"
             new_path="${new_path%:}"
-            PATH="${bin_dir}:${new_path}"
+            local preferred_path
+            preferred_path="$(IFS=:; printf '%s' "${preferred_dirs[*]}")"
+            if [[ -n "$new_path" ]]; then
+                PATH="${preferred_path}:${new_path}"
+            else
+                PATH="${preferred_path}"
+            fi
         fi
     fi
 }
