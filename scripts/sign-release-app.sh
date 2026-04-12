@@ -59,12 +59,19 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 "$SCRIPT_DIR/harden-release-app-layout.sh" "$APP_PATH"
 
+CODESIGN_COMMON_ARGS=(--force --options runtime --sign "$SIGNING_IDENTITY")
+case "$SIGNING_IDENTITY" in
+  Developer\ ID\ Application:*|Apple\ Distribution:*)
+    CODESIGN_COMMON_ARGS+=(--timestamp)
+    ;;
+esac
+
 codesign_nested_path() {
   local nested_path="$1"
   if [[ ! -e "$nested_path" ]]; then
     return 0
   fi
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$nested_path"
+  /usr/bin/codesign "${CODESIGN_COMMON_ARGS[@]}" "$nested_path"
 }
 
 codesign_helper_executable() {
@@ -72,7 +79,7 @@ codesign_helper_executable() {
   if [[ ! -e "$helper_path" ]]; then
     return 0
   fi
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$helper_path"
+  /usr/bin/codesign "${CODESIGN_COMMON_ARGS[@]}" --entitlements "$ENTITLEMENTS" "$helper_path"
 }
 
 SIGNABLE_BUNDLES=()
@@ -103,7 +110,13 @@ if [[ -d "$APP_PATH/Contents/Resources/bin" ]]; then
   done < <(find "$APP_PATH/Contents/Resources/bin" -type f -perm -u+x -print0)
 fi
 
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_PATH"
-/usr/bin/codesign --verify --strict --verbose=2 "$APP_PATH"
+if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
+  while IFS= read -r -d '' loose_dylib; do
+    codesign_nested_path "$loose_dylib"
+  done < <(find "$APP_PATH/Contents/Frameworks" -type f -name '*.dylib' ! -path '*.framework/*' -print0)
+fi
+
+/usr/bin/codesign "${CODESIGN_COMMON_ARGS[@]}" --entitlements "$ENTITLEMENTS" "$APP_PATH"
+/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo "Signed release app bundle at $APP_PATH"

@@ -37,7 +37,7 @@ relocate_helper_executable() {
     return 0
   fi
 
-  if [[ ! -x "$source_path" ]]; then
+  if [[ ! -f "$source_path" || ! -x "$source_path" ]]; then
     echo "Expected bundled helper executable $source_path to be executable before release signing" >&2
     exit 1
   fi
@@ -50,12 +50,22 @@ relocate_helper_executable() {
   chmod 0755 "$destination_path"
 }
 
+install_legacy_resource_symlink() {
+  local executable_name="$1"
+  local legacy_path="$RESOURCE_BIN_DIR/$executable_name"
+  local relative_target="../../Helpers/$executable_name"
+
+  mkdir -p "$RESOURCE_BIN_DIR"
+  ln -sfn "$relative_target" "$legacy_path"
+}
+
 relocate_helper_executable "cmux"
 relocate_helper_executable "ghostty"
+install_legacy_resource_symlink "cmux"
 
 for helper_name in cmux ghostty; do
   helper_path="$HELPERS_DIR/$helper_name"
-  if [[ -e "$helper_path" && ! -x "$helper_path" ]]; then
+  if [[ -e "$helper_path" && ( ! -f "$helper_path" || ! -x "$helper_path" ) ]]; then
     echo "Normalized helper executable $helper_path exists but is not executable" >&2
     exit 1
   fi

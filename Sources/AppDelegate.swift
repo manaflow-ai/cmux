@@ -30,11 +30,7 @@ func cmuxBundledExecutableURL(named executableName: String, bundle: Bundle = .ma
         bundle.bundleURL.appendingPathComponent("\(cmuxBundledResourceBinDirectoryRelativePath)/\(executableName)", isDirectory: false),
     ]
 
-    if let executableCandidate = candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) }) {
-        return executableCandidate
-    }
-
-    return candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
+    return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
 }
 
 func cmuxBundledExecutableExpectedPath(named executableName: String, bundle: Bundle = .main) -> String {
