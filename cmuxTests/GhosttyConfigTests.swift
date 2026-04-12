@@ -92,6 +92,44 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertTrue(paths.contains("\(pathB)/ghostty/themes/Solarized Light"))
     }
 
+    func testLoadReadsSymlinkedGhosttyConfigFile() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ghostty-config-symlink-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", root.path, 1)
+        defer {
+            if let originalFixedHome {
+                setenv("CFFIXED_USER_HOME", originalFixedHome, 1)
+            } else {
+                unsetenv("CFFIXED_USER_HOME")
+            }
+            GhosttyConfig.invalidateLoadCache()
+        }
+
+        let ghosttyConfigDir = root.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: ghosttyConfigDir, withIntermediateDirectories: true)
+
+        let dotfilesDir = root.appendingPathComponent("dotfiles/ghostty", isDirectory: true)
+        try fileManager.createDirectory(at: dotfilesDir, withIntermediateDirectories: true)
+
+        let targetConfig = dotfilesDir.appendingPathComponent("config", isDirectory: false)
+        try "font-size = 15\n".write(to: targetConfig, atomically: true, encoding: .utf8)
+
+        let symlinkedConfig = ghosttyConfigDir.appendingPathComponent("config", isDirectory: false)
+        try fileManager.createSymbolicLink(
+            atPath: symlinkedConfig.path,
+            withDestinationPath: targetConfig.path
+        )
+
+        let loaded = GhosttyConfig.load(preferredColorScheme: .dark, useCache: false)
+
+        XCTAssertEqual(loaded.fontSize, CGFloat(15), accuracy: 0.0001)
+    }
+
     func testLoadThemeResolvesPairedThemeValueByColorScheme() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ghostty-theme-pair-\(UUID().uuidString)")

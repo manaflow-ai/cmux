@@ -532,7 +532,8 @@ struct GhosttyConfig {
         guard fileManager.fileExists(atPath: path) else { return nil }
 
         if let attributes = try? fileManager.attributesOfItem(atPath: path) {
-            if let type = attributes[.type] as? FileAttributeType, type != .typeRegular {
+            if let type = attributes[.type] as? FileAttributeType,
+               type != .typeRegular && type != .typeSymbolicLink {
                 return nil
             }
             if let size = attributes[.size] as? NSNumber, size.intValue == 0 {
