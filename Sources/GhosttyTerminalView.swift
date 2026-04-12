@@ -507,6 +507,10 @@ func cmuxResolveQuicklookPathForTesting(
         }
     )
 }
+
+func cmuxTrimTerminalPathTrailingPunctuationForTesting(_ token: String) -> String {
+    cmuxTrimTerminalPathTrailingPunctuation(token)
+}
 #endif
 
 private func cmuxResolveQuicklookPath(
@@ -547,8 +551,18 @@ private func cmuxQuicklookPathCandidates(from rawText: String) -> [String] {
     func append(_ candidate: String?) {
         guard let candidate else { return }
         let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !candidates.contains(trimmed) else { return }
-        candidates.append(trimmed)
+        guard !trimmed.isEmpty else { return }
+
+        func appendUnique(_ value: String) {
+            guard !value.isEmpty, !candidates.contains(value) else { return }
+            candidates.append(value)
+        }
+
+        appendUnique(trimmed)
+        let punctuationTrimmed = cmuxTrimTerminalPathTrailingPunctuation(trimmed)
+        if punctuationTrimmed != trimmed {
+            appendUnique(punctuationTrimmed)
+        }
     }
 
     append(rawText)
@@ -567,6 +581,69 @@ private func cmuxQuicklookPathCandidates(from rawText: String) -> [String] {
     }
 
     return candidates
+}
+
+private let cmuxTerminalPathSentencePunctuation: Set<Character> = [
+    ".", ",", ";", ":", "!", "?"
+]
+
+private let cmuxTerminalPathTrailingQuotes: Set<Character> = [
+    "\"", "'", "”", "’", "»"
+]
+
+private let cmuxTerminalPathClosingPairs: [Character: Character] = [
+    ")": "(",
+    "]": "[",
+    "}": "{",
+    ">": "<"
+]
+
+/// Mirror smart-link terminals by trimming only the trailing punctuation run
+/// that is clearly outside the path itself.
+private func cmuxTrimTerminalPathTrailingPunctuation(_ token: String) -> String {
+    let characters = Array(token)
+    guard !characters.isEmpty else { return token }
+
+    var end = characters.count
+    while end > 0 {
+        let trailing = characters[end - 1]
+        if cmuxTerminalPathSentencePunctuation.contains(trailing) ||
+            cmuxTerminalPathTrailingQuotes.contains(trailing) {
+            end -= 1
+            continue
+        }
+
+        if let opener = cmuxTerminalPathClosingPairs[trailing],
+           !cmuxHasUnmatchedOpeningPathDelimiter(
+               in: characters[..<(end - 1)],
+               opener: opener,
+               closer: trailing
+           ) {
+            end -= 1
+            continue
+        }
+
+        break
+    }
+
+    guard end < characters.count else { return token }
+    return String(characters[..<end])
+}
+
+private func cmuxHasUnmatchedOpeningPathDelimiter(
+    in characters: ArraySlice<Character>,
+    opener: Character,
+    closer: Character
+) -> Bool {
+    var balance = 0
+    for character in characters {
+        if character == opener {
+            balance += 1
+        } else if character == closer, balance > 0 {
+            balance -= 1
+        }
+    }
+    return balance > 0
 }
 
 private func cmuxUnquoteShellToken(_ token: String) -> String? {
