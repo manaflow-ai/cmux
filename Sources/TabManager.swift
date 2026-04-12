@@ -1991,8 +1991,19 @@ class TabManager: ObservableObject {
             let insertIndex = newTabInsertIndex(snapshot: snapshot, placementOverride: placementOverride)
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
+            // Derive workspace title: explicit title > directory basename > "Terminal N"
+            let derivedTitle: String = {
+                if let title { return title }
+                if let dir = explicitWorkingDirectory {
+                    let basename = URL(fileURLWithPath: dir).lastPathComponent
+                    if !basename.isEmpty, basename != "/" {
+                        return basename
+                    }
+                }
+                return "Terminal \(nextTabCount)"
+            }()
             let newWorkspace = makeWorkspaceForCreation(
-                title: title ?? "Terminal \(nextTabCount)",
+                title: derivedTitle,
                 workingDirectory: workingDirectory,
                 portOrdinal: ordinal,
                 configTemplate: inheritedConfig,
@@ -4614,6 +4625,31 @@ class TabManager: ObservableObject {
         // Update window title if this is the selected tab and focused panel
         if selectedTabId == tabId && tab.focusedPanelId == panelId {
             updateWindowTitle(for: tab)
+        }
+
+        // If the title matches a known agent binary, try to enhance it with task info
+        if TerminalAgentDetector.isKnownAgentName(title),
+           tab.panelCustomTitles[panelId] == nil,
+           let ttyName = tab.surfaceTTYNames[panelId] {
+            enhanceAgentTitle(tabId: tabId, panelId: panelId, ttyName: ttyName)
+        }
+    }
+
+    /// Asynchronously detect the agent's task from process arguments and update the panel title.
+    private func enhanceAgentTitle(tabId: UUID, panelId: UUID, ttyName: String) {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let agent = TerminalAgentDetector.detect(forTTY: ttyName),
+                  let task = agent.taskDescription, !task.isEmpty else { return }
+            let enhanced = "\(agent.executableName): \(task)"
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let tab = self.tabs.first(where: { $0.id == tabId }),
+                      tab.panelCustomTitles[panelId] == nil else { return }
+                _ = tab.updatePanelTitle(panelId: panelId, title: enhanced)
+                if self.selectedTabId == tabId && tab.focusedPanelId == panelId {
+                    self.updateWindowTitle(for: tab)
+                }
+            }
         }
     }
 
