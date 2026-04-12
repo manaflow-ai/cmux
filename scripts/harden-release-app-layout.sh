@@ -37,14 +37,13 @@ relocate_helper_executable() {
     return 0
   fi
 
-  if [[ -e "$destination_path" && ! "$source_path" -ef "$destination_path" ]]; then
-    echo "Refusing to overwrite existing helper executable at $destination_path while normalizing $APP_PATH" >&2
-    exit 1
-  fi
-
   if [[ ! -x "$source_path" ]]; then
     echo "Expected bundled helper executable $source_path to be executable before release signing" >&2
     exit 1
+  fi
+
+  if [[ -e "$destination_path" && ! "$source_path" -ef "$destination_path" ]]; then
+    rm -f "$destination_path"
   fi
 
   mv -f "$source_path" "$destination_path"

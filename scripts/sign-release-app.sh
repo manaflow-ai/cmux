@@ -76,20 +76,17 @@ codesign_helper_executable() {
 }
 
 SIGNABLE_BUNDLES=()
-while IFS= read -r -d '' signable_path; do
-  SIGNABLE_BUNDLES+=("$signable_path")
+while IFS= read -r signable_record; do
+  [[ -z "$signable_record" ]] && continue
+  SIGNABLE_BUNDLES+=("${signable_record#*$'\t'}")
 done < <(
   find "$APP_PATH/Contents" \
     -type d \
     \( -name '*.framework' -o -name '*.app' -o -name '*.plugin' -o -name '*.appex' -o -name '*.xpc' \) \
     ! -path "$APP_PATH" \
-    -print0 |
-    perl -0ne '
-      @items = split(/\0/, $_);
-      @items = grep { length $_ } @items;
-      @items = sort { () = $b =~ m{/}g <=> () = $a =~ m{/}g || $a cmp $b } @items;
-      print join("\0", @items), "\0" if @items;
-    '
+    -print |
+    awk -F/ '{ print NF "\t" $0 }' |
+    sort -r -n -k1,1 -k2,2
 )
 
 for signable_bundle in "${SIGNABLE_BUNDLES[@]}"; do
@@ -99,6 +96,12 @@ done
 for helper_name in cmux ghostty; do
   codesign_helper_executable "$APP_PATH/Contents/Helpers/$helper_name"
 done
+
+if [[ -d "$APP_PATH/Contents/Resources/bin" ]]; then
+  while IFS= read -r -d '' resource_executable; do
+    codesign_helper_executable "$resource_executable"
+  done < <(find "$APP_PATH/Contents/Resources/bin" -type f -perm -u+x -print0)
+fi
 
 /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$APP_PATH"
 /usr/bin/codesign --verify --strict --verbose=2 "$APP_PATH"
