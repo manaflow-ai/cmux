@@ -101,11 +101,12 @@ final class FileExplorerModel: ObservableObject {
         guard item.isDirectory else { return }
         if expandedDirectories.contains(item.url) {
             expandedDirectories.remove(item.url)
+            recomputeFlatItems()
         } else {
             expandedDirectories.insert(item.url)
-            loadChildrenIfNeeded(for: item.url)
+            recomputeFlatItems()
+            loadChildrenAsync(for: item.url)
         }
-        recomputeFlatItems()
     }
 
     func isExpanded(_ item: FileExplorerItem) -> Bool {
@@ -161,8 +162,18 @@ final class FileExplorerModel: ObservableObject {
         }
     }
 
-    private func loadChildrenIfNeeded(for directoryURL: URL) {
-        rootItems = rootItems.map { Self.updateChildren(in: $0, targetURL: directoryURL, forceReload: false) }
+    private func loadChildrenAsync(for directoryURL: URL) {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        let currentItems = rootItems
+        Task.detached(priority: .utility) {
+            let updated = currentItems.map { Self.updateChildren(in: $0, targetURL: directoryURL, forceReload: false) }
+            await MainActor.run { [weak self] in
+                guard let self, self.loadGeneration == generation else { return }
+                self.rootItems = updated
+                self.recomputeFlatItems()
+            }
+        }
     }
 
     // MARK: - Static (nonisolated) directory I/O
