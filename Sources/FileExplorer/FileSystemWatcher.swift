@@ -81,7 +81,12 @@ final class FileSystemWatcher {
 
         self.stream = stream
         FSEventStreamSetDispatchQueue(stream, DispatchQueue.global(qos: .utility))
-        FSEventStreamStart(stream)
+        guard FSEventStreamStart(stream) else {
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+            return
+        }
     }
 
     private func stopStream() {
