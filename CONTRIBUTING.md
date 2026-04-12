@@ -46,7 +46,7 @@ If you make changes to the ghostty submodule, rebuild the xcframework:
 
 ```bash
 cd ghostty
-zig build -Demit-xcframework=true -Doptimize=ReleaseFast
+zig build -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
 ## Running Tests
