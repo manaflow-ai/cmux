@@ -249,6 +249,7 @@ private struct FileExplorerSearchField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: FileExplorerNativeTextField, context: Context) {
+        context.coordinator.parent = self
         if nsView.stringValue != text {
             context.coordinator.isProgrammatic = true
             nsView.stringValue = text
