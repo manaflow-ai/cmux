@@ -117,6 +117,7 @@ final class FileExplorerModel: ObservableObject {
     }
 
     func clearRoot() {
+        loadGeneration &+= 1
         watcher.stop()
         rootURL = nil
         rootItems = []
