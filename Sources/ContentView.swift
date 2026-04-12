@@ -12825,7 +12825,7 @@ private struct TabItemView: View, Equatable {
                                     status: pullRequest.status,
                                     color: pullRequestForegroundColor
                                 )
-                                Text("\(pullRequest.label) #\(pullRequest.number)")
+                                Text(verbatim: "\(pullRequest.label) #\(pullRequest.number)")
                                     .underline()
                                     .lineLimit(1)
                                     .truncationMode(.tail)
