@@ -6398,12 +6398,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let isPerformable = (bindingFlags.rawValue & GHOSTTY_BINDING_FLAGS_PERFORMABLE.rawValue) != 0
 
             // If the binding is consumed and not meant for the menu, allow menu first.
-            if isConsumed && !isAll && !isPerformable && keySequence.isEmpty && keyTables.isEmpty {
+            // Performable bindings (e.g. paste_from_clipboard) also need the menu
+            // path so that Edit > Paste handles Cmd+V instead of keyDown double-
+            // firing the clipboard request through both interpretKeyEvents and
+            // ghostty_surface_key.
+            if isConsumed && !isAll && keySequence.isEmpty && keyTables.isEmpty {
                 if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
                     return true
                 }
             }
 
+            // For performable bindings where the menu didn't handle the event,
+            // fall through to keyDown so Ghostty can perform the action directly
+            // (e.g. paste when no menu item exists).
             keyDown(with: event)
             return true
         }
