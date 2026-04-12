@@ -10175,24 +10175,25 @@ struct VerticalTabsSidebar: View {
 
         VStack(spacing: 0) {
             GeometryReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        // Space for traffic lights / fullscreen controls
-                        Spacer()
-                            .frame(height: trafficLightPadding)
+                VStack(spacing: 0) {
+                    // Space for traffic lights / fullscreen controls
+                    Spacer()
+                        .frame(height: trafficLightPadding)
 
-                        // Icon strip for switching sidebar content mode.
-                        SidebarModeStrip(mode: $sidebarPanelMode)
+                    // Icon strip for switching sidebar content mode — always sticky.
+                    SidebarModeStrip(mode: $sidebarPanelMode)
 
-                        if sidebarPanelMode == .files {
-                            FileExplorerView(
-                                model: fileExplorerModel,
-                                onOpenInTerminal: { url in
-                                    _ = tabManager.addWorkspace(workingDirectory: url.path)
-                                }
-                            )
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        } else {
+                    if sidebarPanelMode == .files {
+                        FileExplorerView(
+                            model: fileExplorerModel,
+                            onOpenInTerminal: { url in
+                                _ = tabManager.addWorkspace(workingDirectory: url.path)
+                            }
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ScrollView {
+                            VStack(spacing: 0) {
                             // Workspaces are bounded, so prefer a non-lazy stack here.
                             // LazyVStack + drag-state invalidations can recurse through layout.
                             VStack(spacing: tabRowSpacing) {
@@ -10283,16 +10284,17 @@ struct VerticalTabsSidebar: View {
                                 dropIndicator: $dropIndicator
                             )
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        }
-                    }
-                    .frame(minHeight: proxy.size.height, alignment: .top)
-                }
-                .background(
-                    SidebarScrollViewResolver { scrollView in
-                        dragAutoScrollController.attach(scrollView: scrollView)
-                    }
-                    .frame(width: 0, height: 0)
-                )
+                        } // VStack(spacing: 0) inside ScrollView
+                        .frame(minHeight: proxy.size.height, alignment: .top)
+                        } // ScrollView
+                        .background(
+                            SidebarScrollViewResolver { scrollView in
+                                dragAutoScrollController.attach(scrollView: scrollView)
+                            }
+                            .frame(width: 0, height: 0)
+                        )
+                    } // else (workspaces)
+                } // VStack (sticky header)
                 .overlay(alignment: .top) {
                     SidebarTopScrim(height: trafficLightPadding + 20)
                         .allowsHitTesting(false)
