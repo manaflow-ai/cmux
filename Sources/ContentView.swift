@@ -10127,17 +10127,27 @@ struct VerticalTabsSidebar: View {
         return KeyboardShortcutSettings.shortcut(for: .selectWorkspaceByNumber)
     }
 
-    /// The current directory of the selected workspace, used to drive file explorer updates.
+    /// The selected workspace, used to drive file explorer updates.
+    private var selectedWorkspace: Workspace? {
+        guard let selectedId = tabManager.selectedTabId else { return nil }
+        return tabManager.tabs.first(where: { $0.id == selectedId })
+    }
+
     private var selectedWorkspaceCurrentDirectory: String {
-        guard let selectedId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else { return "" }
-        return workspace.currentDirectory
+        selectedWorkspace?.currentDirectory ?? ""
     }
 
     private func updateFileExplorerRoot() {
         guard sidebarPanelMode == .files else { return }
-        let dir = selectedWorkspaceCurrentDirectory
-        guard !dir.isEmpty else { return }
+        guard let workspace = selectedWorkspace else {
+            fileExplorerModel.clearRoot()
+            return
+        }
+        let dir = workspace.currentDirectory
+        guard !dir.isEmpty, !workspace.isRemoteWorkspace else {
+            fileExplorerModel.clearRoot()
+            return
+        }
         fileExplorerModel.setRoot(URL(fileURLWithPath: dir))
     }
 

@@ -116,6 +116,14 @@ final class FileExplorerModel: ObservableObject {
         loadRootAsync()
     }
 
+    func clearRoot() {
+        watcher.stop()
+        rootURL = nil
+        rootItems = []
+        expandedDirectories.removeAll()
+        recomputeFlatItems()
+    }
+
     func stopWatching() {
         watcher.stop()
     }
