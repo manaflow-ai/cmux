@@ -5562,6 +5562,40 @@
         }
       }
     },
+    "browser.mobileViewport.switchToDesktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Desktop View"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デスクトップ表示に切替"
+          }
+        }
+      }
+    },
+    "browser.mobileViewport.switchToMobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Mobile View (390px)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モバイル表示に切替 (390px)"
+          }
+        }
+      }
+    },
     "browser.import.additionalData.note": {
       "extractionState": "manual",
       "localizations": {

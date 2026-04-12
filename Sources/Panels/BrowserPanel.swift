@@ -153,6 +153,13 @@ enum BrowserSearchSettings {
     }
 }
 
+enum BrowserMobileViewportSettings {
+    static let widthKey = "browserMobileViewportWidth"
+    static let heightKey = "browserMobileViewportHeight"
+    static let defaultWidth: Int = 390
+    static let defaultHeight: Int = 844
+}
+
 enum BrowserThemeMode: String, CaseIterable, Identifiable {
     case system
     case light
@@ -899,6 +906,8 @@ enum BrowserUserAgentSettings {
     // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
     // fallback/old UIs or trigger bot checks.
     static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
+    // iPhone 14 equivalent UA for mobile viewport emulation.
+    static let mobileUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -2256,6 +2265,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+    @Published private(set) var isMobileViewport: Bool = false
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     @Published var isReactGrabActive: Bool = false
@@ -3793,7 +3803,10 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        // Preserve mobile UA when mobile viewport emulation is active.
+        webView.customUserAgent = isMobileViewport
+            ? BrowserUserAgentSettings.mobileUserAgent
+            : BrowserUserAgentSettings.safariUserAgent
         shouldRenderWebView = true
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
@@ -4245,7 +4258,9 @@ extension BrowserPanel {
 
     /// Reload the current page
     func reload() {
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = isMobileViewport
+            ? BrowserUserAgentSettings.mobileUserAgent
+            : BrowserUserAgentSettings.safariUserAgent
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
                 ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
@@ -4261,6 +4276,15 @@ extension BrowserPanel {
             }
         }
         webView.reload()
+    }
+
+    /// Toggle mobile viewport emulation (iPhone 14 equivalent UA + 390px viewport width).
+    /// Only resizes the frame — does NOT reload the page.
+    func setMobileViewport(_ enabled: Bool) {
+        isMobileViewport = enabled
+        webView.customUserAgent = enabled
+            ? BrowserUserAgentSettings.mobileUserAgent
+            : BrowserUserAgentSettings.safariUserAgent
     }
 
     /// Stop loading

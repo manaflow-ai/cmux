@@ -4099,6 +4099,8 @@ struct SettingsView: View {
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
     @AppStorage(BrowserSearchSettings.searchSuggestionsEnabledKey) private var browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
     @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserMobileViewportSettings.widthKey) private var mobileViewportWidth = BrowserMobileViewportSettings.defaultWidth
+    @AppStorage(BrowserMobileViewportSettings.heightKey) private var mobileViewportHeight = BrowserMobileViewportSettings.defaultHeight
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -5655,6 +5657,26 @@ struct SettingsView: View {
                         ) {
                             ForEach(BrowserThemeMode.allCases) { mode in
                                 Text(mode.displayName).tag(mode.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            String(localized: "settings.browser.mobileViewport", defaultValue: "Mobile Viewport Size"),
+                            subtitle: String(localized: "settings.browser.mobileViewport.subtitle", defaultValue: "Width × Height used for the mobile viewport toggle.")
+                        ) {
+                            HStack(spacing: 4) {
+                                TextField("W", value: $mobileViewportWidth, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 64)
+                                    .multilineTextAlignment(.center)
+                                Text("×")
+                                    .foregroundStyle(.secondary)
+                                TextField("H", value: $mobileViewportHeight, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 64)
+                                    .multilineTextAlignment(.center)
                             }
                         }
 

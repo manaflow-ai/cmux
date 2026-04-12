@@ -428,6 +428,8 @@ struct BrowserPanelView: View {
     @State private var pendingAddressBarFocusRetryGeneration: UInt64 = 0
     @State private var isBrowserProfileMenuPresented = false
     @State private var isBrowserThemeMenuPresented = false
+    @AppStorage(BrowserMobileViewportSettings.widthKey) private var mobileViewportWidth = BrowserMobileViewportSettings.defaultWidth
+    @AppStorage(BrowserMobileViewportSettings.heightKey) private var mobileViewportHeight = BrowserMobileViewportSettings.defaultHeight
     @State private var browserChromeStyle = BrowserChromeStyle.resolve(
         for: .light,
         themeBackgroundColor: GhosttyBackgroundTheme.currentColor()
@@ -850,8 +852,11 @@ struct BrowserPanelView: View {
                 }
                 reactGrabButton
                 browserProfileButton
-                browserThemeModeButton
-                developerToolsButton
+                if !panel.isShowingNewTabPage {
+                    browserThemeModeButton
+                    developerToolsButton
+                    mobileViewportButton
+                }
             }
         }
         .padding(.horizontal, 8)
@@ -1001,6 +1006,30 @@ struct BrowserPanelView: View {
             )
         )
         .accessibilityIdentifier("BrowserProfileButton")
+    }
+
+    private var mobileViewportButton: some View {
+        Button(action: {
+            panel.setMobileViewport(!panel.isMobileViewport)
+            panel.reload()
+        }) {
+            Image(systemName: "iphone")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(panel.isMobileViewport ? cmuxAccentColor() : Color(nsColor: .secondaryLabelColor))
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(panel.isMobileViewport ? cmuxAccentColor().opacity(0.2) : Color.clear)
+                )
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .safeHelp(panel.isMobileViewport
+            ? String(localized: "browser.mobileViewport.switchToDesktop", defaultValue: "Switch to Desktop View")
+            : String(localized: "browser.mobileViewport.switchToMobile", defaultValue: "Switch to Mobile View (\(mobileViewportWidth)×\(mobileViewportHeight))"))
+        .accessibilityIdentifier("BrowserMobileViewportButton")
     }
 
     private var browserThemeModeButton: some View {
@@ -1318,7 +1347,13 @@ struct BrowserPanelView: View {
                     }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(
+            maxWidth: panel.isMobileViewport ? CGFloat(mobileViewportWidth) : .infinity,
+            maxHeight: panel.isMobileViewport ? CGFloat(mobileViewportHeight) : .infinity,
+            alignment: .topLeading
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(panel.isMobileViewport ? Color(nsColor: .underPageBackgroundColor) : Color.clear)
         .layoutPriority(1)
         .zIndex(0)
     }
