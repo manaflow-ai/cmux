@@ -42,6 +42,11 @@ relocate_helper_executable() {
     exit 1
   fi
 
+  if [[ -e "$destination_path" && "$source_path" -ef "$destination_path" ]]; then
+    chmod 0755 "$destination_path"
+    return 0
+  fi
+
   if [[ -e "$destination_path" && ! "$source_path" -ef "$destination_path" ]]; then
     rm -f "$destination_path"
   fi
