@@ -8586,11 +8586,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Wait for a terminal surface to become first responder before signaling
         // setup complete. Ghostty keybinds only fire when GhosttyNSView has focus.
         var observer: NSObjectProtocol?
+        var resolved = false
         let deadline = Date().addingTimeInterval(6.0)
 
         func checkAndSignal() {
+            guard !resolved else { return }
             guard Date() < deadline else {
                 if let observer { NotificationCenter.default.removeObserver(observer) }
+                resolved = true
                 self.writeGotoSplitTestData(["setupError": "Timed out waiting for terminal focus"])
                 return
             }
@@ -8603,6 +8606,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             if let observer { NotificationCenter.default.removeObserver(observer) }
+            resolved = true
 
             let allPaneIds = tab.bonsplitController.allPaneIds.map(\.description)
             let focusedPaneId = tab.bonsplitController.focusedPaneId?.description ?? ""
