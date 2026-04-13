@@ -1896,7 +1896,7 @@ struct CMUXCLI {
 
         if command == "send" || command == "send-key" {
             let (surfaceArg, _) = parseOption(commandArgs, name: "--surface")
-            guard surfaceArg != nil else {
+            guard let surfaceArg = surfaceArg?.trimmingCharacters(in: .whitespacesAndNewlines), !surfaceArg.isEmpty else {
                 throw CLIError(message: "\(command) requires --surface")
             }
         }
@@ -14478,7 +14478,9 @@ struct CMUXCLI {
           CMUX_WORKSPACE_ID   Auto-set in cmux terminals. Used as default --workspace for
                               ALL commands (send, list-panels, new-split, notify, etc.).
           CMUX_TAB_ID         Optional alias used by `tab-action`/`rename-tab` as default --tab.
-          CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface.
+          CMUX_SURFACE_ID     Auto-set in cmux terminals. Used as default --surface for
+                              commands that allow it; `send` and `send-key` require
+                              `--surface`.
           CMUX_SOCKET_PATH    Override the Unix socket path. Without this, the CLI defaults
                               to ~/Library/Application Support/cmux/cmux.sock and auto-discovers tagged/debug sockets.
         """

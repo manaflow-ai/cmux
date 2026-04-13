@@ -7,6 +7,8 @@ import glob
 import os
 import subprocess
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -93,13 +95,21 @@ def main() -> int:
     _must(bad_focus.returncode != 0, f"focus-window with invalid target should fail non-zero: {bad_out!r}")
     _must("error" in bad_out, f"focus-window failure should surface an error: {bad_out!r}")
 
+    # Empty --surface values must be rejected before socket dispatch.
+    for command, tail in (("send", ["--surface", "", "hello"]), ("send-key", ["--surface", "", "enter"])):
+        proc = _run([cli, "--socket", SOCKET_PATH, command, *tail])
+        out = _merged_output(proc).lower()
+        _must(proc.returncode != 0, f"{command} with empty --surface should fail non-zero: {out!r}")
+        _must("requires --surface" in out, f"{command} with empty --surface should be rejected: {out!r}")
+
     # send/send-key must require an explicit --surface even when CMUX_SURFACE_ID is set.
     missing_surface_env = dict(os.environ)
     missing_surface_env["CMUX_SURFACE_ID"] = "surface:123"
-    missing_surface_env["CMUX_SOCKET_PATH"] = "/tmp/cmux-no-such.sock"
-    missing_surface_env["CMUX_SOCKET"] = "/tmp/cmux-no-such.sock"
+    missing_socket = Path(tempfile.gettempdir()) / f"cmux-no-such-{uuid.uuid4().hex}.sock"
+    missing_surface_env["CMUX_SOCKET_PATH"] = str(missing_socket)
+    missing_surface_env["CMUX_SOCKET"] = str(missing_socket)
     for command, tail in (("send", ["hello"]), ("send-key", ["enter"])):
-        proc = _run([cli, "--socket", "/tmp/cmux-no-such.sock", command, *tail], env=missing_surface_env)
+        proc = _run([cli, "--socket", str(missing_socket), command, *tail], env=missing_surface_env)
         out = _merged_output(proc).lower()
         _must(proc.returncode != 0, f"{command} without --surface should fail non-zero: {out!r}")
         _must("requires --surface" in out, f"{command} should require an explicit --surface: {out!r}")
