@@ -351,6 +351,7 @@ jobs:
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
           RECORD_VIDEO: ${{ inputs.record_video }}
+          REF_DISPLAY: ${{ inputs.ref || github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -361,7 +362,6 @@ jobs:
             STATUS_EMOJI="FAILED"
           fi
 
-          REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
           ARTIFACT_URL="$RUN_URL#artifacts"
 

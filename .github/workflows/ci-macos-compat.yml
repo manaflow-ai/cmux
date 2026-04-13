@@ -163,6 +163,14 @@ jobs:
             fi
           fi
 
+      - name: Run zsh shell integration regressions
+        run: |
+          set -euo pipefail
+          python3 tests/test_issue_2458_nested_ssh_term_respects_portable_term.py
+          python3 tests/test_shell_histfile_exec_string_preserves_user_override.py
+          python3 tests/test_shell_zdotdir_user_override.py
+          python3 tests/test_shell_zdotfile_typeset_scope.py
+
       - name: Create virtual display
         if: matrix.smoke
         run: |

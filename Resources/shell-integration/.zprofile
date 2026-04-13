@@ -1,19 +1,15 @@
 # vim:ft=zsh
 #
-# Compatibility shim: with the current integration model, cmux restores
-# ZDOTDIR in .zshenv so this file should never be reached. If it is, restore
-# ZDOTDIR and behave like vanilla zsh by sourcing the user's .zprofile.
+# Exec-string wrapper for zsh login shells. cmux keeps ZDOTDIR pointed at this
+# wrapper directory until .zshrc so zsh -i -c can install Ghostty's deferred
+# ssh() patch after the user's startup files run.
 
-if [[ -n "${GHOSTTY_ZSH_ZDOTDIR+X}" ]]; then
-    builtin export ZDOTDIR="$GHOSTTY_ZSH_ZDOTDIR"
-    builtin unset GHOSTTY_ZSH_ZDOTDIR
-elif [[ -n "${CMUX_ZSH_ZDOTDIR+X}" ]]; then
-    builtin export ZDOTDIR="$CMUX_ZSH_ZDOTDIR"
-    builtin unset CMUX_ZSH_ZDOTDIR
-else
-    builtin unset ZDOTDIR
+if (( $+functions[_cmux_prepare_real_zdotfile] )); then
+    {
+        _cmux_prepare_real_zdotfile ".zprofile"
+        [[ ! -r "$_cmux_real_zdotfile_path" ]] || builtin source -- "$_cmux_real_zdotfile_path"
+    } always {
+        _cmux_capture_real_zdotdir
+        _cmux_restore_wrapper_zdotdir
+    }
 fi
-
-builtin typeset _cmux_file="${ZDOTDIR-$HOME}/.zprofile"
-[[ ! -r "$_cmux_file" ]] || builtin source -- "$_cmux_file"
-builtin unset _cmux_file

@@ -25,12 +25,16 @@ jobs:
     steps:
       - name: Get version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+          if [ -n "${VERSION_INPUT}" ]; then
+            VERSION="${VERSION_INPUT}"
           else
             # workflow_run: extract tag from the triggering workflow's head branch
-            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION="${WORKFLOW_RUN_HEAD_BRANCH}"
           fi
           VERSION="${VERSION#v}"
           if [ -z "$VERSION" ]; then
@@ -38,7 +42,7 @@ jobs:
             exit 1
           fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
               echo "Invalid version: ${VERSION}" >&2
               exit 1
             fi
