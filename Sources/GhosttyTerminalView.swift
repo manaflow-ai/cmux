@@ -7037,10 +7037,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyCode: event.keyCode,
             modifierFlagsRawValue: event.modifierFlags.rawValue
            ) {
-            var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
+            // `flagsChanged` carries modifier-only state, not textual key input.
+            // Building this via `ghosttyKeyEvent(for:surface:)` would fall through
+            // to `unshiftedCodepointFromEvent`, which probes AppKit character APIs
+            // that are not safe for modifier-only events.
+            var keyEvent = ghostty_input_key_s()
             keyEvent.action = action
+            keyEvent.keycode = UInt32(event.keyCode)
+            keyEvent.mods = modsFromEvent(event)
+            keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.text = nil
             keyEvent.composing = false
+            keyEvent.unshifted_codepoint = 0
             _ = sendGhosttyKey(surface, keyEvent)
         }
 
