@@ -293,6 +293,7 @@ extension Workspace {
         }
 
         return SessionWorkspaceSnapshot(
+            id: id,
             processTitle: processTitle,
             customTitle: customTitle,
             customDescription: customDescription,
@@ -6849,6 +6850,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     init(
+        restoredId: UUID? = nil,
         title: String = "Terminal",
         workingDirectory: String? = nil,
         portOrdinal: Int = 0,
@@ -6856,7 +6858,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalCommand: String? = nil,
         initialTerminalEnvironment: [String: String] = [:]
     ) {
-        self.id = UUID()
+        self.id = restoredId ?? UUID()
         self.portOrdinal = portOrdinal
         self.processTitle = title
         self.title = title

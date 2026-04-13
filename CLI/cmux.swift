@@ -2096,6 +2096,127 @@ struct CMUXCLI {
                 }
             }
 
+        case "list-workspace-groups":
+            var params: [String: Any] = [:]
+            if let windowId {
+                params["window_id"] = windowId
+            }
+            let payload = try client.sendV2(method: "workspace_group.list", params: params)
+            if jsonOutput {
+                print(jsonString(formatIDs(payload, mode: idFormat)))
+            } else {
+                let groups = payload["groups"] as? [[String: Any]] ?? []
+                if groups.isEmpty {
+                    print("No workspace groups")
+                } else {
+                    for group in groups {
+                        let handle = textHandle(group, idFormat: idFormat)
+                        let name = (group["path"] as? String) ?? ((group["name"] as? String) ?? "")
+                        let collapsed = (group["collapsed"] as? Bool) == true ? "  [collapsed]" : ""
+                        print("  \(handle)  \(name)\(collapsed)")
+                    }
+                }
+            }
+
+        case "create-workspace-group":
+            guard let name = optionValue(commandArgs, name: "--name") else {
+                throw CLIError(message: "create-workspace-group requires --name")
+            }
+            let parentRaw = optionValue(commandArgs, name: "--parent")
+            var params: [String: Any] = ["name": name]
+            if let windowId {
+                params["window_id"] = windowId
+            }
+            if let parentHandle = try normalizeWorkspaceGroupHandle(parentRaw, client: client, windowHandle: windowId) {
+                params["parent_group_id"] = parentHandle
+            }
+            let payload = try client.sendV2(method: "workspace_group.create", params: params)
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["group"])
+            )
+
+        case "rename-workspace-group":
+            guard let groupRaw = optionValue(commandArgs, name: "--group") else {
+                throw CLIError(message: "rename-workspace-group requires --group")
+            }
+            guard let name = optionValue(commandArgs, name: "--name") else {
+                throw CLIError(message: "rename-workspace-group requires --name")
+            }
+            guard let groupHandle = try normalizeWorkspaceGroupHandle(groupRaw, client: client, windowHandle: windowId) else {
+                throw CLIError(message: "Invalid workspace group handle")
+            }
+            let payload = try client.sendV2(method: "workspace_group.rename", params: [
+                "group_id": groupHandle,
+                "name": name
+            ])
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["group"])
+            )
+
+        case "delete-workspace-group":
+            guard let groupRaw = optionValue(commandArgs, name: "--group") else {
+                throw CLIError(message: "delete-workspace-group requires --group")
+            }
+            guard let groupHandle = try normalizeWorkspaceGroupHandle(groupRaw, client: client, windowHandle: windowId) else {
+                throw CLIError(message: "Invalid workspace group handle")
+            }
+            let payload = try client.sendV2(method: "workspace_group.delete", params: [
+                "group_id": groupHandle
+            ])
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["group"])
+            )
+
+        case "move-workspace-to-group":
+            guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
+                throw CLIError(message: "move-workspace-to-group requires --workspace")
+            }
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowId) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+            let groupRaw = optionValue(commandArgs, name: "--group")
+            let groupHandle = try normalizeWorkspaceGroupHandle(groupRaw, client: client, windowHandle: windowId)
+            var params: [String: Any] = ["workspace_id": workspaceHandle]
+            if let groupHandle {
+                params["group_id"] = groupHandle
+            } else {
+                params["group_id"] = NSNull()
+            }
+            let payload = try client.sendV2(method: "workspace_group.move_workspace", params: params)
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["workspace", "group"])
+            )
+
+        case "collapse-workspace-group", "expand-workspace-group":
+            guard let groupRaw = optionValue(commandArgs, name: "--group") else {
+                throw CLIError(message: "\(command) requires --group")
+            }
+            guard let groupHandle = try normalizeWorkspaceGroupHandle(groupRaw, client: client, windowHandle: windowId) else {
+                throw CLIError(message: "Invalid workspace group handle")
+            }
+            let payload = try client.sendV2(method: "workspace_group.set_collapsed", params: [
+                "group_id": groupHandle,
+                "collapsed": command == "collapse-workspace-group"
+            ])
+            printV2Payload(
+                payload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["group"])
+            )
+
         case "ssh":
             try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-end":
@@ -3314,7 +3435,7 @@ struct CMUXCLI {
         let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
         guard pieces.count == 2 else { return false }
         let kind = String(pieces[0]).lowercased()
-        guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
+        guard ["window", "workspace", "group", "pane", "surface"].contains(kind) else { return false }
         return Int(String(pieces[1])) != nil
     }
 
@@ -3373,6 +3494,50 @@ struct CMUXCLI {
             return (item["ref"] as? String) ?? (item["id"] as? String)
         }
         throw CLIError(message: "Workspace index not found")
+    }
+
+    private func normalizeWorkspaceGroupHandle(
+        _ raw: String?,
+        client: SocketClient,
+        windowHandle: String? = nil
+    ) throws -> String? {
+        guard let raw else { return nil }
+
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if isUUID(trimmed) || isHandleRef(trimmed) {
+            return trimmed
+        }
+
+        var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        let listed = try client.sendV2(method: "workspace_group.list", params: params)
+        let items = listed["groups"] as? [[String: Any]] ?? []
+
+        if let wantedIndex = Int(trimmed) {
+            for item in items where intFromAny(item["index"]) == wantedIndex {
+                return (item["ref"] as? String) ?? (item["id"] as? String)
+            }
+            throw CLIError(message: "Workspace group index not found")
+        }
+
+        let exactMatches = items.filter { item in
+            let name = ((item["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let path = ((item["path"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.caseInsensitiveCompare(trimmed) == .orderedSame
+                || path.caseInsensitiveCompare(trimmed) == .orderedSame
+        }
+
+        if exactMatches.count == 1 {
+            return (exactMatches[0]["ref"] as? String) ?? (exactMatches[0]["id"] as? String)
+        }
+        if exactMatches.count > 1 {
+            throw CLIError(message: "Workspace group name is ambiguous; use a UUID, ref, or full path")
+        }
+
+        throw CLIError(message: "Workspace group not found")
     }
 
     private func normalizePaneHandle(
@@ -7045,6 +7210,55 @@ struct CMUXCLI {
 
             Example:
               cmux move-workspace-to-window --workspace workspace:2 --window window:1
+            """
+        case "list-workspace-groups":
+            return """
+            Usage: cmux list-workspace-groups
+
+            List workspace groups in the current window.
+            """
+        case "create-workspace-group":
+            return """
+            Usage: cmux create-workspace-group --name <name> [--parent <id|ref|index|name>]
+
+            Create an empty workspace group.
+
+            Flags:
+              --name <name>                      Group name (required)
+              --parent <id|ref|index|name>      Optional parent group
+
+            Example:
+              cmux create-workspace-group --name frontend
+            """
+        case "rename-workspace-group":
+            return """
+            Usage: cmux rename-workspace-group --group <id|ref|index|name> --name <name>
+
+            Rename a workspace group.
+            """
+        case "delete-workspace-group":
+            return """
+            Usage: cmux delete-workspace-group --group <id|ref|index|name>
+
+            Delete a workspace group and move its contents to the parent level.
+            """
+        case "move-workspace-to-group":
+            return """
+            Usage: cmux move-workspace-to-group --workspace <id|ref|index> [--group <id|ref|index|name>]
+
+            Move a workspace into a group. Omit --group to move it back to the sidebar root.
+            """
+        case "collapse-workspace-group":
+            return """
+            Usage: cmux collapse-workspace-group --group <id|ref|index|name>
+
+            Collapse a workspace group in the sidebar.
+            """
+        case "expand-workspace-group":
+            return """
+            Usage: cmux expand-workspace-group --group <id|ref|index|name>
+
+            Expand a workspace group in the sidebar.
             """
         case "move-surface":
             return """
@@ -14369,6 +14583,13 @@ struct CMUXCLI {
           focus-window --window <id>
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
+          list-workspace-groups
+          create-workspace-group --name <name> [--parent <id|ref|index|name>]
+          rename-workspace-group --group <id|ref|index|name> --name <name>
+          delete-workspace-group --group <id|ref|index|name>
+          move-workspace-to-group --workspace <id|ref|index> [--group <id|ref|index|name>]
+          collapse-workspace-group --group <id|ref|index|name>
+          expand-workspace-group --group <id|ref|index|name>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces

@@ -284,6 +284,23 @@ struct SessionPaneLayoutSnapshot: Codable, Sendable {
     var selectedPanelId: UUID?
 }
 
+struct SessionSidebarWorkspaceItemSnapshot: Codable, Sendable, Hashable {
+    enum Kind: String, Codable, Sendable {
+        case workspace
+        case group
+    }
+
+    var kind: Kind
+    var id: UUID
+}
+
+struct SessionSidebarWorkspaceGroupSnapshot: Codable, Sendable {
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
+    var childItems: [SessionSidebarWorkspaceItemSnapshot]
+}
+
 struct SessionSplitLayoutSnapshot: Codable, Sendable {
     var orientation: SessionSplitOrientation
     var dividerPosition: Double
@@ -328,6 +345,7 @@ indirect enum SessionWorkspaceLayoutSnapshot: Codable, Sendable {
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
+    var id: UUID?
     var processTitle: String
     var customTitle: String?
     var customDescription: String?
@@ -346,6 +364,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
 struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
+    var sidebarRootItems: [SessionSidebarWorkspaceItemSnapshot]?
+    var sidebarGroups: [SessionSidebarWorkspaceGroupSnapshot]?
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {

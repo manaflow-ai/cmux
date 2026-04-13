@@ -921,11 +921,8 @@ struct cmuxApp: App {
     }
 
     private func moveSelectedWorkspace(in manager: TabManager, by delta: Int) {
-        guard let workspace = manager.selectedWorkspace,
-              let currentIndex = selectedWorkspaceIndex(in: manager, workspaceId: workspace.id) else { return }
-        let targetIndex = currentIndex + delta
-        guard targetIndex >= 0, targetIndex < manager.tabs.count else { return }
-        _ = manager.reorderWorkspace(tabId: workspace.id, toIndex: targetIndex)
+        guard let workspace = manager.selectedWorkspace else { return }
+        _ = manager.moveWorkspace(workspace.id, by: delta)
         manager.selectWorkspace(workspace)
     }
 
@@ -1029,17 +1026,17 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
             moveSelectedWorkspace(in: manager, by: -1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == 0)
+        .disabled(workspace == nil || !(workspace.map { manager.canMoveWorkspace($0.id, by: -1) } ?? false))
 
         Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
             moveSelectedWorkspace(in: manager, by: 1)
         }
-        .disabled(workspaceIndex == nil || workspaceIndex == manager.tabs.count - 1)
+        .disabled(workspace == nil || !(workspace.map { manager.canMoveWorkspace($0.id, by: 1) } ?? false))
 
         Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
             moveSelectedWorkspaceToTop(in: manager)
         }
-        .disabled(workspace == nil || workspaceIndex == 0)
+        .disabled(workspace == nil || !(workspace.map { manager.canMoveWorkspaceToTop($0.id) } ?? false))
 
         Menu(String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")) {
             Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {

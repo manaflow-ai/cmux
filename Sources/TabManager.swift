@@ -235,6 +235,103 @@ enum WorkspacePlacementSettings {
     }
 }
 
+enum SidebarWorkspaceItemReference: Hashable, Sendable {
+    case workspace(UUID)
+    case group(UUID)
+
+    var id: UUID {
+        switch self {
+        case .workspace(let id), .group(let id):
+            return id
+        }
+    }
+
+    var sessionSnapshot: SessionSidebarWorkspaceItemSnapshot {
+        switch self {
+        case .workspace(let id):
+            return SessionSidebarWorkspaceItemSnapshot(kind: .workspace, id: id)
+        case .group(let id):
+            return SessionSidebarWorkspaceItemSnapshot(kind: .group, id: id)
+        }
+    }
+
+    init(snapshot: SessionSidebarWorkspaceItemSnapshot) {
+        switch snapshot.kind {
+        case .workspace:
+            self = .workspace(snapshot.id)
+        case .group:
+            self = .group(snapshot.id)
+        }
+    }
+}
+
+struct SidebarWorkspaceGroupModel: Identifiable, Equatable, Sendable {
+    var id: UUID
+    var name: String
+    var isCollapsed: Bool
+    var childItems: [SidebarWorkspaceItemReference]
+
+    var sessionSnapshot: SessionSidebarWorkspaceGroupSnapshot {
+        SessionSidebarWorkspaceGroupSnapshot(
+            id: id,
+            name: name,
+            isCollapsed: isCollapsed,
+            childItems: childItems.map(\.sessionSnapshot)
+        )
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        isCollapsed: Bool = false,
+        childItems: [SidebarWorkspaceItemReference] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.isCollapsed = isCollapsed
+        self.childItems = childItems
+    }
+
+    init(snapshot: SessionSidebarWorkspaceGroupSnapshot) {
+        self.id = snapshot.id
+        self.name = snapshot.name
+        self.isCollapsed = snapshot.isCollapsed
+        self.childItems = snapshot.childItems.map(SidebarWorkspaceItemReference.init(snapshot:))
+    }
+}
+
+struct SidebarWorkspaceDisplayEntry: Identifiable, Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case workspace(UUID)
+        case group(UUID)
+    }
+
+    let kind: Kind
+    let level: Int
+    let descendantWorkspaceIds: [UUID]
+
+    var id: String {
+        switch kind {
+        case .workspace(let id):
+            return "workspace:\(id.uuidString)"
+        case .group(let id):
+            return "group:\(id.uuidString)"
+        }
+    }
+}
+
+struct SidebarWorkspaceGroupSummary: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let name: String
+    let path: String
+    let parentGroupId: UUID?
+    let isCollapsed: Bool
+
+    var displayName: String {
+        path.isEmpty ? name : path
+    }
+}
+
 struct WorkspaceTabColorEntry: Equatable, Identifiable {
     let name: String
     let hex: String
@@ -868,6 +965,7 @@ class TabManager: ObservableObject {
     @Published private(set) var isWorkspaceCycleHot: Bool = false
     @Published private(set) var pendingBackgroundWorkspaceLoadIds: Set<UUID> = []
     @Published private(set) var debugPinnedWorkspaceLoadIds: Set<UUID> = []
+    @Published private(set) var sidebarStructureRevision: UInt64 = 0
 
     /// Global monotonically increasing counter for CMUX_PORT ordinal assignment.
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
@@ -991,6 +1089,8 @@ class TabManager: ObservableObject {
     private var workspaceCycleCooldownTask: Task<Void, Never>?
     private var pendingWorkspaceUnfocusTarget: (tabId: UUID, panelId: UUID)?
     private var sidebarSelectedWorkspaceIds: Set<UUID> = []
+    private var sidebarRootItems: [SidebarWorkspaceItemReference] = []
+    private var sidebarGroupsById: [UUID: SidebarWorkspaceGroupModel] = [:]
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private struct WorkspaceCreationTabSnapshot {
         let id: UUID
@@ -1077,6 +1177,544 @@ class TabManager: ObservableObject {
         selectedWorkspaceGitMetadataPollTimer?.cancel()
         workspacePullRequestPollTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
+    }
+
+    private func bumpSidebarStructureRevision() {
+        sidebarStructureRevision &+= 1
+    }
+
+    func sidebarGroup(for groupId: UUID) -> SidebarWorkspaceGroupModel? {
+        sidebarGroupsById[groupId]
+    }
+
+    func sidebarGroupId(forWorkspace workspaceId: UUID) -> UUID? {
+        parentGroupId(containing: .workspace(workspaceId))
+    }
+
+    func isWorkspaceGrouped(_ workspaceId: UUID) -> Bool {
+        sidebarGroupId(forWorkspace: workspaceId) != nil
+    }
+
+    func sidebarHasGroups() -> Bool {
+        !sidebarGroupsById.isEmpty
+    }
+
+    func sidebarDisplayEntries() -> [SidebarWorkspaceDisplayEntry] {
+        var entries: [SidebarWorkspaceDisplayEntry] = []
+
+        func walk(items: [SidebarWorkspaceItemReference], level: Int) {
+            for item in items {
+                switch item {
+                case .workspace(let workspaceId):
+                    entries.append(
+                        SidebarWorkspaceDisplayEntry(
+                            kind: .workspace(workspaceId),
+                            level: level,
+                            descendantWorkspaceIds: [workspaceId]
+                        )
+                    )
+                case .group(let groupId):
+                    guard let group = sidebarGroupsById[groupId] else { continue }
+                    let descendants = descendantWorkspaceIds(in: group.childItems)
+                    entries.append(
+                        SidebarWorkspaceDisplayEntry(
+                            kind: .group(groupId),
+                            level: level,
+                            descendantWorkspaceIds: descendants
+                        )
+                    )
+                    if !group.isCollapsed {
+                        walk(items: group.childItems, level: level + 1)
+                    }
+                }
+            }
+        }
+
+        walk(items: sidebarRootItems, level: 0)
+        return entries
+    }
+
+    func sidebarVisibleWorkspaceIds() -> [UUID] {
+        sidebarDisplayEntries().compactMap { entry in
+            guard case .workspace(let workspaceId) = entry.kind else { return nil }
+            return workspaceId
+        }
+    }
+
+    func sidebarWorkspaceGroupsInDisplayOrder() -> [SidebarWorkspaceGroupSummary] {
+        var summaries: [SidebarWorkspaceGroupSummary] = []
+
+        func walk(
+            items: [SidebarWorkspaceItemReference],
+            ancestorNames: [String],
+            parentGroupId: UUID?
+        ) {
+            for item in items {
+                guard case .group(let groupId) = item,
+                      let group = sidebarGroupsById[groupId] else {
+                    continue
+                }
+                let names = ancestorNames + [group.name]
+                summaries.append(
+                    SidebarWorkspaceGroupSummary(
+                        id: group.id,
+                        name: group.name,
+                        path: names.joined(separator: " / "),
+                        parentGroupId: parentGroupId,
+                        isCollapsed: group.isCollapsed
+                    )
+                )
+                walk(items: group.childItems, ancestorNames: names, parentGroupId: group.id)
+            }
+        }
+
+        walk(items: sidebarRootItems, ancestorNames: [], parentGroupId: nil)
+        return summaries
+    }
+
+    func workspaceGroupSummary(forWorkspace workspaceId: UUID) -> SidebarWorkspaceGroupSummary? {
+        guard let groupId = sidebarGroupId(forWorkspace: workspaceId),
+              let group = sidebarGroupsById[groupId] else {
+            return nil
+        }
+
+        let pathNames = sidebarGroupPath(groupId: groupId).map(\.name)
+        return SidebarWorkspaceGroupSummary(
+            id: group.id,
+            name: group.name,
+            path: pathNames.joined(separator: " / "),
+            parentGroupId: parentGroupId(containing: .group(groupId)),
+            isCollapsed: group.isCollapsed
+        )
+    }
+
+    @discardableResult
+    func createWorkspaceGroup(
+        name: String,
+        parentGroupId explicitParentGroupId: UUID? = nil,
+        workspaceIds: [UUID] = []
+    ) -> SidebarWorkspaceGroupModel? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let explicitParentGroupId, sidebarGroupsById[explicitParentGroupId] == nil {
+            return nil
+        }
+
+        let orderedWorkspaceIds = tabs.compactMap { workspaceIds.contains($0.id) ? $0.id : nil }
+        let groupedParentIds = orderedWorkspaceIds.map { sidebarGroupId(forWorkspace: $0) }
+        let sharedParentGroupId: UUID? = {
+            guard explicitParentGroupId == nil,
+                  let firstParent = groupedParentIds.first,
+                  groupedParentIds.allSatisfy({ $0 == firstParent }) else {
+                return explicitParentGroupId
+            }
+            return firstParent
+        }()
+
+        let insertionParentGroupId = explicitParentGroupId ?? sharedParentGroupId
+        let insertionIndex: Int? = {
+            guard let firstWorkspaceId = orderedWorkspaceIds.first else { return nil }
+            return itemIndex(
+                .workspace(firstWorkspaceId),
+                inGroup: insertionParentGroupId
+            )
+        }()
+
+        let group = SidebarWorkspaceGroupModel(name: trimmed)
+        sidebarGroupsById[group.id] = group
+        insertSidebarItem(.group(group.id), intoGroup: insertionParentGroupId, at: insertionIndex)
+        if let insertionParentGroupId {
+            expandAncestorGroups(forGroup: insertionParentGroupId)
+        }
+
+        if !orderedWorkspaceIds.isEmpty {
+            var updated = sidebarGroupsById[group.id] ?? group
+            for workspaceId in orderedWorkspaceIds {
+                removeSidebarItemFromContainers(.workspace(workspaceId))
+                updated.childItems.append(.workspace(workspaceId))
+            }
+            sidebarGroupsById[group.id] = updated
+        }
+
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+        return sidebarGroupsById[group.id]
+    }
+
+    @discardableResult
+    func renameWorkspaceGroup(groupId: UUID, name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var group = sidebarGroupsById[groupId],
+              group.name != trimmed else {
+            return false
+        }
+        group.name = trimmed
+        sidebarGroupsById[groupId] = group
+        bumpSidebarStructureRevision()
+        return true
+    }
+
+    @discardableResult
+    func deleteWorkspaceGroup(groupId: UUID) -> Bool {
+        guard let group = sidebarGroupsById[groupId] else { return false }
+        let parentGroupId = parentGroupId(containing: .group(groupId))
+        guard var containerItems = sidebarItems(inGroup: parentGroupId),
+              let groupIndex = containerItems.firstIndex(of: .group(groupId)) else {
+            return false
+        }
+
+        containerItems.remove(at: groupIndex)
+        containerItems.insert(contentsOf: group.childItems, at: groupIndex)
+        setSidebarItems(containerItems, inGroup: parentGroupId)
+        sidebarGroupsById.removeValue(forKey: groupId)
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+        return true
+    }
+
+    @discardableResult
+    func setWorkspaceGroupCollapsed(groupId: UUID, collapsed: Bool) -> Bool {
+        guard var group = sidebarGroupsById[groupId],
+              group.isCollapsed != collapsed else {
+            return false
+        }
+        group.isCollapsed = collapsed
+        sidebarGroupsById[groupId] = group
+        bumpSidebarStructureRevision()
+        return true
+    }
+
+    @discardableResult
+    func moveWorkspaceToGroup(workspaceId: UUID, groupId: UUID?) -> Bool {
+        guard tabs.contains(where: { $0.id == workspaceId }) else { return false }
+        if let groupId, sidebarGroupsById[groupId] == nil {
+            return false
+        }
+
+        removeSidebarItemFromContainers(.workspace(workspaceId))
+        insertSidebarItem(.workspace(workspaceId), intoGroup: groupId, at: nil)
+        if let groupId {
+            expandAncestorGroups(forGroup: groupId)
+        }
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+        return true
+    }
+
+    func expandAncestorGroups(containing workspaceId: UUID) {
+        var currentGroupId = sidebarGroupId(forWorkspace: workspaceId)
+        var didChange = false
+
+        while let groupId = currentGroupId {
+            guard var group = sidebarGroupsById[groupId] else { break }
+            if group.isCollapsed {
+                group.isCollapsed = false
+                sidebarGroupsById[groupId] = group
+                didChange = true
+            }
+            currentGroupId = parentGroupId(containing: .group(groupId))
+        }
+
+        if didChange {
+            bumpSidebarStructureRevision()
+        }
+    }
+
+    private func expandAncestorGroups(forGroup groupId: UUID) {
+        var currentGroupId: UUID? = groupId
+        var didChange = false
+
+        while let current = currentGroupId {
+            guard var group = sidebarGroupsById[current] else { break }
+            if group.isCollapsed {
+                group.isCollapsed = false
+                sidebarGroupsById[current] = group
+                didChange = true
+            }
+            currentGroupId = parentGroupId(containing: .group(current))
+        }
+
+        if didChange {
+            bumpSidebarStructureRevision()
+        }
+    }
+
+    private func sidebarGroupPath(groupId: UUID) -> [SidebarWorkspaceGroupModel] {
+        var path: [SidebarWorkspaceGroupModel] = []
+        var currentGroupId: UUID? = groupId
+
+        while let groupId = currentGroupId,
+              let group = sidebarGroupsById[groupId] {
+            path.append(group)
+            currentGroupId = parentGroupId(containing: .group(groupId))
+        }
+
+        return path.reversed()
+    }
+
+    private func descendantWorkspaceIds(in items: [SidebarWorkspaceItemReference]) -> [UUID] {
+        var ids: [UUID] = []
+
+        for item in items {
+            switch item {
+            case .workspace(let workspaceId):
+                ids.append(workspaceId)
+            case .group(let groupId):
+                guard let group = sidebarGroupsById[groupId] else { continue }
+                ids.append(contentsOf: descendantWorkspaceIds(in: group.childItems))
+            }
+        }
+
+        return ids
+    }
+
+    private func flattenedWorkspaceIds(
+        in items: [SidebarWorkspaceItemReference]
+    ) -> [UUID] {
+        descendantWorkspaceIds(in: items)
+    }
+
+    private func parentGroupId(containing item: SidebarWorkspaceItemReference) -> UUID? {
+        for (groupId, group) in sidebarGroupsById where group.childItems.contains(item) {
+            return groupId
+        }
+        return nil
+    }
+
+    private func itemIndex(
+        _ item: SidebarWorkspaceItemReference,
+        inGroup groupId: UUID?
+    ) -> Int? {
+        guard let items = sidebarItems(inGroup: groupId) else { return nil }
+        return items.firstIndex(of: item)
+    }
+
+    private func sidebarItems(inGroup groupId: UUID?) -> [SidebarWorkspaceItemReference]? {
+        if let groupId {
+            return sidebarGroupsById[groupId]?.childItems
+        }
+        return sidebarRootItems
+    }
+
+    private func setSidebarItems(
+        _ items: [SidebarWorkspaceItemReference],
+        inGroup groupId: UUID?
+    ) {
+        if let groupId {
+            guard var group = sidebarGroupsById[groupId] else { return }
+            group.childItems = items
+            sidebarGroupsById[groupId] = group
+        } else {
+            sidebarRootItems = items
+        }
+    }
+
+    private func insertSidebarItem(
+        _ item: SidebarWorkspaceItemReference,
+        intoGroup groupId: UUID?,
+        at index: Int?
+    ) {
+        var items = sidebarItems(inGroup: groupId) ?? []
+        let insertionIndex = min(max(index ?? items.count, 0), items.count)
+        items.insert(item, at: insertionIndex)
+        setSidebarItems(items, inGroup: groupId)
+    }
+
+    private func removeSidebarItemFromContainers(_ item: SidebarWorkspaceItemReference) {
+        sidebarRootItems.removeAll { $0 == item }
+        for groupId in Array(sidebarGroupsById.keys) {
+            guard var group = sidebarGroupsById[groupId] else { continue }
+            group.childItems.removeAll { $0 == item }
+            sidebarGroupsById[groupId] = group
+        }
+    }
+
+    private func sidebarContainerInfo(
+        forWorkspace workspaceId: UUID
+    ) -> (parentGroupId: UUID?, items: [SidebarWorkspaceItemReference], index: Int)? {
+        let parentGroupId = sidebarGroupId(forWorkspace: workspaceId)
+        guard let items = sidebarItems(inGroup: parentGroupId),
+              let index = items.firstIndex(of: .workspace(workspaceId)) else {
+            return nil
+        }
+        return (parentGroupId, items, index)
+    }
+
+    private func rootPinnedWorkspaceItemCount(
+        in items: [SidebarWorkspaceItemReference]
+    ) -> Int {
+        items.reduce(into: 0) { partial, item in
+            guard case .workspace(let workspaceId) = item,
+                  let workspace = tabs.first(where: { $0.id == workspaceId }),
+                  workspace.isPinned else {
+                return
+            }
+            partial += 1
+        }
+    }
+
+    private func clampedSidebarInsertionIndex(
+        for item: SidebarWorkspaceItemReference,
+        desiredIndex: Int,
+        itemsAfterRemoval: [SidebarWorkspaceItemReference],
+        parentGroupId: UUID?
+    ) -> Int {
+        let clamped = max(0, min(desiredIndex, itemsAfterRemoval.count))
+        guard parentGroupId == nil,
+              case .workspace(let workspaceId) = item,
+              let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return clamped
+        }
+
+        let pinnedCount = rootPinnedWorkspaceItemCount(in: itemsAfterRemoval)
+        if workspace.isPinned {
+            return min(clamped, pinnedCount)
+        }
+        return max(clamped, pinnedCount)
+    }
+
+    @discardableResult
+    private func reorderSidebarItem(
+        _ item: SidebarWorkspaceItemReference,
+        withinGroup parentGroupId: UUID?,
+        toIndex targetIndex: Int
+    ) -> Bool {
+        guard var items = sidebarItems(inGroup: parentGroupId),
+              let currentIndex = items.firstIndex(of: item) else {
+            return false
+        }
+
+        let movingItem = items.remove(at: currentIndex)
+        let adjustedTargetIndex = targetIndex > currentIndex ? targetIndex - 1 : targetIndex
+        let insertionIndex = clampedSidebarInsertionIndex(
+            for: movingItem,
+            desiredIndex: adjustedTargetIndex,
+            itemsAfterRemoval: items,
+            parentGroupId: parentGroupId
+        )
+        items.insert(movingItem, at: insertionIndex)
+        setSidebarItems(items, inGroup: parentGroupId)
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+        return true
+    }
+
+    func canMoveWorkspace(_ workspaceId: UUID, by delta: Int) -> Bool {
+        guard let container = sidebarContainerInfo(forWorkspace: workspaceId) else { return false }
+        let targetIndex = container.index + delta
+        return targetIndex >= 0 && targetIndex < container.items.count
+    }
+
+    func canMoveWorkspaceToTop(_ workspaceId: UUID) -> Bool {
+        guard let container = sidebarContainerInfo(forWorkspace: workspaceId) else { return false }
+        let insertionIndex = clampedSidebarInsertionIndex(
+            for: .workspace(workspaceId),
+            desiredIndex: 0,
+            itemsAfterRemoval: Array(container.items.enumerated())
+                .compactMap { $0.offset == container.index ? nil : $0.element },
+            parentGroupId: container.parentGroupId
+        )
+        return container.index != insertionIndex
+    }
+
+    @discardableResult
+    func moveWorkspace(_ workspaceId: UUID, by delta: Int) -> Bool {
+        guard let container = sidebarContainerInfo(forWorkspace: workspaceId) else { return false }
+        let targetIndex = container.index + delta
+        guard targetIndex >= 0 && targetIndex < container.items.count else { return false }
+        return reorderSidebarItem(.workspace(workspaceId), withinGroup: container.parentGroupId, toIndex: targetIndex)
+    }
+
+    @discardableResult
+    func moveWorkspaceToTop(_ workspaceId: UUID) -> Bool {
+        guard let container = sidebarContainerInfo(forWorkspace: workspaceId) else { return false }
+        return reorderSidebarItem(.workspace(workspaceId), withinGroup: container.parentGroupId, toIndex: 0)
+    }
+
+    func canReorderWorkspaceDrop(
+        draggedWorkspaceId: UUID,
+        targetWorkspaceId: UUID?
+    ) -> Bool {
+        guard tabs.contains(where: { $0.id == draggedWorkspaceId }) else { return false }
+        guard let targetWorkspaceId else { return true }
+        return tabs.contains(where: { $0.id == targetWorkspaceId })
+    }
+
+    private func normalizeSidebarStructure(preferredWorkspaceOrder: [UUID]? = nil) {
+        let workspaceOrder = preferredWorkspaceOrder ?? tabs.map(\.id)
+        let validWorkspaceIds = Set(workspaceOrder)
+        let existingGroups = sidebarGroupsById
+
+        var sanitizedGroups: [UUID: SidebarWorkspaceGroupModel] = [:]
+        var seenWorkspaceIds: Set<UUID> = []
+        var seenGroupIds: Set<UUID> = []
+
+        func sanitizeGroupReference(
+            _ groupId: UUID,
+            ancestors: Set<UUID>
+        ) -> SidebarWorkspaceItemReference? {
+            guard !ancestors.contains(groupId),
+                  !seenGroupIds.contains(groupId),
+                  var group = existingGroups[groupId] else {
+                return nil
+            }
+
+            seenGroupIds.insert(groupId)
+            group.childItems = sanitizeItems(group.childItems, ancestors: ancestors.union([groupId]))
+            sanitizedGroups[groupId] = group
+            return .group(groupId)
+        }
+
+        func sanitizeItems(
+            _ items: [SidebarWorkspaceItemReference],
+            ancestors: Set<UUID>
+        ) -> [SidebarWorkspaceItemReference] {
+            var sanitized: [SidebarWorkspaceItemReference] = []
+
+            for item in items {
+                switch item {
+                case .workspace(let workspaceId):
+                    guard validWorkspaceIds.contains(workspaceId),
+                          seenWorkspaceIds.insert(workspaceId).inserted else {
+                        continue
+                    }
+                    sanitized.append(.workspace(workspaceId))
+                case .group(let groupId):
+                    guard let sanitizedGroupReference = sanitizeGroupReference(groupId, ancestors: ancestors) else {
+                        continue
+                    }
+                    sanitized.append(sanitizedGroupReference)
+                }
+            }
+
+            return sanitized
+        }
+
+        var sanitizedRootItems = sanitizeItems(sidebarRootItems, ancestors: [])
+
+        let orphanGroupIds = existingGroups.keys
+            .sorted(by: { $0.uuidString < $1.uuidString })
+            .filter { !seenGroupIds.contains($0) }
+        for groupId in orphanGroupIds {
+            guard let sanitizedGroupReference = sanitizeGroupReference(groupId, ancestors: []) else {
+                continue
+            }
+            sanitizedRootItems.append(sanitizedGroupReference)
+        }
+
+        for workspaceId in workspaceOrder where validWorkspaceIds.contains(workspaceId) {
+            guard seenWorkspaceIds.insert(workspaceId).inserted else { continue }
+            sanitizedRootItems.append(.workspace(workspaceId))
+        }
+
+        sidebarGroupsById = sanitizedGroups
+        sidebarRootItems = sanitizedRootItems
+
+        let orderedWorkspaceIds = flattenedWorkspaceIds(in: sanitizedRootItems)
+        let workspacesById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let orderedTabs = orderedWorkspaceIds.compactMap { workspacesById[$0] }
+        if orderedTabs.map(\.id) != tabs.map(\.id) {
+            tabs = orderedTabs
+        }
+
+        bumpSidebarStructureRevision()
     }
 
     // MARK: - Agent PID Sweep
@@ -2020,6 +2658,11 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            let rootInsertIndex = sidebarGroupsById.isEmpty
+                ? min(max(insertIndex, 0), sidebarRootItems.count)
+                : nil
+            insertSidebarItem(.workspace(newWorkspace.id), intoGroup: nil, at: rootInsertIndex)
+            normalizeSidebarStructure(preferredWorkspaceOrder: updatedTabs.map(\.id))
             if let terminalPanel = newWorkspace.focusedTerminalPanel {
                 scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
@@ -3495,60 +4138,129 @@ class TabManager: ObservableObject {
     }
 
     func moveTabToTop(_ tabId: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        guard index != 0 else { return }
-        let tab = tabs.remove(at: index)
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        let insertIndex = tab.isPinned ? 0 : pinnedCount
-        tabs.insert(tab, at: insertIndex)
+        _ = moveWorkspaceToTop(tabId)
     }
 
     func moveTabsToTop(_ tabIds: Set<UUID>) {
         guard !tabIds.isEmpty else { return }
-        let selectedTabs = tabs.filter { tabIds.contains($0.id) }
-        guard !selectedTabs.isEmpty else { return }
-        let remainingTabs = tabs.filter { !tabIds.contains($0.id) }
-        let selectedPinned = selectedTabs.filter { $0.isPinned }
-        let selectedUnpinned = selectedTabs.filter { !$0.isPinned }
-        let remainingPinned = remainingTabs.filter { $0.isPinned }
-        let remainingUnpinned = remainingTabs.filter { !$0.isPinned }
-        tabs = selectedPinned + remainingPinned + selectedUnpinned + remainingUnpinned
+
+        let selectedWorkspaceIds = tabs.compactMap { tabIds.contains($0.id) ? $0.id : nil }
+        guard !selectedWorkspaceIds.isEmpty else { return }
+
+        let groupedByContainer = Dictionary(grouping: selectedWorkspaceIds) {
+            sidebarGroupId(forWorkspace: $0)
+        }
+        var didChange = false
+
+        for (parentGroupId, workspaceIds) in groupedByContainer {
+            guard var items = sidebarItems(inGroup: parentGroupId) else { continue }
+            let selectedItems = items.filter { item in
+                guard case .workspace(let workspaceId) = item else { return false }
+                return workspaceIds.contains(workspaceId)
+            }
+            guard !selectedItems.isEmpty else { continue }
+
+            items.removeAll { item in
+                guard case .workspace(let workspaceId) = item else { return false }
+                return workspaceIds.contains(workspaceId)
+            }
+
+            let selectedPinnedItems = selectedItems.filter { item in
+                guard case .workspace(let workspaceId) = item,
+                      let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+                    return false
+                }
+                return workspace.isPinned
+            }
+            let selectedUnpinnedItems = selectedItems.filter { item in
+                guard case .workspace(let workspaceId) = item,
+                      let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+                    return false
+                }
+                return !workspace.isPinned
+            }
+
+            let insertionIndex = parentGroupId == nil ? rootPinnedWorkspaceItemCount(in: items) : 0
+            items.insert(contentsOf: selectedPinnedItems, at: 0)
+            items.insert(contentsOf: selectedUnpinnedItems, at: min(insertionIndex + selectedPinnedItems.count, items.count))
+            setSidebarItems(items, inGroup: parentGroupId)
+            didChange = true
+        }
+
+        if didChange {
+            normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+        }
     }
 
     func moveTabToTopForNotification(_ tabId: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return }
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        guard index != pinnedCount else { return }
-        let tab = tabs[index]
-        guard !tab.isPinned else { return }
-        tabs.remove(at: index)
-        tabs.insert(tab, at: pinnedCount)
+        guard !isWorkspaceGrouped(tabId),
+              let workspace = tabs.first(where: { $0.id == tabId }),
+              !workspace.isPinned else {
+            return
+        }
+        _ = moveWorkspaceToTop(tabId)
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int) -> Bool {
-        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
-        if tabs.count <= 1 { return true }
+        guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }),
+              tabs.count > 1 else {
+            return false
+        }
 
-        let workspace = tabs[currentIndex]
-        let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
-        if currentIndex == clamped { return true }
+        let clamped = max(0, min(targetIndex, tabs.count - 1))
+        if currentIndex == clamped {
+            return true
+        }
 
-        tabs.remove(at: currentIndex)
-        tabs.insert(workspace, at: clamped)
-        return true
+        let visibleWorkspaceIds = tabs.map(\.id)
+        let targetWorkspaceId = visibleWorkspaceIds[clamped]
+        if clamped < currentIndex {
+            return reorderWorkspace(tabId: tabId, before: targetWorkspaceId)
+        }
+        return reorderWorkspace(tabId: tabId, after: targetWorkspaceId)
     }
 
     @discardableResult
     func reorderWorkspace(tabId: UUID, before beforeId: UUID? = nil, after afterId: UUID? = nil) -> Bool {
         guard tabs.contains(where: { $0.id == tabId }) else { return false }
         if let beforeId {
-            guard let idx = tabs.firstIndex(where: { $0.id == beforeId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx)
+            guard beforeId != tabId else { return true }
+            guard tabs.contains(where: { $0.id == beforeId }) else { return false }
+            let targetParentGroupId = sidebarGroupId(forWorkspace: beforeId)
+            guard let targetItems = sidebarItems(inGroup: targetParentGroupId),
+                  let targetIndex = targetItems.firstIndex(of: .workspace(beforeId)) else {
+                return false
+            }
+
+            let currentParentGroupId = sidebarGroupId(forWorkspace: tabId)
+            if currentParentGroupId == targetParentGroupId {
+                return reorderSidebarItem(.workspace(tabId), withinGroup: currentParentGroupId, toIndex: targetIndex)
+            }
+
+            removeSidebarItemFromContainers(.workspace(tabId))
+            insertSidebarItem(.workspace(tabId), intoGroup: targetParentGroupId, at: targetIndex)
+            normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+            return true
         }
         if let afterId {
-            guard let idx = tabs.firstIndex(where: { $0.id == afterId }) else { return false }
-            return reorderWorkspace(tabId: tabId, toIndex: idx + 1)
+            guard afterId != tabId else { return true }
+            guard tabs.contains(where: { $0.id == afterId }) else { return false }
+            let targetParentGroupId = sidebarGroupId(forWorkspace: afterId)
+            guard let targetItems = sidebarItems(inGroup: targetParentGroupId),
+                  let targetIndex = targetItems.firstIndex(of: .workspace(afterId)) else {
+                return false
+            }
+
+            let currentParentGroupId = sidebarGroupId(forWorkspace: tabId)
+            if currentParentGroupId == targetParentGroupId {
+                return reorderSidebarItem(.workspace(tabId), withinGroup: currentParentGroupId, toIndex: targetIndex + 1)
+            }
+
+            removeSidebarItemFromContainers(.workspace(tabId))
+            insertSidebarItem(.workspace(tabId), intoGroup: targetParentGroupId, at: targetIndex + 1)
+            normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+            return true
         }
         return false
     }
@@ -3592,20 +4304,11 @@ class TabManager: ObservableObject {
     }
 
     private func reorderTabForPinnedState(_ tab: Workspace) {
-        guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
-        tabs.remove(at: index)
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        let insertIndex = min(pinnedCount, tabs.count)
-        tabs.insert(tab, at: insertIndex)
-    }
-
-    private func clampedReorderIndex(for workspace: Workspace, targetIndex: Int) -> Int {
-        let clamped = max(0, min(targetIndex, tabs.count - 1))
-        let pinnedCount = tabs.filter { $0.isPinned }.count
-        if workspace.isPinned {
-            return min(clamped, max(0, pinnedCount - 1))
+        guard !isWorkspaceGrouped(tab.id) else {
+            normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
+            return
         }
-        return max(clamped, pinnedCount)
+        _ = moveWorkspaceToTop(tab.id)
     }
 
     // MARK: - Surface Directory Updates (Backwards Compatibility)
@@ -3815,6 +4518,8 @@ class TabManager: ObservableObject {
                 selectedTabId = tabs[newIndex].id
             }
         }
+        removeSidebarItemFromContainers(.workspace(workspace.id))
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
     }
 
     /// Detach a workspace from this window without closing its panels.
@@ -3829,6 +4534,7 @@ class TabManager: ObservableObject {
         unwireClosedBrowserTracking(for: removed)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
+        removeSidebarItemFromContainers(.workspace(removed.id))
 
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
@@ -3841,6 +4547,7 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[nextIndex].id
         }
 
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
         return removed
     }
 
@@ -3853,6 +4560,11 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        let rootInsertIndex = sidebarGroupsById.isEmpty
+            ? min(max(insertIndex, 0), sidebarRootItems.count)
+            : nil
+        insertSidebarItem(.workspace(workspace.id), intoGroup: nil, at: rootInsertIndex)
+        normalizeSidebarStructure(preferredWorkspaceOrder: tabs.map(\.id))
         if select {
             selectedTabId = workspace.id
         }
@@ -3971,6 +4683,7 @@ class TabManager: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: Workspace) {
+        expandAncestorGroups(containing: workspace.id)
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
@@ -6739,6 +7452,7 @@ extension TabManager {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
         hasher.combine(tabs.count)
+        hasher.combine(sidebarStructureRevision)
 
         for workspace in tabs.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow) {
             hasher.combine(workspace.id)
@@ -6774,6 +7488,36 @@ extension TabManager {
             }
         }
 
+        for item in sidebarRootItems {
+            switch item {
+            case .workspace(let workspaceId):
+                hasher.combine("root.workspace")
+                hasher.combine(workspaceId)
+            case .group(let groupId):
+                hasher.combine("root.group")
+                hasher.combine(groupId)
+            }
+        }
+
+        for summary in sidebarWorkspaceGroupsInDisplayOrder() {
+            hasher.combine(summary.id)
+            hasher.combine(summary.name)
+            hasher.combine(summary.parentGroupId)
+            hasher.combine(summary.isCollapsed)
+            if let group = sidebarGroupsById[summary.id] {
+                for item in group.childItems {
+                    switch item {
+                    case .workspace(let workspaceId):
+                        hasher.combine("child.workspace")
+                        hasher.combine(workspaceId)
+                    case .group(let groupId):
+                        hasher.combine("child.group")
+                        hasher.combine(groupId)
+                    }
+                }
+            }
+        }
+
         return hasher.finalize()
     }
 
@@ -6788,7 +7532,11 @@ extension TabManager {
         }
         return SessionTabManagerSnapshot(
             selectedWorkspaceIndex: selectedWorkspaceIndex,
-            workspaces: workspaceSnapshots
+            workspaces: workspaceSnapshots,
+            sidebarRootItems: sidebarRootItems.map(\.sessionSnapshot),
+            sidebarGroups: sidebarWorkspaceGroupsInDisplayOrder().compactMap { summary in
+                sidebarGroupsById[summary.id]?.sessionSnapshot
+            }
         )
     }
 
@@ -6812,6 +7560,8 @@ extension TabManager {
         for key in existingProbeKeys {
             clearWorkspaceGitProbe(key)
         }
+        sidebarRootItems.removeAll()
+        sidebarGroupsById.removeAll()
         workspaceGitTrackedDirectoryByKey.removeAll()
         resetWorkspacePullRequestRefreshState()
 
@@ -6838,6 +7588,7 @@ extension TabManager {
             let ordinal = Self.nextPortOrdinal
             Self.nextPortOrdinal += 1
             let workspace = Workspace(
+                restoredId: workspaceSnapshot.id,
                 title: workspaceSnapshot.processTitle,
                 workingDirectory: workspaceSnapshot.currentDirectory,
                 portOrdinal: ordinal
@@ -6869,6 +7620,14 @@ extension TabManager {
         // Single atomic assignment of @Published properties so SwiftUI observers
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
+        sidebarRootItems = snapshot.sidebarRootItems?.map(SidebarWorkspaceItemReference.init(snapshot:)) ?? []
+        sidebarGroupsById = Dictionary(
+            uniqueKeysWithValues: (snapshot.sidebarGroups ?? []).map {
+                let model = SidebarWorkspaceGroupModel(snapshot: $0)
+                return (model.id, model)
+            }
+        )
+        normalizeSidebarStructure(preferredWorkspaceOrder: newTabs.map(\.id))
         selectedTabId = newSelectedId
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
