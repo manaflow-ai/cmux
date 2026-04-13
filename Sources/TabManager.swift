@@ -106,12 +106,12 @@ enum SidebarBranchDirectoryStyle: String, CaseIterable, Identifiable {
         case .fullPath:
             return String(
                 localized: "settings.app.sidebarBranchDirectoryStyle.subtitleFullPath",
-                defaultValue: "Show the shortened working-directory path."
+                defaultValue: "Show the full working-directory path (home abbreviated as ~)."
             )
         case .repoName:
             return String(
                 localized: "settings.app.sidebarBranchDirectoryStyle.subtitleRepoName",
-                defaultValue: "Show only the final directory name."
+                defaultValue: "Show the repository name, or the final directory if not in a repo."
             )
         }
     }

@@ -12510,7 +12510,7 @@ enum SidebarPathFormatter {
         case .fullPath:
             return shortenedPath(path, homeDirectoryPath: homeDirectoryPath)
         case .repoName:
-            return lastPathComponent(path)
+            return repositoryRootName(for: path) ?? lastPathComponent(path)
         }
     }
 
@@ -12534,6 +12534,32 @@ enum SidebarPathFormatter {
         guard !trimmed.isEmpty else { return path }
         let component = (trimmed as NSString).lastPathComponent
         return component.isEmpty ? trimmed : component
+    }
+
+    private static func repositoryRootName(for path: String) -> String? {
+        guard let gitRoot = gitRootPath(for: path) else { return nil }
+        let component = (gitRoot as NSString).lastPathComponent
+        return component.isEmpty ? gitRoot : component
+    }
+
+    private static func gitRootPath(for path: String) -> String? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let fileManager = FileManager.default
+        var current = trimmed
+        while true {
+            let gitPath = (current as NSString).appendingPathComponent(".git")
+            if fileManager.fileExists(atPath: gitPath) {
+                return current
+            }
+
+            let parent = (current as NSString).deletingLastPathComponent
+            if parent == current { break }
+            current = parent
+        }
+
+        return nil
     }
 }
 

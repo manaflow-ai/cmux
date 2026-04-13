@@ -51882,13 +51882,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show the shortened working-directory path."
+            "value": "Show the full working-directory path (home abbreviated as ~)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "短縮された作業ディレクトリのパスを表示します。"
+            "value": "作業ディレクトリの完全なパスを表示します（ホームは ~ で省略）。"
           }
         }
       }
@@ -51899,13 +51899,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show only the final directory name."
+            "value": "Show the repository name, or the final directory if not in a repo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後のディレクトリ名のみを表示します。"
+            "value": "Git リポジトリ内ではリポジトリ名を、そうでない場合は最後のディレクトリ名を表示します。"
           }
         }
       }

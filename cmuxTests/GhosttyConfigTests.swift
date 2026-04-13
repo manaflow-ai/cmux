@@ -72,6 +72,25 @@ final class SidebarPathFormatterTests: XCTestCase {
             "/"
         )
     }
+
+    func testDisplayPathUsesRepositoryRootForRepoNameStyle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let repoRoot = tempRoot.appendingPathComponent("cmux")
+        let nestedDirectory = repoRoot.appendingPathComponent("Sources/App")
+
+        try FileManager.default.createDirectory(at: nestedDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoRoot.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                nestedDirectory.path,
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "cmux"
+        )
+    }
 }
 
 final class GhosttyConfigTests: XCTestCase {
