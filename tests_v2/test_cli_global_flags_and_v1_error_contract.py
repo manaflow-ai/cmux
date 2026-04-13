@@ -114,6 +114,14 @@ def main() -> int:
         _must(proc.returncode != 0, f"{command} without --surface should fail non-zero: {out!r}")
         _must("requires --surface" in out, f"{command} should require an explicit --surface: {out!r}")
 
+    # Flag-like --surface placeholders must also be rejected before socket dispatch.
+    invalid_surface_socket = Path(tempfile.gettempdir()) / f"cmux-invalid-surface-{uuid.uuid4().hex}.sock"
+    for command, tail in (("send", ["--surface", "--workspace", "hello"]), ("send-key", ["--surface", "--", "enter"])):
+        proc = _run([cli, "--socket", str(invalid_surface_socket), command, *tail])
+        out = _merged_output(proc).lower()
+        _must(proc.returncode != 0, f"{command} with flag-like --surface should fail non-zero: {out!r}")
+        _must("requires --surface" in out, f"{command} should reject flag-like --surface values: {out!r}")
+
     print("PASS: global flags parse correctly and v1 ERROR responses fail the CLI process")
     return 0
 

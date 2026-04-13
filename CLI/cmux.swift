@@ -1896,7 +1896,10 @@ struct CMUXCLI {
 
         if command == "send" || command == "send-key" {
             let (surfaceArg, _) = parseOption(commandArgs, name: "--surface")
-            guard let surfaceArg = surfaceArg?.trimmingCharacters(in: .whitespacesAndNewlines), !surfaceArg.isEmpty else {
+            guard let surfaceArg = surfaceArg?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !surfaceArg.isEmpty,
+                  surfaceArg != "--",
+                  !surfaceArg.hasPrefix("-") else {
                 throw CLIError(message: "\(command) requires --surface")
             }
         }
@@ -7736,7 +7739,7 @@ struct CMUXCLI {
             """
         case "send":
             return """
-            Usage: cmux send [flags] [--] <text>
+            Usage: cmux send --surface <id|ref> [--workspace <id|ref>] [--] <text>
 
             Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
 
@@ -7749,7 +7752,7 @@ struct CMUXCLI {
             """
         case "send-key":
             return """
-            Usage: cmux send-key [flags] [--] <key>
+            Usage: cmux send-key --surface <id|ref> [--workspace <id|ref>] [--] <key>
 
             Send a key event to a terminal surface.
 
