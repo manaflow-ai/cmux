@@ -47,6 +47,48 @@
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>A program running within cmux would like to use AppleScript.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>A program running within cmux would like to use Bluetooth.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within cmux would like to access your Calendar.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>A program running within cmux would like to have full access to your Calendar.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>A program running within cmux would like to add events to your Calendar.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within cmux would like to access your Contacts.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within cmux would like to access the local network.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within cmux would like to access your location information.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>A program running within cmux would like to access your location information.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>A program running within cmux would like to access motion data.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within cmux would like to access your Photo Library.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within cmux would like to access your reminders.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>A program running within cmux would like to have full access to your reminders.</string>
+	<key>NSRemindersWriteOnlyAccessUsageDescription</key>
+	<string>A program running within cmux would like to add reminders.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within cmux would like to use speech recognition.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Desktop folder.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>A program running within cmux would like to access files in your Downloads folder.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>A program running within cmux would like to access files on network volumes.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>A program running within cmux would like to access files on removable volumes.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running within cmux would like to perform system administration tasks.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
