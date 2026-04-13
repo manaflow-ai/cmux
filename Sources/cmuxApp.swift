@@ -3847,16 +3847,28 @@ enum AppIconSettings {
 final class AppIconAppearanceObserver: NSObject {
     static let shared = AppIconAppearanceObserver()
     private var observation: NSKeyValueObservation?
+    private var distributedObserver: NSObjectProtocol?
 
     private override init() { super.init() }
 
     func startObserving() {
-        applyIconForCurrentAppearance()
+        applyIconForSystemAppearance()
         guard observation == nil else { return }
+        // Observe system appearance changes via AppleInterfaceThemeChangedNotification,
+        // which fires regardless of the app's own appearance override.
+        distributedObserver = DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.distributedObserver != nil else { return }
+            self.applyIconForSystemAppearance()
+        }
+        // Also observe effectiveAppearance as a fallback for immediate changes.
         observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
             DispatchQueue.main.async {
                 guard let self, self.observation != nil else { return }
-                self.applyIconForCurrentAppearance()
+                self.applyIconForSystemAppearance()
             }
         }
     }
@@ -3864,11 +3876,19 @@ final class AppIconAppearanceObserver: NSObject {
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        if let observer = distributedObserver {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            distributedObserver = nil
+        }
     }
 
-    private func applyIconForCurrentAppearance() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let imageName = isDark ? "AppIconDark" : "AppIconLight"
+    private static var isSystemDarkMode: Bool {
+        // Read directly from system defaults, bypassing any app-level appearance override.
+        UserDefaults.standard.string(forKey: "AppleInterfaceStyle")?.lowercased() == "dark"
+    }
+
+    private func applyIconForSystemAppearance() {
+        let imageName = Self.isSystemDarkMode ? "AppIconDark" : "AppIconLight"
         if let icon = NSImage(named: imageName) {
             NSApplication.shared.applicationIconImage = icon
         }
