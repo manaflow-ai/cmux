@@ -617,6 +617,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)

@@ -1380,6 +1380,200 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
+    private final class BrowserAuthChallengeSenderStub: NSObject, URLAuthenticationChallengeSender {
+        func use(_ credential: URLCredential, for challenge: URLAuthenticationChallenge) {}
+        func continueWithoutCredential(for challenge: URLAuthenticationChallenge) {}
+        func cancel(_ challenge: URLAuthenticationChallenge) {}
+        func performDefaultHandling(for challenge: URLAuthenticationChallenge) {}
+        func rejectProtectionSpaceAndContinue(with challenge: URLAuthenticationChallenge) {}
+    }
+
+    private final class BrowserHTTPBasicAuthAlertSpy: NSAlert {
+        private(set) var beginSheetModalCallCount = 0
+        private(set) var runModalCallCount = 0
+        var nextResponse: NSApplication.ModalResponse = .alertFirstButtonReturn
+        var beforeResponding: ((NSView?) -> Void)?
+
+        override func beginSheetModal(
+            for sheetWindow: NSWindow,
+            completionHandler handler: ((NSApplication.ModalResponse) -> Void)?
+        ) {
+            beginSheetModalCallCount += 1
+            beforeResponding?(accessoryView)
+            handler?(nextResponse)
+        }
+
+        override func runModal() -> NSApplication.ModalResponse {
+            runModalCallCount += 1
+            beforeResponding?(accessoryView)
+            return nextResponse
+        }
+    }
+
+    private func makeAuthChallenge(
+        method: String,
+        realm: String? = "EnableIT",
+        proposedCredential: URLCredential? = nil
+    ) -> URLAuthenticationChallenge {
+        let sender = BrowserAuthChallengeSenderStub()
+        let protectionSpace = URLProtectionSpace(
+            host: "basic-auth.test",
+            port: 443,
+            protocol: "https",
+            realm: realm,
+            authenticationMethod: method
+        )
+        return URLAuthenticationChallenge(
+            protectionSpace: protectionSpace,
+            proposedCredential: proposedCredential,
+            previousFailureCount: 0,
+            failureResponse: nil,
+            error: nil,
+            sender: sender
+        )
+    }
+
+    private func editableTextFields(in root: NSView?) -> [NSTextField] {
+        guard let root else { return [] }
+        var result: [NSTextField] = []
+
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField, field.isEditable {
+                result.append(field)
+            }
+            for subview in view.subviews {
+                walk(subview)
+            }
+        }
+
+        walk(root)
+        return result
+    }
+
+    func testBasicAuthPromptUsesSheetWhenWindowIsAvailable() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { window }
+        ) { _, _ in }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+    }
+
+    func testBasicAuthPromptFallsBackToRunModalWithoutWindow() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { _, _ in }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+    }
+
+    func testBasicAuthPromptConfirmReturnsSessionCredential() {
+        let proposed = URLCredential(user: "prefill", password: "old", persistence: .forSession)
+        let challenge = makeAuthChallenge(
+            method: NSURLAuthenticationMethodHTTPBasic,
+            proposedCredential: proposed
+        )
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var disposition: URLSession.AuthChallengeDisposition?
+        var credential: URLCredential?
+
+        alertSpy.beforeResponding = { [weak self] accessoryView in
+            guard let self else { return }
+            let fields = self.editableTextFields(in: accessoryView)
+            XCTAssertEqual(fields.count, 2, "Expected username and password fields in the auth alert")
+            fields[0].stringValue = "alice"
+            fields[1].stringValue = "secret"
+        }
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { returnedDisposition, returnedCredential in
+            disposition = returnedDisposition
+            credential = returnedCredential
+        }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(disposition, .useCredential)
+        XCTAssertEqual(credential?.user, "alice")
+        XCTAssertEqual(credential?.password, "secret")
+        XCTAssertEqual(credential?.persistence, .forSession)
+    }
+
+    func testBasicAuthPromptCancelCancelsChallenge() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var disposition: URLSession.AuthChallengeDisposition?
+        var credential: URLCredential?
+
+        alertSpy.nextResponse = .alertSecondButtonReturn
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { returnedDisposition, returnedCredential in
+            disposition = returnedDisposition
+            credential = returnedCredential
+        }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+        XCTAssertNil(credential)
+    }
+
+    func testNonBasicAuthChallengeDoesNotPrompt() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodServerTrust)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var completionCalled = false
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { _, _ in
+            completionCalled = true
+        }
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        XCTAssertFalse(completionCalled)
+    }
+}
+
 
 final class BrowserNavigationNewTabDecisionTests: XCTestCase {
     func testLinkActivatedCmdClickOpensInNewTab() {

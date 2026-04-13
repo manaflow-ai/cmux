@@ -5945,6 +5945,132 @@ func browserNavigationShouldFallbackNilTargetToNewTab(
     navigationType != .other
 }
 
+private func browserShouldPromptForHTTPBasicAuth(
+    challenge: URLAuthenticationChallenge
+) -> Bool {
+    challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPBasic
+}
+
+private func browserHTTPBasicAuthPromptMessage(
+    challenge: URLAuthenticationChallenge
+) -> String {
+    let host = challenge.protectionSpace.host
+    if let realm = challenge.protectionSpace.realm, !realm.isEmpty {
+        let format = String(
+            localized: "browser.dialog.auth.basic.messageHostAndRealm",
+            defaultValue: "%1$@ requires a username and password for \"%2$@\"."
+        )
+        return String(format: format, locale: Locale.current, host, realm)
+    }
+
+    let format = String(
+        localized: "browser.dialog.auth.basic.messageHost",
+        defaultValue: "%@ requires a username and password."
+    )
+    return String(format: format, locale: Locale.current, host)
+}
+
+func browserHandleHTTPBasicAuthenticationChallenge(
+    in webView: WKWebView,
+    challenge: URLAuthenticationChallenge,
+    alertFactory: @escaping () -> NSAlert = { NSAlert() },
+    windowProvider: (() -> NSWindow?)? = nil,
+    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+) -> Bool {
+    guard browserShouldPromptForHTTPBasicAuth(challenge: challenge) else {
+        return false
+    }
+
+    let resolvedWindowProvider = windowProvider ?? { webView.window }
+
+    let presentPrompt = {
+        let alert = alertFactory()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "browser.dialog.auth.basic.title",
+            defaultValue: "Authentication Required"
+        )
+        let promptMessage = browserHTTPBasicAuthPromptMessage(challenge: challenge)
+        alert.informativeText = ""
+        alert.addButton(
+            withTitle: String(
+                localized: "browser.dialog.auth.basic.signIn",
+                defaultValue: "Sign In"
+            )
+        )
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+        let accessoryWidth: CGFloat = 320
+
+        let messageLabel = NSTextField(wrappingLabelWithString: promptMessage)
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.maximumNumberOfLines = 0
+        messageLabel.lineBreakMode = .byWordWrapping
+
+        let usernameField = NSTextField(frame: NSRect(x: 0, y: 0, width: accessoryWidth, height: 24))
+        usernameField.stringValue = challenge.proposedCredential?.user ?? ""
+        usernameField.placeholderString = String(localized: "browser.dialog.auth.basic.username", defaultValue: "Username")
+        usernameField.translatesAutoresizingMaskIntoConstraints = false
+
+        let passwordField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: accessoryWidth, height: 24))
+        passwordField.stringValue = challenge.proposedCredential?.password ?? ""
+        passwordField.placeholderString = String(localized: "browser.dialog.auth.basic.password", defaultValue: "Password")
+        passwordField.translatesAutoresizingMaskIntoConstraints = false
+
+        let formStack = NSStackView(views: [messageLabel, usernameField, passwordField])
+        formStack.orientation = .vertical
+        formStack.alignment = .width
+        formStack.distribution = .fill
+        formStack.spacing = 8
+        formStack.translatesAutoresizingMaskIntoConstraints = false
+
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: accessoryWidth, height: 1))
+        accessoryView.addSubview(formStack)
+
+        NSLayoutConstraint.activate([
+            formStack.leadingAnchor.constraint(equalTo: accessoryView.leadingAnchor),
+            formStack.trailingAnchor.constraint(equalTo: accessoryView.trailingAnchor),
+            formStack.topAnchor.constraint(equalTo: accessoryView.topAnchor),
+            formStack.bottomAnchor.constraint(equalTo: accessoryView.bottomAnchor),
+            messageLabel.widthAnchor.constraint(equalToConstant: accessoryWidth),
+            usernameField.widthAnchor.constraint(equalToConstant: accessoryWidth),
+            passwordField.widthAnchor.constraint(equalToConstant: accessoryWidth),
+            usernameField.heightAnchor.constraint(equalToConstant: 28),
+            passwordField.heightAnchor.constraint(equalToConstant: 28),
+        ])
+
+        accessoryView.layoutSubtreeIfNeeded()
+        accessoryView.setFrameSize(accessoryView.fittingSize)
+        alert.accessoryView = accessoryView
+
+        let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+            if response == .alertFirstButtonReturn {
+                let credential = URLCredential(
+                    user: usernameField.stringValue,
+                    password: passwordField.stringValue,
+                    persistence: .forSession
+                )
+                completionHandler(.useCredential, credential)
+            } else {
+                completionHandler(.cancelAuthenticationChallenge, nil)
+            }
+        }
+
+        if let window = resolvedWindowProvider() {
+            alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        } else {
+            handleResponse(alert.runModal())
+        }
+    }
+
+    if Thread.isMainThread {
+        presentPrompt()
+    } else {
+        DispatchQueue.main.async(execute: presentPrompt)
+    }
+    return true
+}
+
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: ((WKWebView) -> Void)?
     var didFailNavigation: ((WKWebView, String) -> Void)?
@@ -6002,6 +6128,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            completionHandler: completionHandler
+        ) {
+            return
+        }
+
         // WKWebView rejects all authentication challenges by default when this
         // delegate method is not implemented (.rejectProtectionSpace). This
         // breaks TLS client-certificate flows such as Microsoft Entra ID
