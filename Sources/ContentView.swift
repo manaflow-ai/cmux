@@ -12959,7 +12959,6 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            // Pull request rows
             // Ports row
             if detailVisibility.showsPorts, !tab.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
