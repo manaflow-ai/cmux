@@ -2973,7 +2973,7 @@ class GhosttyApp {
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
-                    app.recordGotoSplitCycleMoveIfNeeded(forward: forward)
+                    app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
 #endif
                     return result
                 }

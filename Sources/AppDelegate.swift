@@ -9617,9 +9617,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         writeGotoSplitTestData(updates)
     }
 
-    func recordGotoSplitCycleMoveIfNeeded(forward: Bool) {
+    func recordGotoSplitCycleMoveIfNeeded(tabId: UUID, forward: Bool) {
         guard isGotoSplitUITestRecordingEnabled() else { return }
-        guard let tabManager, let workspace = tabManager.selectedWorkspace else { return }
+        guard let tabManager = tabManagerFor(tabId: tabId),
+              let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
 
         var updates = gotoSplitFindStateSnapshot(for: workspace)
         updates["lastMoveDirection"] = forward ? "next" : "previous"
