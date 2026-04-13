@@ -78,12 +78,20 @@ func cmuxGhosttyModifierActionForFlagsChanged(
 
     let sidePressed: Bool
     switch keyCode {
+    case 0x38:
+        sidePressed = modifierFlagsRawValue & UInt(NX_DEVICELSHIFTKEYMASK) != 0
     case 0x3C:
         sidePressed = modifierFlagsRawValue & UInt(NX_DEVICERSHIFTKEYMASK) != 0
+    case 0x3B:
+        sidePressed = modifierFlagsRawValue & UInt(NX_DEVICELCTLKEYMASK) != 0
     case 0x3E:
         sidePressed = modifierFlagsRawValue & UInt(NX_DEVICERCTLKEYMASK) != 0
+    case 0x3A:
+        sidePressed = modifierFlagsRawValue & UInt(NX_DEVICELALTKEYMASK) != 0
     case 0x3D:
         sidePressed = modifierFlagsRawValue & UInt(NX_DEVICERALTKEYMASK) != 0
+    case 0x37:
+        sidePressed = modifierFlagsRawValue & UInt(NX_DEVICELCMDKEYMASK) != 0
     case 0x36:
         sidePressed = modifierFlagsRawValue & UInt(NX_DEVICERCMDKEYMASK) != 0
     default:

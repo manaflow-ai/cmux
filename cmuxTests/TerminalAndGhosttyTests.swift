@@ -3903,7 +3903,7 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
         XCTAssertEqual(
             cmuxGhosttyModifierActionForFlagsChanged(
                 keyCode: 0x38,
-                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
             ),
             GHOSTTY_ACTION_PRESS
         )
@@ -3914,6 +3914,16 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
             cmuxGhosttyModifierActionForFlagsChanged(
                 keyCode: 0x38,
                 modifierFlagsRawValue: 0
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testLeftShiftWithoutLeftSideDeviceMaskReturnsReleaseWhenRightShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x38,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICERSHIFTKEYMASK)
             ),
             GHOSTTY_ACTION_RELEASE
         )
@@ -3934,6 +3944,56 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
             cmuxGhosttyModifierActionForFlagsChanged(
                 keyCode: 0x3C,
                 modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightShiftWithoutRightSideDeviceMaskReturnsReleaseWhenLeftShiftHeld() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3C,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.shift.rawValue | UInt(NX_DEVICELSHIFTKEYMASK)
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightControlRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue | UInt(NX_DEVICERCTLKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightControlWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3E,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.control.rawValue
+            ),
+            GHOSTTY_ACTION_RELEASE
+        )
+    }
+
+    func testRightOptionRequiresRightSideDeviceMaskForPress() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue | UInt(NX_DEVICERALTKEYMASK)
+            ),
+            GHOSTTY_ACTION_PRESS
+        )
+    }
+
+    func testRightOptionWithoutRightSideDeviceMaskReturnsRelease() {
+        XCTAssertEqual(
+            cmuxGhosttyModifierActionForFlagsChanged(
+                keyCode: 0x3D,
+                modifierFlagsRawValue: NSEvent.ModifierFlags.option.rawValue
             ),
             GHOSTTY_ACTION_RELEASE
         )
