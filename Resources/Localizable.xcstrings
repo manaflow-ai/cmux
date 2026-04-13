@@ -69323,6 +69323,91 @@
         }
       }
     },
+    "shortcut.toggleFileExplorer.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーを切替"
+          }
+        }
+      }
+    },
+    "fileExplorer.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No folder open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダが開かれていません"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File explorer is not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーは利用できません"
+          }
+        }
+      }
+    },
+    "titlebar.fileExplorer.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーを切替"
+          }
+        }
+      }
+    },
+    "titlebar.fileExplorer.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide the file explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーの表示/非表示"
+          }
+        }
+      }
+    },
     "shortcut.toggleTerminalCopyMode.label": {
       "extractionState": "manual",
       "localizations": {
