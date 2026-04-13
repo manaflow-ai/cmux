@@ -51825,6 +51825,91 @@
         }
       }
     },
+    "settings.app.sidebarBranchDirectoryStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch Directory Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブランチディレクトリの表示形式"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.fullPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルパス"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.repoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリ名"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.subtitleFullPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the shortened working-directory path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "短縮された作業ディレクトリのパスを表示します。"
+          }
+        }
+      }
+    },
+    "settings.app.sidebarBranchDirectoryStyle.subtitleRepoName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only the final directory name."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後のディレクトリ名のみを表示します。"
+          }
+        }
+      }
+    },
     "settings.app.telemetry": {
       "extractionState": "manual",
       "localizations": {

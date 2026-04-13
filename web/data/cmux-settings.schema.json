@@ -156,6 +156,12 @@
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
+        "branchDirectoryStyle": {
+          "type": "string",
+          "enum": ["fullPath", "repoName"],
+          "default": "fullPath",
+          "description": "Show the full working-directory path or only the final directory name in the branch + directory row."
+        },
         "showNotificationMessage": {
           "type": "boolean",
           "default": true,

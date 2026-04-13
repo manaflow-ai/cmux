@@ -86,6 +86,50 @@ enum SidebarBranchLayoutSettings {
     }
 }
 
+enum SidebarBranchDirectoryStyle: String, CaseIterable, Identifiable {
+    case fullPath
+    case repoName
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .fullPath:
+            return String(localized: "settings.app.sidebarBranchDirectoryStyle.fullPath", defaultValue: "Full Path")
+        case .repoName:
+            return String(localized: "settings.app.sidebarBranchDirectoryStyle.repoName", defaultValue: "Repository Name")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .fullPath:
+            return String(
+                localized: "settings.app.sidebarBranchDirectoryStyle.subtitleFullPath",
+                defaultValue: "Show the shortened working-directory path."
+            )
+        case .repoName:
+            return String(
+                localized: "settings.app.sidebarBranchDirectoryStyle.subtitleRepoName",
+                defaultValue: "Show only the final directory name."
+            )
+        }
+    }
+}
+
+enum SidebarBranchDirectoryStyleSettings {
+    static let key = "sidebarBranchDirectoryStyle"
+    static let defaultStyle: SidebarBranchDirectoryStyle = .fullPath
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarBranchDirectoryStyle {
+        guard let raw = defaults.string(forKey: key),
+              let style = SidebarBranchDirectoryStyle(rawValue: raw) else {
+            return defaultStyle
+        }
+        return style
+    }
+}
+
 enum SidebarWorkspaceDetailSettings {
     static let hideAllDetailsKey = "sidebarHideAllDetails"
     static let showNotificationMessageKey = "sidebarShowNotificationMessage"

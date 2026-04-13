@@ -39,6 +39,39 @@ final class SidebarPathFormatterTests: XCTestCase {
             "/tmp/cmux"
         )
     }
+
+    func testDisplayPathUsesShortenedPathForFullPathStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/Users/example/projects/cmux",
+                style: .fullPath,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "~/projects/cmux"
+        )
+    }
+
+    func testDisplayPathUsesLastComponentForRepoNameStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/Users/example/projects/cmux",
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "cmux"
+        )
+    }
+
+    func testDisplayPathKeepsRootForRepoNameStyle() {
+        XCTAssertEqual(
+            SidebarPathFormatter.displayPath(
+                "/",
+                style: .repoName,
+                homeDirectoryPath: "/Users/example"
+            ),
+            "/"
+        )
+    }
 }
 
 final class GhosttyConfigTests: XCTestCase {

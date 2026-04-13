@@ -833,6 +833,52 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         )
     }
 
+    func testSettingsFileStoreParsesSidebarBranchDirectoryStyle() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SidebarBranchDirectoryStyleSettings.key
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "branchDirectoryStyle": "repoName"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(SidebarBranchDirectoryStyleSettings.current(defaults: defaults), .repoName)
+    }
+
     func testManagedUserDefaultSettingRestoresBackedUpValueWhenFileSettingIsRemoved() throws {
         let defaults = UserDefaults.standard
         let managedKey = WorkspaceAutoReorderSettings.key

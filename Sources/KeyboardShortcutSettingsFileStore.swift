@@ -47,6 +47,7 @@ final class CmuxSettingsFileStore {
         "notifications.command",
         "sidebar.hideAllDetails",
         "sidebar.branchLayout",
+        "sidebar.branchDirectoryStyle",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",
@@ -492,6 +493,13 @@ final class CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[SidebarBranchLayoutSettings.key] = .bool(false)
             default:
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
+            }
+        }
+        if let raw = jsonString(section["branchDirectoryStyle"]) {
+            if let style = SidebarBranchDirectoryStyle(rawValue: raw) {
+                snapshot.managedUserDefaults[SidebarBranchDirectoryStyleSettings.key] = .string(style.rawValue)
+            } else {
+                logInvalid("sidebar.branchDirectoryStyle", sourcePath: sourcePath)
             }
         }
         if let value = jsonBool(section["showNotificationMessage"]) {
@@ -1347,6 +1355,7 @@ final class CmuxSettingsFileStore {
                 "sidebar": [
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
+                    "branchDirectoryStyle": SidebarBranchDirectoryStyleSettings.defaultStyle.rawValue,
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": true,
                     "showPullRequests": true,

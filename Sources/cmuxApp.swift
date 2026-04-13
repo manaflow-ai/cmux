@@ -4253,6 +4253,8 @@ struct SettingsView: View {
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
+    @AppStorage(SidebarBranchDirectoryStyleSettings.key)
+    private var sidebarBranchDirectoryStyle = SidebarBranchDirectoryStyleSettings.defaultStyle.rawValue
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
     @AppStorage("sidebarSelectionColorHex") private var sidebarSelectionColorHex: String?
@@ -5192,6 +5194,24 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("sidebar.branchDirectoryStyle"),
+                            String(localized: "settings.app.sidebarBranchDirectoryStyle", defaultValue: "Branch Directory Style"),
+                            subtitle: (
+                                SidebarBranchDirectoryStyle(rawValue: sidebarBranchDirectoryStyle)
+                                    ?? SidebarBranchDirectoryStyleSettings.defaultStyle
+                            ).description,
+                            controlWidth: pickerColumnWidth,
+                            selection: $sidebarBranchDirectoryStyle
+                        ) {
+                            ForEach(SidebarBranchDirectoryStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+                        .disabled(sidebarHideAllDetails || !sidebarShowBranchDirectory)
 
                         SettingsCardDivider()
 
