@@ -7537,7 +7537,6 @@ final class Workspace: Identifiable, ObservableObject {
             name: Self.terminalScrollBarHiddenDidChangeNotification,
             object: self
         )
-        scheduleTerminalGeometryReconcile()
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {
