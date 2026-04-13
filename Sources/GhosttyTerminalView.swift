@@ -11294,7 +11294,7 @@ final class GhosttySurfaceScrollView: NSView {
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
-        let isVisible = terminalScrollBarAllowedBySettings() && scrollbar.total > scrollbar.len
+        let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
             _ = synchronizeGeometryAndContent()
             return
