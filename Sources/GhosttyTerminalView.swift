@@ -213,7 +213,20 @@ enum GhosttyPasteboardHelper {
     }
 
     private static func plainTextContents(from pasteboard: NSPasteboard) -> String? {
-        for type in pasteboard.types ?? [] {
+        let types = pasteboard.types ?? []
+
+        // Prefer UTF-8 first. Types like "com.apple.traditional-mac-plain-text"
+        // conform to UTType.plainText but use MacRoman encoding, which corrupts
+        // non-ASCII text (e.g. Cyrillic). Qt-based apps such as Telegram may
+        // advertise that type before the UTF-8 variant, so we must check the
+        // Unicode-safe type before falling back to the generic conformance check.
+        // Note: .string == "public.utf8-plain-text" on modern macOS.
+        if types.contains(.string),
+           let value = pasteboard.string(forType: .string), !value.isEmpty {
+            return value
+        }
+
+        for type in types {
             guard isPlainTextType(type) else { continue }
             guard let value = pasteboard.string(forType: type), !value.isEmpty else { continue }
             return value
