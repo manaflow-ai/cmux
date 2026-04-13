@@ -2005,7 +2005,7 @@ struct ContentView: View {
     }
 
     static func tmuxWorkspacePaneExactRect(
-        for panel: Panel,
+        for panel: any Panel,
         in contentView: NSView
     ) -> CGRect? {
         let targetView: NSView?
@@ -2993,7 +2993,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.onChange(of: tabManager.selectedTabId) { newValue in
+        view = AnyView(view.onChange(of: tabManager.selectedTabId) { _, newValue in
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3015,11 +3015,11 @@ struct ContentView: View {
             updateTitlebarText()
         })
 
-        view = AnyView(view.onChange(of: selectedTabIds) { _ in
+        view = AnyView(view.onChange(of: selectedTabIds) {
             syncSidebarSelectedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) { _ in
+        view = AnyView(view.onChange(of: tabManager.isWorkspaceCycleHot) {
 #if DEBUG
             if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
@@ -3033,7 +3033,7 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
         })
 
-        view = AnyView(view.onChange(of: retiringWorkspaceId) { _ in
+        view = AnyView(view.onChange(of: retiringWorkspaceId) {
             reconcileMountedWorkspaceIds()
         })
 
@@ -3325,11 +3325,11 @@ struct ContentView: View {
             }
         }))
 
-        view = AnyView(view.onChange(of: bgGlassTintHex) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintHex) {
             updateWindowGlassTint()
         })
 
-        view = AnyView(view.onChange(of: bgGlassTintOpacity) { _ in
+        view = AnyView(view.onChange(of: bgGlassTintOpacity) {
             updateWindowGlassTint()
         })
 
@@ -3358,7 +3358,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarWidth) { _ in
+        view = AnyView(view.onChange(of: sidebarWidth) {
             let sanitized = normalizedSidebarWidth(sidebarWidth)
             if abs(sidebarWidth - sanitized) > 0.5 {
                 sidebarWidth = sanitized
@@ -3377,7 +3377,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.isVisible) { _ in
+        view = AnyView(view.onChange(of: sidebarState.isVisible) {
             if let observedWindow {
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
             } else {
@@ -3387,7 +3387,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) { _ in
+        view = AnyView(view.onChange(of: sidebarMatchTerminalBackground) {
             guard sidebarState.isVisible,
                   sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue else { return }
             if let observedWindow {
@@ -3401,7 +3401,7 @@ struct ContentView: View {
             syncTrafficLightInset()
         })
 
-        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
+        view = AnyView(view.onChange(of: sidebarState.persistedWidth) { _, newValue in
             let sanitized = normalizedSidebarWidth(newValue)
             if abs(newValue - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
@@ -4022,7 +4022,7 @@ struct ContentView: View {
                 ),
                 anchor: commandPaletteScrollTargetAnchor
             )
-            .onChange(of: commandPaletteSelectedResultIndex) { _ in
+            .onChange(of: commandPaletteSelectedResultIndex) {
                 updateCommandPaletteScrollTarget(resultCount: visibleResults.count, animated: true)
             }
 
@@ -4061,7 +4061,7 @@ struct ContentView: View {
             updateCommandPaletteScrollTarget(resultCount: commandPaletteVisibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
+        .onChange(of: commandPaletteCurrentSearchFingerprint) {
             Task { @MainActor in
                 // Let the query-state transition settle first so the forced corpus refresh
                 // cannot rebuild the old command list after deleting the ">" prefix.
@@ -4074,7 +4074,7 @@ struct ContentView: View {
                 syncCommandPaletteDebugStateForObservedWindow()
             }
         }
-        .onChange(of: commandPaletteResultsRevision) { _ in
+        .onChange(of: commandPaletteResultsRevision) {
             let resultIDs = cachedCommandPaletteResults.map(\.id)
             commandPaletteSelectedResultIndex = Self.commandPaletteResolvedSelectionIndex(
                 preferredCommandID: commandPaletteSelectionAnchorCommandID,
@@ -4089,7 +4089,7 @@ struct ContentView: View {
             }
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: commandPaletteSelectedResultIndex) { _ in
+        .onChange(of: commandPaletteSelectedResultIndex) {
             syncCommandPaletteDebugStateForObservedWindow()
         }
     }
@@ -10107,7 +10107,7 @@ struct VerticalTabsSidebar: View {
                 reason: "sidebar_disappear"
             )
         }
-        .onChange(of: draggedTabId) { newDraggedTabId in
+        .onChange(of: draggedTabId) { _, newDraggedTabId in
             SidebarDragLifecycleNotification.postStateDidChange(
                 tabId: newDraggedTabId,
                 reason: "drag_state_change"
@@ -10125,7 +10125,7 @@ struct VerticalTabsSidebar: View {
             dragAutoScrollController.stop()
             dropIndicator = nil
         }
-        .onChange(of: tabs.map(\.id)) { tabIds in
+        .onChange(of: tabs.map(\.id)) { _, tabIds in
             guard let frozenTabItemPresentation,
                   !tabIds.contains(frozenTabItemPresentation.tabId) else { return }
             self.frozenTabItemPresentation = nil
@@ -13010,7 +13010,7 @@ private struct TabItemView: View, Equatable {
                     .onAppear {
                         rowHeight = max(proxy.size.height, 1)
                     }
-                    .onChange(of: proxy.size.height) { newHeight in
+                    .onChange(of: proxy.size.height) { _, newHeight in
                         rowHeight = max(newHeight, 1)
                     }
             }
@@ -14069,7 +14069,7 @@ private struct SidebarWorkspaceDescriptionText: View {
             )
 #endif
         }
-        .onChange(of: markdown) { newValue in
+        .onChange(of: markdown) { _, newValue in
 #if DEBUG
             let newlineCount = newValue.reduce(into: 0) { count, character in
                 if character == "\n" { count += 1 }
@@ -14320,7 +14320,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
         .onAppear(perform: renderMarkdown)
-        .onChange(of: block.markdown) { _ in
+        .onChange(of: block.markdown) {
             renderMarkdown()
         }
     }

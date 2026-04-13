@@ -809,7 +809,7 @@ final class SystemWideHotkeyController {
             window.deminiaturize(nil)
         }
 
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.forceActivate()
 
         let focusWindow = preferredFocusWindow(from: revealTargets)
         focusWindow?.makeKeyAndOrderFront(nil)

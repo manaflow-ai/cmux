@@ -678,10 +678,10 @@ struct BrowserPanelView: View {
             logBrowserFocusState(event: "view.onAppear")
 #endif
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
-        .onChange(of: panel.currentURL) { _ in
+        .onChange(of: panel.currentURL) { _, _ in
             let addressWasEmpty = omnibarState.buffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             syncURLFromPanel()
             // If we auto-focused a blank omnibar but then a URL loads programmatically, move focus
@@ -700,27 +700,27 @@ struct BrowserPanelView: View {
                 reason: "panel.currentURL.changed"
             )
         }
-        .onChange(of: browserThemeModeRaw) { _ in
+        .onChange(of: browserThemeModeRaw) { _, _ in
             let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
             if browserThemeModeRaw != normalizedMode.rawValue {
                 browserThemeModeRaw = normalizedMode.rawValue
             }
             panel.setBrowserThemeMode(normalizedMode)
         }
-        .onChange(of: colorScheme) { _ in
+        .onChange(of: colorScheme) { _, _ in
             refreshBrowserChromeStyle()
             panel.refreshAppearanceDrivenColors()
         }
-        .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
+        .onChange(of: panel.pendingAddressBarFocusRequestId) { _, _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onChange(of: panel.profileID) { _ in
+        .onChange(of: panel.profileID) { _, _ in
             panel.historyStore.loadIfNeeded()
             if addressBarFocused {
                 refreshSuggestions()
             }
         }
-        .onChange(of: isVisibleInUI) { visibleInUI in
+        .onChange(of: isVisibleInUI) { _, visibleInUI in
             if visibleInUI {
                 panel.cancelPendingDeveloperToolsVisibilityLossCheck()
                 return
@@ -737,7 +737,7 @@ struct BrowserPanelView: View {
             // an attached-inspector X-close.
             panel.scheduleDeveloperToolsVisibilityLossCheck()
         }
-        .onChange(of: isFocused) { focused in
+        .onChange(of: isFocused) { _, focused in
 #if DEBUG
             logBrowserFocusState(
                 event: "panelFocus.onChange",
@@ -765,7 +765,7 @@ struct BrowserPanelView: View {
                 isPanelFocusedOverride: focused
             )
         }
-        .onChange(of: addressBarFocused) { focused in
+        .onChange(of: addressBarFocused) { _, focused in
 #if DEBUG
             logBrowserFocusState(
                 event: "addressBarFocus.onChange",

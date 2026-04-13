@@ -6,8 +6,9 @@ import UserNotifications
 import Sentry
 import WebKit
 import Combine
-import ObjectiveC.runtime
+@preconcurrency import ObjectiveC.runtime
 import Darwin
+@preconcurrency import Dispatch
 
 func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     guard let value else { return nil }
@@ -483,6 +484,15 @@ enum FinderServicePathResolver {
     }
 }
 
+/// Wraps the deprecated `NSWorkspace.fullPath(forApplication:)` to suppress
+/// the deprecation warning at call sites. No non-deprecated name-based
+/// replacement exists; `urlForApplication(withBundleIdentifier:)` requires a
+/// bundle identifier, not an application display name.
+@available(macOS, deprecated: 11.0)
+private func _legacyFullPath(forApplication name: String) -> String? {
+    NSWorkspace.shared.fullPath(forApplication: name)
+}
+
 enum TerminalDirectoryOpenTarget: String, CaseIterable {
     case androidStudio
     case antigravity
@@ -510,7 +520,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
             homeDirectoryPath: FileManager.default.homeDirectoryForCurrentUser.path,
             fileExistsAtPath: { FileManager.default.fileExists(atPath: $0) },
             isExecutableFileAtPath: { FileManager.default.isExecutableFile(atPath: $0) },
-            applicationPathForName: { NSWorkspace.shared.fullPath(forApplication: $0) }
+            applicationPathForName: { _legacyFullPath(forApplication: $0) }
         )
     }
 
@@ -713,6 +723,7 @@ enum TerminalDirectoryOpenTarget: String, CaseIterable {
         }
         return deduped
     }
+
 }
 
 enum VSCodeServeWebURLBuilder {
@@ -2191,7 +2202,7 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
+final class AppDelegate: NSObject, NSApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate, NSMenuItemValidation {
     nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
@@ -2692,8 +2703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
-                NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-                // On headless CI runners, activate() silently fails (no GUI session).
+                NSApp.forceActivate()
+                // On headless CI runners, forceActivate() silently fails (no GUI session).
                 // Force windows visible so the terminal surface starts rendering.
                 for window in NSApp.windows {
                     window.orderFrontRegardless()
@@ -4689,7 +4700,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
-        let writeBlock = {
+        let writeBlock: @Sendable () -> Void = {
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -4834,8 +4845,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 object: window,
                 queue: .main
             ) { [weak self] note in
-                guard let self, let closing = note.object as? NSWindow else { return }
-                self.unregisterMainWindow(closing)
+                MainActor.assumeIsolated {
+                    guard let self, let closing = note.object as? NSWindow else { return }
+                    self.unregisterMainWindow(closing)
+                }
             }
         }
         commandPaletteVisibilityByWindowId[windowId] = false
@@ -6030,26 +6043,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         destinationPanelId: UUID,
         destinationManager: TabManager
     ) {
-        let reassert: () -> Void = { [weak self, weak destinationManager] in
-            guard let self, let destinationManager else { return }
-            guard let workspace = destinationManager.tabs.first(where: { $0.id == destinationWorkspaceId }),
-                  workspace.panels[destinationPanelId] != nil else {
-                return
-            }
-            guard let destinationWindow = self.mainWindow(for: destinationWindowId) else { return }
-            guard let keyWindow = NSApp.keyWindow,
-                  let keyWindowId = self.mainWindowId(for: keyWindow),
-                  keyWindowId == sourceWindowId,
-                  keyWindow !== destinationWindow else {
-                return
-            }
+        let reassert: @Sendable () -> Void = { [weak self, weak destinationManager] in
+            MainActor.assumeIsolated {
+                guard let self, let destinationManager else { return }
+                guard let workspace = destinationManager.tabs.first(where: { $0.id == destinationWorkspaceId }),
+                      workspace.panels[destinationPanelId] != nil else {
+                    return
+                }
+                guard let destinationWindow = self.mainWindow(for: destinationWindowId) else { return }
+                guard let keyWindow = NSApp.keyWindow,
+                      let keyWindowId = self.mainWindowId(for: keyWindow),
+                      keyWindowId == sourceWindowId,
+                      keyWindow !== destinationWindow else {
+                    return
+                }
 
-            self.bringToFront(destinationWindow)
-            destinationManager.focusTab(
-                destinationWorkspaceId,
-                surfaceId: destinationPanelId,
-                suppressFlash: true
-            )
+                self.bringToFront(destinationWindow)
+                destinationManager.focusTab(
+                    destinationWorkspaceId,
+                    surfaceId: destinationPanelId,
+                    suppressFlash: true
+                )
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: reassert)
@@ -7398,7 +7413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SettingsWindowController.shared.show(navigationTarget: target)
         },
         activateApplication: @MainActor () -> Void = {
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSApp.forceActivate()
         }
     ) {
 #if DEBUG
@@ -7771,7 +7786,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                surfaceId != preferredPanelId {
                 return
             }
-            finishIfReady()
+            MainActor.assumeIsolated { finishIfReady() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             if !resolved {
@@ -8488,10 +8503,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
-            guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
-            self.recordJumpUnreadFocusIfExpected(tabId: tabId, surfaceId: surfaceId)
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID else { return }
+                guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
+                self.recordJumpUnreadFocusIfExpected(tabId: tabId, surfaceId: surfaceId)
+            }
         }
     }
 
@@ -8842,7 +8859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func focusWebViewForGotoSplitUITest(tab: Workspace, browserPanelId: UUID) {
-        guard let browserPanel = tab.browserPanel(for: browserPanelId) else {
+        guard tab.browserPanel(for: browserPanelId) != nil else {
             writeGotoSplitTestData([
                 "webViewFocused": "false",
                 "setupError": "Browser panel missing"
@@ -8907,28 +8924,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { _ in
-            recordFocusedState()
+            MainActor.assumeIsolated { recordFocusedState() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
         ) { note in
-            guard let surfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
-                  surfaceId == browserPanelId else { return }
-            recordFocusedState()
+            MainActor.assumeIsolated {
+                guard let surfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
+                      surfaceId == browserPanelId else { return }
+                recordFocusedState()
+            }
         })
         panelsCancellable = tab.$panels
             .map { _ in () }
-            .sink { _ in recordFocusedState() }
+            .sink { _ in MainActor.assumeIsolated { recordFocusedState() } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
-            guard let self else { return }
-            if !resolved {
-                cleanup()
-                self.writeGotoSplitTestData([
-                    "webViewFocused": "false",
-                    "setupError": "Timed out waiting for WKWebView focus"
-                ])
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if !resolved {
+                    cleanup()
+                    self.writeGotoSplitTestData([
+                        "webViewFocused": "false",
+                        "setupError": "Timed out waiting for WKWebView focus"
+                    ])
+                }
             }
         }
 
@@ -8997,10 +9018,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarFocus")
-            self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarFocus")
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarFocus")
+                self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarFocus")
+            }
         })
 
         gotoSplitUITestObservers.append(NotificationCenter.default.addObserver(
@@ -9008,10 +9031,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarExit")
-            self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarExit")
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                self.recordGotoSplitUITestWebViewFocus(panelId: panelId, key: "webViewFocusedAfterAddressBarExit")
+                self.recordGotoSplitUITestActiveElement(panelId: panelId, keyPrefix: "addressBarExit")
+            }
         })
     }
 
@@ -9072,8 +9097,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard notification.object as? WKWebView === panel.webView else { return }
+            guard self != nil else { return }
+            let webView = MainActor.assumeIsolated { panel.webView }
+            guard notification.object as? WKWebView === webView else { return }
             Task { @MainActor in evaluate() }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -9081,7 +9107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
+            guard self != nil else { return }
             guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
                   surfaceId == panelId else { return }
             Task { @MainActor in evaluate() }
@@ -9807,7 +9833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     panelsCancellable?.cancel()
                     panelsCancellable = workspace.$panels
                         .map { _ in () }
-                        .sink { _ in attemptResolve() }
+                        .sink { _ in MainActor.assumeIsolated { attemptResolve() } }
                 }
                 if let surfaceId = resolvedSurfaceId() {
                     resolved = true
@@ -9818,24 +9844,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             tabsCancellable = tabManager.$tabs
                 .map { _ in () }
-                .sink { _ in attemptResolve() }
+                .sink { _ in MainActor.assumeIsolated { attemptResolve() } }
             focusObserver = NotificationCenter.default.addObserver(
                 forName: .ghosttyDidFocusSurface,
                 object: nil,
                 queue: .main
             ) { note in
-                guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      candidateTabId == tabId else { return }
-                attemptResolve()
+                MainActor.assumeIsolated {
+                    guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                          candidateTabId == tabId else { return }
+                    attemptResolve()
+                }
             }
             surfaceReadyObserver = NotificationCenter.default.addObserver(
                 forName: .terminalSurfaceDidBecomeReady,
                 object: nil,
                 queue: .main
             ) { note in
-                guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
-                      workspaceId == tabId else { return }
-                attemptResolve()
+                MainActor.assumeIsolated {
+                    guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                          workspaceId == tabId else { return }
+                    attemptResolve()
+                }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
                 if !resolved {
@@ -9995,47 +10025,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: self,
             queue: .main
         ) { _ in
-            attemptFocus()
+            MainActor.assumeIsolated { attemptFocus() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidBecomeFirstResponderSurface,
             object: nil,
             queue: .main
         ) { note in
-            guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
-                  candidateTabId == tabId,
-                  candidateSurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated {
+                guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                      let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
+                      candidateTabId == tabId,
+                      candidateSurfaceId == surfaceId else { return }
+                attemptFocus()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidFocusSurface,
             object: nil,
             queue: .main
         ) { note in
-            guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                  let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
-                  candidateTabId == tabId,
-                  candidateSurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated {
+                guard let candidateTabId = note.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                      let candidateSurfaceId = note.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID,
+                      candidateTabId == tabId,
+                      candidateSurfaceId == surfaceId else { return }
+                attemptFocus()
+            }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: nil,
             queue: .main
         ) { note in
-            guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
-                  let readySurfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  workspaceId == tabId,
-                  readySurfaceId == surfaceId else { return }
-            attemptFocus()
+            MainActor.assumeIsolated {
+                guard let workspaceId = note.userInfo?["workspaceId"] as? UUID,
+                      let readySurfaceId = note.userInfo?["surfaceId"] as? UUID,
+                      workspaceId == tabId,
+                      readySurfaceId == surfaceId else { return }
+                attemptFocus()
+            }
         })
         selectedTabCancellable = tabManager.$selectedTabId
             .map { _ in () }
-            .sink { _ in attemptFocus() }
+            .sink { _ in MainActor.assumeIsolated { attemptFocus() } }
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) {
-            if !resolved {
-                attemptFocus()
+            MainActor.assumeIsolated {
+                if !resolved {
+                    attemptFocus()
+                }
             }
         }
         attemptFocus()
@@ -10069,8 +10107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let socketPath = config.path
         let socketMode = config.mode.rawValue
-        var observer: NSObjectProtocol?
-        var timeoutWorkItem: DispatchWorkItem?
+        nonisolated(unsafe) var observer: NSObjectProtocol?
+        nonisolated(unsafe) var timeoutWorkItem: DispatchWorkItem?
 
         func publishCurrentState(isTimedOut: Bool) {
             let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
@@ -10115,9 +10153,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: TerminalController.shared,
             queue: .main
         ) { notification in
-            let startedPath = notification.userInfo?["path"] as? String
-            guard startedPath == socketPath else { return }
-            publishCurrentState(isTimedOut: false)
+            MainActor.assumeIsolated {
+                let startedPath = notification.userInfo?["path"] as? String
+                guard startedPath == socketPath else { return }
+                publishCurrentState(isTimedOut: false)
+            }
         }
 
         let timeout = DispatchWorkItem {
@@ -10317,9 +10357,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshConfiguredShortcutChordActions()
-            self?.clearConfiguredShortcutChordState()
-            self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            MainActor.assumeIsolated {
+                self?.refreshConfiguredShortcutChordActions()
+                self?.clearConfiguredShortcutChordState()
+                self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            }
         }
     }
 
@@ -10374,7 +10416,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshGhosttyGotoSplitShortcuts()
+            MainActor.assumeIsolated {
+                self?.refreshGhosttyGotoSplitShortcuts()
+            }
         }
     }
 
@@ -12680,7 +12724,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if !app.isTerminated {
                 _ = app.forceTerminate()
             }
-            NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            NSApp.forceActivate()
         }
     }
 
@@ -12753,8 +12797,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] note in
-            guard let self, let window = note.object as? NSWindow else { return }
-            self.setActiveMainWindow(window)
+            MainActor.assumeIsolated {
+                guard let self, let window = note.object as? NSWindow else { return }
+                self.setActiveMainWindow(window)
+            }
         }
     }
 
@@ -12768,14 +12814,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
-            self.browserAddressBarFocusedPanelId = panelId
-            self.stopBrowserOmnibarSelectionRepeat()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                self.browserPanel(for: panelId)?.beginSuppressWebViewFocusForAddressBar()
+                self.browserAddressBarFocusedPanelId = panelId
+                self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-            dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
+                dlog("addressBar FOCUS panelId=\(panelId.uuidString.prefix(8))")
 #endif
+            }
         }
 
         browserAddressBarBlurObserver = NotificationCenter.default.addObserver(
@@ -12783,15 +12831,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let panelId = notification.object as? UUID else { return }
-            self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panelId {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                guard let panelId = notification.object as? UUID else { return }
+                self.browserPanel(for: panelId)?.endSuppressWebViewFocusForAddressBar()
+                if self.browserAddressBarFocusedPanelId == panelId {
+                    self.browserAddressBarFocusedPanelId = nil
+                    self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-                dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
+                    dlog("addressBar BLUR panelId=\(panelId.uuidString.prefix(8))")
 #endif
+                }
             }
         }
 
@@ -13280,7 +13330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         window.makeKeyAndOrderFront(nil)
         // Improve reliability across Spaces / when other helper panels are key.
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.forceActivate()
     }
 
     private func markReadIfFocused(
@@ -14019,6 +14069,21 @@ private final class CmuxFieldEditorOwningWebViewBox: NSObject {
 
     init(webView: CmuxWebView?) {
         self.webView = webView
+    }
+}
+
+extension NSApplication {
+    /// Force-activate the app, ignoring other apps. Use for explicit focus-intent
+    /// paths (socket commands, keyboard shortcuts, bringToFront). The cooperative
+    /// `activate()` requires the foreground app to yield and is unreliable for
+    /// these use cases. `activateIgnoringOtherApps` is deprecated but has no
+    /// functional replacement for forceful activation.
+    func forceActivate() {
+        // Intentionally calling deprecated API: cooperative activate() is
+        // unreliable for focus-intent paths. No replacement exists.
+        // Using @objc message send to avoid deprecation warning propagation.
+        let sel = NSSelectorFromString("activateIgnoringOtherApps:")
+        perform(sel, with: true as NSNumber)
     }
 }
 

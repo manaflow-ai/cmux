@@ -82,7 +82,8 @@ enum UpdateTestSupport {
         }
     }
 
-    private static func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+    @available(*, deprecated, message: "Sparkle SUAppcastItem(dictionary:) is deprecated; silence until Sparkle provides a replacement")
+    private static func _makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
         let enclosure: [String: Any] = [
             "url": "https://example.com/cmux.zip",
             "length": "1024",
@@ -95,6 +96,10 @@ enum UpdateTestSupport {
             "enclosure": enclosure,
         ]
         return SUAppcastItem(dictionary: dict)
+    }
+
+    private static func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+        _makeAppcastItem(displayVersion: displayVersion)
     }
 }
 #endif

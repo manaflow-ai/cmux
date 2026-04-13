@@ -342,10 +342,10 @@ struct cmuxApp: App {
                         }
                     }
                 }
-                .onChange(of: appearanceMode) { _ in
+                .onChange(of: appearanceMode) {
                     applyAppearance()
                 }
-                .onChange(of: socketControlMode) { _ in
+                .onChange(of: socketControlMode) {
                     updateSocketController()
                 }
         }
@@ -2824,7 +2824,7 @@ private struct SidebarDebugView: View {
                             Text(option.title).tag(option.rawValue)
                         }
                     }
-                    .onChange(of: sidebarPreset) { _ in
+                    .onChange(of: sidebarPreset) {
                         applyPreset()
                     }
                     .padding(.top, 2)
@@ -3197,19 +3197,19 @@ private struct MenuBarExtraDebugView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .onAppear { applyLiveUpdate() }
-        .onChange(of: previewEnabled) { _ in applyLiveUpdate() }
-        .onChange(of: previewCount) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectX) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectY) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectWidth) { _ in applyLiveUpdate() }
-        .onChange(of: badgeRectHeight) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitFontSize) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitFontSize) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitXAdjust) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitXAdjust) { _ in applyLiveUpdate() }
-        .onChange(of: singleDigitYOffset) { _ in applyLiveUpdate() }
-        .onChange(of: multiDigitYOffset) { _ in applyLiveUpdate() }
-        .onChange(of: textRectWidthAdjust) { _ in applyLiveUpdate() }
+        .onChange(of: previewEnabled) { applyLiveUpdate() }
+        .onChange(of: previewCount) { applyLiveUpdate() }
+        .onChange(of: badgeRectX) { applyLiveUpdate() }
+        .onChange(of: badgeRectY) { applyLiveUpdate() }
+        .onChange(of: badgeRectWidth) { applyLiveUpdate() }
+        .onChange(of: badgeRectHeight) { applyLiveUpdate() }
+        .onChange(of: singleDigitFontSize) { applyLiveUpdate() }
+        .onChange(of: multiDigitFontSize) { applyLiveUpdate() }
+        .onChange(of: singleDigitXAdjust) { applyLiveUpdate() }
+        .onChange(of: multiDigitXAdjust) { applyLiveUpdate() }
+        .onChange(of: singleDigitYOffset) { applyLiveUpdate() }
+        .onChange(of: multiDigitYOffset) { applyLiveUpdate() }
+        .onChange(of: textRectWidthAdjust) { applyLiveUpdate() }
     }
 
     private func sliderRow(
@@ -3407,8 +3407,8 @@ private struct BackgroundDebugView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .onChange(of: bgGlassTintHex) { _ in updateWindowGlassTint() }
-        .onChange(of: bgGlassTintOpacity) { _ in updateWindowGlassTint() }
+        .onChange(of: bgGlassTintHex) { updateWindowGlassTint() }
+        .onChange(of: bgGlassTintOpacity) { updateWindowGlassTint() }
     }
 
     private func updateWindowGlassTint() {
@@ -4677,7 +4677,7 @@ struct SettingsView: View {
                             }
                             .labelsHidden()
                             .pickerStyle(.menu)
-                            .onChange(of: appLanguage) { newValue in
+                            .onChange(of: appLanguage) {
                                 guard !isResettingSettings else { return }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [self] in
                                     // Re-check current value to handle rapid changes
@@ -5609,7 +5609,7 @@ struct SettingsView: View {
                                 )
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 12)
-                                .onChange(of: trustedDirectoriesDraft) { _ in
+                                .onChange(of: trustedDirectoriesDraft) {
                                     saveTrustedDirectories()
                                 }
                         }
@@ -6872,7 +6872,7 @@ private struct ShortcutSettingRow: View {
             transformRecordedShortcut: { action.normalizedRecordedShortcut($0) },
             isDisabled: KeyboardShortcutSettings.isManagedBySettingsFile(action)
         )
-            .onChange(of: shortcut) { newValue in
+            .onChange(of: shortcut) { _, newValue in
                 KeyboardShortcutSettings.setShortcut(newValue, for: action)
             }
             .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in
@@ -6939,7 +6939,7 @@ private struct GlobalHotkeySection: View {
                 .padding(.vertical, 9)
                 .accessibilityIdentifier("SettingsGlobalHotkeyRecorder")
         }
-        .onChange(of: shortcut) { newValue in
+        .onChange(of: shortcut) { _, newValue in
             KeyboardShortcutSettings.setShortcut(newValue, for: SystemWideHotkeySettings.action)
         }
         .onReceive(NotificationCenter.default.publisher(for: KeyboardShortcutSettings.didChangeNotification)) { _ in

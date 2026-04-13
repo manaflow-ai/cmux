@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 import Bonsplit
+@preconcurrency import ObjectiveC
 import WebKit
 
 extension Notification.Name {
@@ -5049,7 +5050,7 @@ class TerminalController {
             }
 
             // Socket API must be non-interactive: bypass close-confirmation gating.
-            ws.closePanel(surfaceId, force: true)
+            _ = ws.closePanel(surfaceId, force: true)
             result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
         }
         return result
@@ -6927,9 +6928,9 @@ class TerminalController {
             if shouldActivate {
                 if let targetWindow {
                     targetWindow.makeKeyAndOrderFront(nil)
-                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    NSApp.forceActivate()
                 } else {
-                    NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+                    NSApp.forceActivate()
                 }
             }
 
@@ -9841,7 +9842,7 @@ class TerminalController {
             }
 
             let downloadEvent = v2AwaitCallback(timeout: timeout) { finish in
-                var observer: NSObjectProtocol?
+                nonisolated(unsafe) var observer: NSObjectProtocol?
                 observer = NotificationCenter.default.addObserver(
                     forName: .browserDownloadEventDidArrive,
                     object: nil,
@@ -10777,7 +10778,7 @@ class TerminalController {
                 result = .ok([:])
                 return
             }
-            (fr as? NSResponder)?.insertText(text)
+            fr.insertText(text)
             result = .ok([:])
         }
         return result
@@ -11683,7 +11684,7 @@ class TerminalController {
             }
 
             // Fall back to the responder chain insertText action.
-            (fr as? NSResponder)?.insertText(text)
+            fr.insertText(text)
             result = "OK"
         }
         return result
@@ -13288,12 +13289,8 @@ class TerminalController {
             let windowNumber = CGWindowID(window.windowNumber)
 
             // Capture the window using CGWindowListCreateImage
-            guard let cgImage = CGWindowListCreateImage(
-                .null,  // Capture just the window bounds
-                .optionIncludingWindow,
-                windowNumber,
-                [.boundsIgnoreFraming, .nominalResolution]
-            ) else {
+            // TODO: migrate to ScreenCaptureKit when minimum deployment target is macOS 14+
+            guard let cgImage = captureWindowImage(windowNumber: windowNumber) else {
                 captureError = "Failed to capture window image"
                 return
             }
@@ -13320,6 +13317,19 @@ class TerminalController {
         return "OK \(screenshotId) \(outputPath.path)"
     }
 #endif
+
+    // Wraps CGWindowListCreateImage in a @available-silenced context so the
+    // deprecation warning does not propagate to callers.  Replace with
+    // ScreenCaptureKit when the minimum deployment target reaches macOS 14+.
+    @available(macOS, deprecated: 14.0)
+    private func captureWindowImage(windowNumber: CGWindowID) -> CGImage? {
+        CGWindowListCreateImage(
+            .null,
+            .optionIncludingWindow,
+            windowNumber,
+            [.boundsIgnoreFraming, .nominalResolution]
+        )
+    }
 
     private func parseSplitDirection(_ value: String) -> SplitDirection? {
         switch value.lowercased() {
@@ -13405,11 +13415,11 @@ class TerminalController {
     private func waitForTerminalSurface(_ terminalPanel: TerminalPanel, waitUpTo timeout: TimeInterval = 0.6) -> ghostty_surface_t? {
         if let surface = terminalPanel.surface.surface { return surface }
 
-        let terminalSurface = terminalPanel.surface
+        nonisolated(unsafe) let terminalSurface = terminalPanel.surface
         terminalSurface.requestBackgroundSurfaceStartIfNeeded()
         _ = v2AwaitCallback(timeout: timeout) { finish in
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
+            nonisolated(unsafe) var readyObserver: NSObjectProtocol?
+            nonisolated(unsafe) var hostedViewObserver: NSObjectProtocol?
             let finishOnce: () -> Void = {
                 if let readyObserver {
                     NotificationCenter.default.removeObserver(readyObserver)
@@ -15762,7 +15772,7 @@ class TerminalController {
             }
 
             // Socket commands must be non-interactive: bypass close-confirmation gating.
-            tab.closePanel(targetSurfaceId, force: true)
+            _ = tab.closePanel(targetSurfaceId, force: true)
             result = "OK"
         }
         return result

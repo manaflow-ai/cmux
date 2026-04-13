@@ -1701,7 +1701,7 @@ actor BrowserSearchSuggestionService {
 }
 
 /// BrowserPanel provides a WKWebView-based browser panel.
-/// All browser panels share a WKProcessPool for cookie sharing.
+/// All browser panels share a WKProcessPool and WKWebsiteDataStore for session and cookie persistence.
 private enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
@@ -1738,7 +1738,10 @@ final class BrowserPanel: Panel, ObservableObject {
         "0.0.0.0",
     ]
 
-    /// Shared process pool for cookie sharing across all browser panels
+    /// Shared process pool across all browser panels. Although Apple deprecated
+    /// WKProcessPool in macOS 12 ("creating multiple instances no longer has any
+    /// effect"), removing the shared pool entirely breaks in-memory session/cookie
+    /// state sharing between panels and popup flows.
     private static let sharedProcessPool = WKProcessPool()
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
@@ -1844,10 +1847,11 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private static func isDarkAppearance(
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = nil
     ) -> Bool {
-        guard let appAppearance else { return false }
-        return appAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let appearance: NSAppearance? = appAppearance ?? NSApp?.effectiveAppearance
+        guard let appearance else { return false }
+        return appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 
     private static func resolvedGhosttyBackgroundColor(from notification: Notification? = nil) -> NSColor {
@@ -1869,7 +1873,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func resolvedBrowserChromeBackgroundColor(
         from notification: Notification? = nil,
-        appAppearance: NSAppearance? = NSApp?.effectiveAppearance
+        appAppearance: NSAppearance? = nil
     ) -> NSColor {
         if isDarkAppearance(appAppearance: appAppearance) {
             return resolvedGhosttyBackgroundColor(from: notification)
@@ -2780,26 +2784,28 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func beginDownloadActivity() {
-        let apply = {
+        let apply = { [weak self] in
+            guard let self else { return }
             self.activeDownloadCount += 1
             self.isDownloading = self.activeDownloadCount > 0
         }
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async { apply() }
         }
     }
 
     private func endDownloadActivity() {
-        let apply = {
+        let apply = { [weak self] in
+            guard let self else { return }
             self.activeDownloadCount = max(0, self.activeDownloadCount - 1)
             self.isDownloading = self.activeDownloadCount > 0
         }
         if Thread.isMainThread {
             apply()
         } else {
-            DispatchQueue.main.async(execute: apply)
+            DispatchQueue.main.async { apply() }
         }
     }
 
@@ -9219,7 +9225,7 @@ final class BrowserDataImportCoordinator {
 #endif
 
     @MainActor
-    private final class ImportWizardWindowController: NSObject, @preconcurrency NSWindowDelegate {
+    private final class ImportWizardWindowController: NSObject, NSWindowDelegate {
         private final class FlippedDocumentView: NSView {
             override var isFlipped: Bool { true }
         }

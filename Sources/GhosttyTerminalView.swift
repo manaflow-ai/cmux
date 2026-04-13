@@ -3363,9 +3363,9 @@ class GhosttyApp {
                 FileManager.default.createFile(atPath: backgroundLogURL.path, contents: nil)
             }
             if let handle = try? FileHandle(forWritingTo: backgroundLogURL) {
-                defer { try? handle.close() }
-                try? handle.seekToEnd()
-                try? handle.write(contentsOf: data)
+                defer { _ = try? handle.close() }
+                _ = try? handle.seekToEnd()
+                _ = try? handle.write(contentsOf: data)
             }
         }
     }
@@ -4554,7 +4554,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         dlog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
-              let surface,
+              surface != nil,
               view.window != nil,
               view.bounds.width > 0,
               view.bounds.height > 0 else {
@@ -5938,7 +5938,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let startX = min(1, xMax)
         let endX = xMax
 
-        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue) ?? GHOSTTY_MODS_NONE
+        let mods = ghostty_input_mods_e(rawValue: GHOSTTY_MODS_NONE.rawValue)
         ghostty_surface_mouse_pos(surface, startX, startY, mods)
         guard ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods) else {
             return false
@@ -8474,7 +8474,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func debugRegisteredDropTypes() -> [String] {
-        (registeredDraggedTypes ?? []).map(\.rawValue)
+        registeredDraggedTypes.map(\.rawValue)
     }
 #endif
 

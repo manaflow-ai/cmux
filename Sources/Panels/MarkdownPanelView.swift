@@ -38,7 +38,7 @@ struct MarkdownPanelView: View {
                 MarkdownPointerObserver(onPointerDown: onRequestPanelFocus)
             }
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
     }

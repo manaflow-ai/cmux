@@ -7,6 +7,7 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+@preconcurrency import ObjectiveC
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -955,17 +956,19 @@ extension Workspace {
         }
 
         var resolved = false
-        var observer: NSObjectProtocol?
+        nonisolated(unsafe) var observer: NSObjectProtocol?
 
         observer = NotificationCenter.default.addObserver(
             forName: .terminalSurfaceDidBecomeReady,
             object: panel.surface,
             queue: .main
         ) { [weak panel] _ in
-            guard !resolved, let panel else { return }
-            resolved = true
-            if let observer { NotificationCenter.default.removeObserver(observer) }
-            panel.sendInput(text)
+            MainActor.assumeIsolated {
+                guard !resolved, let panel else { return }
+                resolved = true
+                if let observer { NotificationCenter.default.removeObserver(observer) }
+                panel.sendInput(text)
+            }
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
@@ -9298,6 +9301,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Close a panel.
     /// Returns true when a bonsplit tab close request was issued.
+    @discardableResult
     func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
         if let tabId = surfaceIdFromPanelId(panelId) {
             if force {
@@ -11144,7 +11148,7 @@ final class Workspace: Identifiable, ObservableObject {
 
 // MARK: - BonsplitDelegate
 
-extension Workspace: BonsplitDelegate {
+extension Workspace: @preconcurrency BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
@@ -12157,6 +12161,8 @@ extension Workspace: BonsplitDelegate {
             closeTabs(tabIdsToCloseOthers(of: tab.id, inPane: pane))
         case .move:
             promptMovePanel(tabId: tab.id)
+        case .moveToLeftPane, .moveToRightPane:
+            break
         case .newTerminalToRight:
             createTerminalToRight(of: tab.id, inPane: pane)
         case .newBrowserToRight:
