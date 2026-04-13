@@ -24,6 +24,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Validate Sparkle build number is monotonic
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
+
       - name: Guard immutable release assets
         id: guard_release_assets
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
@@ -78,30 +81,6 @@ jobs:
               }
               throw error;
             }
-
-      - name: Guard Sparkle build number is monotonic
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          LOCAL_BUILD=$(grep -m1 'CURRENT_PROJECT_VERSION = ' GhosttyTabs.xcodeproj/project.pbxproj | sed 's/.*= //;s/;.*//')
-          if ! [[ "$LOCAL_BUILD" =~ ^[0-9]+$ ]]; then
-            echo "Could not parse CURRENT_PROJECT_VERSION (got '$LOCAL_BUILD')" >&2
-            exit 1
-          fi
-          echo "Local CURRENT_PROJECT_VERSION=$LOCAL_BUILD"
-          PUBLISHED_BUILD=$(curl -fsSL --max-time 15 \
-            https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml 2>/dev/null \
-            | sed -n 's#.*<sparkle:version>\([0-9][0-9]*\)</sparkle:version>.*#\1#p' \
-            | head -n1 || true)
-          if [[ "$PUBLISHED_BUILD" =~ ^[0-9]+$ ]]; then
-            echo "Latest published Sparkle build=$PUBLISHED_BUILD"
-            if (( LOCAL_BUILD <= PUBLISHED_BUILD )); then
-              echo "::error::CURRENT_PROJECT_VERSION ($LOCAL_BUILD) must be > latest published Sparkle build ($PUBLISHED_BUILD). Run scripts/bump-version.sh to bump the build number before tagging." >&2
-              exit 1
-            fi
-          else
-            echo "Latest published appcast unavailable; skipping monotonic check"
-          fi
 
       - name: Select Xcode
         if: steps.guard_release_assets.outputs.skip_all != 'true'

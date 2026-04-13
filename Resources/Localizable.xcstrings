@@ -53599,6 +53599,142 @@
         }
       }
     },
+    "settings.automation.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor連携"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursorはcmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Cursor agent status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにCursorエージェントのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI連携"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeminiはCmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Gemini session status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにGeminiセッションのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -63003,6 +63139,23 @@
         }
       }
     },
+    "settings.section.globalHotkey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Global Hotkey"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グローバルホットキー"
+          }
+        }
+      }
+    },
     "settings.section.keyboardShortcuts": {
       "extractionState": "manual",
       "localizations": {
@@ -63475,6 +63628,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Натисніть на значення комбінації, щоб записати нову."
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable System-Wide Hotkey"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム全体のホットキーを有効にする"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn this on to show or hide all cmux windows from any app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでも cmux のすべてのウィンドウを表示または非表示にするにはオンにします。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.enable.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press the shortcut from any app to show or hide all cmux windows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのアプリからでもこのショートカットで cmux のすべてのウィンドウを表示または非表示にできます。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Command, Option, or Control with another key. No extra macOS permission is required."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command、Option、または Control と別のキーを組み合わせてください。追加の macOS 権限は不要です。"
+          }
+        }
+      }
+    },
+    "settings.globalHotkey.shortcut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show/Hide All Windows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのウィンドウを表示/非表示"
           }
         }
       }

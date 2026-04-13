@@ -193,6 +193,8 @@ typeset -g _CMUX_PR_POLL_INTERVAL=45
 typeset -g _CMUX_PR_FORCE=0
 typeset -g _CMUX_PR_DEBUG=${_CMUX_PR_DEBUG:-0}
 typeset -g _CMUX_ASYNC_JOB_TIMEOUT=20
+typeset -g _CMUX_LAST_PR_ACTION=""
+typeset -g _CMUX_LAST_PR_TARGET=""
 
 typeset -g _CMUX_PORTS_LAST_RUN=0
 typeset -g _CMUX_CMD_START=0
@@ -203,6 +205,7 @@ typeset -g _CMUX_GHOSTTY_SEMANTIC_PATCHED=0
 typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
+typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -535,6 +538,92 @@ _cmux_report_git_branch_for_path() {
     else
         _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi
+}
+
+_cmux_record_pr_command_hint() {
+    local cmd="$1"
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
+
+    local -a words
+    words=("${(z)cmd}")
+
+    local index=1
+    local word base
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+
+        case "$word" in
+            *=*)
+                index=$(( index + 1 ))
+                continue ;;
+            exec|command|builtin|noglob|time)
+                index=$(( index + 1 ))
+                continue ;;
+            env)
+                index=$(( index + 1 ))
+                while (( index <= ${#words} )); do
+                    word="${words[index]}"
+                    case "$word" in
+                        -*|*=*)
+                            index=$(( index + 1 ))
+                            continue ;;
+                    esac
+                    break
+                done
+                continue ;;
+        esac
+
+        base="${word:t}"
+        [[ "$base" == "gh" ]] || return 0
+        index=$(( index + 1 ))
+        break
+    done
+
+    (( index + 1 <= ${#words} )) || return 0
+    [[ "${words[index]}" == "pr" ]] || return 0
+    local action="${words[index + 1]:l}"
+    case "$action" in
+        merge|close|reopen|create|checkout|ready|edit|view)
+            _CMUX_LAST_PR_ACTION="$action" ;;
+        *)
+            return 0 ;;
+    esac
+
+    index=$(( index + 2 ))
+    while (( index <= ${#words} )); do
+        word="${words[index]}"
+        case "$word" in
+            --*=*)
+                index=$(( index + 1 ))
+                continue ;;
+            --*)
+                index=$(( index + 2 ))
+                continue ;;
+            -*)
+                index=$(( index + 1 ))
+                continue ;;
+            *)
+                _CMUX_LAST_PR_TARGET="$word"
+                break ;;
+        esac
+    done
+}
+
+_cmux_emit_pr_command_hint() {
+    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    [[ -n "$CMUX_TAB_ID" ]] || return 0
+    [[ -n "$CMUX_PANEL_ID" ]] || return 0
+    [[ -n "$_CMUX_LAST_PR_ACTION" ]] || return 0
+
+    local payload="report_pr_action $_CMUX_LAST_PR_ACTION --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    if [[ -n "$_CMUX_LAST_PR_TARGET" ]]; then
+        local quoted_target="${_CMUX_LAST_PR_TARGET//\"/\\\"}"
+        payload+=" --target=\"$quoted_target\""
+    fi
+    _cmux_send_bg "$payload"
+    _CMUX_LAST_PR_ACTION=""
+    _CMUX_LAST_PR_TARGET=""
 }
 
 _cmux_clear_pr_for_panel() {
@@ -919,11 +1008,6 @@ _cmux_start_git_head_watch() {
                 _cmux_pr_cache_clear
                 _cmux_report_git_branch_for_path "$watch_pwd"
                 _cmux_clear_pr_for_panel
-                if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-                    _cmux_pr_request_probe
-                else
-                    _cmux_run_pr_probe_with_timeout "$watch_pwd" 1 || true
-                fi
             fi
         done
     } >/dev/null 2>&1 &!
@@ -981,8 +1065,11 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
-    _cmux_restore_terminal_identity_after_startup
+    if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
+        _cmux_restore_terminal_identity_after_startup
+    fi
     _cmux_tmux_sync_cmux_environment
+    local cmd="${1## }"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
         local t
@@ -993,9 +1080,9 @@ _cmux_preexec() {
 
     _CMUX_CMD_START="$(_cmux_now)"
     _cmux_report_shell_activity_state running
+    _cmux_record_pr_command_hint "$cmd"
 
     # Heuristic: commands that may change git branch/dirty state without changing $PWD.
-    local cmd="${1## }"
     case "$cmd" in
         git\ *|git|gh\ *|lazygit|lazygit\ *|tig|tig\ *|gitui|gitui\ *|stg\ *|jj\ *)
             _CMUX_GIT_FORCE=1
@@ -1014,6 +1101,10 @@ _cmux_preexec() {
 }
 
 _cmux_precmd() {
+    local last_status=$?
+    if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
+        _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
+    fi
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
 
@@ -1149,43 +1240,15 @@ _cmux_precmd() {
             _CMUX_GIT_JOB_STARTED_AT=$now
         fi
     fi
-
-    # Pull request metadata is remote state. Keep a lightweight background poll
-    # alive while the shell is idle so gh-created PRs and merge status changes
-    # appear even without another prompt.
-    local should_restart_pr_poll=0
-    local should_signal_pr_probe=0
-    local pr_context_changed=0
-    if [[ -n "$_CMUX_PR_POLL_PWD" && "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
-        pr_context_changed=1
-    elif (( git_head_changed )); then
-        pr_context_changed=1
-    fi
-    if [[ "$pwd" != "$_CMUX_PR_POLL_PWD" ]]; then
-        should_restart_pr_poll=1
-    elif (( _CMUX_PR_FORCE )); then
-        if [[ -n "$_CMUX_PR_POLL_PID" ]] && kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-            should_signal_pr_probe=1
-        else
-            should_restart_pr_poll=1
-        fi
-    elif [[ -z "$_CMUX_PR_POLL_PID" ]] || ! kill -0 "$_CMUX_PR_POLL_PID" 2>/dev/null; then
-        should_restart_pr_poll=1
-    fi
-
-    if (( pr_context_changed )); then
+    if (( git_head_changed )); then
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
     fi
-
-    if (( should_signal_pr_probe )); then
-        _CMUX_PR_FORCE=0
-        _cmux_pr_request_probe
-    fi
-
-    if (( should_restart_pr_poll )); then
-        _CMUX_PR_FORCE=0
-        _cmux_start_pr_poll_loop "$pwd" 1
+    if (( last_status == 0 )); then
+        _cmux_emit_pr_command_hint
+    else
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
     fi
 
     # Ports: lightweight kick to the app's batched scanner.
@@ -1220,6 +1283,7 @@ _cmux_restore_terminal_identity_after_startup() {
         builtin export TERM="$CMUX_ZSH_RESTORE_TERM"
         builtin unset CMUX_ZSH_RESTORE_TERM
     fi
+    _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
 }
 
 _cmux_zshexit() {

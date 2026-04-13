@@ -430,6 +430,24 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertEqual(targetResolutionCount, 0)
     }
 
+    func testPastePlanFallsBackToAlternatePlainTextWhenImageTypeIsUnusable() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-raycast-fallback-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "hello from Raycast",
+            forType: NSPasteboard.PasteboardType(UTType.plainText.identifier)
+        )
+        pasteboard.setData(Data("not a real tiff".utf8), forType: .tiff)
+
+        let plan = TerminalImageTransferPlanner.plan(
+            pasteboard: pasteboard,
+            mode: .paste,
+            target: .local
+        )
+
+        XCTAssertEqual(plan, .insertText("hello from Raycast"))
+    }
+
     func testLazyPastePlanResolvesTargetForFileURLPaste() throws {
         let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("clipboard-image-\(UUID().uuidString).png")
         try make1x1PNG(color: .systemTeal).write(to: fileURL)
@@ -2209,7 +2227,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         XCTAssertTrue(state.isHidden)
     }
 
-    func testPreferredScrollerStyleChangeRecalculatesTerminalSurfaceWidth() {
+    func testPreferredScrollerStyleChangeRestoresOverlayScrollbarWidth() {
         let surface = TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -2289,32 +2307,17 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
-        XCTAssertEqual(scrollView.scrollerStyle, .legacy)
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Preferred scroller style changes should recalculate the terminal grid width immediately"
-        )
-
-        scrollView.scrollerStyle = .overlay
-        scrollView.layoutSubtreeIfNeeded()
-        let overlayContentWidth = scrollView.contentSize.width
-        XCTAssertGreaterThan(
-            overlayContentWidth,
-            legacyContentWidth,
-            "Overlay scrollbars should restore the full terminal content width"
-        )
-        assertPendingSurfaceWidth(
-            legacyContentWidth,
-            "Changing the scroll view style alone should leave the terminal grid stale until the scroller-style observer runs"
-        )
-
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
+        let restoredContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .overlay)
+        XCTAssertEqual(
+            restoredContentWidth,
+            initialContentWidth,
+            accuracy: 0.5,
+            "Preferred scroller style changes should restore Ghostty's overlay scrollbar behavior so terminal content is not occluded by a persistent gutter"
+        )
         assertPendingSurfaceWidth(
-            overlayContentWidth,
-            "Preferred scroller style changes should also restore the wider terminal grid when overlay scrollbars return"
+            restoredContentWidth,
+            "Preferred scroller style changes should restore the wider terminal grid when overlay scrollbars return"
         )
     }
 
@@ -3711,6 +3714,103 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         default:
             XCTFail("Expected hostless HTTPS URL to open externally")
         }
+    }
+}
+
+final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
+    func testTrimsTrailingPeriodAfterMarkdownFile() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "~/ClaudeCode/feature-spec-template.md."
+            ),
+            "~/ClaudeCode/feature-spec-template.md"
+        )
+    }
+
+    func testTrimsTrailingCommaInList() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/first.txt,"
+            ),
+            "/tmp/fixtures/first.txt"
+        )
+    }
+
+    func testTrimsTrailingCloseParenWhenNoBalancedOpenParen() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt)"
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testPreservesBalancedParensInMiddleOfPath() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft)/notes.txt"
+            ),
+            "/tmp/fixtures/report (draft)/notes.txt"
+        )
+    }
+
+    func testStripsMultipleTrailingPunctuationCharacters() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/report (draft).md).,!?\""
+            ),
+            "/tmp/fixtures/report (draft).md"
+        )
+    }
+
+    func testTrimsTrailingClosingQuote() {
+        XCTAssertEqual(
+            cmuxTrimTerminalPathTrailingPunctuationForTesting(
+                "/tmp/fixtures/notes.txt\""
+            ),
+            "/tmp/fixtures/notes.txt"
+        )
+    }
+
+    func testResolveQuicklookFallsBackToStrippedPathWhenLiteralPathIsMissing() {
+        let strippedPath = "/tmp/cmux-cmdclick-path.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                "\(strippedPath).",
+                cwd: "/tmp",
+                existingPaths: [strippedPath]
+            ),
+            strippedPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithDot() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-dot.md."
+        let strippedPath = "/tmp/cmux-cmdclick-literal-dot.md"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
+    }
+
+    func testResolveQuicklookPrefersLiteralPathThatReallyEndsWithParen() {
+        let literalPath = "/tmp/cmux-cmdclick-literal-paren)"
+        let strippedPath = "/tmp/cmux-cmdclick-literal-paren"
+
+        XCTAssertEqual(
+            cmuxResolveQuicklookPathForTesting(
+                literalPath,
+                cwd: "/tmp",
+                existingPaths: [literalPath, strippedPath]
+            ),
+            literalPath
+        )
     }
 }
 
