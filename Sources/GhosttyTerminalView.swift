@@ -1720,6 +1720,7 @@ class GhosttyApp {
                 return
             }
 
+            loadClassicLightThemeIfNeeded(fallbackConfig)
             loadInlineGhosttyConfig(
                 "macos-background-from-layer = true",
                 into: fallbackConfig,
@@ -1816,11 +1817,13 @@ class GhosttyApp {
     }
 
     private func loadDefaultConfigFilesWithLegacyFallback(_ config: ghostty_config_t) {
+        loadClassicLightThemeIfNeeded(config)
         ghostty_config_load_default_files(config)
         loadLegacyGhosttyConfigIfNeeded(config)
         ghostty_config_load_recursive_files(config)
         loadCmuxAppSupportGhosttyConfigIfNeeded(config)
         loadCJKFontFallbackIfNeeded(config)
+        loadClassicLightThemeIfNeeded(config)
         let useHostLayerBackground = !hasConfiguredBackgroundImage(config)
         usesHostLayerBackground = useHostLayerBackground
         if !useHostLayerBackground {
@@ -1881,6 +1884,39 @@ class GhosttyApp {
     /// default based on the system's preferred languages without overriding
     /// user-managed fallback chains or configured fonts that already cover
     /// the affected CJK ranges.
+    private func loadClassicLightThemeIfNeeded(_ config: ghostty_config_t) {
+        let mode = AppearanceSettings.resolvedMode()
+        #if DEBUG
+        dlog("classicLight check mode=\(mode.rawValue)")
+        #endif
+        guard mode == .classicLight else { return }
+        let line = "theme = light:Builtin Light,dark:Ghostty Default Style Dark"
+        let tmpURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-classic-light-theme-\(UUID().uuidString).conf")
+        do {
+            try line.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+            #if DEBUG
+            let contents = try? String(contentsOf: tmpURL, encoding: .utf8)
+            dlog("classicLight injecting theme file: \(tmpURL.path) contents=[\(contents ?? "nil")]")
+            #endif
+            tmpURL.path.withCString { path in
+                ghostty_config_load_file(config, path)
+            }
+        } catch {
+            #if DEBUG
+            dlog("classicLight theme injection write failed error=\(error)")
+            #endif
+        }
+    }
+
+    /// When the user has not configured `font-codepoint-map` for CJK ranges,
+    /// Ghostty's `CTFontCollection` scoring may pick an inappropriate fallback
+    /// font for Hiragana, Katakana, and CJK symbols. The scoring prioritizes
+    /// monospace fonts, so decorative fonts with monospace attributes (e.g.
+    /// AB_appare from Adobe CC, or LingWai) can be selected depending on what
+    /// is installed. This injects a sensible default based on the system's
+    /// preferred languages.
     ///
     /// See: https://github.com/manaflow-ai/cmux/pull/1017
     private func loadCJKFontFallbackIfNeeded(_ config: ghostty_config_t) {
