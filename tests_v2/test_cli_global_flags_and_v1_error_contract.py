@@ -93,6 +93,17 @@ def main() -> int:
     _must(bad_focus.returncode != 0, f"focus-window with invalid target should fail non-zero: {bad_out!r}")
     _must("error" in bad_out, f"focus-window failure should surface an error: {bad_out!r}")
 
+    # send/send-key must require an explicit --surface even when CMUX_SURFACE_ID is set.
+    missing_surface_env = dict(os.environ)
+    missing_surface_env["CMUX_SURFACE_ID"] = "surface:123"
+    missing_surface_env["CMUX_SOCKET_PATH"] = "/tmp/cmux-no-such.sock"
+    missing_surface_env["CMUX_SOCKET"] = "/tmp/cmux-no-such.sock"
+    for command, tail in (("send", ["hello"]), ("send-key", ["enter"])):
+        proc = _run([cli, "--socket", "/tmp/cmux-no-such.sock", command, *tail], env=missing_surface_env)
+        out = _merged_output(proc).lower()
+        _must(proc.returncode != 0, f"{command} without --surface should fail non-zero: {out!r}")
+        _must("requires --surface" in out, f"{command} should require an explicit --surface: {out!r}")
+
     print("PASS: global flags parse correctly and v1 ERROR responses fail the CLI process")
     return 0
 

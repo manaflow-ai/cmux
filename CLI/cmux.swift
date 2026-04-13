@@ -1894,6 +1894,13 @@ struct CMUXCLI {
             return
         }
 
+        if command == "send" || command == "send-key" {
+            let (surfaceArg, _) = parseOption(commandArgs, name: "--surface")
+            guard surfaceArg != nil else {
+                throw CLIError(message: "\(command) requires --surface")
+            }
+        }
+
         let client = SocketClient(path: resolvedSocketPath)
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
@@ -2487,7 +2494,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let surfaceArg = sfArg
             let rawText = rem1.dropFirst(rem1.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
             let text = unescapeSendText(rawText)
@@ -2503,7 +2510,7 @@ struct CMUXCLI {
             let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let surfaceArg = sfArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let surfaceArg = sfArg
             let keyArgs = rem1.first == "--" ? Array(rem1.dropFirst()) : rem1
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
             var params: [String: Any] = ["key": key]
@@ -7735,10 +7742,9 @@ struct CMUXCLI {
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --surface <id|ref>     Target surface (required)
 
             Example:
-              cmux send "echo hello"
               cmux send --surface surface:2 "ls -la\\n"
             """
         case "send-key":
@@ -7749,10 +7755,9 @@ struct CMUXCLI {
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+              --surface <id|ref>     Target surface (required)
 
             Example:
-              cmux send-key enter
               cmux send-key --surface surface:2 ctrl+c
             """
         case "send-panel":
@@ -14400,8 +14405,8 @@ struct CMUXCLI {
           rename-window [--workspace <id|ref>] <title>
           current-workspace
           read-screen [--workspace <id|ref>] [--surface <id|ref>] [--scrollback] [--lines <n>]
-          send [--workspace <id|ref>] [--surface <id|ref>] <text>
-          send-key [--workspace <id|ref>] [--surface <id|ref>] <key>
+          send --surface <id|ref> [--workspace <id|ref>] <text>
+          send-key --surface <id|ref> [--workspace <id|ref>] <key>
           send-panel --panel <id|ref> [--workspace <id|ref>] <text>
           send-key-panel --panel <id|ref> [--workspace <id|ref>] <key>
           notify --title <text> [--subtitle <text>] [--body <text>] [--workspace <id|ref>] [--surface <id|ref>]
