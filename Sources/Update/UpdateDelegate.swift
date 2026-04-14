@@ -108,7 +108,13 @@ extension UpdateDriver: SPUUpdaterDelegate {
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
-        Task { @MainActor in
+        // Sparkle calls this delegate method on the main thread immediately
+        // before it proceeds to terminate + relaunch the app. Run synchronously
+        // so the session snapshot (with scrollback) is flushed to disk before
+        // Sparkle tears everything down. Dispatching via `Task { @MainActor }`
+        // here caused the save to race with termination and occasionally lose
+        // scrollback on updates.
+        MainActor.assumeIsolated {
             AppDelegate.shared?.persistSessionForUpdateRelaunch()
             TerminalController.shared.stop()
             NSApp.invalidateRestorableState()
