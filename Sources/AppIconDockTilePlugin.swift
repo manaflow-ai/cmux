@@ -78,6 +78,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         return Bundle(url: appBundleURL)
     }
 
+    private var shouldPersistBundleIcon: Bool {
+        guard let appBundleURL else { return false }
+        // The default untagged Debug app is rebuilt and re-signed in place during CI.
+        // Persisting a custom icon there leaves Finder metadata behind and breaks codesign.
+        return appBundleURL.lastPathComponent != "cmux DEV.app"
+    }
+
     private var appDefaults: UserDefaults? {
         guard let bundleIdentifier = appBundle?.bundleIdentifier else { return nil }
         return UserDefaults(suiteName: bundleIdentifier)
@@ -93,16 +100,20 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
         guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
               let icon = appBundle?.image(forResource: imageName) else {
-            NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
-            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-            _ = LSRegisterURL(appBundleURL as CFURL, true)
+            if shouldPersistBundleIcon {
+                NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
+                NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+                _ = LSRegisterURL(appBundleURL as CFURL, true)
+            }
             dockTile.showDefaultAppIcon()
             return
         }
 
-        NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
-        NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
-        _ = LSRegisterURL(appBundleURL as CFURL, true)
+        if shouldPersistBundleIcon {
+            NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+            _ = LSRegisterURL(appBundleURL as CFURL, true)
+        }
         dockTile.showIcon(icon)
     }
 
