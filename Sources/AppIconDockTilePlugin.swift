@@ -24,51 +24,6 @@ private enum DockTileAppIconMode: String {
     }
 }
 
-private enum DockTileAppIconImageFactory {
-    static func makeImage(
-        for mode: DockTileAppIconMode,
-        bundle: Bundle?
-    ) -> NSImage? {
-        switch mode {
-        case .automatic:
-            guard let light = bundle?.image(forResource: NSImage.Name("AppIconLight")),
-                  let dark = bundle?.image(forResource: NSImage.Name("AppIconDark")) else {
-                return nil
-            }
-            return appearanceAwareImage(light: light, dark: dark)
-        case .light, .dark:
-            guard let imageName = mode.imageName else { return nil }
-            return bundle?.image(forResource: imageName)
-        }
-    }
-
-    private static func appearanceAwareImage(
-        light: NSImage,
-        dark: NSImage,
-        resolveIsDark: @escaping @Sendable () -> Bool = {
-            MainActor.assumeIsolated {
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            }
-        }
-    ) -> NSImage? {
-        let size = light.size.width > 0 && light.size.height > 0 ? light.size : dark.size
-        guard size.width > 0, size.height > 0 else {
-            return nil
-        }
-
-        return NSImage(size: size, flipped: false) { rect in
-            let source = resolveIsDark() ? dark : light
-            source.draw(
-                in: rect,
-                from: CGRect(origin: .zero, size: source.size),
-                operation: .copy,
-                fraction: 1.0
-            )
-            return true
-        }
-    }
-}
-
 final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // The plugin can stay alive while the app remains in the Dock, even after quit.
     // Keep the state minimal and derive everything from the enclosing app bundle.
@@ -116,7 +71,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        guard let icon = DockTileAppIconImageFactory.makeImage(for: mode, bundle: appBundle) else {
+        guard let imageName = mode.imageName,
+              let icon = appBundle?.image(forResource: imageName) else {
             dockTile.showDefaultAppIcon()
             return
         }

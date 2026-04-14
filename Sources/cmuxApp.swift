@@ -3793,7 +3793,8 @@ enum AppIconSettings {
         static func live() -> Self {
             Self(
                 imageForMode: { mode in
-                    AppIconSettings.makeImage(for: mode)
+                    guard let imageName = mode.imageName else { return nil }
+                    return NSImage(named: imageName)
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -3819,52 +3820,17 @@ enum AppIconSettings {
     }
 
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
-        environment.setApplicationIconImage(environment.imageForMode(mode))
-        environment.notifyDockTilePlugin()
-    }
-
-    static func makeImage(
-        for mode: AppIconMode,
-        imageNamed: (String) -> NSImage? = { NSImage(named: $0) }
-    ) -> NSImage? {
         switch mode {
         case .automatic:
-            guard let light = imageNamed("AppIconLight"),
-                  let dark = imageNamed("AppIconDark") else {
-                return nil
-            }
-            return appearanceAwareImage(light: light, dark: dark)
+            environment.setApplicationIconImage(nil)
         case .light:
-            return imageNamed("AppIconLight")
+            guard let icon = environment.imageForMode(.light) else { return }
+            environment.setApplicationIconImage(icon)
         case .dark:
-            return imageNamed("AppIconDark")
+            guard let icon = environment.imageForMode(.dark) else { return }
+            environment.setApplicationIconImage(icon)
         }
-    }
-
-    static func appearanceAwareImage(
-        light: NSImage,
-        dark: NSImage,
-        resolveIsDark: @escaping @Sendable () -> Bool = {
-            MainActor.assumeIsolated {
-                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            }
-        }
-    ) -> NSImage? {
-        let size = light.size.width > 0 && light.size.height > 0 ? light.size : dark.size
-        guard size.width > 0, size.height > 0 else {
-            return nil
-        }
-
-        return NSImage(size: size, flipped: false) { rect in
-            let source = resolveIsDark() ? dark : light
-            source.draw(
-                in: rect,
-                from: CGRect(origin: .zero, size: source.size),
-                operation: .copy,
-                fraction: 1.0
-            )
-            return true
-        }
+        environment.notifyDockTilePlugin()
     }
 }
 
