@@ -4511,12 +4511,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         !isTerminatingApp
     }
 
-    nonisolated static func shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(
-        isTerminatingApp: Bool
-    ) -> Bool {
-        !isTerminatingApp
-    }
-
     nonisolated static func shouldSkipSessionSaveDuringStartupRestore(
         isApplyingStartupSessionRestore: Bool,
         includeScrollback: Bool
@@ -12981,12 +12975,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
+        //
+        // For user-initiated red-X closes (app stays running), capture scrollback for the
+        // remaining windows and keep the snapshot file even if this was the last window —
+        // so relaunching cmux still restores the prior session instead of starting blank.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
             _ = saveSessionSnapshot(
-                includeScrollback: false,
-                removeWhenEmpty: Self.shouldRemoveSnapshotWhenNoWindowsRemainOnWindowUnregister(
-                    isTerminatingApp: isTerminatingApp
-                )
+                includeScrollback: true,
+                removeWhenEmpty: false
             )
         }
     }
