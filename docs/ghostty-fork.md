@@ -120,7 +120,21 @@ tend to conflict together during rebases.
   - Wires `.apc_start`, `.apc_put`, and `.apc_end` through the shared APC parser in `TerminalStream`.
   - Restores kitty graphics execution and APC OK/error replies for the non-termio stream path used by cmux/libghostty integrations.
 
-Fork main now carries the section 8 APC handling fix plus later upstream merges;
+### 9) Cmd+click links through mouse capture (tmux)
+
+- Commit: `f915b291c` (Allow Cmd+click links when mouse reporting is active)
+- Files:
+  - `src/Surface.zig`
+- Summary:
+  - When a terminal application enables mouse reporting (e.g. tmux with `set -g mouse on`),
+    link hover detection and Cmd+click were completely disabled.
+  - Allows Ctrl/Super (Cmd on macOS) to bypass mouse capture for link detection, the same way
+    Shift already does, at three code paths: key event modifier handling, cursor position callback,
+    and link clearing.
+  - Also sets the `hyperlink_hover` dirty flag when leaving a link so the renderer clears the
+    underline immediately (pre-existing bug).
+
+Fork main now carries patches 1–9 plus later upstream merges;
 the current cmux pin is the head listed above.
 
 ## Upstreamed fork changes
@@ -183,5 +197,11 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Keep the APC handler wired into `.apc_start`, `.apc_put`, `.apc_end`, and preserve the
     `apcEnd()` response path so kitty graphics still reach `Terminal.kittyGraphics()` and reply via
     `write_pty`.
+
+- `src/Surface.zig` (link detection)
+  - The `mouseModsWithCapture`, `linkAtPos`, `mouseRefreshLinks`, and `cursorPosCallback` functions
+    coordinate link detection. The Cmd bypass checks (`ctrlOrSuper()`) sit alongside the existing
+    Shift bypass. If upstream refactors mouse capture or link hover logic, re-check that both
+    Shift and Cmd still bypass mouse capture for link detection.
 
 If you resolve a conflict, update this doc with what changed.
