@@ -12,10 +12,10 @@ private enum DockTileAppIconMode: String {
         self = Self(rawValue: defaultsValue ?? "") ?? .automatic
     }
 
-    var imageName: NSImage.Name? {
+    func imageName(isDarkAppearance: Bool) -> NSImage.Name? {
         switch self {
         case .automatic:
-            return nil
+            return isDarkAppearance ? NSImage.Name("AppIconDark") : NSImage.Name("AppIconLight")
         case .light:
             return NSImage.Name("AppIconLight")
         case .dark:
@@ -29,11 +29,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: CmuxDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
+    private var appearanceObservation: NSKeyValueObservation?
 
     deinit {
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
         }
+        appearanceObservation?.invalidate()
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
@@ -41,6 +43,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
         }
+        appearanceObservation?.invalidate()
+        appearanceObservation = nil
 
         guard let dockTile else { return }
         updateDockTile(dockTile)
@@ -52,6 +56,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         ) { [weak self] _ in
             guard let self else { return }
             self.updateDockTile(dockTile)
+        }
+
+        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                guard let self, self.appearanceObservation != nil else { return }
+                self.updateDockTile(dockTile)
+            }
         }
     }
 
@@ -71,12 +82,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
+        let isDarkAppearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
         }
 
-        guard let imageName = mode.imageName,
+        guard let imageName = mode.imageName(isDarkAppearance: isDarkAppearance),
               let icon = appBundle?.image(forResource: imageName) else {
             NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
             NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
