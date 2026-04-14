@@ -49,6 +49,7 @@ final class CmuxSettingsFileStore {
         "sidebar.branchLayout",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
+        "sidebar.disableGitMetadataWatcher",
         "sidebar.showPullRequests",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.openPortLinksInCmuxBrowser",
@@ -499,6 +500,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["showBranchDirectory"]) {
             snapshot.managedUserDefaults["sidebarShowBranchDirectory"] = .bool(value)
+        }
+        if let value = jsonBool(section["disableGitMetadataWatcher"]) {
+            snapshot.managedUserDefaults[GitMetadataWatcherSettings.disabledKey] = .bool(value)
         }
         if let value = jsonBool(section["showPullRequests"]) {
             snapshot.managedUserDefaults["sidebarShowPullRequest"] = .bool(value)
@@ -1349,6 +1353,7 @@ final class CmuxSettingsFileStore {
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": true,
+                    "disableGitMetadataWatcher": GitMetadataWatcherSettings.defaultDisabled,
                     "showPullRequests": true,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,

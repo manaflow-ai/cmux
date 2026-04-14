@@ -876,8 +876,10 @@ final class SessionPersistenceTests: XCTestCase {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
             customTitle: "Restored",
+            customDescription: nil,
             customColor: nil,
             isPinned: true,
+            gitMetadataWatcherDisabled: nil,
             currentDirectory: "/tmp",
             focusedPanelId: nil,
             layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
