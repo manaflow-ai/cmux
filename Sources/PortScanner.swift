@@ -475,8 +475,12 @@ final class PortScanner: @unchecked Sendable {
                 return nil
             }
 
-            // Force prompt fd teardown on this long-lived utility queue instead of
-            // waiting for ARC/autorelease to eventually release the pipe.
+            // Close the parent's write end before reading. This is required:
+            // readDataToEndOfFile() blocks until EOF, which only occurs when every
+            // write-fd holder (parent + child) has closed its copy. Keeping the
+            // parent's copy open would deadlock the read. The defer below is a
+            // safety net for the error path (process.run() throws), not a
+            // substitute for this explicit close.
             try? stdoutWriteHandle.close()
             let data = stdoutReadHandle.readDataToEndOfFile()
             process.waitUntilExit()
