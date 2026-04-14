@@ -236,6 +236,12 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var forwardHistoryURLStrings: [String]?
 }
 
+struct SessionVncPanelSnapshot: Codable, Sendable {
+    var endpointInput: String?
+    var usernameInput: String?
+    var autoConnect: Bool = false
+}
+
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
 }
@@ -253,6 +259,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var ttyName: String?
     var terminal: SessionTerminalPanelSnapshot?
     var browser: SessionBrowserPanelSnapshot?
+    var vnc: SessionVncPanelSnapshot?
     var markdown: SessionMarkdownPanelSnapshot?
 }
 

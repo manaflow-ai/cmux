@@ -8560,11 +8560,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // On the VM, launching/initializing multiple windows can occasionally take longer than a
         // few seconds; keep the deadline generous so the test doesn't flake.
         let deadline = Date().addingTimeInterval(20.0)
-        func hasMainTerminalWindow() -> Bool {
-            NSApp.windows.contains { window in
+        func mainTerminalWindow() -> NSWindow? {
+            NSApp.windows.first { window in
                 guard let raw = window.identifier?.rawValue else { return false }
                 return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
             }
+        }
+        func hasMainTerminalWindow() -> Bool {
+            mainTerminalWindow() != nil
         }
 
         func runSetupWhenWindowReady() {
@@ -8580,6 +8583,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             guard let tabManager = self.tabManager else { return }
 
+            // Keep the app front-most for deterministic XCUI key routing on CI runners.
+            NSApp.unhide(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            if let window = mainTerminalWindow() {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+            }
+
+            // Re-apply these at setup time. Startup config loading can overwrite earlier values.
+            if !useGhosttyConfig {
+                KeyboardShortcutSettings.setShortcut(
+                    StoredShortcut(key: "h", command: true, shift: false, option: false, control: true),
+                    for: .focusLeft
+                )
+                KeyboardShortcutSettings.setShortcut(
+                    StoredShortcut(key: "l", command: true, shift: false, option: false, control: true),
+                    for: .focusRight
+                )
+                KeyboardShortcutSettings.setShortcut(
+                    StoredShortcut(key: "k", command: true, shift: false, option: false, control: true),
+                    for: .focusUp
+                )
+                KeyboardShortcutSettings.setShortcut(
+                    StoredShortcut(key: "j", command: true, shift: false, option: false, control: true),
+                    for: .focusDown
+                )
+            }
+
             let tab = tabManager.addTab()
             guard let initialPanelId = tab.focusedPanelId else {
                 self.writeGotoSplitTestData(["setupError": "Missing initial panel id"])
@@ -8588,14 +8619,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let requestedBrowserURL = env["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"]?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let defaultBrowserURL: URL = {
+                let html = """
+                <!doctype html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>cmux-goto-split</title>
+                </head>
+                <body tabindex="-1">
+                  <main>cmux goto split ui test</main>
+                  <script>
+                    window.addEventListener('load', () => {
+                      try { document.body.focus(); } catch (_) {}
+                    });
+                  </script>
+                </body>
+                </html>
+                """
+                let encoded = Data(html.utf8).base64EncodedString()
+                return URL(string: "data:text/html;base64,\(encoded)") ?? URL(string: "about:blank")!
+            }()
             let url = requestedBrowserURL.flatMap { rawURL in
                 guard !rawURL.isEmpty else { return nil }
                 return URL(string: rawURL)
-            } ?? URL(string: "https://example.com")
-            guard let url else {
-                self.writeGotoSplitTestData(["setupError": "Invalid browser URL"])
-                return
-            }
+            } ?? defaultBrowserURL
             guard let browserPanelId = tabManager.newBrowserSplit(
                 tabId: tab.id,
                 fromPanelId: initialPanelId,
@@ -8877,6 +8925,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             tab.focusPanel(browserPanelId)
+            _ = panel.requestExplicitWebViewFocus()
 
             guard isWebViewFocused(panel),
                   let (browserPaneId, terminalPaneId) = paneIdsForGotoSplitUITest(

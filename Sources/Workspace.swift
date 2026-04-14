@@ -448,6 +448,7 @@ extension Workspace {
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let vncSnapshot: SessionVncPanelSnapshot?
         let markdownSnapshot: SessionMarkdownPanelSnapshot?
         switch panel.panelType {
         case .terminal:
@@ -471,6 +472,7 @@ extension Workspace {
                 scrollback: resolvedScrollback
             )
             browserSnapshot = nil
+            vncSnapshot = nil
             markdownSnapshot = nil
         case .browser:
             guard let browserPanel = panel as? BrowserPanel else { return nil }
@@ -485,11 +487,19 @@ extension Workspace {
                 backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
                 forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings
             )
+            vncSnapshot = nil
+            markdownSnapshot = nil
+        case .vnc:
+            guard let vncPanel = panel as? VncPanel else { return nil }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            vncSnapshot = vncPanel.sessionSnapshot()
             markdownSnapshot = nil
         case .markdown:
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            vncSnapshot = nil
             markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
         }
 
@@ -506,6 +516,7 @@ extension Workspace {
             ttyName: ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
+            vnc: vncSnapshot,
             markdown: markdownSnapshot
         )
     }
@@ -670,6 +681,16 @@ extension Workspace {
             }
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
+        case .vnc:
+            guard let vncPanel = newVncSurface(
+                inPane: paneId,
+                endpoint: snapshot.vnc?.endpointInput,
+                focus: false
+            ) else {
+                return nil
+            }
+            applySessionPanelMetadata(snapshot, toPanelId: vncPanel.id)
+            return vncPanel.id
         case .markdown:
             guard let filePath = snapshot.markdown?.filePath,
                   let markdownPanel = newMarkdownSurface(
@@ -732,6 +753,11 @@ extension Workspace {
             } else {
                 _ = browserPanel.hideDeveloperTools()
             }
+        }
+
+        if let vncSnapshot = snapshot.vnc,
+           let vncPanel = vncPanel(for: panelId) {
+            vncPanel.restoreSessionSnapshot(vncSnapshot)
         }
     }
 
@@ -894,6 +920,17 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+        case .vnc:
+            if let panel = newVncSurface(
+                inPane: paneId,
+                endpoint: surface.vnc,
+                autoConnect: surface.vnc?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -920,6 +957,16 @@ extension Workspace {
         case .browser:
             let url = surface.url.flatMap { URL(string: $0) }
             if let panel = newBrowserSurface(inPane: paneId, url: url, focus: false) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
+        case .vnc:
+            if let panel = newVncSurface(
+                inPane: paneId,
+                endpoint: surface.vnc,
+                autoConnect: surface.vnc?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                focus: false
+            ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
@@ -6707,6 +6754,7 @@ final class Workspace: Identifiable, ObservableObject {
     private enum SurfaceKind {
         static let terminal = "terminal"
         static let browser = "browser"
+        static let vnc = "vnc"
         static let markdown = "markdown"
     }
 
@@ -7160,6 +7208,39 @@ final class Workspace: Identifiable, ObservableObject {
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
+    private func installVncPanelSubscription(_ vncPanel: VncPanel) {
+        let subscription = Publishers.CombineLatest(
+            vncPanel.$displayTitle.removeDuplicates(),
+            vncPanel.$connectionState.removeDuplicates()
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self, weak vncPanel] newTitle, _ in
+            guard let self,
+                  let vncPanel,
+                  let tabId = self.surfaceIdFromPanelId(vncPanel.id) else { return }
+            guard let existing = self.bonsplitController.tab(tabId) else { return }
+
+            if self.panelTitles[vncPanel.id] != newTitle {
+                self.panelTitles[vncPanel.id] = newTitle
+            }
+
+            let resolvedTitle = self.resolvedPanelTitle(panelId: vncPanel.id, fallback: newTitle)
+            let icon = vncPanel.displayIcon
+
+            let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
+            let iconUpdate: String?? = existing.icon == icon ? nil : .some(icon)
+            guard titleUpdate != nil || iconUpdate != nil else { return }
+
+            self.bonsplitController.updateTab(
+                tabId,
+                title: titleUpdate,
+                icon: iconUpdate,
+                hasCustomTitle: self.panelCustomTitles[vncPanel.id] != nil
+            )
+        }
+        panelSubscriptions[vncPanel.id] = subscription
+    }
+
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
         guard let profileID else {
             preferredBrowserProfileID = nil
@@ -7246,6 +7327,10 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? BrowserPanel
     }
 
+    func vncPanel(for panelId: UUID) -> VncPanel? {
+        panels[panelId] as? VncPanel
+    }
+
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
         panels[panelId] as? MarkdownPanel
     }
@@ -7256,6 +7341,8 @@ final class Workspace: Identifiable, ObservableObject {
             return SurfaceKind.terminal
         case .browser:
             return SurfaceKind.browser
+        case .vnc:
+            return SurfaceKind.vnc
         case .markdown:
             return SurfaceKind.markdown
         }
@@ -9161,6 +9248,157 @@ final class Workspace: Identifiable, ObservableObject {
         return browserPanel
     }
 
+    @discardableResult
+    func newVncSplit(
+        from panelId: UUID,
+        orientation: SplitOrientation,
+        insertFirst: Bool = false,
+        endpoint: String? = nil,
+        username: String? = nil,
+        password: String? = nil,
+        autoConnect: Bool = false,
+        focus: Bool = true
+    ) -> VncPanel? {
+        guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
+        var sourcePaneId: PaneID?
+        for paneId in bonsplitController.allPaneIds {
+            let tabs = bonsplitController.tabs(inPane: paneId)
+            if tabs.contains(where: { $0.id == sourceTabId }) {
+                sourcePaneId = paneId
+                break
+            }
+        }
+
+        guard let paneId = sourcePaneId else { return nil }
+
+        let trimmedEndpoint = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUsername = username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vncPanel = VncPanel(workspaceId: id, endpoint: trimmedEndpoint)
+        if let trimmedUsername, !trimmedUsername.isEmpty {
+            vncPanel.usernameInput = trimmedUsername
+        }
+        if let password {
+            vncPanel.passwordInput = password
+        }
+        panels[vncPanel.id] = vncPanel
+        panelTitles[vncPanel.id] = vncPanel.displayTitle
+
+        let newTab = Bonsplit.Tab(
+            title: vncPanel.displayTitle,
+            icon: vncPanel.displayIcon,
+            kind: SurfaceKind.vnc,
+            isDirty: vncPanel.isDirty,
+            isLoading: false,
+            isPinned: false
+        )
+        surfaceIdToPanelId[newTab.id] = vncPanel.id
+        let previousFocusedPanelId = focusedPanelId
+
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            panels.removeValue(forKey: vncPanel.id)
+            panelTitles.removeValue(forKey: vncPanel.id)
+            return nil
+        }
+
+        let previousHostedView = focusedTerminalPanel?.hostedView
+        if focus {
+            previousHostedView?.suppressReparentFocus()
+            focusPanel(vncPanel.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                previousHostedView?.clearSuppressReparentFocus()
+            }
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: vncPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installVncPanelSubscription(vncPanel)
+
+        if autoConnect {
+            DispatchQueue.main.async { [weak vncPanel] in
+                vncPanel?.connect()
+            }
+        }
+
+        return vncPanel
+    }
+
+    @discardableResult
+    func newVncSurface(
+        inPane paneId: PaneID,
+        endpoint: String? = nil,
+        username: String? = nil,
+        password: String? = nil,
+        autoConnect: Bool = false,
+        focus: Bool? = nil,
+        insertAtEnd: Bool = false
+    ) -> VncPanel? {
+        let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
+        let previousFocusedPanelId = focusedPanelId
+        let previousHostedView = focusedTerminalPanel?.hostedView
+
+        let trimmedEndpoint = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUsername = username?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let vncPanel = VncPanel(workspaceId: id, endpoint: trimmedEndpoint)
+        if let trimmedUsername, !trimmedUsername.isEmpty {
+            vncPanel.usernameInput = trimmedUsername
+        }
+        if let password {
+            vncPanel.passwordInput = password
+        }
+        panels[vncPanel.id] = vncPanel
+        panelTitles[vncPanel.id] = vncPanel.displayTitle
+
+        guard let newTabId = bonsplitController.createTab(
+            title: vncPanel.displayTitle,
+            icon: vncPanel.displayIcon,
+            kind: SurfaceKind.vnc,
+            isDirty: vncPanel.isDirty,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: vncPanel.id)
+            panelTitles.removeValue(forKey: vncPanel.id)
+            return nil
+        }
+
+        surfaceIdToPanelId[newTabId] = vncPanel.id
+        if insertAtEnd {
+            let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
+
+        if shouldFocusNewTab {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(newTabId)
+            vncPanel.focus()
+            applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else {
+            preserveFocusAfterNonFocusSplit(
+                preferredPanelId: previousFocusedPanelId,
+                splitPanelId: vncPanel.id,
+                previousHostedView: previousHostedView
+            )
+        }
+
+        installVncPanelSubscription(vncPanel)
+
+        if autoConnect {
+            DispatchQueue.main.async { [weak vncPanel] in
+                vncPanel?.connect()
+            }
+        }
+
+        return vncPanel
+    }
+
     func newMarkdownSplit(
         from panelId: UUID,
         orientation: SplitOrientation,
@@ -9764,6 +10002,9 @@ final class Workspace: Identifiable, ObservableObject {
                 remoteStatus: browserRemoteWorkspaceStatusSnapshot()
             )
             installBrowserPanelSubscription(browserPanel)
+        } else if let vncPanel = detached.panel as? VncPanel {
+            vncPanel.updateWorkspaceId(id)
+            installVncPanelSubscription(vncPanel)
         }
 
         if let directory = detached.directory {
@@ -11474,6 +11715,9 @@ extension Workspace: BonsplitDelegate {
         if let browserPanel = panel as? BrowserPanel {
             return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
+        if let vncPanel = panel as? VncPanel {
+            return vncPanel.activationWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        }
         return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
@@ -12137,6 +12381,8 @@ extension Workspace: BonsplitDelegate {
             _ = newTerminalSurface(inPane: pane)
         case "browser":
             _ = newBrowserSurface(inPane: pane)
+        case "vnc":
+            _ = newVncSurface(inPane: pane)
         default:
             _ = newTerminalSurface(inPane: pane)
         }

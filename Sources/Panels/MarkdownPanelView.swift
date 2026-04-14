@@ -338,22 +338,49 @@ final class MarkdownPanelPointerObserverView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        forwardedMouseTarget = forwardedTarget(for: event)
-        forwardedMouseTarget?.mouseDown(with: event)
+        forwardMouseDown(event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        forwardMouseDown(event)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        forwardMouseDown(event)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        forwardedMouseTarget?.mouseDragged(with: event)
+        forwardMouseDragged(event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        forwardMouseDragged(event)
+    }
+
+    override func otherMouseDragged(with event: NSEvent) {
+        forwardMouseDragged(event)
     }
 
     override func mouseUp(with event: NSEvent) {
-        forwardedMouseTarget?.mouseUp(with: event)
-        forwardedMouseTarget = nil
+        forwardMouseUp(event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        forwardMouseUp(event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        forwardMouseUp(event)
     }
 
     func shouldHandle(_ event: NSEvent) -> Bool {
-        guard event.type == .leftMouseDown,
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            break
+        default:
+            return false
+        }
+        guard
               let window,
               event.window === window,
               !isHiddenOrHasHiddenAncestor else { return false }
@@ -374,8 +401,50 @@ final class MarkdownPanelPointerObserverView: NSView {
 
     private func installEventMonitorIfNeeded() {
         guard eventMonitor == nil else { return }
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             self?.handleEventIfNeeded(event) ?? event
+        }
+    }
+
+    private func forwardMouseDown(_ event: NSEvent) {
+        onPointerDown?()
+        forwardedMouseTarget = forwardedTarget(for: event)
+        switch event.type {
+        case .leftMouseDown:
+            forwardedMouseTarget?.mouseDown(with: event)
+        case .rightMouseDown:
+            forwardedMouseTarget?.rightMouseDown(with: event)
+        case .otherMouseDown:
+            forwardedMouseTarget?.otherMouseDown(with: event)
+        default:
+            break
+        }
+    }
+
+    private func forwardMouseDragged(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDragged:
+            forwardedMouseTarget?.mouseDragged(with: event)
+        case .rightMouseDragged:
+            forwardedMouseTarget?.rightMouseDragged(with: event)
+        case .otherMouseDragged:
+            forwardedMouseTarget?.otherMouseDragged(with: event)
+        default:
+            break
+        }
+    }
+
+    private func forwardMouseUp(_ event: NSEvent) {
+        defer { forwardedMouseTarget = nil }
+        switch event.type {
+        case .leftMouseUp:
+            forwardedMouseTarget?.mouseUp(with: event)
+        case .rightMouseUp:
+            forwardedMouseTarget?.rightMouseUp(with: event)
+        case .otherMouseUp:
+            forwardedMouseTarget?.otherMouseUp(with: event)
+        default:
+            break
         }
     }
 
@@ -397,5 +466,394 @@ final class MarkdownPanelPointerObserverView: NSView {
         let point = contentView.convert(event.locationInWindow, from: nil)
         let target = contentView.hitTest(point)
         return target === self ? nil : target
+    }
+}
+
+struct VncPanelView: View {
+    @ObservedObject var panel: VncPanel
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+    let portalPriority: Int
+    let onRequestPanelFocus: () -> Void
+
+    @State private var focusFlashOpacity: Double = 0.0
+    @State private var focusFlashAnimationGeneration: Int = 0
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case endpoint
+        case username
+        case password
+    }
+
+    private var connectButtonTitle: String {
+        if panel.isAwaitingCredentials {
+            return String(localized: "vnc.panel.sendCredentials", defaultValue: "Send Credentials")
+        }
+        if panel.connectionState == .connecting {
+            return String(localized: "vnc.panel.connecting", defaultValue: "Connecting…")
+        }
+        if panel.isConnected {
+            return String(localized: "vnc.panel.disconnect", defaultValue: "Disconnect")
+        }
+        return String(localized: "vnc.panel.connect", defaultValue: "Connect")
+    }
+
+    private var isConnectButtonDisabled: Bool {
+        if panel.isConnected {
+            return false
+        }
+        if panel.isAwaitingCredentials {
+            let usernameReady = !panel.requiredCredentialFields.contains(.username) ||
+                !panel.usernameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let passwordReady = !panel.requiredCredentialFields.contains(.password) ||
+                !panel.passwordInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !(usernameReady && passwordReady)
+        }
+        return panel.endpointInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var hostPickerTitle: String {
+        String(localized: "vnc.panel.targets.button", defaultValue: "Hosts")
+    }
+
+    private var hasHostSuggestions: Bool {
+        !panel.recentTargets.isEmpty || !panel.discoveredTargets.isEmpty
+    }
+
+    private func discoveredTargetTitle(_ target: VncDiscoveredTarget) -> String {
+        let format = String(
+            localized: "vnc.panel.targets.discoveredEntry",
+            defaultValue: "%1$@ (%2$@)"
+        )
+        return String(format: format, locale: Locale.current, target.name, target.endpoint)
+    }
+
+    private var statusText: String {
+        switch panel.connectionState {
+        case .idle:
+            return String(localized: "vnc.panel.status.idle", defaultValue: "Ready")
+        case .connecting:
+            return String(localized: "vnc.panel.status.connecting", defaultValue: "Connecting…")
+        case .connected:
+            return String(localized: "vnc.panel.status.connected", defaultValue: "Connected")
+        case .disconnected:
+            return String(localized: "vnc.panel.status.disconnected", defaultValue: "Disconnected")
+        case .error:
+            return String(localized: "vnc.panel.status.error", defaultValue: "Connection error")
+        }
+    }
+
+    private var statusColor: Color {
+        switch panel.connectionState {
+        case .connected:
+            return .green
+        case .error:
+            return .red
+        default:
+            return .secondary
+        }
+    }
+
+    var body: some View {
+        _ = portalPriority
+        _ = isVisibleInUI
+
+        return VStack(spacing: 0) {
+            toolbar
+            Divider()
+            ZStack {
+                if panel.usesNativeRenderer,
+                   let nativeHostView = panel.nativeSessionHostView {
+                    VncPanelNativeSessionRepresentable(hostView: nativeHostView)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityIdentifier("VNCPanel.Content.\(panel.id.uuidString)")
+                        .background(Color.black)
+                        .overlay {
+                            if isVisibleInUI {
+                                MarkdownPointerObserver(onPointerDown: onRequestPanelFocus)
+                            }
+                        }
+                } else if let webView = panel.webView {
+                    VncPanelWebViewRepresentable(webView: webView)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .accessibilityIdentifier("VNCPanel.Content.\(panel.id.uuidString)")
+                        .background(Color.black)
+                } else {
+                    Color.black
+                }
+
+                if panel.connectionState != .connected {
+                    disconnectedOverlay
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: NSColor.black))
+        .overlay {
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
+                .padding(FocusFlashPattern.ringInset)
+                .allowsHitTesting(false)
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .webViewDidReceiveClick).filter { [weak panel] note in
+                guard let panel, !panel.usesNativeRenderer else { return false }
+                guard let panelWebView = panel.webView else { return false }
+                guard let webView = note.object as? CmuxWebView else { return false }
+                return webView === panelWebView
+            }
+        ) { _ in
+            if !isFocused {
+                onRequestPanelFocus()
+            }
+        }
+        .onChange(of: panel.focusFlashToken) { _ in
+            triggerFocusFlashAnimation()
+        }
+        .onChange(of: panel.endpointFocusRequestID) { _ in
+            focusedField = .endpoint
+        }
+        .onChange(of: panel.usernameFocusRequestID) { _ in
+            focusedField = .username
+        }
+        .onChange(of: panel.passwordFocusRequestID) { _ in
+            focusedField = .password
+        }
+        .onChange(of: panel.connectionState) { state in
+            if state == .connected, isFocused {
+                panel.focus()
+            }
+        }
+        .onChange(of: isFocused) { focused in
+            if !panel.usesNativeRenderer, let webView = panel.webView {
+                webView.allowsFirstResponderAcquisition = focused
+            }
+            if focused {
+                if panel.isConnected {
+                    panel.focus()
+                } else {
+                    focusMostUsefulField()
+                }
+            }
+        }
+        .onAppear {
+            if !panel.usesNativeRenderer, let webView = panel.webView {
+                webView.allowsFirstResponderAcquisition = isFocused
+            }
+            if isFocused {
+                if panel.isConnected {
+                    panel.focus()
+                } else {
+                    focusMostUsefulField()
+                }
+            }
+        }
+    }
+
+    private var toolbar: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                TextField(
+                    String(localized: "vnc.panel.target.placeholder", defaultValue: "Host or host:port"),
+                    text: $panel.endpointInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .focused($focusedField, equals: .endpoint)
+                .onSubmit { connectOrDisconnect() }
+                .accessibilityIdentifier("VNCPanel.Endpoint.\(panel.id.uuidString)")
+
+                Menu(hostPickerTitle) {
+                    if panel.recentTargets.isEmpty && panel.discoveredTargets.isEmpty {
+                        Text(String(localized: "vnc.panel.targets.empty", defaultValue: "No recent or discovered hosts"))
+                    }
+                    if !panel.recentTargets.isEmpty {
+                        Section(String(localized: "vnc.panel.targets.recent", defaultValue: "Recent")) {
+                            ForEach(panel.recentTargets, id: \.self) { target in
+                                Button(target) {
+                                    panel.chooseEndpointSuggestion(target)
+                                }
+                            }
+                        }
+                    }
+                    if !panel.discoveredTargets.isEmpty {
+                        Section(String(localized: "vnc.panel.targets.discovered", defaultValue: "Discovered")) {
+                            ForEach(panel.discoveredTargets) { target in
+                                Button(discoveredTargetTitle(target)) {
+                                    panel.chooseEndpointSuggestion(target.endpoint)
+                                }
+                            }
+                        }
+                    }
+                }
+                .disabled(!hasHostSuggestions)
+
+                TextField(
+                    String(localized: "vnc.panel.username.placeholder", defaultValue: "Username (optional)"),
+                    text: $panel.usernameInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 170)
+                .focused($focusedField, equals: .username)
+                .onSubmit { connectOrDisconnect() }
+                .accessibilityIdentifier("VNCPanel.Username.\(panel.id.uuidString)")
+
+                SecureField(
+                    String(localized: "vnc.panel.password.placeholder", defaultValue: "Password (optional)"),
+                    text: $panel.passwordInput
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 200)
+                .focused($focusedField, equals: .password)
+                .onSubmit { connectOrDisconnect() }
+                .accessibilityIdentifier("VNCPanel.Password.\(panel.id.uuidString)")
+
+                Button(connectButtonTitle) {
+                    connectOrDisconnect()
+                }
+                .disabled(isConnectButtonDisabled)
+
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+
+            if let detail = panel.lastErrorDetail,
+               !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+            } else if panel.isAwaitingCredentials {
+                Text(
+                    String(
+                        localized: "vnc.panel.credentials.prompt",
+                        defaultValue: "Server requested credentials. Enter required fields, then send."
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: NSColor.windowBackgroundColor))
+    }
+
+    private var disconnectedOverlay: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "display")
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text(
+                String(
+                    localized: "vnc.panel.overlay.title",
+                    defaultValue: "Connect to a VNC server"
+                )
+            )
+            .font(.headline)
+            .foregroundStyle(.primary)
+            Text(
+                String(
+                    localized: "vnc.panel.overlay.subtitle",
+                    defaultValue: "Enter a host and port above, then click Connect."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func connectOrDisconnect() {
+        if panel.isConnected {
+            panel.disconnect()
+            return
+        }
+        if panel.isAwaitingCredentials {
+            guard !isConnectButtonDisabled else { return }
+            panel.submitCredentials()
+            return
+        }
+        if panel.connectionState == .connecting {
+            panel.disconnect()
+            return
+        }
+        guard !isConnectButtonDisabled else { return }
+        panel.connect()
+    }
+
+    private func focusMostUsefulField() {
+        if panel.endpointInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            focusedField = .endpoint
+            return
+        }
+        if panel.isAwaitingCredentials {
+            if panel.requiredCredentialFields.contains(.username),
+               panel.usernameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                focusedField = .username
+                return
+            }
+            focusedField = .password
+            return
+        }
+        focusedField = .endpoint
+    }
+
+    private func triggerFocusFlashAnimation() {
+        focusFlashAnimationGeneration &+= 1
+        let generation = focusFlashAnimationGeneration
+        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+
+        for segment in FocusFlashPattern.segments {
+            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
+                guard focusFlashAnimationGeneration == generation else { return }
+                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
+                    focusFlashOpacity = segment.targetOpacity
+                }
+            }
+        }
+    }
+
+    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
+        switch curve {
+        case .easeIn:
+            return .easeIn(duration: duration)
+        case .easeOut:
+            return .easeOut(duration: duration)
+        }
+    }
+}
+
+private struct VncPanelNativeSessionRepresentable: NSViewRepresentable {
+    let hostView: NSView
+
+    func makeNSView(context: Context) -> NSView {
+        hostView
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        _ = nsView
+    }
+}
+
+private struct VncPanelWebViewRepresentable: NSViewRepresentable {
+    let webView: CmuxWebView
+
+    func makeNSView(context: Context) -> CmuxWebView {
+        webView
+    }
+
+    func updateNSView(_ nsView: CmuxWebView, context: Context) {
+        _ = nsView
     }
 }

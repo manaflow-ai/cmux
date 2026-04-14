@@ -1702,6 +1702,9 @@ class TerminalController {
         case "list_surfaces":
             return listSurfaces(args)
 
+        case "vnc_state":
+            return vncState(args)
+
         case "focus_surface":
             return focusSurface(args)
 
@@ -2162,6 +2165,8 @@ class TerminalController {
             return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
         case "surface.trigger_flash":
             return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+        case "surface.vnc_state":
+            return v2Result(id: id, self.v2SurfaceVncState(params: params))
 
         // Panes
         case "pane.list":
@@ -4969,6 +4974,11 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let endpoint = v2String(params, "endpoint")
+        let username = v2String(params, "username")
+        let password = v2String(params, "password")
+        let autoConnect = v2Bool(params, "auto_connect")
+            ?? (endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
         v2MainSync {
@@ -4995,6 +5005,15 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: v2FocusAllowed())?.id
+            } else if panelType == .vnc {
+                newPanelId = ws.newVncSurface(
+                    inPane: paneId,
+                    endpoint: endpoint,
+                    username: username,
+                    password: password,
+                    autoConnect: autoConnect,
+                    focus: v2FocusAllowed()
+                )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(inPane: paneId, focus: v2FocusAllowed())?.id
             }
@@ -6118,6 +6137,84 @@ class TerminalController {
         return result
     }
 
+    private func v2SurfaceVncState(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+
+        var result: V2CallResult = .err(code: "internal_error", message: "Failed to read VNC state", data: nil)
+        v2MainSync {
+            guard let initialWorkspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+
+            var resolvedTabManager = tabManager
+            var resolvedWorkspace = initialWorkspace
+            let surfaceId: UUID
+            if params.keys.contains("surface_id") {
+                guard let requestedSurfaceId = v2UUID(params, "surface_id") else {
+                    result = .err(code: "invalid_params", message: "Invalid surface_id", data: nil)
+                    return
+                }
+                surfaceId = requestedSurfaceId
+                if resolvedWorkspace.panels[surfaceId] == nil {
+                    guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
+                          let locatedWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+                        result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
+                        return
+                    }
+                    resolvedTabManager = located.tabManager
+                    resolvedWorkspace = locatedWorkspace
+                }
+            } else {
+                guard let focusedSurfaceId = resolvedWorkspace.focusedPanelId else {
+                    result = .err(code: "not_found", message: "No focused surface", data: nil)
+                    return
+                }
+                surfaceId = focusedSurfaceId
+            }
+
+            guard let vncPanel = resolvedWorkspace.panels[surfaceId] as? VncPanel else {
+                result = .err(
+                    code: "invalid_type",
+                    message: "Surface is not a VNC panel",
+                    data: ["surface_id": surfaceId.uuidString]
+                )
+                return
+            }
+
+            result = .ok([
+                "window_id": v2OrNull(v2ResolveWindowId(tabManager: resolvedTabManager)?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: resolvedTabManager)),
+                "workspace_id": resolvedWorkspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: resolvedWorkspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "endpoint": v2OrNull(vncPanel.endpointForAutomation),
+                "state": vncPanel.connectionState.rawValue,
+                "renderer": vncPanel.rendererBackendForAutomation,
+                "awaiting_credentials": vncPanel.isAwaitingCredentials,
+                "required_credentials": vncPanel.requiredCredentialFieldNames,
+                "error": v2OrNull(vncPanel.lastErrorDetail),
+                "viewer_ready": vncPanel.viewerReadyForAutomation,
+                "viewer_loading": vncPanel.viewerLoadingForAutomation,
+                "viewer_url": v2OrNull(vncPanel.viewerURLForAutomation),
+                "proxy_active": vncPanel.proxyActiveForAutomation,
+                "input_key_down_count": vncPanel.inputKeyDownCountForAutomation,
+                "input_modified_key_down_count": vncPanel.inputModifiedKeyDownCountForAutomation,
+                "input_text_event_count": vncPanel.inputTextEventCountForAutomation,
+                "input_mouse_down_count": vncPanel.inputMouseDownCountForAutomation,
+                "input_mouse_up_count": vncPanel.inputMouseUpCountForAutomation,
+                "input_mouse_dragged_count": vncPanel.inputMouseDraggedCountForAutomation,
+                "input_scroll_count": vncPanel.inputScrollCountForAutomation,
+                "input_last_text_length": vncPanel.inputLastTextLengthForAutomation,
+                "input_last_text_contains_non_ascii": vncPanel.inputLastTextContainsNonASCIIForAutomation
+            ])
+        }
+        return result
+    }
+
     // MARK: - V2 Pane Methods
 
     private func v2PaneList(params: [String: Any]) -> V2CallResult {
@@ -6293,6 +6390,11 @@ class TerminalController {
         let panelType = v2PanelType(params, "type") ?? .terminal
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
+        let endpoint = v2String(params, "endpoint")
+        let username = v2String(params, "username")
+        let password = v2String(params, "password")
+        let autoConnect = v2Bool(params, "auto_connect")
+            ?? (endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
 
         let orientation = direction.orientation
         let insertFirst = direction.insertFirst
@@ -6317,6 +6419,17 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: v2FocusAllowed()
+                )?.id
+            } else if panelType == .vnc {
+                newPanelId = ws.newVncSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    endpoint: endpoint,
+                    username: username,
+                    password: password,
+                    autoConnect: autoConnect,
                     focus: v2FocusAllowed()
                 )?.id
             } else {
@@ -11362,7 +11475,7 @@ class TerminalController {
 
     private func helpText() -> String {
         var text = """
-        Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
+        Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser/vnc)
 
         Available commands:
           ping                        - Check if server is running
@@ -11375,9 +11488,10 @@ class TerminalController {
         Split & surface commands:
           new_split <direction> [panel]   - Split panel (left/right/up/down)
           drag_surface_to_split <id|idx> <direction> - Move surface into a new split (drag-to-edge)
-          new_pane [--type=terminal|browser] [--direction=left|right|up|down] [--url=...]
-          new_surface [--type=terminal|browser] [--pane=<pane-id|index>] [--url=...]
+          new_pane [--type=terminal|browser|vnc] [--direction=left|right|up|down] [--url=...] [--endpoint=...] [--username=...] [--password=...]
+          new_surface [--type=terminal|browser|vnc] [--pane=<pane-id|index>] [--url=...] [--endpoint=...] [--username=...] [--password=...]
           list_surfaces [workspace]       - List surfaces for workspace (current if omitted)
+          vnc_state [--tab=X] [--panel=Y] - Show VNC connection/auth state for focused or selected panel
           list_panes                      - List all panes with IDs
           list_pane_surfaces [--pane=<pane-id|index>] - List surfaces in pane
           focus_surface <id|idx>          - Focus surface by ID or index
@@ -12563,6 +12677,79 @@ class TerminalController {
                 return "\(selected) \(index): \(panel.id.uuidString)"
             }
             result = lines.isEmpty ? "No surfaces" : lines.joined(separator: "\n")
+        }
+        return result
+    }
+
+    private func vncState(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let panelArg = parsed.options["panel"] ?? parsed.options["surface"] ?? parsed.positional.first
+
+        var result = "ERROR: VNC panel not found"
+        DispatchQueue.main.sync {
+            guard let tab = resolveTabForReport(args) else {
+                result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+
+            let panelId: UUID?
+            if let panelArg {
+                panelId = resolveSurfaceId(from: panelArg, tab: tab)
+            } else {
+                panelId = tab.focusedPanelId
+            }
+
+            guard let panelId,
+                  let vncPanel = tab.panels[panelId] as? VncPanel else {
+                result = "ERROR: VNC panel not found"
+                return
+            }
+
+            let endpoint = vncPanel.endpointForAutomation ?? "none"
+            let required = vncPanel.requiredCredentialFieldNames.isEmpty
+                ? "none"
+                : vncPanel.requiredCredentialFieldNames.joined(separator: ",")
+            let awaitingCredentials = vncPanel.isAwaitingCredentials ? "1" : "0"
+            let errorDetail = (vncPanel.lastErrorDetail?.isEmpty == false)
+                ? vncPanel.lastErrorDetail!
+                : "none"
+            let renderer = vncPanel.rendererBackendForAutomation
+            let viewerReady = vncPanel.viewerReadyForAutomation ? "1" : "0"
+            let viewerLoading = vncPanel.viewerLoadingForAutomation ? "1" : "0"
+            let viewerURL = vncPanel.viewerURLForAutomation ?? "none"
+            let proxyActive = vncPanel.proxyActiveForAutomation ? "1" : "0"
+            let inputKeyDownCount = vncPanel.inputKeyDownCountForAutomation
+            let inputModifiedKeyDownCount = vncPanel.inputModifiedKeyDownCountForAutomation
+            let inputTextEventCount = vncPanel.inputTextEventCountForAutomation
+            let inputMouseDownCount = vncPanel.inputMouseDownCountForAutomation
+            let inputMouseUpCount = vncPanel.inputMouseUpCountForAutomation
+            let inputMouseDraggedCount = vncPanel.inputMouseDraggedCountForAutomation
+            let inputScrollCount = vncPanel.inputScrollCountForAutomation
+            let inputLastTextLength = vncPanel.inputLastTextLengthForAutomation
+            let inputLastTextContainsNonASCII = vncPanel.inputLastTextContainsNonASCIIForAutomation ? "1" : "0"
+
+            result = """
+            panel=\(panelId.uuidString)
+            state=\(vncPanel.connectionState.rawValue)
+            endpoint=\(endpoint)
+            renderer=\(renderer)
+            awaiting_credentials=\(awaitingCredentials)
+            required_credentials=\(required)
+            error=\(errorDetail)
+            viewer_ready=\(viewerReady)
+            viewer_loading=\(viewerLoading)
+            viewer_url=\(viewerURL)
+            proxy_active=\(proxyActive)
+            input_key_down_count=\(inputKeyDownCount)
+            input_modified_key_down_count=\(inputModifiedKeyDownCount)
+            input_text_event_count=\(inputTextEventCount)
+            input_mouse_down_count=\(inputMouseDownCount)
+            input_mouse_up_count=\(inputMouseUpCount)
+            input_mouse_dragged_count=\(inputMouseDraggedCount)
+            input_scroll_count=\(inputScrollCount)
+            input_last_text_length=\(inputLastTextLength)
+            input_last_text_contains_non_ascii=\(inputLastTextContainsNonASCII)
+            """
         }
         return result
     }
@@ -14239,10 +14426,14 @@ class TerminalController {
     private func newPane(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --direction=left|right|up|down --url=...
+        // Parse arguments: --type=terminal|browser|vnc --direction=left|right|up|down --url=... --endpoint=... --username=... --password=...
         var panelType: PanelType = .terminal
         var direction: SplitDirection = .right
         var url: URL? = nil
+        var endpoint: String? = nil
+        var username: String? = nil
+        var password: String? = nil
+        var autoConnect: Bool? = nil
         var invalidDirection = false
 
         let parts = args.split(separator: " ")
@@ -14250,7 +14441,7 @@ class TerminalController {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType(rawValue: typeStr.lowercased()) ?? .terminal
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -14261,6 +14452,19 @@ class TerminalController {
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
+            } else if partStr.hasPrefix("--endpoint=") {
+                endpoint = String(partStr.dropFirst(11))
+            } else if partStr.hasPrefix("--vnc=") {
+                endpoint = String(partStr.dropFirst(6))
+            } else if partStr.hasPrefix("--username=") {
+                username = String(partStr.dropFirst(11))
+            } else if partStr.hasPrefix("--password=") {
+                password = String(partStr.dropFirst(11))
+            } else if partStr == "--auto-connect" {
+                autoConnect = true
+            } else if partStr.hasPrefix("--auto-connect=") {
+                let rawValue = String(partStr.dropFirst(15)).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                autoConnect = ["1", "true", "yes", "on"].contains(rawValue)
             }
         }
 
@@ -14287,6 +14491,19 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
+                    focus: focus
+                )?.id
+            } else if panelType == .vnc {
+                let shouldAutoConnect = autoConnect
+                    ?? (endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                newPanelId = tab.newVncSplit(
+                    from: focusedPanelId,
+                    orientation: orientation,
+                    insertFirst: insertFirst,
+                    endpoint: endpoint,
+                    username: username,
+                    password: password,
+                    autoConnect: shouldAutoConnect,
                     focus: focus
                 )?.id
             } else {
@@ -15771,22 +15988,39 @@ class TerminalController {
     private func newSurface(_ args: String) -> String {
         guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
 
-        // Parse arguments: --type=terminal|browser --pane=<pane_id> --url=...
+        // Parse arguments: --type=terminal|browser|vnc --pane=<pane_id> --url=... --endpoint=... --username=... --password=...
         var panelType: PanelType = .terminal
         var paneArg: String? = nil
         var url: URL? = nil
+        var endpoint: String? = nil
+        var username: String? = nil
+        var password: String? = nil
+        var autoConnect: Bool? = nil
 
         let parts = args.split(separator: " ")
         for part in parts {
             let partStr = String(part)
             if partStr.hasPrefix("--type=") {
                 let typeStr = String(partStr.dropFirst(7))
-                panelType = typeStr == "browser" ? .browser : .terminal
+                panelType = PanelType(rawValue: typeStr.lowercased()) ?? .terminal
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
                 let urlStr = String(partStr.dropFirst(6))
                 url = URL(string: urlStr)
+            } else if partStr.hasPrefix("--endpoint=") {
+                endpoint = String(partStr.dropFirst(11))
+            } else if partStr.hasPrefix("--vnc=") {
+                endpoint = String(partStr.dropFirst(6))
+            } else if partStr.hasPrefix("--username=") {
+                username = String(partStr.dropFirst(11))
+            } else if partStr.hasPrefix("--password=") {
+                password = String(partStr.dropFirst(11))
+            } else if partStr == "--auto-connect" {
+                autoConnect = true
+            } else if partStr.hasPrefix("--auto-connect=") {
+                let rawValue = String(partStr.dropFirst(15)).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                autoConnect = ["1", "true", "yes", "on"].contains(rawValue)
             }
         }
 
@@ -15821,6 +16055,17 @@ class TerminalController {
             let newPanelId: UUID?
             if panelType == .browser {
                 newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+            } else if panelType == .vnc {
+                let shouldAutoConnect = autoConnect
+                    ?? (endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                newPanelId = tab.newVncSurface(
+                    inPane: targetPaneId,
+                    endpoint: endpoint,
+                    username: username,
+                    password: password,
+                    autoConnect: shouldAutoConnect,
+                    focus: focus
+                )?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

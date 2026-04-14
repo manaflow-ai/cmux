@@ -750,6 +750,14 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private func createVnc() {
+        #if DEBUG
+        dlog("emptyPane.newVNC pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
+        focusPane()
+        _ = workspace.newVncSurface(inPane: paneId)
+    }
+
     private var newSurfaceShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .newSurface)
@@ -811,6 +819,14 @@ struct EmptyPanelView: View {
                     shortcut: openBrowserShortcut,
                     action: createBrowser
                 )
+
+                Button(action: createVnc) {
+                    Label(
+                        String(localized: "vnc.panel.actionLabel", defaultValue: "VNC"),
+                        systemImage: "display"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -4340,6 +4340,13 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    /// Returns the focused panel if it's a VncPanel, nil otherwise
+    var focusedVncPanel: VncPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? VncPanel
+    }
+
     @discardableResult
     func zoomInFocusedBrowser() -> Bool {
         focusedBrowserPanel?.zoomIn() ?? false
@@ -5275,6 +5282,12 @@ class TabManager: ObservableObject {
         return tab.browserPanel(for: panelId)
     }
 
+    /// Get a VNC panel by ID
+    func vncPanel(tabId: UUID, panelId: UUID) -> VncPanel? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return tab.vncPanel(for: panelId)
+    }
+
     /// Open a browser in a specific workspace, optionally preferring a split-right layout.
     @discardableResult
     func openBrowser(
@@ -5357,6 +5370,48 @@ class TabManager: ObservableObject {
             url: url,
             preferSplitRight: false,
             preferredProfileID: preferredProfileID,
+            insertAtEnd: insertAtEnd
+        )
+    }
+
+    /// Open a VNC panel in a specific workspace.
+    @discardableResult
+    func openVnc(
+        inWorkspace tabId: UUID,
+        endpoint: String? = nil,
+        autoConnect: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first,
+              let vncPanel = workspace.newVncSurface(
+                inPane: paneId,
+                endpoint: endpoint,
+                autoConnect: autoConnect,
+                focus: true,
+                insertAtEnd: insertAtEnd
+              ) else {
+            return nil
+        }
+        if selectedTabId != tabId {
+            selectedTabId = tabId
+        }
+        rememberFocusedSurface(tabId: tabId, surfaceId: vncPanel.id)
+        return vncPanel.id
+    }
+
+    /// Open a VNC panel in the currently selected workspace.
+    @discardableResult
+    func openVnc(
+        endpoint: String? = nil,
+        autoConnect: Bool = false,
+        insertAtEnd: Bool = false
+    ) -> UUID? {
+        guard let tabId = selectedTabId else { return nil }
+        return openVnc(
+            inWorkspace: tabId,
+            endpoint: endpoint,
+            autoConnect: autoConnect,
             insertAtEnd: insertAtEnd
         )
     }

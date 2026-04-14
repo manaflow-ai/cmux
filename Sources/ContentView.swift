@@ -2050,6 +2050,8 @@ struct ContentView: View {
             targetView = terminal.hostedView
         case let browser as BrowserPanel:
             targetView = browser.webView
+        case let vnc as VncPanel:
+            targetView = vnc.nativeSessionHostView ?? vnc.webView
         default:
             targetView = nil
         }
@@ -6225,6 +6227,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.terminal", defaultValue: "Terminal")
         case .browser:
             return String(localized: "commandPalette.kind.browser", defaultValue: "Browser")
+        case .vnc:
+            return String(localized: "commandPalette.kind.vnc", defaultValue: "VNC")
         case .markdown:
             return String(localized: "commandPalette.kind.markdown", defaultValue: "Markdown")
         }
@@ -6236,6 +6240,8 @@ struct ContentView: View {
             return ["terminal", "shell", "console"]
         case .browser:
             return ["browser", "web", "page"]
+        case .vnc:
+            return ["vnc", "remote", "screen", "desktop"]
         case .markdown:
             return ["markdown", "note", "preview"]
         }
@@ -6605,6 +6611,14 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.newBrowserTab.subtitle", defaultValue: "Tab")),
                 shortcutHint: "⌘⇧L",
                 keywords: ["new", "browser", "tab", "web"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.newVncTab",
+                title: constant(String(localized: "command.newVncTab.title", defaultValue: "New Tab (VNC)")),
+                subtitle: constant(String(localized: "command.newVncTab.subtitle", defaultValue: "Tab")),
+                keywords: ["new", "vnc", "remote", "desktop", "screen"]
             )
         )
         contributions.append(
@@ -7327,6 +7341,11 @@ struct ContentView: View {
             // is not blocked by the palette visibility guard.
             DispatchQueue.main.async {
                 _ = AppDelegate.shared?.openBrowserAndFocusAddressBar()
+            }
+        }
+        registry.register(commandId: "palette.newVncTab") {
+            DispatchQueue.main.async {
+                _ = tabManager.openVnc()
             }
         }
         registry.register(commandId: "palette.closeTab") {

@@ -4240,3 +4240,153 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 }
+
+@MainActor
+final class VncNativeSessionHostViewTests: XCTestCase {
+    private final class ProbeSessionView: NSView {
+        var allowsFirstResponder = true
+        var keyDownCount = 0
+        var mouseDownCount = 0
+        var performKeyEquivalentCount = 0
+        var consumeKeyEquivalent = false
+
+        override var acceptsFirstResponder: Bool { allowsFirstResponder }
+
+        override func keyDown(with event: NSEvent) {
+            _ = event
+            keyDownCount += 1
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            _ = event
+            mouseDownCount += 1
+        }
+
+        override func performKeyEquivalent(with event: NSEvent) -> Bool {
+            _ = event
+            performKeyEquivalentCount += 1
+            return consumeKeyEquivalent
+        }
+    }
+
+    func testHostViewFocusesSessionViewWhenItCanBecomeFirstResponder() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let sessionView = ProbeSessionView(frame: .zero)
+        let hostView = try installHost(sessionView: sessionView, in: window)
+
+        XCTAssertTrue(window.makeFirstResponder(hostView))
+        XCTAssertTrue(
+            window.firstResponder === sessionView,
+            "Expected native session host focus to land on the session view so keyboard and IME input stay on the real VNC view."
+        )
+    }
+
+    func testHostViewForwardsMouseAndKeyboardWhenSessionCannotBecomeFirstResponder() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let sessionView = ProbeSessionView(frame: .zero)
+        sessionView.allowsFirstResponder = false
+        let hostView = try installHost(sessionView: sessionView, in: window)
+
+        XCTAssertTrue(window.makeFirstResponder(hostView))
+        XCTAssertTrue(window.firstResponder === hostView)
+
+        hostView.keyDown(with: makeKeyEvent(characters: "a", keyCode: 0, window: window))
+        hostView.mouseDown(with: makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 40), window: window))
+
+        XCTAssertEqual(sessionView.keyDownCount, 1)
+        XCTAssertEqual(sessionView.mouseDownCount, 1)
+    }
+
+    func testHostViewForwardsKeyEquivalentsToSessionView() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let sessionView = ProbeSessionView(frame: .zero)
+        sessionView.consumeKeyEquivalent = true
+        let hostView = try installHost(sessionView: sessionView, in: window)
+
+        let handled = hostView.performKeyEquivalent(
+            with: makeKeyEvent(characters: "k", keyCode: 40, window: window, flags: [.command])
+        )
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(sessionView.performKeyEquivalentCount, 1)
+    }
+
+    func testHostViewHitTestPrefersSessionView() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        let sessionView = ProbeSessionView(frame: .zero)
+        let hostView = try installHost(sessionView: sessionView, in: window)
+
+        let hitView = hostView.hitTest(NSPoint(x: 20, y: 20))
+        XCTAssertTrue(hitView === sessionView)
+    }
+
+    private func makeWindow() -> NSWindow {
+        NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
+    private func installHost(sessionView: ProbeSessionView, in window: NSWindow) throws -> VncNativeSessionHostView {
+        let contentView = try XCTUnwrap(window.contentView)
+        let hostView = VncNativeSessionHostView(sessionView: sessionView)
+        hostView.frame = contentView.bounds
+        hostView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostView)
+        contentView.layoutSubtreeIfNeeded()
+        hostView.layoutSubtreeIfNeeded()
+        return hostView
+    }
+
+    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        ) else {
+            XCTFail("Expected mouse event")
+            fatalError("mouse event creation failed")
+        }
+        return event
+    }
+
+    private func makeKeyEvent(
+        characters: String,
+        keyCode: UInt16,
+        window: NSWindow,
+        flags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: flags,
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters.lowercased(),
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            XCTFail("Expected key event")
+            fatalError("key event creation failed")
+        }
+        return event
+    }
+}
