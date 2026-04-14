@@ -875,10 +875,11 @@ private func cmuxResolveVisibleLinePath(
 enum TerminalOpenURLTarget: Equatable {
     case embeddedBrowser(URL)
     case external(URL)
+    case markdownViewer(URL)
 
     var url: URL {
         switch self {
-        case let .embeddedBrowser(url), let .external(url):
+        case let .embeddedBrowser(url), let .external(url), let .markdownViewer(url):
             return url
         }
     }
@@ -957,6 +958,11 @@ final class GhosttyDefaultBackgroundNotificationDispatcher {
     }
 }
 
+private func isMarkdownExtension(_ path: String) -> Bool {
+    let ext = (path as NSString).pathExtension.lowercased()
+    return ext == "md" || ext == "markdown"
+}
+
 func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     #if DEBUG
@@ -970,6 +976,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
     }
 
     if NSString(string: trimmed).isAbsolutePath {
+        if isMarkdownExtension(trimmed) {
+            #if DEBUG
+            dlog("link.resolve result=markdownViewer(absolutePath) url=\(trimmed)")
+            #endif
+            return .markdownViewer(URL(fileURLWithPath: trimmed))
+        }
         #if DEBUG
         dlog("link.resolve result=external(absolutePath) url=\(trimmed)")
         #endif
@@ -989,6 +1001,12 @@ func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? 
             dlog("link.resolve result=embeddedBrowser url=\(parsed)")
             #endif
             return .embeddedBrowser(parsed)
+        }
+        if scheme == "file" && isMarkdownExtension(parsed.path) {
+            #if DEBUG
+            dlog("link.resolve result=markdownViewer(fileScheme) url=\(parsed)")
+            #endif
+            return .markdownViewer(parsed)
         }
         #if DEBUG
         dlog("link.resolve result=external(scheme=\(scheme)) url=\(parsed)")
@@ -3272,6 +3290,34 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            if case let .markdownViewer(url) = target {
+                let filePath = url.path
+                #if DEBUG
+                dlog("link.openURL target=markdownViewer, opening markdown panel filePath=\(filePath)")
+                #endif
+                let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                return performOnMain {
+                    guard let sourceWorkspaceId,
+                          let sourcePanelId,
+                          let app = AppDelegate.shared,
+                          let resolved = app.workspaceContainingPanel(
+                              panelId: sourcePanelId,
+                              preferredWorkspaceId: sourceWorkspaceId
+                          ) else {
+                        #if DEBUG
+                        dlog("link.openURL markdownViewer but workspace lookup failed")
+                        #endif
+                        return false
+                    }
+                    let workspace = resolved.workspace
+                    return workspace.newMarkdownSplit(
+                        from: sourcePanelId,
+                        orientation: .horizontal,
+                        filePath: filePath
+                    ) != nil
+                }
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
@@ -3365,6 +3411,9 @@ class GhosttyApp {
                         return workspace.newBrowserSplit(from: sourcePanelId, orientation: .horizontal, url: url) != nil
                     }
                 }
+            case .markdownViewer:
+                // Handled above before the browser settings guard.
+                return false
             }
         default:
             return false
