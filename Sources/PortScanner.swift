@@ -448,6 +448,50 @@ final class PortScanner: @unchecked Sendable {
 
     // MARK: - Process helpers
 
+    static func captureStandardOutput(
+        executablePath: String,
+        arguments: [String]
+    ) -> String? {
+        autoreleasepool {
+            let process = Process()
+            let stdoutPipe = Pipe()
+            let stdoutReadHandle = stdoutPipe.fileHandleForReading
+            let stdoutWriteHandle = stdoutPipe.fileHandleForWriting
+
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdoutPipe
+            process.standardError = FileHandle.nullDevice
+
+            defer {
+                try? stdoutReadHandle.close()
+                try? stdoutWriteHandle.close()
+            }
+
+            do {
+                try process.run()
+            } catch {
+                return nil
+            }
+
+            // Close the parent's write end before reading. This is required:
+            // readDataToEndOfFile() blocks until EOF, which only occurs when every
+            // write-fd holder (parent + child) has closed its copy. Keeping the
+            // parent's copy open would deadlock the read. The defer below is a
+            // safety net for the error path (process.run() throws), not a
+            // substitute for this explicit close.
+            try? stdoutWriteHandle.close()
+            let data = stdoutReadHandle.readDataToEndOfFile()
+            process.waitUntilExit()
+
+            guard let output = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            return output
+        }
+    }
+
     private func expandAgentProcessTree(agentPIDsByWorkspace: [UUID: Set<Int>]) -> [Int: Set<UUID>] {
         let normalizedRoots = agentPIDsByWorkspace.reduce(into: [UUID: Set<Int>]()) { partial, item in
             let valid = Set(item.value.filter { $0 > 0 })
@@ -491,23 +535,12 @@ final class PortScanner: @unchecked Sendable {
 
     private func runPS(ttyList: String) -> [Int: String] {
         // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", ttyList, "-o", "pid=,tty="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        guard let output = Self.captureStandardOutput(
+            executablePath: "/bin/ps",
+            arguments: ["-t", ttyList, "-o", "pid=,tty="]
+        ) else {
             return [:]
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
 
         var mapping: [Int: String] = [:]
         for line in output.split(separator: "\n") {
@@ -520,23 +553,12 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runAllProcesses() -> [Int: Int] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-ax", "-o", "pid=,ppid="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        guard let output = Self.captureStandardOutput(
+            executablePath: "/bin/ps",
+            arguments: ["-ax", "-o", "pid=,ppid="]
+        ) else {
             return [:]
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
 
         var mapping: [Int: Int] = [:]
         for line in output.split(separator: "\n") {
@@ -551,23 +573,12 @@ final class PortScanner: @unchecked Sendable {
 
     private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
         // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
+        guard let output = Self.captureStandardOutput(
+            executablePath: "/usr/sbin/lsof",
+            arguments: ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
+        ) else {
             return [:]
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
 
         // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
         var result: [Int: Set<Int>] = [:]
