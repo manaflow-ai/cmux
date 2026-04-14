@@ -1,17 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements audit notes
+  ========================
+
+  cs.disable-library-validation  [HIGH RISK — remove when possible]
+    Required because GhosttyKit.xcframework is built locally with zig and
+    is not signed by an Apple Developer ID. Without this, Gatekeeper rejects
+    the framework at load time. This entitlement disables ALL dylib signature
+    checks for this process, which means an attacker who can plant a dylib in
+    a directory on the load path can inject code into cmux.
+    Remediation: sign GhosttyKit.xcframework with a Developer ID certificate
+    during the release build, then remove this entitlement.
+
+  cs.allow-unsigned-executable-memory  [ELEVATED RISK]
+    Needed by the Ghostty terminal renderer (zig-compiled code that may
+    mprotect pages to PROT_EXEC for shader/font rasterisation). If a future
+    Ghostty build no longer requires this, it should be removed.
+
+  cs.allow-jit
+    Required for JIT compilation inside Ghostty. Paired with the above.
+
+  device.camera / device.audio-input
+    Terminal programs running inside cmux (e.g. video-call CLIs, ffmpeg -f avfoundation)
+    trigger OS permission prompts — these entitlements allow the OS to present
+    those prompts rather than silently denying access. Usage descriptions are
+    in Info.plist (NSCameraUsageDescription / NSMicrophoneUsageDescription).
+
+  automation.apple-events
+    Required for the privileged CLI-symlink installer, which uses osascript
+    `do shell script ... with administrator privileges`.
+-->
 <plist version="1.0">
 <dict>
+	<!-- REMOVE once GhosttyKit.xcframework is signed with a Developer ID cert -->
 	<key>com.apple.security.cs.disable-library-validation</key>
 	<true/>
+	<!-- Required by Ghostty renderer; remove if no longer needed after a Ghostty update -->
 	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
 	<true/>
+	<!-- Required for Ghostty JIT compilation -->
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
+	<!-- Allows terminal programs running inside cmux to request camera access -->
 	<key>com.apple.security.device.camera</key>
 	<true/>
+	<!-- Allows terminal programs running inside cmux to request microphone access -->
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Required for osascript-based privileged installer -->
 	<key>com.apple.security.automation.apple-events</key>
 	<true/>
 </dict>
