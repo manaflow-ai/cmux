@@ -3786,7 +3786,10 @@ enum AppIconMode: String, CaseIterable, Identifiable {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
-    private static let fallbackBundleIconSuffix = "-Fallback"
+    private static let appearanceAwareBundleIconNames: Set<String> = [
+        "AppIcon",
+        "AppIcon-Debug",
+    ]
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 
     struct Environment {
@@ -3867,7 +3870,17 @@ enum AppIconSettings {
                 bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String else {
             return false
         }
-        return !iconName.hasSuffix(fallbackBundleIconSuffix)
+        return automaticModeUsesBundleIcon(iconName: iconName)
+    }
+
+    static func automaticModeUsesBundleIcon(iconName: String?) -> Bool {
+        guard let iconName else { return false }
+
+        // Only the Icon Composer-backed bundle icons are appearance-aware.
+        // Nightly and fallback appiconsets stay static, so automatic mode must
+        // keep using the runtime light and dark image pair there.
+        let normalizedIconName = (iconName as NSString).deletingPathExtension
+        return appearanceAwareBundleIconNames.contains(normalizedIconName)
     }
 
     private static func automaticRuntimeImage(environment: Environment) -> NSImage? {

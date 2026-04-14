@@ -51,6 +51,15 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 1)
     }
 
+    func testAutomaticModeUsesBundleIconOnlyForAppearanceAwareBundleIcons() {
+        XCTAssertTrue(AppIconSettings.automaticModeUsesBundleIcon(iconName: "AppIcon"))
+        XCTAssertTrue(AppIconSettings.automaticModeUsesBundleIcon(iconName: "AppIcon-Debug"))
+        XCTAssertTrue(AppIconSettings.automaticModeUsesBundleIcon(iconName: "AppIcon-Debug.icns"))
+        XCTAssertFalse(AppIconSettings.automaticModeUsesBundleIcon(iconName: "AppIcon-Debug-Fallback"))
+        XCTAssertFalse(AppIconSettings.automaticModeUsesBundleIcon(iconName: "AppIcon-Nightly"))
+        XCTAssertFalse(AppIconSettings.automaticModeUsesBundleIcon(iconName: nil))
+    }
+
     func testApplyAutomaticClearsRuntimeIconWhenBundleIconIsAppearanceAwareAndAppAppearanceIsSystem() {
         var receivedRuntimeIcon: NSImage?
         var dockTileNotificationCount = 0

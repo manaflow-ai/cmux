@@ -3,7 +3,10 @@ import AppKit
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
 private let cmuxAppearanceModeKey = "appearanceMode"
-private let cmuxFallbackBundleIconSuffix = "-Fallback"
+private let cmuxAppearanceAwareBundleIconNames: Set<String> = [
+    "AppIcon",
+    "AppIcon-Debug",
+]
 
 private enum DockTileAppIconMode: String {
     case automatic
@@ -115,7 +118,8 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
                 appBundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String else {
             return false
         }
-        return !iconName.hasSuffix(cmuxFallbackBundleIconSuffix)
+        let normalizedIconName = (iconName as NSString).deletingPathExtension
+        return cmuxAppearanceAwareBundleIconNames.contains(normalizedIconName)
     }
 
     private func automaticIcon(appearanceMode: DockTileAppearanceMode) -> NSImage? {
