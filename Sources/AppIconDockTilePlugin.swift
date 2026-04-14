@@ -85,12 +85,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
         if mode == .automatic {
-            if automaticModeUsesBundleIcon() {
+            let appearanceMode = DockTileAppearanceMode(defaultsValue: appDefaults?.string(forKey: cmuxAppearanceModeKey))
+            if automaticModeUsesBundleIcon() && appearanceMode == .system {
                 dockTile.showDefaultAppIcon()
                 return
             }
 
-            guard let icon = automaticFallbackIcon() else {
+            guard let icon = automaticIcon(appearanceMode: appearanceMode) else {
                 dockTile.showDefaultAppIcon()
                 return
             }
@@ -117,14 +118,13 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         return !iconName.hasSuffix(cmuxFallbackBundleIconSuffix)
     }
 
-    private func automaticFallbackIcon() -> NSImage? {
+    private func automaticIcon(appearanceMode: DockTileAppearanceMode) -> NSImage? {
         guard let appBundle,
               let light = appBundle.image(forResource: NSImage.Name("AppIconLight")),
               let dark = appBundle.image(forResource: NSImage.Name("AppIconDark")) else {
             return nil
         }
 
-        let appearanceMode = DockTileAppearanceMode(defaultsValue: appDefaults?.string(forKey: cmuxAppearanceModeKey))
         return appearanceAwareImage(light: light, dark: dark) {
             switch appearanceMode {
             case .light:

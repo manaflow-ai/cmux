@@ -29,6 +29,10 @@ final class AppIconSettingsTests: XCTestCase {
                 XCTFail("Automatic bundle icon should not be queried for explicit dark mode")
                 return false
             },
+            automaticModeAppearanceMode: {
+                XCTFail("Automatic appearance mode should not be queried for explicit dark mode")
+                return .system
+            },
             automaticModeAppearance: {
                 XCTFail("Automatic appearance should not be queried for explicit dark mode")
                 return NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
@@ -47,7 +51,7 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 1)
     }
 
-    func testApplyAutomaticClearsRuntimeIconWhenBundleIconIsAppearanceAware() {
+    func testApplyAutomaticClearsRuntimeIconWhenBundleIconIsAppearanceAwareAndAppAppearanceIsSystem() {
         var receivedRuntimeIcon: NSImage?
         var dockTileNotificationCount = 0
         var imageLookupCallCount = 0
@@ -59,6 +63,9 @@ final class AppIconSettingsTests: XCTestCase {
             },
             automaticModeUsesBundleIcon: {
                 true
+            },
+            automaticModeAppearanceMode: {
+                .system
             },
             automaticModeAppearance: {
                 XCTFail("Automatic appearance should not be queried when bundle icon handles automatic mode")
@@ -77,6 +84,53 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertNil(receivedRuntimeIcon)
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(imageLookupCallCount, 0)
+    }
+
+    func testApplyAutomaticUsesRuntimeIconWhenBundleIconIsAppearanceAwareButAppAppearanceIsForced() {
+        var receivedRuntimeIcon: NSImage?
+        var dockTileNotificationCount = 0
+        var requestedModes: [AppIconMode] = []
+
+        let environment = AppIconSettings.Environment(
+            imageForMode: { mode in
+                requestedModes.append(mode)
+                switch mode {
+                case .light:
+                    return self.solidColorImage(.white)
+                case .dark:
+                    return self.solidColorImage(.black)
+                case .automatic:
+                    XCTFail("Automatic mode should request explicit light and dark variants")
+                    return nil
+                }
+            },
+            automaticModeUsesBundleIcon: {
+                true
+            },
+            automaticModeAppearanceMode: {
+                .dark
+            },
+            automaticModeAppearance: {
+                NSAppearance(named: .darkAqua) ?? NSAppearance.currentDrawing()
+            },
+            setApplicationIconImage: { icon in
+                receivedRuntimeIcon = icon
+            },
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.applyIcon(.automatic, environment: environment)
+
+        guard let runtimeIcon = receivedRuntimeIcon else {
+            XCTFail("Expected automatic mode to install a runtime icon when app appearance is forced")
+            return
+        }
+
+        XCTAssertEqual(requestedModes, [.light, .dark])
+        XCTAssertEqual(dockTileNotificationCount, 1)
+        assertRenderedColor(runtimeIcon, equals: .black)
     }
 
     func testApplyAutomaticUsesRuntimeIconWhenBundleIconIsStaticFallback() {
@@ -100,6 +154,9 @@ final class AppIconSettingsTests: XCTestCase {
             },
             automaticModeUsesBundleIcon: {
                 false
+            },
+            automaticModeAppearanceMode: {
+                .system
             },
             automaticModeAppearance: {
                 currentAppearance

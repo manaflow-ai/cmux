@@ -3792,6 +3792,7 @@ enum AppIconSettings {
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
         let automaticModeUsesBundleIcon: () -> Bool
+        let automaticModeAppearanceMode: () -> AppearanceMode
         let automaticModeAppearance: () -> NSAppearance
         let setApplicationIconImage: (NSImage?) -> Void
         let notifyDockTilePlugin: () -> Void
@@ -3805,8 +3806,18 @@ enum AppIconSettings {
                 automaticModeUsesBundleIcon: {
                     AppIconSettings.automaticModeUsesBundleIcon(bundle: Bundle.main)
                 },
+                automaticModeAppearanceMode: {
+                    AppearanceSettings.resolvedMode()
+                },
                 automaticModeAppearance: {
-                    NSApplication.shared.effectiveAppearance
+                    switch AppearanceSettings.resolvedMode() {
+                    case .light:
+                        return NSAppearance(named: .aqua) ?? NSApplication.shared.effectiveAppearance
+                    case .dark:
+                        return NSAppearance(named: .darkAqua) ?? NSApplication.shared.effectiveAppearance
+                    case .system, .auto:
+                        return NSApplication.shared.effectiveAppearance
+                    }
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -3834,7 +3845,8 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
-            if environment.automaticModeUsesBundleIcon() {
+            let appearanceMode = environment.automaticModeAppearanceMode()
+            if environment.automaticModeUsesBundleIcon() && appearanceMode == .system {
                 environment.setApplicationIconImage(nil)
             } else {
                 let icon = automaticRuntimeImage(environment: environment)
