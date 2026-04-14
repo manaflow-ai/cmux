@@ -61,12 +61,4 @@ struct SidebarLayout {
     let pinnedWorkspaces: [Workspace]
     let ungroupedWorkspaces: [Workspace]
     let sectionGroups: [SectionGroup]
-
-    /// All workspaces in sidebar display order: pinned, ungrouped, then section contents.
-    var allWorkspacesInOrder: [Workspace] {
-        pinnedWorkspaces + ungroupedWorkspaces + sectionGroups.flatMap(\.workspaces)
-    }
-
-    /// Empty layout with no workspaces or sections.
-    static let empty = SidebarLayout(pinnedWorkspaces: [], ungroupedWorkspaces: [], sectionGroups: [])
 }

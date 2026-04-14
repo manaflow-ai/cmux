@@ -15062,19 +15062,23 @@ private struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        guard fromIndex != targetIndex else {
+        // Funnel every drop through one section-aware helper so cross-section
+        // and ungrouped↔section drops update membership (not just position).
+        // Check section membership BEFORE early-returning on position equality:
+        // a drop can change membership even when the flat index is unchanged
+        // (e.g. moving an ungrouped workspace into a section that lives at the
+        // same flat index).
+        let sourceSection = tabManager.sectionForWorkspace(draggedTabId)
+        let destSection: SidebarSection? = targetTabId.flatMap { tabManager.sectionForWorkspace($0) }
+        let insertAfter = dropIndicator?.edge == .bottom
+
+        if fromIndex == targetIndex && sourceSection?.id == destSection?.id {
 #if DEBUG
             dlog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
             syncSidebarSelection()
             return true
         }
-
-        // Funnel every drop through one section-aware helper so cross-section
-        // and ungrouped↔section drops update membership (not just position).
-        let sourceSection = tabManager.sectionForWorkspace(draggedTabId)
-        let destSection: SidebarSection? = targetTabId.flatMap { tabManager.sectionForWorkspace($0) }
-        let insertAfter = dropIndicator?.edge == .bottom
 
         if let destSection, let targetTabId {
             // Drop onto an item in (the same or a different) section.

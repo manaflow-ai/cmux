@@ -95,7 +95,12 @@ struct CmuxConfigExecutor {
         // to the name-based create/recreate path.
         if wsDef.target == .current {
             guard let current = tabManager.selectedWorkspace else { return }
-            current.setCustomTitle(workspaceName)
+            // Only rename the workspace if the command explicitly supplied a
+            // name. Otherwise autoApply would silently overwrite a
+            // user-customized title with `command.name` each session.
+            if let explicitName = wsDef.name {
+                current.setCustomTitle(explicitName)
+            }
             if let color = wsDef.color {
                 current.setCustomColor(color)
             }
