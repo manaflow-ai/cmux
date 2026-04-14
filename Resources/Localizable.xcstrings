@@ -203,7 +203,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "AppleScript이 macos-applescript 설정에 의해 비활성화되어 있습니다."
+            "value": "AppleScript가 macos-applescript 설정에 의해 비활성화되어 있습니다."
           }
         }
       }
@@ -49040,7 +49040,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "커맨드 팔레트에서 모든 서피스 검색"
+            "value": "명령어 팔레트에서 모든 서피스 검색"
           }
         }
       }
@@ -87809,7 +87809,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "플래시 트리거"
+            "value": "플래시 실행"
           }
         }
       }
