@@ -102,10 +102,13 @@ struct CmuxConfigExecutor {
             if let layout = wsDef.layout {
                 // Close all panels except the focused one so applyCustomLayout
                 // starts from a single pane and doesn't stack on existing splits.
-                let keep = current.focusedPanelId
-                let panelIdsToClose = current.panels.keys.filter { $0 != keep }
+                // Snapshot the keys before iterating because `closePanel` mutates
+                // `current.panels`. If no panel is focused, keep the first one as
+                // the base pane instead of tearing the workspace down entirely.
+                let keep = current.focusedPanelId ?? current.panels.keys.first
+                let panelIdsToClose = Array(current.panels.keys).filter { $0 != keep }
                 for panelId in panelIdsToClose {
-                    current.closePanel(panelId, force: true)
+                    _ = current.closePanel(panelId, force: true)
                 }
                 current.applyCustomLayout(layout, baseCwd: resolvedCwd)
             }

@@ -9994,7 +9994,6 @@ struct VerticalTabsSidebar: View {
         // sidebarLayout reads sectionRevision internally, establishing the
         // SwiftUI dependency — no separate read needed here.
         let layout = tabManager.sidebarLayout
-        let allOrdered = layout.allWorkspacesInOrder
         let workspaceCount = tabs.count
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
@@ -13502,42 +13501,47 @@ private struct TabItemView: View, Equatable {
         }
         .disabled(targetIds.isEmpty)
 
-        if !tabManager.sections.isEmpty {
-            let sections = tabManager.sections
-            let currentSection = tabManager.sectionForWorkspace(tab.id)
-            Menu(String(localized: "contextMenu.moveToSection", defaultValue: "Move to Section")) {
-                Button(String(localized: "contextMenu.noSection", defaultValue: "No Section")) {
-                    for id in targetIds {
-                        tabManager.removeWorkspaceFromSection(tabId: id)
-                    }
+        let sections = tabManager.sections
+        // Section membership for every target; used to compute per-row disabled state
+        // so multi-selection menus reflect the full selection, not just `tab.id`.
+        let targetSectionIds: Set<UUID?> = Set(targetIds.map { tabManager.sectionForWorkspace($0)?.id })
+        Menu(String(localized: "contextMenu.moveToSection", defaultValue: "Move to Section")) {
+            Button(String(localized: "contextMenu.noSection", defaultValue: "No Section")) {
+                for id in targetIds {
+                    tabManager.removeWorkspaceFromSection(tabId: id)
                 }
-                .disabled(currentSection == nil)
+            }
+            // "No Section" applies if any selected workspace is currently in a section.
+            .disabled(targetSectionIds == [nil as UUID?])
 
-                if !sections.isEmpty {
-                    Divider()
-                }
-
-                ForEach(sections, id: \.id) { section in
-                    Button(section.name) {
-                        for id in targetIds {
-                            tabManager.moveWorkspaceToSection(tabId: id, sectionId: section.id)
-                        }
-                    }
-                    .disabled(currentSection?.id == section.id)
-                }
-
+            if !sections.isEmpty {
                 Divider()
+            }
 
-                Button(String(localized: "contextMenu.newSection", defaultValue: "New Section…")) {
-                    let section = tabManager.createSection(
-                        name: String(localized: "sidebar.newSectionDefaultName", defaultValue: "New Section")
-                    )
+            ForEach(sections, id: \.id) { section in
+                Button(section.name) {
                     for id in targetIds {
                         tabManager.moveWorkspaceToSection(tabId: id, sectionId: section.id)
                     }
                 }
+                // Disable only when every selected workspace is already in this section.
+                .disabled(targetSectionIds == [section.id as UUID?])
+            }
+
+            if !sections.isEmpty {
+                Divider()
+            }
+
+            Button(String(localized: "contextMenu.newSection", defaultValue: "New Section…")) {
+                let section = tabManager.createSection(
+                    name: String(localized: "sidebar.newSectionDefaultName", defaultValue: "New Section")
+                )
+                for id in targetIds {
+                    tabManager.moveWorkspaceToSection(tabId: id, sectionId: section.id)
+                }
             }
         }
+        .disabled(targetIds.isEmpty)
 
         Divider()
 
@@ -15066,24 +15070,33 @@ private struct SidebarTabDropDelegate: DropDelegate {
             return true
         }
 
-        // If both dragged and target are in the same section, reorder within
-        // the section's workspaceIds so the visual order updates correctly.
-        if let targetTabId,
-           let section = tabManager.sectionForWorkspace(draggedTabId),
-           section.contains(targetTabId) {
-            let insertAfter = dropIndicator?.edge == .bottom
-            // Remove first so indices are stable for the insert.
-            section.workspaceIds.removeAll { $0 == draggedTabId }
-            if let targetIdx = section.workspaceIds.firstIndex(of: targetTabId) {
-                let insertIdx = insertAfter ? targetIdx + 1 : targetIdx
-                section.workspaceIds.insert(draggedTabId, at: min(insertIdx, section.workspaceIds.count))
-            } else {
-                section.workspaceIds.append(draggedTabId)
-            }
+        // Funnel every drop through one section-aware helper so cross-section
+        // and ungrouped↔section drops update membership (not just position).
+        let sourceSection = tabManager.sectionForWorkspace(draggedTabId)
+        let destSection: SidebarSection? = targetTabId.flatMap { tabManager.sectionForWorkspace($0) }
+        let insertAfter = dropIndicator?.edge == .bottom
+
+        if let destSection, let targetTabId {
+            // Drop onto an item in (the same or a different) section.
+            // Compute insert index against the destination's workspaceIds
+            // AFTER dragged is removed, so indices are stable.
+            var workspaceIdsAfterRemoval = destSection.workspaceIds
+            workspaceIdsAfterRemoval.removeAll { $0 == draggedTabId }
+            let targetIdx = workspaceIdsAfterRemoval.firstIndex(of: targetTabId) ?? workspaceIdsAfterRemoval.count
+            let insertIdx = min(insertAfter ? targetIdx + 1 : targetIdx, workspaceIdsAfterRemoval.count)
+            tabManager.moveWorkspaceToSection(tabId: draggedTabId, sectionId: destSection.id, atIndex: insertIdx)
 #if DEBUG
-            dlog("sidebar.drop.section tab=\(draggedTabId.uuidString.prefix(5)) section=\(section.name)")
+            dlog(
+                "sidebar.drop.section tab=\(draggedTabId.uuidString.prefix(5)) " +
+                "dest=\(destSection.name) from=\(sourceSection?.name ?? "ungrouped")"
+            )
 #endif
         } else {
+            // Target is ungrouped (or end of list). First lift out of any
+            // source section, then flat-reorder into the ungrouped region.
+            if sourceSection != nil {
+                tabManager.removeWorkspaceFromSection(tabId: draggedTabId)
+            }
 #if DEBUG
             dlog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif

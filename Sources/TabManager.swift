@@ -2605,6 +2605,12 @@ class TabManager: ObservableObject {
         guard let currentIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         if tabs.count <= 1 { return true }
 
+        // Grouped workspaces are ordered by their section's `workspaceIds`, not by
+        // the flat `tabs` array. Reordering `tabs` for a grouped workspace would
+        // silently no-op on the next `sidebarLayout` recompute and the UI would
+        // snap back. Callers must route grouped drops through the section API.
+        if sectionForWorkspace(tabId) != nil { return false }
+
         let workspace = tabs[currentIndex]
         let clamped = clampedReorderIndex(for: workspace, targetIndex: targetIndex)
         if currentIndex == clamped { return true }
