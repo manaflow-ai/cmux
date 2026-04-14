@@ -8751,8 +8751,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
+    private weak var cachedOwningWorkspace: Workspace?
+    private weak var observedWorkspaceTerminalScrollBar: Workspace?
     private var searchOverlayMutationGeneration: UInt64 = 0
     private var observers: [NSObjectProtocol] = []
+    private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
     private var isLiveScrolling = false
@@ -9269,6 +9272,14 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handlePreferredScrollerStyleChange()
         })
 
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalScrollBarSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalScrollBarPreferenceChange()
+        })
+
     }
 
     required init?(coder: NSCoder) {
@@ -9284,6 +9295,9 @@ final class GhosttySurfaceScrollView: NSView {
         )
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        if let workspaceTerminalScrollBarObserver {
+            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
+        }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
@@ -9375,6 +9389,7 @@ final class GhosttySurfaceScrollView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
+        let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
         _ = setFrameIfNeeded(backgroundView, to: bounds)
         _ = setFrameIfNeeded(scrollView, to: bounds)
@@ -9416,6 +9431,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
         // which makes interactive width changes arrive a queue turn late on Sequoia.
+        if didScrollbarAppearanceChange {
+            scrollView.tile()
+        }
         scrollView.layoutSubtreeIfNeeded()
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
@@ -9593,6 +9611,13 @@ final class GhosttySurfaceScrollView: NSView {
 
     func attachSurface(_ terminalSurface: TerminalSurface) {
         surfaceView.attachSurface(terminalSurface)
+        let workspace = terminalSurface.owningWorkspace()
+        cachedOwningWorkspace = workspace
+        updateWorkspaceTerminalScrollBarObserver(workspace)
+        // Preserve the bootstrap 800x600 surface until portal reattach churn
+        // has produced a real host size instead of a transient 1x1 placeholder.
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        _ = synchronizeGeometryAndContent()
     }
 
     func setFocusHandler(_ handler: (() -> Void)?) {
@@ -10031,7 +10056,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     func refreshHostBackgroundAfterGhosttyConfigReload() {
-        synchronizeScrollbarAppearance()
+        _ = synchronizeGeometryAndContent()
         surfaceView.applySurfaceBackground()
         surfaceView.applyWindowBackgroundIfActive()
     }
@@ -11344,10 +11369,7 @@ final class GhosttySurfaceScrollView: NSView {
     /// regions such as scrollbar space) when telling libghostty the terminal size.
     @discardableResult
     private func synchronizeCoreSurface() -> Bool {
-        // Reserving extra overlay-scroller gutter here causes AppKit and libghostty to fight
-        // over terminal columns during split churn. The width can flap by one scrollbar gutter,
-        // which redraws the shell prompt multiple times on Cmd+D. Favor stable columns.
-        let width = max(0, scrollView.contentSize.width)
+        let width = max(0, surfaceView.frame.width)
         let height = surfaceView.frame.height
         guard width > 0, height > 0 else { return false }
         return surfaceView.pushTargetSurfaceSize(CGSize(width: width, height: height))
@@ -11479,23 +11501,36 @@ final class GhosttySurfaceScrollView: NSView {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else {
             return
         }
+        let wasVisible = scrollView.hasVerticalScroller
         if pendingExplicitWheelScroll {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false
         }
         surfaceView.scrollbar = scrollbar
+        let isVisible = shouldShowTerminalScrollBar()
+        if wasVisible != isVisible {
+            _ = synchronizeGeometryAndContent()
+            return
+        }
         synchronizeScrollView()
     }
 
-    private func synchronizeScrollbarAppearance() {
-        scrollView.hasVerticalScroller = GhosttyApp.shared.scrollbarVisibility() != .never
+    @discardableResult
+    private func synchronizeScrollbarAppearance() -> Bool {
+        let shouldShowScrollBar = shouldShowTerminalScrollBar()
+        let didChange =
+            scrollView.hasVerticalScroller != shouldShowScrollBar ||
+            scrollView.autohidesScrollers != false ||
+            scrollView.scrollerStyle != .overlay
+        scrollView.hasVerticalScroller = shouldShowScrollBar
         // Mirror upstream Ghostty: keep overlay scrollers even when the
         // system preference is legacy so terminal content never sits beneath a
         // permanently reserved scrollbar gutter.
         scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
+        return didChange
     }
 
     private func handlePreferredScrollerStyleChange() {
@@ -11509,10 +11544,45 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scrollbar mode without perturbing viewport origin or hosted view
-        // geometry; the broader reconcile path caused visible content glitches.
+        // scroller preference without perturbing hosted terminal geometry.
         scrollView.tile()
         _ = synchronizeCoreSurface()
+    }
+
+    private func handleTerminalScrollBarPreferenceChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleTerminalScrollBarPreferenceChange()
+            }
+            return
+        }
+
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private func updateWorkspaceTerminalScrollBarObserver(_ workspace: Workspace?) {
+        if let observedWorkspaceTerminalScrollBar,
+           observedWorkspaceTerminalScrollBar === workspace,
+           workspaceTerminalScrollBarObserver != nil {
+            return
+        }
+
+        if let workspaceTerminalScrollBarObserver {
+            NotificationCenter.default.removeObserver(workspaceTerminalScrollBarObserver)
+            self.workspaceTerminalScrollBarObserver = nil
+        }
+
+        observedWorkspaceTerminalScrollBar = workspace
+
+        guard let workspace else { return }
+
+        workspaceTerminalScrollBarObserver = NotificationCenter.default.addObserver(
+            forName: Workspace.terminalScrollBarHiddenDidChangeNotification,
+            object: workspace,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalScrollBarPreferenceChange()
+        }
     }
 
     private func documentHeight() -> CGFloat {
@@ -11525,6 +11595,47 @@ final class GhosttySurfaceScrollView: NSView {
         }
         return contentHeight
     }
+
+    private func owningWorkspace() -> Workspace? {
+        let workspaceId = surfaceView.terminalSurface?.tabId
+        if let cachedOwningWorkspace,
+           cachedOwningWorkspace.id == workspaceId {
+            updateWorkspaceTerminalScrollBarObserver(cachedOwningWorkspace)
+            return cachedOwningWorkspace
+        }
+        let workspace = surfaceView.terminalSurface?.owningWorkspace()
+        cachedOwningWorkspace = workspace
+        updateWorkspaceTerminalScrollBarObserver(workspace)
+        return workspace
+    }
+
+    private func terminalScrollBarAllowedBySettings() -> Bool {
+        guard GhosttyApp.shared.scrollbarVisibility() != .never else { return false }
+        guard TerminalScrollBarSettings.isVisible() else { return false }
+        guard owningWorkspace()?.terminalScrollBarHidden != true else { return false }
+        return true
+    }
+
+    private func surfaceHasScrollback() -> Bool? {
+        guard let scrollbar = surfaceView.scrollbar else { return nil }
+        // Embedded Ghostty exposes alternate-screen TUIs to the wrapper as a
+        // viewport with no additional scrollback (`total <= len`). Treat that
+        // as the signal to suppress the overlay scrollbar so full-screen apps
+        // like nvim/htop do not pin it on top of the rightmost cell column.
+        return scrollbar.total > scrollbar.len
+    }
+
+    private func shouldShowTerminalScrollBar() -> Bool {
+        guard terminalScrollBarAllowedBySettings() else { return false }
+        guard let hasScrollback = surfaceHasScrollback() else {
+            // Ghostty reports scrollback asynchronously. Until the first packet
+            // arrives, keep the scroller visible so restored/reattached
+            // surfaces with existing scrollback do not appear broken.
+            return true
+        }
+        return hasScrollback
+    }
+
 }
 
 // MARK: - NSTextInputClient

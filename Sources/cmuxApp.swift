@@ -96,6 +96,23 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TerminalScrollBarSettings {
+    static let showScrollBarKey = "terminal.showScrollBar"
+    static let defaultShowScrollBar = true
+    static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showScrollBarKey) == nil {
+            return defaultShowScrollBar
+        }
+        return defaults.bool(forKey: showScrollBarKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
@@ -4247,6 +4264,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
+    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4356,6 +4375,17 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.paneFirstClickFocus.subtitleOff",
             defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+        )
+    }
+
+    private var showTerminalScrollBarBinding: Binding<Bool> {
+        Binding(
+            get: { showTerminalScrollBar },
+            set: { newValue in
+                guard showTerminalScrollBar != newValue else { return }
+                showTerminalScrollBar = newValue
+                TerminalScrollBarSettings.notifyDidChange()
+            }
         )
     }
 
@@ -5299,6 +5329,25 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showScrollBar"),
+                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
+                            subtitle: showTerminalScrollBar
+                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                        ) {
+                            Toggle("", isOn: showTerminalScrollBarBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
@@ -6333,6 +6382,11 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        let previousShowTerminalScrollBar = showTerminalScrollBar
+        showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+        if previousShowTerminalScrollBar != showTerminalScrollBar {
+            TerminalScrollBarSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
