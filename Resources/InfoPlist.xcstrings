@@ -357,6 +357,232 @@
           }
         }
       }
+    },
+    "NSRemindersUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access your reminders."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがリマインダーへのアクセスを求めています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中运行的程序想要访问您的提醒事项。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中執行的程式想要訪問您的提醒事項。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 내에서 실행 중인 프로그램이 리마인더에 접근하려고 합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein in cmux ausgeführtes Programm möchte auf Ihre Erinnerungen zugreifen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa en ejecución dentro de cmux desea acceder a tus recordatorios."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme s'exécutant dans cmux souhaite accéder à vos rappels."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma in esecuzione in cmux desidera accedere ai tuoi promemoria."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til dine påmindelser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program działający w cmux chciałby uzyskać dostęp do Twoich przypomnień."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа, запущенная в cmux, хотела бы получить доступ к вашим напоминаниям."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program koji se izvršava unutar cmux želi pristupiti vašim podsjećajima."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرغب برنامج يعمل داخل cmux في الوصول إلى تذكاراتك."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program som kjører i cmux ønsker å få tilgang til påminnelsene dine."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa em execução no cmux gostaria de acessar seus lembretes."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงการแจ้งเตือนของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içinde çalışan bir program hatırlatıcılarınıza erişmek istiyor."
+          }
+        }
+      }
+    },
+    "NSCalendarsUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A program running within cmux would like to access your calendar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 内で実行中のプログラムがカレンダーへのアクセスを求めています。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中运行的程序想要访问您的日历。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 中執行的程式想要訪問您的日曆。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 내에서 실행 중인 프로그램이 캘린더에 접근하려고 합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein in cmux ausgeführtes Programm möchte auf Ihren Kalender zugreifen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programa en ejecución dentro de cmux desea acceder a tu calendario."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programme s'exécutant dans cmux souhaite accéder à votre calendrier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un programma in esecuzione in cmux desidera accedere al tuo calendario."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program, der kører i cmux, vil gerne have adgang til din kalender."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program działający w cmux chciałby uzyskać dostęp do Twojego kalendarza."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Программа, запущенная в cmux, хотела бы получить доступ к вашему календарю."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Program koji se izvršava unutar cmux želi pristupiti vašem kalendaru."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يرغب برنامج يعمل داخل cmux في الوصول إلى تقويمك."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et program som kjører i cmux ønsker å få tilgang til kalenderen din."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um programa em execução no cmux gostaria de acessar seu calendário."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โปรแกรมที่ทำงานภายใน cmux ต้องการเข้าถึงปฏิทินของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux içinde çalışan bir program takviminize erişmek istiyor."
+          }
+        }
+      }
     }
   }
 }
