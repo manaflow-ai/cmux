@@ -834,6 +834,9 @@ struct cmuxApp: App {
             appearanceMode = mode.rawValue
         }
         Self.applyAppearance(mode)
+        if AppIconSettings.resolvedMode() == .automatic {
+            AppIconSettings.applyIcon(.automatic)
+        }
     }
 
     private static func applyAppearance(_ mode: AppearanceMode) {
@@ -3783,10 +3786,13 @@ enum AppIconMode: String, CaseIterable, Identifiable {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
+    private static let fallbackBundleIconSuffix = "-Fallback"
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
+        let automaticModeUsesBundleIcon: () -> Bool
+        let automaticModeAppearance: () -> NSAppearance
         let setApplicationIconImage: (NSImage?) -> Void
         let notifyDockTilePlugin: () -> Void
 
@@ -3795,6 +3801,12 @@ enum AppIconSettings {
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
+                },
+                automaticModeUsesBundleIcon: {
+                    AppIconSettings.automaticModeUsesBundleIcon(bundle: Bundle.main)
+                },
+                automaticModeAppearance: {
+                    NSApplication.shared.effectiveAppearance
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -3822,7 +3834,12 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
-            environment.setApplicationIconImage(nil)
+            if environment.automaticModeUsesBundleIcon() {
+                environment.setApplicationIconImage(nil)
+            } else {
+                let icon = automaticRuntimeImage(environment: environment)
+                environment.setApplicationIconImage(icon)
+            }
         case .light:
             guard let icon = environment.imageForMode(.light) else { return }
             environment.setApplicationIconImage(icon)
@@ -3831,6 +3848,44 @@ enum AppIconSettings {
             environment.setApplicationIconImage(icon)
         }
         environment.notifyDockTilePlugin()
+    }
+
+    static func automaticModeUsesBundleIcon(bundle: Bundle) -> Bool {
+        guard let iconName = bundle.object(forInfoDictionaryKey: "CFBundleIconName") as? String ??
+                bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String else {
+            return false
+        }
+        return !iconName.hasSuffix(fallbackBundleIconSuffix)
+    }
+
+    private static func automaticRuntimeImage(environment: Environment) -> NSImage? {
+        guard let light = environment.imageForMode(.light),
+              let dark = environment.imageForMode(.dark) else {
+            return nil
+        }
+        return appearanceAwareImage(light: light, dark: dark, appearance: environment.automaticModeAppearance)
+    }
+
+    private static func appearanceAwareImage(
+        light: NSImage,
+        dark: NSImage,
+        appearance: @escaping () -> NSAppearance
+    ) -> NSImage? {
+        let lightIsRenderable = light.size.width > 0 && light.size.height > 0
+        let darkIsRenderable = dark.size.width > 0 && dark.size.height > 0
+        guard lightIsRenderable || darkIsRenderable else { return nil }
+
+        let size = lightIsRenderable ? light.size : dark.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            let isDark = appearance().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let preferred = isDark ? dark : light
+            let fallback = isDark ? light : dark
+            let source = preferred.size.width > 0 && preferred.size.height > 0 ? preferred : fallback
+            source.draw(in: rect)
+            return true
+        }
+        image.cacheMode = .never
+        return image
     }
 }
 

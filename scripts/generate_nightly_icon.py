@@ -12,7 +12,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon-Debug.appiconset")
+SRC_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon-Debug-Fallback.appiconset")
 DST_DIR = os.path.join(REPO, "Assets.xcassets", "AppIcon-Nightly.appiconset")
 
 # Debug banner color: (255, 107, 0) orange
