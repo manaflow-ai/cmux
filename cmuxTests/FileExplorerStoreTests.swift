@@ -49,21 +49,27 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
 @MainActor
 final class FileExplorerStoreTests: XCTestCase {
 
+    struct WaitTimeout: Error, CustomStringConvertible {
+        let description: String
+    }
+
     /// Poll on the main actor until `condition` holds or `timeout` elapses.
     /// Replaces fixed `Task.sleep` delays that were flaky on slow CI runners
     /// (warp-macos-15) where the spawned load Task hadn't run inside 100ms.
+    /// Throws on timeout so the test function aborts instead of falling through
+    /// to force-unwraps that would crash the runner.
     private func waitFor(
         _ description: String,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
         line: UInt = #line,
         _ condition: () -> Bool
-    ) async {
+    ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while !condition() {
             if Date() >= deadline {
                 XCTFail("Timed out waiting for: \(description)", file: file, line: line)
-                return
+                throw WaitTimeout(description: description)
             }
             try? await Task.sleep(nanoseconds: 10_000_000)
         }
@@ -82,7 +88,7 @@ final class FileExplorerStoreTests: XCTestCase {
         store.setProvider(provider)
         store.setRootPath("/home/user/project")
 
-        await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
+        try await waitFor("root nodes loaded") { store.rootNodes.count == 2 }
 
         // Directories should sort before files
         XCTAssertEqual(store.rootNodes[0].name, "src")
@@ -113,11 +119,11 @@ final class FileExplorerStoreTests: XCTestCase {
         let store = FileExplorerStore()
         store.setProvider(provider1)
         store.setRootPath("/home/user/project")
-        await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
+        try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
         let srcNode = store.rootNodes.first { $0.name == "src" }!
         store.expand(node: srcNode)
-        await waitFor("src expanded") { srcNode.children?.count == 1 }
+        try await waitFor("src expanded") { srcNode.children?.count == 1 }
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
 
@@ -134,7 +140,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/src"))
 
-        await waitFor("src re-hydrated with 2 children") {
+        try await waitFor("src re-hydrated with 2 children") {
             (store.rootNodes.first { $0.name == "src" }?.children?.count ?? 0) == 2
         }
         let newSrcNode = store.rootNodes.first { $0.name == "src" }
@@ -150,7 +156,12 @@ final class FileExplorerStoreTests: XCTestCase {
         let store = FileExplorerStore()
         store.setProvider(provider)
         store.setRootPath("/home/user/project")
-        await waitFor("initial root load finished") { store.isRootLoading == false }
+        // Wait for the initial load attempt to actually reach the provider,
+        // not just for `isRootLoading` to drop (which may already be false
+        // before the unstructured Task runs).
+        try await waitFor("initial root load attempt finished") {
+            provider.listCallPaths.contains("/home/user/project") && store.isRootLoading == false
+        }
 
         // Root load fails because provider unavailable
         XCTAssertTrue(store.rootNodes.isEmpty)
@@ -170,7 +181,7 @@ final class FileExplorerStoreTests: XCTestCase {
 
         store.hydrateExpandedNodes()
 
-        await waitFor("src hydrated") {
+        try await waitFor("src hydrated") {
             (store.rootNodes.first { $0.name == "src" }?.children?.count ?? 0) == 1
         }
         let srcNode = store.rootNodes.first { $0.name == "src" }
@@ -190,11 +201,11 @@ final class FileExplorerStoreTests: XCTestCase {
         let store = FileExplorerStore()
         store.setProvider(provider)
         store.setRootPath("/home/user/project")
-        await waitFor("root loaded") { store.rootNodes.contains { $0.name == "lib" } }
+        try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "lib" } }
 
         let libNode = store.rootNodes.first { $0.name == "lib" }!
         store.expand(node: libNode)
-        await waitFor("lib expanded") { libNode.children?.count == 1 }
+        try await waitFor("lib expanded") { libNode.children?.count == 1 }
 
         XCTAssertTrue(store.isExpanded(libNode))
 
@@ -211,7 +222,7 @@ final class FileExplorerStoreTests: XCTestCase {
         store.setProvider(newProvider)
 
         XCTAssertTrue(store.expandedPaths.contains("/home/user/project/lib"))
-        await waitFor("lib re-hydrated with 2 children") {
+        try await waitFor("lib re-hydrated with 2 children") {
             (store.rootNodes.first { $0.name == "lib" }?.children?.count ?? 0) == 2
         }
     }
@@ -230,20 +241,19 @@ final class FileExplorerStoreTests: XCTestCase {
         let store = FileExplorerStore()
         store.setProvider(provider)
         store.setRootPath("/home/user/project")
-        await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
+        try await waitFor("root loaded") { store.rootNodes.contains { $0.name == "src" } }
 
         let srcNode = store.rootNodes.first { $0.name == "src" }!
         store.expand(node: srcNode)
-        await waitFor("src error surfaced") { srcNode.error != nil }
+        try await waitFor("src error surfaced") { srcNode.error != nil }
 
         // Fix the listing and retry
         provider.listings["/home/user/project/src"] = .success([
             FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
         ])
         store.collapse(node: srcNode)
-        srcNode.children = nil
         store.expand(node: srcNode)
-        await waitFor("src retry loaded") { srcNode.children?.count == 1 }
+        try await waitFor("src retry loaded") { srcNode.children?.count == 1 }
 
         XCTAssertNil(srcNode.error)
         XCTAssertNotNil(srcNode.children)
