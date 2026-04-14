@@ -3784,6 +3784,17 @@ enum AppIconSettings {
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 
+    private static func isRunningUnderXCTest(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        if env["XCTestConfigurationFilePath"] != nil { return true }
+        if env["XCTestBundlePath"] != nil { return true }
+        if env["XCTestSessionIdentifier"] != nil { return true }
+        if env["XCInjectBundle"] != nil { return true }
+        if env["XCInjectBundleInto"] != nil { return true }
+        if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
+        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+        return false
+    }
+
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
@@ -3807,6 +3818,7 @@ enum AppIconSettings {
                     AppIconAppearanceObserver.shared.stopObserving()
                 },
                 notifyDockTilePlugin: {
+                    guard !AppIconSettings.isRunningUnderXCTest() else { return }
                     DistributedNotificationCenter.default().postNotificationName(
                         AppIconSettings.dockTileIconDidChangeNotification,
                         object: nil,
