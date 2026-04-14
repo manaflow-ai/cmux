@@ -3786,25 +3786,16 @@ enum AppIconSettings {
 
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
-        let setApplicationIconImage: (NSImage) -> Void
-        let startAppearanceObservation: () -> Void
-        let stopAppearanceObservation: () -> Void
+        let setApplicationIconImage: (NSImage?) -> Void
         let notifyDockTilePlugin: () -> Void
 
         static func live() -> Self {
             Self(
                 imageForMode: { mode in
-                    guard let imageName = mode.imageName else { return nil }
-                    return NSImage(named: imageName)
+                    AppIconSettings.makeImage(for: mode)
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
-                },
-                startAppearanceObservation: {
-                    AppIconAppearanceObserver.shared.startObserving()
-                },
-                stopAppearanceObservation: {
-                    AppIconAppearanceObserver.shared.stopObserving()
                 },
                 notifyDockTilePlugin: {
                     DistributedNotificationCenter.default().postNotificationName(
@@ -3827,50 +3818,45 @@ enum AppIconSettings {
     }
 
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
-        switch mode {
-        case .automatic:
-            environment.startAppearanceObservation()
-        case .light:
-            environment.stopAppearanceObservation()
-            guard let icon = environment.imageForMode(.light) else { return }
-            environment.setApplicationIconImage(icon)
-        case .dark:
-            environment.stopAppearanceObservation()
-            guard let icon = environment.imageForMode(.dark) else { return }
-            environment.setApplicationIconImage(icon)
-        }
-
+        environment.setApplicationIconImage(environment.imageForMode(mode))
         environment.notifyDockTilePlugin()
     }
-}
 
-final class AppIconAppearanceObserver: NSObject {
-    static let shared = AppIconAppearanceObserver()
-    private var observation: NSKeyValueObservation?
-
-    private override init() { super.init() }
-
-    func startObserving() {
-        applyIconForCurrentAppearance()
-        guard observation == nil else { return }
-        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.observation != nil else { return }
-                self.applyIconForCurrentAppearance()
+    static func makeImage(
+        for mode: AppIconMode,
+        imageNamed: (String) -> NSImage? = { NSImage(named: $0) }
+    ) -> NSImage? {
+        switch mode {
+        case .automatic:
+            guard let light = imageNamed("AppIconLight"),
+                  let dark = imageNamed("AppIconDark") else {
+                return nil
             }
+            return appearanceAwareImage(light: light, dark: dark)
+        case .light:
+            return imageNamed("AppIconLight")
+        case .dark:
+            return imageNamed("AppIconDark")
         }
     }
 
-    func stopObserving() {
-        observation?.invalidate()
-        observation = nil
-    }
+    static func appearanceAwareImage(light: NSImage, dark: NSImage) -> NSImage? {
+        let size = light.size.width > 0 && light.size.height > 0 ? light.size : dark.size
+        guard size.width > 0, size.height > 0 else {
+            return nil
+        }
 
-    private func applyIconForCurrentAppearance() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = NSImage(named: imageName) {
-            NSApplication.shared.applicationIconImage = icon
+        return NSImage(size: size, flipped: false) { rect in
+            let appearance = NSAppearance.currentDrawing()
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let source = isDark ? dark : light
+            source.draw(
+                in: rect,
+                from: CGRect(origin: .zero, size: source.size),
+                operation: .copy,
+                fraction: 1.0
+            )
+            return true
         }
     }
 }

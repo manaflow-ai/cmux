@@ -19,8 +19,6 @@ final class AppIconSettingsTests: XCTestCase {
         let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
         var receivedRuntimeIcon: NSImage?
         var dockTileNotificationCount = 0
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
             imageForMode: { mode in
@@ -29,12 +27,6 @@ final class AppIconSettingsTests: XCTestCase {
             },
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
-            },
-            startAppearanceObservation: {
-                startObservationCallCount += 1
-            },
-            stopAppearanceObservation: {
-                stopObservationCallCount += 1
             },
             notifyDockTilePlugin: {
                 dockTileNotificationCount += 1
@@ -45,28 +37,20 @@ final class AppIconSettingsTests: XCTestCase {
 
         XCTAssertTrue(receivedRuntimeIcon === expectedIcon)
         XCTAssertEqual(dockTileNotificationCount, 1)
-        XCTAssertEqual(startObservationCallCount, 0)
-        XCTAssertEqual(stopObservationCallCount, 1)
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyAutomaticSetsRuntimeIconAndNotifiesDockTilePlugin() {
+        let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
+        var receivedRuntimeIcon: NSImage?
         var dockTileNotificationCount = 0
-        var startObservationCallCount = 0
-        var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
             imageForMode: { mode in
-                XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
-                return nil
+                XCTAssertEqual(mode, .automatic)
+                return expectedIcon
             },
-            setApplicationIconImage: { _ in
-                XCTFail("Automatic mode should delegate live updates to the appearance observer")
-            },
-            startAppearanceObservation: {
-                startObservationCallCount += 1
-            },
-            stopAppearanceObservation: {
-                stopObservationCallCount += 1
+            setApplicationIconImage: { icon in
+                receivedRuntimeIcon = icon
             },
             notifyDockTilePlugin: {
                 dockTileNotificationCount += 1
@@ -75,9 +59,78 @@ final class AppIconSettingsTests: XCTestCase {
 
         AppIconSettings.applyIcon(.automatic, environment: environment)
 
+        XCTAssertTrue(receivedRuntimeIcon === expectedIcon)
         XCTAssertEqual(dockTileNotificationCount, 1)
-        XCTAssertEqual(startObservationCallCount, 1)
-        XCTAssertEqual(stopObservationCallCount, 0)
+    }
+
+    func testAppearanceAwareAutomaticImageDrawsLightVariantInLightAppearance() throws {
+        let light = solidColorImage(.systemRed)
+        let dark = solidColorImage(.systemBlue)
+        let image = try XCTUnwrap(AppIconSettings.appearanceAwareImage(light: light, dark: dark))
+        let rendered = try XCTUnwrap(renderedColor(of: image, appearance: .aqua))
+        assertColor(rendered, matches: .systemRed)
+    }
+
+    func testAppearanceAwareAutomaticImageDrawsDarkVariantInDarkAppearance() throws {
+        let light = solidColorImage(.systemRed)
+        let dark = solidColorImage(.systemBlue)
+        let image = try XCTUnwrap(AppIconSettings.appearanceAwareImage(light: light, dark: dark))
+        let rendered = try XCTUnwrap(renderedColor(of: image, appearance: .darkAqua))
+        assertColor(rendered, matches: .systemBlue)
+    }
+
+    private func solidColorImage(_ color: NSColor) -> NSImage {
+        let size = NSSize(width: 16, height: 16)
+        return NSImage(size: size, flipped: false) { rect in
+            color.setFill()
+            NSBezierPath(rect: rect).fill()
+            return true
+        }
+    }
+
+    private func renderedColor(of image: NSImage, appearance: NSAppearance.Name) -> NSColor? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 1,
+            pixelsHigh: 1,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+
+        let previousContext = NSGraphicsContext.current
+        defer {
+            NSGraphicsContext.current = previousContext
+        }
+
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        guard let appearance = NSAppearance(named: appearance) else {
+            return nil
+        }
+
+        appearance.performAsCurrentDrawingAppearance {
+            image.draw(in: NSRect(x: 0, y: 0, width: 1, height: 1))
+        }
+
+        return bitmap.colorAt(x: 0, y: 0)
+    }
+
+    private func assertColor(_ actual: NSColor, matches expected: NSColor, file: StaticString = #filePath, line: UInt = #line) {
+        guard let actualRGB = actual.usingColorSpace(.deviceRGB),
+              let expectedRGB = expected.usingColorSpace(.deviceRGB) else {
+            XCTFail("Expected RGB colors", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(actualRGB.redComponent, expectedRGB.redComponent, accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(actualRGB.greenComponent, expectedRGB.greenComponent, accuracy: 0.01, file: file, line: line)
+        XCTAssertEqual(actualRGB.blueComponent, expectedRGB.blueComponent, accuracy: 0.01, file: file, line: line)
     }
 }
 
