@@ -3272,6 +3272,40 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            // Route markdown file URLs into the cmux viewer when the toggle is
+            // on AND the link is local + has no anchor/query. Anything else
+            // (toggle off, hosted file URL, #fragment, ?query, non-markdown,
+            // remote workspace, unreadable file, split creation failure) falls
+            // through to the existing NSWorkspace path below so the default-off
+            // behavior and URL semantics are preserved.
+            let fileURLHost = target.url.host
+            if CmdClickMarkdownRouteSettings.isEnabled(),
+               target.url.isFileURL,
+               target.url.fragment == nil,
+               target.url.query == nil,
+               fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost",
+               CmdClickMarkdownRouteSettings.isMarkdownPath(target.url.path) {
+                let fileURL = target.url
+                let routed: Bool = performOnMain {
+                    // Remote-surface guard runs before shouldRoute so we never
+                    // stat a local path on the main thread for a remote workspace.
+                    guard let termSurface = surfaceView.terminalSurface,
+                          let workspace = termSurface.owningWorkspace(),
+                          !workspace.isRemoteTerminalSurface(termSurface.id),
+                          CmdClickMarkdownRouteSettings.shouldRoute(path: fileURL.path) else {
+                        return false
+                    }
+                    return workspace.openOrFocusMarkdownSplit(
+                        from: termSurface.id,
+                        filePath: fileURL.path
+                    ) != nil
+                }
+                if routed {
+                    return true
+                }
+                // Fall through to the existing NSWorkspace path below.
+            }
+
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
@@ -7845,6 +7879,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             data: payload
         )
         #endif
+
+        // Remote-surface guard runs before shouldRoute so we never stat a local
+        // path on the main thread for a remote workspace. When the viewer path
+        // is applicable but split creation fails, fall back to the preferred
+        // editor so the click never silently no-ops.
+        if let termSurface = terminalSurface,
+           let workspace = termSurface.owningWorkspace(),
+           !workspace.isRemoteTerminalSurface(termSurface.id),
+           CmdClickMarkdownRouteSettings.shouldRoute(path: resolution.path),
+           workspace.openOrFocusMarkdownSplit(from: termSurface.id, filePath: resolution.path) != nil {
+            return resolution
+        }
 
         PreferredEditorSettings.open(URL(fileURLWithPath: resolution.path))
         return resolution
