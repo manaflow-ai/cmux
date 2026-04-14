@@ -333,6 +333,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        AppIconSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -374,6 +375,165 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreDoesNotApplyAutomaticAppIconDuringStartupReplay() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: AppIconSettings.modeKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "appIcon": "automatic"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+        var imageRequestCount = 0
+        var runtimeIconSetCount = 0
+        var dockTileNotificationCount = 0
+        AppIconSettings.setLiveEnvironmentProviderForTesting {
+            AppIconSettings.Environment(
+                isApplicationFinishedLaunching: { false },
+                imageForMode: { _ in
+                    imageRequestCount += 1
+                    return nil
+                },
+                setApplicationIconImage: { _ in
+                    runtimeIconSetCount += 1
+                },
+                startAppearanceObservation: {
+                    startObservationCallCount += 1
+                },
+                stopAppearanceObservation: {
+                    stopObservationCallCount += 1
+                },
+                notifyDockTilePlugin: {
+                    dockTileNotificationCount += 1
+                }
+            )
+        }
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 0)
+        XCTAssertEqual(imageRequestCount, 0)
+        XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(dockTileNotificationCount, 0)
+    }
+
+    func testSettingsFileStoreCanReplayAutomaticAppIconSettingTwiceWithoutTouchingAppKit() throws {
+        let defaults = UserDefaults.standard
+        let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousMode {
+                defaults.set(previousMode, forKey: AppIconSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: AppIconSettings.modeKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: AppIconSettings.modeKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "appIcon": "automatic"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+        var imageRequestCount = 0
+        var runtimeIconSetCount = 0
+        var dockTileNotificationCount = 0
+        AppIconSettings.setLiveEnvironmentProviderForTesting {
+            AppIconSettings.Environment(
+                isApplicationFinishedLaunching: { false },
+                imageForMode: { _ in
+                    imageRequestCount += 1
+                    return nil
+                },
+                setApplicationIconImage: { _ in
+                    runtimeIconSetCount += 1
+                },
+                startAppearanceObservation: {
+                    startObservationCallCount += 1
+                },
+                stopAppearanceObservation: {
+                    stopObservationCallCount += 1
+                },
+                notifyDockTilePlugin: {
+                    dockTileNotificationCount += 1
+                }
+            )
+        }
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: AppIconSettings.modeKey), AppIconMode.automatic.rawValue)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 0)
+        XCTAssertEqual(imageRequestCount, 0)
+        XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
     func testSettingsFileStoreRejectsModifierFreeFirstStroke() throws {

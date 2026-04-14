@@ -96,6 +96,23 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TerminalScrollBarSettings {
+    static let showScrollBarKey = "terminal.showScrollBar"
+    static let defaultShowScrollBar = true
+    static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showScrollBarKey) == nil {
+            return defaultShowScrollBar
+        }
+        return defaults.bool(forKey: showScrollBarKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
@@ -139,6 +156,7 @@ struct cmuxApp: App {
     @StateObject private var notificationStore = TerminalNotificationStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var sidebarSelectionState = SidebarSelectionState()
+    @StateObject private var fileExplorerState = FileExplorerState()
     @StateObject private var cmuxConfigStore = CmuxConfigStore()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let primaryWindowId = UUID()
@@ -323,6 +341,7 @@ struct cmuxApp: App {
                 .environmentObject(notificationStore)
                 .environmentObject(sidebarState)
                 .environmentObject(sidebarSelectionState)
+                .environmentObject(fileExplorerState)
                 .environmentObject(cmuxConfigStore)
                 .onAppear {
 #if DEBUG
@@ -333,6 +352,7 @@ struct cmuxApp: App {
                     // Start the Unix socket controller for programmatic access
                     updateSocketController()
                     appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+                    appDelegate.fileExplorerState = fileExplorerState
                     cmuxConfigStore.wireDirectoryTracking(tabManager: tabManager)
                     cmuxConfigStore.loadAll()
                     applyAppearance()
@@ -493,6 +513,9 @@ struct cmuxApp: App {
                     }
                     Button("Split Button Layout Debug…") {
                         SplitButtonLayoutDebugWindowController.shared.show()
+                    }
+                    Button("File Explorer Style Debug…") {
+                        FileExplorerStyleDebugWindowController.shared.show()
                     }
                     Button("Open All Debug Windows") {
                         openAllDebugWindows()
@@ -2635,6 +2658,117 @@ enum SettingsNavigationRequest {
     }
 }
 
+// MARK: - File Explorer Style Debug
+
+private struct FileExplorerStyleDebugView: View {
+    @AppStorage("fileExplorer.style") private var styleRawValue: Int = 0
+
+    private var currentStyle: FileExplorerStyle {
+        FileExplorerStyle(rawValue: styleRawValue) ?? .liquidGlass
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("File Explorer Style")
+                .font(.headline)
+
+            ForEach(FileExplorerStyle.allCases, id: \.rawValue) { style in
+                HStack(spacing: 8) {
+                    Button(action: {
+                        styleRawValue = style.rawValue
+                        // Post notification so outline view reloads with new style
+                        NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: styleRawValue == style.rawValue ? "checkmark.circle.fill" : "circle")
+                                .foregroundColor(styleRawValue == style.rawValue ? .accentColor : .secondary)
+                                .frame(width: 16)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(style.label)
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(styleDescription(style))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(styleRawValue == style.rawValue
+                                    ? Color.accentColor.opacity(0.1)
+                                    : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Current: \(currentStyle.label)")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Row: \(Int(currentStyle.rowHeight))pt, Indent: \(Int(currentStyle.indentation))pt, Icon: \(Int(currentStyle.iconSize))pt")
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(width: 320)
+    }
+
+    private func styleDescription(_ style: FileExplorerStyle) -> String {
+        switch style {
+        case .liquidGlass: return "Modern macOS, vibrancy, rounded selections"
+        case .highDensity: return "VS Code, compact rows, edge-to-edge"
+        case .terminalStealth: return "Monospace, border selection, desaturated"
+        case .proStudio: return "Logic Pro, chunky rows, pill selection"
+        case .finder: return "Finder sidebar, filled icons, hover tint"
+        }
+    }
+}
+
+extension Notification.Name {
+    static let fileExplorerStyleDidChange = Notification.Name("fileExplorerStyleDidChange")
+    static let titlebarShortcutHintsVisibilityChanged = Notification.Name("titlebarShortcutHintsVisibilityChanged")
+}
+
+private final class FileExplorerStyleDebugWindowController: NSWindowController, NSWindowDelegate {
+    static let shared = FileExplorerStyleDebugWindowController()
+
+    private init() {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 380),
+            styleMask: [.titled, .closable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "File Explorer Style"
+        window.titleVisibility = .visible
+        window.titlebarAppearsTransparent = false
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerStyleDebug")
+        window.center()
+        window.contentView = NSHostingView(rootView: FileExplorerStyleDebugView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        super.init(window: window)
+        window.delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func show() {
+        window?.center()
+        window?.makeKeyAndOrderFront(nil)
+    }
+}
+
 private final class SidebarDebugWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SidebarDebugWindowController()
 
@@ -3662,12 +3796,32 @@ enum AppIconMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppIconLaunchState {
+    private static let lock = NSLock()
+    private static var didFinishLaunching = false
+
+    static func markDidFinishLaunching() {
+        lock.lock()
+        defer { lock.unlock() }
+        didFinishLaunching = true
+    }
+
+    static func isApplicationFinishedLaunching() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let hasFinishedLaunching = didFinishLaunching
+        return hasFinishedLaunching
+    }
+}
+
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+    private static var liveEnvironmentProvider: () -> Environment = { .live() }
 
     struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
@@ -3676,6 +3830,9 @@ enum AppIconSettings {
 
         static func live() -> Self {
             Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
@@ -3709,7 +3866,13 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
+    static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+        let environment = environment ?? liveEnvironmentProvider()
+        // Tahoe can crash or wedge when app icon work runs during App.init(),
+        // so leave settings replay to update defaults only and let AppDelegate
+        // apply the resolved icon once didFinishLaunching begins.
+        guard environment.isApplicationFinishedLaunching() else { return }
+
         switch mode {
         case .automatic:
             environment.startAppearanceObservation()
@@ -3725,35 +3888,128 @@ enum AppIconSettings {
 
         environment.notifyDockTilePlugin()
     }
+
+    static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> Environment) {
+        liveEnvironmentProvider = provider
+    }
+
+    static func resetLiveEnvironmentProviderForTesting() {
+        liveEnvironmentProvider = { .live() }
+    }
 }
 
-final class AppIconAppearanceObserver: NSObject {
-    static let shared = AppIconAppearanceObserver()
-    private var observation: NSKeyValueObservation?
+protocol AppIconAppearanceObservation: AnyObject {
+    func invalidate()
+}
 
-    private override init() { super.init() }
+extension NSKeyValueObservation: AppIconAppearanceObservation {}
+
+final class AppIconAppearanceObserver: NSObject {
+    struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> AppIconAppearanceObservation?
+        let addDidFinishLaunchingObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let removeObserver: (NSObjectProtocol) -> Void
+        let currentAppearanceIsDark: () -> Bool?
+        let imageForName: (String) -> NSImage?
+        let setApplicationIconImage: (NSImage) -> Void
+
+        static func live() -> Self {
+            Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
+                startEffectiveAppearanceObservation: { handler in
+                    guard let app = NSApp else { return nil }
+                    return app.observe(\.effectiveAppearance, options: []) { _, _ in
+                        DispatchQueue.main.async {
+                            handler()
+                        }
+                    }
+                },
+                addDidFinishLaunchingObserver: { handler in
+                    NotificationCenter.default.addObserver(
+                        forName: NSApplication.didFinishLaunchingNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    NotificationCenter.default.removeObserver(observer)
+                },
+                currentAppearanceIsDark: {
+                    guard let app = NSApp else { return nil }
+                    return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                },
+                imageForName: { imageName in
+                    NSImage(named: imageName)
+                },
+                setApplicationIconImage: { icon in
+                    NSApplication.shared.applicationIconImage = icon
+                }
+            )
+        }
+    }
+
+    static let shared = AppIconAppearanceObserver()
+    private let environment: Environment
+    private var observation: AppIconAppearanceObservation?
+    private var launchObserver: NSObjectProtocol?
+    private var hasDeferredStartPending = false
+
+    init(environment: Environment = .live()) {
+        self.environment = environment
+        super.init()
+    }
 
     func startObserving() {
+        // Tahoe crashes if effectiveAppearance is touched during App.init(),
+        // so defer the first automatic-icon apply until launch completes.
+        if !environment.isApplicationFinishedLaunching() {
+            deferStartUntilLaunchIfNeeded()
+            return
+        }
+
+        cancelDeferredStart()
         applyIconForCurrentAppearance()
         guard observation == nil else { return }
-        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.observation != nil else { return }
-                self.applyIconForCurrentAppearance()
-            }
+        observation = environment.startEffectiveAppearanceObservation { [weak self] in
+            guard let self, self.observation != nil else { return }
+            self.applyIconForCurrentAppearance()
         }
     }
 
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        cancelDeferredStart()
+    }
+
+    private func deferStartUntilLaunchIfNeeded() {
+        hasDeferredStartPending = true
+        guard launchObserver == nil else { return }
+        launchObserver = environment.addDidFinishLaunchingObserver { [weak self] in
+            guard let self, self.hasDeferredStartPending else { return }
+            self.cancelDeferredStart()
+            self.startObserving()
+        }
+    }
+
+    private func cancelDeferredStart() {
+        hasDeferredStartPending = false
+        guard let launchObserver else { return }
+        environment.removeObserver(launchObserver)
+        self.launchObserver = nil
     }
 
     private func applyIconForCurrentAppearance() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        guard environment.isApplicationFinishedLaunching() else { return }
+        guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = NSImage(named: imageName) {
-            NSApplication.shared.applicationIconImage = icon
+        if let icon = environment.imageForName(imageName) {
+            environment.setApplicationIconImage(icon)
         }
     }
 }
@@ -3814,6 +4070,30 @@ enum ClaudeCodeIntegrationSettings {
         let value = defaults.string(forKey: customClaudePathKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
+    }
+}
+
+enum CursorIntegrationSettings {
+    static let hooksEnabledKey = "cursorHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
+    }
+}
+
+enum GeminiIntegrationSettings {
+    static let hooksEnabledKey = "geminiHooksEnabled"
+    static let defaultHooksEnabled = true
+
+    static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: hooksEnabledKey) == nil {
+            return defaultHooksEnabled
+        }
+        return defaults.bool(forKey: hooksEnabledKey)
     }
 }
 
@@ -4063,6 +4343,10 @@ struct SettingsView: View {
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
     private var customClaudePath = ""
+    @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
+    private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
+    @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
+    private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -4102,6 +4386,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
+    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4211,6 +4497,17 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.paneFirstClickFocus.subtitleOff",
             defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+        )
+    }
+
+    private var showTerminalScrollBarBinding: Binding<Bool> {
+        Binding(
+            get: { showTerminalScrollBar },
+            set: { newValue in
+                guard showTerminalScrollBar != newValue else { return }
+                showTerminalScrollBar = newValue
+                TerminalScrollBarSettings.notifyDidChange()
+            }
         )
     }
 
@@ -5156,6 +5453,25 @@ struct SettingsView: View {
                         .disabled(sidebarHideAllDetails)
                     }
 
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showScrollBar"),
+                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
+                            subtitle: showTerminalScrollBar
+                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                        ) {
+                            Toggle("", isOn: showTerminalScrollBarBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+                    }
+
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
                     SettingsCard {
                         SettingsPickerRow(
@@ -5497,6 +5813,44 @@ struct SettingsView: View {
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
                         }
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.cursorIntegration"),
+                            String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
+                            subtitle: cursorHooksEnabled
+                                ? String(localized: "settings.automation.cursor.subtitleOn", defaultValue: "Sidebar shows Cursor agent status and notifications.")
+                                : String(localized: "settings.automation.cursor.subtitleOff", defaultValue: "Cursor runs without cmux integration.")
+                        ) {
+                            Toggle("", isOn: $cursorHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsCursorHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.cursor.note", defaultValue: "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."))
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.geminiIntegration"),
+                            String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"),
+                            subtitle: geminiHooksEnabled
+                                ? String(localized: "settings.automation.gemini.subtitleOn", defaultValue: "Sidebar shows Gemini session status and notifications.")
+                                : String(localized: "settings.automation.gemini.subtitleOff", defaultValue: "Gemini runs without cmux integration.")
+                        ) {
+                            Toggle("", isOn: $geminiHooksEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsGeminiHooksToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.gemini.note", defaultValue: "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."))
                     }
 
                     SettingsCard {
@@ -6109,6 +6463,8 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
+        cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
+        geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -6148,6 +6504,11 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        let previousShowTerminalScrollBar = showTerminalScrollBar
+        showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+        if previousShowTerminalScrollBar != showTerminalScrollBar {
+            TerminalScrollBarSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

@@ -59,6 +59,58 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
     }
 }
 
+final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
+    func testRepairsCommandEquivalentWhenFirstResponderFallsBackToWindow() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testRepairsCommandEquivalentWhenResponderHasNoViableOwner() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenResponderHasViableOwner() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testIgnoresNonCommandEvents() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+}
+
 final class ReactGrabShortcutRouteTests: XCTestCase {
     func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
         let browserId = UUID()
@@ -786,6 +838,37 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 
         KeyboardShortcutSettings.setShortcut(
             StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintStaysCommandOnlyWhenWorkspaceShortcutUsesChord() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "2",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            ),
             for: action
         )
 

@@ -1903,6 +1903,20 @@ class TabManager: ObservableObject {
         )
     }
 
+    private func applyCreationChromeInheritance(
+        to newWorkspace: Workspace,
+        from sourceWorkspace: Workspace?
+    ) {
+        guard let sourceWorkspace else { return }
+        // Sidebar-toggle relayout updates the live Bonsplit leading inset so minimal-mode
+        // workspaces reserve traffic-light space. New workspaces need that same inset
+        // copied immediately because creation itself does not trigger the resync path.
+        let inheritedLeadingInset = sourceWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset
+        if newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset != inheritedLeadingInset {
+            newWorkspace.bonsplitController.configuration.appearance.tabBarLeadingInset = inheritedLeadingInset
+        }
+    }
+
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
 
@@ -1984,6 +1998,10 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalEnvironment: initialTerminalEnvironment
+            )
+            applyCreationChromeInheritance(
+                to: newWorkspace,
+                from: sourceWorkspace ?? capturedTabs.first
             )
             newWorkspace.owningTabManager = self
             if title != nil {
@@ -3559,6 +3577,11 @@ class TabManager: ObservableObject {
     func setTabColor(tabId: UUID, color: String?) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         tab.setCustomColor(color)
+    }
+
+    func setWorkspaceTerminalScrollBarHidden(tabId: UUID, hidden: Bool) {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        tab.setTerminalScrollBarHidden(hidden)
     }
 
     func togglePin(tabId: UUID) {
@@ -6730,6 +6753,7 @@ extension TabManager {
             hasher.combine(workspace.customDescription ?? "")
             hasher.combine(workspace.customColor ?? "")
             hasher.combine(workspace.isPinned)
+            hasher.combine(workspace.terminalScrollBarHidden)
             hasher.combine(workspace.panels.count)
             hasher.combine(workspace.statusEntries.count)
             hasher.combine(workspace.metadataBlocks.count)

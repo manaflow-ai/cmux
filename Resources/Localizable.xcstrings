@@ -53599,6 +53599,142 @@
         }
       }
     },
+    "settings.automation.cursor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor連携"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux cursor install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux cursor install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursorはcmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.cursor.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Cursor agent status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにCursorエージェントのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini CLI連携"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux gemini install-hooks`. They no-op outside cmux terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux gemini install-hooks`でインストールする必要があります。cmuxターミナル外では動作しません。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemini runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GeminiはCmux連携なしで動作します。"
+          }
+        }
+      }
+    },
+    "settings.automation.gemini.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Gemini session status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにGeminiセッションのステータスと通知が表示されます。"
+          }
+        }
+      }
+    },
     "settings.automation.openAccess.dialog.cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -69183,6 +69319,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Перемкнути бічну панель"
+          }
+        }
+      }
+    },
+    "shortcut.toggleFileExplorer.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーを切替"
+          }
+        }
+      }
+    },
+    "fileExplorer.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No folder open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダが開かれていません"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File explorer is not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーは利用できません"
+          }
+        }
+      }
+    },
+    "titlebar.fileExplorer.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle File Explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーを切替"
+          }
+        }
+      }
+    },
+    "titlebar.fileExplorer.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or hide the file explorer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルエクスプローラーの表示/非表示"
           }
         }
       }
@@ -87388,6 +87609,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースの説明を消去"
+          }
+        }
+      }
+    },
+    "contextMenu.workspaceSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース設定"
+          }
+        }
+      }
+    },
+    "contextMenu.workspaceSettings.hideTerminalScrollBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Terminal Scroll Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバーを隠す"
+          }
+        }
+      }
+    },
+    "settings.section.terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Terminal Scroll Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのスクロールバーを表示"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右端のターミナルスクロールバーを全体で非表示にします。変更はすぐに反映され、再起動後も保持されます。"
+          }
+        }
+      }
+    },
+    "settings.terminal.scrollBar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルのスクロールバックでは右端のターミナルスクロールバーを表示します。cmux は代替画面系の TUI では自動的に隠し、ワークスペースごとにも無効化できます。"
           }
         }
       }

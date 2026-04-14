@@ -261,8 +261,18 @@ enum TerminalImageTransferPlanner {
             return .insertText(string)
         }
 
-        if let imageURL = GhosttyPasteboardHelper.saveImageFileURLIfNeeded(from: pasteboard, assumeNoText: true) {
+        switch GhosttyPasteboardHelper.materializeImageFileURLIfNeeded(from: pasteboard) {
+        case .saved(let imageURL):
             return .fileURLs([imageURL])
+        case .rejectedImagePayload:
+            return .reject
+        case .noDecodableImagePayload:
+            break
+        }
+
+        // Clipboard managers can advertise unusable image types alongside valid text.
+        if let string = GhosttyPasteboardHelper.fallbackPlainTextContents(from: pasteboard), !string.isEmpty {
+            return .insertText(string)
         }
 
         if let rawURL = pasteboard.string(forType: .URL), !rawURL.isEmpty {
