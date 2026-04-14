@@ -4504,18 +4504,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// reload. This calls ghostty_surface_update_config which forces the surface to re-apply
     /// its conditional state (light/dark) to the current config, then re-applies the color
     /// scheme from the Swift side to keep tracking in sync.
+    @MainActor
     func reapplyColorSchemeAndConfig() {
-        guard let surface, let view = attachedView else { return }
-        // Force the surface to re-derive its config with its current conditional state.
-        // ghostty_surface_set_color_scheme has an internal dedup that skips when the
-        // scheme hasn't changed, but after a config reload the underlying theme data
-        // may have changed. ghostty_surface_update_config bypasses that dedup.
-        if let config = GhosttyApp.shared.config {
-            ghostty_surface_update_config(surface, config)
+        // Route through liveSurfaceForGhosttyAccess so a stale/freed pointer
+        // (e.g. mid-portal-reparent) gets quarantined instead of being handed to
+        // ghostty_surface_update_config. Do this independently of attachedView so
+        // background panels (no view attached yet) still re-derive their config.
+        if let liveSurface = liveSurfaceForGhosttyAccess(reason: "reapplyColorSchemeAndConfig"),
+           let config = GhosttyApp.shared.config {
+            ghostty_surface_update_config(liveSurface, config)
         }
-        // Re-apply color scheme to ensure the surface's conditional state matches
-        // the current macOS appearance, in case it drifted.
-        view.applySurfaceColorScheme(force: true)
+        // Re-apply color scheme on the attached view so the conditional state
+        // matches the current macOS appearance. Background panels without an
+        // attached view already got the config update above.
+        attachedView?.applySurfaceColorScheme(force: true)
     }
 
     func applyWindowBackgroundIfActive() {
