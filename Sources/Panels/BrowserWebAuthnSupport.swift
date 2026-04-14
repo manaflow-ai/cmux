@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import Bonsplit
 import CoreBluetooth
 import Foundation
 import ObjectiveC.runtime
@@ -459,6 +460,22 @@ private struct BrowserWebAuthnBridgeError: Error {
     }
 }
 
+func browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+    authorizationState: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
+    deviceConfiguredForPasskeys: Bool?,
+    callerMayPromptForPlatformAuthorization: Bool
+) -> Bool? {
+    if authorizationState == .denied {
+        return false
+    }
+
+    if authorizationState == .notDetermined && !callerMayPromptForPlatformAuthorization {
+        return false
+    }
+
+    return deviceConfiguredForPasskeys
+}
+
 private struct BrowserWebAuthnMessageEnvelope {
     let kind: BrowserWebAuthnBridgeMessageKind
     let payloadJSON: String?
@@ -774,6 +791,9 @@ private struct BrowserWebAuthnClientDataContext {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() ?? callerOrigin.host
 
+        #if DEBUG
+        dlog("webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) permitted=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))")
+        #endif
         guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
         }
@@ -1142,31 +1162,57 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         Task { @MainActor in
             do {
                 let envelope = try BrowserWebAuthnRequestParser.parseEnvelope(from: message.body)
+                #if DEBUG
+                dlog("webauthn.dispatch kind=\(envelope.kind.rawValue) frame=\(message.frameInfo.isMainFrame ? "main" : "sub") url=\(message.frameInfo.securityOrigin.host)")
+                #endif
                 switch envelope.kind {
                 case .capabilities:
-                    replyHandler(
-                        capabilityReply(
-                            for: BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState(),
-                            bluetoothState: BrowserBluetoothAuthorizationGate.shared.currentState()
-                        ),
-                        nil
+                    let callerMayPrompt = callerMayPromptForPlatformAuthorization(message)
+                    let capReply = capabilityReply(
+                        for: BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState(),
+                        bluetoothState: BrowserBluetoothAuthorizationGate.shared.currentState(),
+                        callerMayPromptForPlatformAuthorization: callerMayPrompt
                     )
+                    #if DEBUG
+                    dlog("webauthn.capabilities reply=\(capReply)")
+                    #endif
+                    replyHandler(capReply, nil)
                 case .createCredential:
                     let request = try BrowserWebAuthnRequestParser.decodePayload(
                         BrowserWebAuthnCreationRequest.self,
                         from: envelope
                     )
-                    replyHandler(try await handleCreateCredential(request, message: message), nil)
+                    #if DEBUG
+                    dlog("webauthn.createCredential rp=\(request.publicKey.rp?.id ?? "(nil)") user=\(request.publicKey.user.name ?? "(nil)") attachment=\(request.publicKey.authenticatorSelection?.attachment ?? "(nil)") algorithms=\(request.publicKey.requestedAlgorithms)")
+                    #endif
+                    let reply = try await handleCreateCredential(request, message: message)
+                    #if DEBUG
+                    dlog("webauthn.createCredential reply.ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
+                    #endif
+                    replyHandler(reply, nil)
                 case .getCredential:
                     let request = try BrowserWebAuthnRequestParser.decodePayload(
                         BrowserWebAuthnAssertionRequest.self,
                         from: envelope
                     )
-                    replyHandler(try await handleGetCredential(request, message: message), nil)
+                    #if DEBUG
+                    dlog("webauthn.getCredential rpId=\(request.publicKey.rpId ?? "(nil)") allowCredentials=\(request.publicKey.allowCredentials?.count ?? 0) mediation=\(request.mediation ?? "(nil)")")
+                    #endif
+                    let reply = try await handleGetCredential(request, message: message)
+                    #if DEBUG
+                    dlog("webauthn.getCredential reply.ok=\(reply["ok"] ?? "nil") hasCredential=\(reply["credential"] != nil) fallback=\(reply["useWebKitFallback"] ?? "nil")")
+                    #endif
+                    replyHandler(reply, nil)
                 }
             } catch let error as BrowserWebAuthnBridgeError {
+                #if DEBUG
+                dlog("webauthn.error bridge: \(error.replyObject())")
+                #endif
                 replyHandler(error.replyObject(), nil)
             } catch {
+                #if DEBUG
+                dlog("webauthn.error unknown: \(error.localizedDescription)")
+                #endif
                 replyHandler(BrowserWebAuthnBridgeError.unknown(error.localizedDescription).replyObject(), nil)
             }
         }
@@ -1179,6 +1225,9 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         controller: ASAuthorizationController,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
+        #if DEBUG
+        dlog("webauthn.asAuth.didComplete credentialType=\(type(of: authorization.credential))")
+        #endif
         do {
             finishAuthorization(
                 with: .success(
@@ -1186,6 +1235,9 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
                 )
             )
         } catch {
+            #if DEBUG
+            dlog("webauthn.asAuth.didComplete replyMarshalError=\(error)")
+            #endif
             finishAuthorization(with: .failure(error))
         }
     }
@@ -1194,27 +1246,60 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
+        #if DEBUG
+        let nsError = error as NSError
+        dlog("webauthn.asAuth.didFail domain=\(nsError.domain) code=\(nsError.code) desc=\(nsError.localizedDescription)")
+        #endif
         finishAuthorization(with: .failure(bridgeError(from: error)))
     }
 
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        activePresentationWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()
+        let anchor = activePresentationWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()
+        #if DEBUG
+        dlog("webauthn.asAuth.presentationAnchor window=\(anchor.title) isVisible=\(anchor.isVisible) isKey=\(anchor.isKeyWindow)")
+        #endif
+        return anchor
     }
 }
 
 @MainActor
 private extension BrowserWebAuthnCoordinator {
+    enum BrowserWebAuthnAuthorizationErrorCode {
+        // Keep these raw values in sync with AuthenticationServices/ASAuthorizationError.h
+        // so we can handle newer cases even when the current Swift SDK omits the symbols.
+        static let unknown = 1000
+        static let canceled = 1001
+        static let invalidResponse = 1002
+        static let notHandled = 1003
+        static let failed = 1004
+        static let notInteractive = 1005
+        static let matchedExcludedCredential = 1006
+        static let credentialImport = 1007
+        static let credentialExport = 1008
+        static let preferSignInWithApple = 1009
+        static let deviceNotConfiguredForPasskeyCreation = 1010
+    }
+
     func handleCreateCredential(
         _ request: BrowserWebAuthnCreationRequest,
         message: WKScriptMessage
     ) async throws -> [String: Any] {
+        #if DEBUG
+        dlog("webauthn.handleCreate BEGIN origin=\(message.frameInfo.securityOrigin.host) webViewURL=\(message.webView?.url?.absoluteString ?? "(nil)")")
+        #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
+            #if DEBUG
+            dlog("webauthn.handleCreate no plan — returning fallback")
+            #endif
             return fallbackReply()
         }
 
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
+            #if DEBUG
+            dlog("webauthn.handleCreate authorizationRequests empty — returning fallback")
+            #endif
             return fallbackReply()
         }
 
@@ -1229,13 +1314,22 @@ private extension BrowserWebAuthnCoordinator {
         _ request: BrowserWebAuthnAssertionRequest,
         message: WKScriptMessage
     ) async throws -> [String: Any] {
+        #if DEBUG
+        dlog("webauthn.handleGet BEGIN origin=\(message.frameInfo.securityOrigin.host) webViewURL=\(message.webView?.url?.absoluteString ?? "(nil)")")
+        #endif
         let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
+            #if DEBUG
+            dlog("webauthn.handleGet no plan — returning fallback")
+            #endif
             return fallbackReply()
         }
 
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
+            #if DEBUG
+            dlog("webauthn.handleGet authorizationRequests empty — returning fallback")
+            #endif
             return fallbackReply()
         }
 
@@ -1251,13 +1345,25 @@ private extension BrowserWebAuthnCoordinator {
         message: WKScriptMessage
     ) async throws -> [ASAuthorizationRequest] {
         var includePlatformRequests = plan.hasPlatformRequests
+        #if DEBUG
+        dlog("webauthn.authRequests hasPlatform=\(plan.hasPlatformRequests) hasSecurityKey=\(plan.securityKeyRequests.count > 0) order=\(plan.order)")
+        #endif
 
         if includePlatformRequests {
             let currentState = BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState()
+            #if DEBUG
+            dlog("webauthn.authRequests passkeyAuthState=\(currentState.rawValue) callerMayPrompt=\(callerMayPromptForPlatformAuthorization(message))")
+            #endif
             if currentState == .notDetermined && !callerMayPromptForPlatformAuthorization(message) {
+                #if DEBUG
+                dlog("webauthn.authRequests skipping platform: cross-origin subframe can't prompt")
+                #endif
                 includePlatformRequests = false
             } else {
                 let authorizationState = await BrowserPasskeyAuthorizationGate.shared.authorizeIfNeeded()
+                #if DEBUG
+                dlog("webauthn.authRequests authorizeIfNeeded result=\(authorizationState.rawValue)")
+                #endif
                 if authorizationState != .authorized {
                     includePlatformRequests = false
                 }
@@ -1265,12 +1371,24 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         let requests = plan.authorizationRequests(includePlatformRequests: includePlatformRequests)
+        #if DEBUG
+        dlog("webauthn.authRequests finalCount=\(requests.count) includePlatform=\(includePlatformRequests)")
+        #endif
         guard !requests.isEmpty else {
+            #if DEBUG
+            dlog("webauthn.authRequests FAIL: no requests available, throwing notAllowed")
+            #endif
             throw BrowserWebAuthnBridgeError.notAllowed("Passkey access was denied for this browser.")
         }
 
         if plan.needsBluetoothPreparation(includePlatformRequests: includePlatformRequests) {
-            _ = await BrowserBluetoothAuthorizationGate.shared.prepareIfNeeded()
+            #if DEBUG
+            dlog("webauthn.authRequests preparing bluetooth")
+            #endif
+            let btState = await BrowserBluetoothAuthorizationGate.shared.prepareIfNeeded()
+            #if DEBUG
+            dlog("webauthn.authRequests bluetooth result=\(btState)")
+            #endif
         }
 
         return requests
@@ -1281,16 +1399,31 @@ private extension BrowserWebAuthnCoordinator {
         window: NSWindow?,
         prefersImmediatelyAvailableCredentials: Bool
     ) async throws -> [String: Any] {
+        #if DEBUG
+        dlog("webauthn.performAuth requestCount=\(requests.count) window=\(window?.title ?? "(nil)") prefersImmediate=\(prefersImmediatelyAvailableCredentials) hasPendingContinuation=\(activeAuthorizationContinuation != nil)")
+        for (i, req) in requests.enumerated() {
+            dlog("webauthn.performAuth request[\(i)]=\(type(of: req))")
+        }
+        #endif
         guard !requests.isEmpty else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
         guard let window else {
+            #if DEBUG
+            dlog("webauthn.performAuth FAIL: no window")
+            #endif
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
         }
         guard activeAuthorizationContinuation == nil else {
+            #if DEBUG
+            dlog("webauthn.performAuth FAIL: ceremony already in progress")
+            #endif
             throw BrowserWebAuthnBridgeError.notAllowed("The passkey request failed.")
         }
 
+        #if DEBUG
+        dlog("webauthn.performAuth launching ASAuthorizationController")
+        #endif
         return try await withCheckedThrowingContinuation { continuation in
             let controller = ASAuthorizationController(authorizationRequests: requests)
             activeAuthorizationController = controller
@@ -1404,9 +1537,15 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         guard !platformRequests.isEmpty || !securityKeyRequests.isEmpty else {
+            #if DEBUG
+            dlog("webauthn.buildCreationPlan no requests built — returning nil")
+            #endif
             return nil
         }
 
+        #if DEBUG
+        dlog("webauthn.buildCreationPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) attachment=\(attachment ?? "(nil)")")
+        #endif
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
@@ -1483,6 +1622,9 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         guard !platformRequests.isEmpty || !securityKeyRequests.isEmpty else {
+            #if DEBUG
+            dlog("webauthn.buildAssertionPlan no requests built — returning nil")
+            #endif
             return nil
         }
 
@@ -1491,6 +1633,9 @@ private extension BrowserWebAuthnCoordinator {
         let needsBluetoothForPlatformRequests =
             allowCredentials.isEmpty ? true : transportSummary.shouldShowHybridTransport
 
+        #if DEBUG
+        dlog("webauthn.buildAssertionPlan rp=\(relyingPartyIdentifier) platform=\(platformRequests.count) securityKey=\(securityKeyRequests.count) allowCredentials=\(allowCredentials.count) mediation=\(request.mediation ?? "(nil)") hybridTransport=\(transportSummary.shouldShowHybridTransport)")
+        #endif
         return .init(
             platformRequests: platformRequests,
             securityKeyRequests: securityKeyRequests,
@@ -1643,51 +1788,64 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         let nsError = error as NSError
-        if nsError.domain == ASAuthorizationErrorDomain,
-           let code = ASAuthorizationError.Code(rawValue: nsError.code) {
-            switch code {
-            case .matchedExcludedCredential:
-                return .invalidState("The passkey request failed.")
-            case .canceled,
-                 .failed,
-                 .invalidResponse,
-                 .notHandled,
-                 .notInteractive,
-                 .credentialExport,
-                 .credentialImport,
-                 .deviceNotConfiguredForPasskeyCreation,
-                 .preferSignInWithApple:
-                return .notAllowed("The passkey request failed.")
-            case .unknown:
-                return .unknown("The passkey request failed.")
-            @unknown default:
-                return .unknown("The passkey request failed.")
-            }
+        guard nsError.domain == ASAuthorizationErrorDomain else {
+            return .unknown("The passkey request failed.")
         }
 
-        return .unknown("The passkey request failed.")
+        switch nsError.code {
+        case BrowserWebAuthnAuthorizationErrorCode.matchedExcludedCredential:
+            return .invalidState("The passkey request failed.")
+        case BrowserWebAuthnAuthorizationErrorCode.canceled,
+             BrowserWebAuthnAuthorizationErrorCode.failed,
+             BrowserWebAuthnAuthorizationErrorCode.invalidResponse,
+             BrowserWebAuthnAuthorizationErrorCode.notHandled,
+             BrowserWebAuthnAuthorizationErrorCode.notInteractive,
+             BrowserWebAuthnAuthorizationErrorCode.credentialExport,
+             BrowserWebAuthnAuthorizationErrorCode.credentialImport,
+             BrowserWebAuthnAuthorizationErrorCode.deviceNotConfiguredForPasskeyCreation,
+             BrowserWebAuthnAuthorizationErrorCode.preferSignInWithApple:
+            return .notAllowed("The passkey request failed.")
+        case BrowserWebAuthnAuthorizationErrorCode.unknown:
+            return .unknown("The passkey request failed.")
+        default:
+            return .unknown("The passkey request failed.")
+        }
     }
 
     func capabilityReply(
         for state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-        bluetoothState: BrowserBluetoothAuthorizationState
+        bluetoothState: BrowserBluetoothAuthorizationState,
+        callerMayPromptForPlatformAuthorization: Bool
     ) -> [String: Any] {
         [
             "ok": true,
-            "capabilities": capabilityPayload(for: state, bluetoothState: bluetoothState),
+            "capabilities": capabilityPayload(
+                for: state,
+                bluetoothState: bluetoothState,
+                callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
+            ),
         ]
     }
 
     func capabilityPayload(
         for state: ASAuthorizationWebBrowserPublicKeyCredentialManager.AuthorizationState,
-        bluetoothState: BrowserBluetoothAuthorizationState
+        bluetoothState: BrowserBluetoothAuthorizationState,
+        callerMayPromptForPlatformAuthorization: Bool
     ) -> [String: Any] {
         let authorized = state == .authorized
         let denied = state == .denied
-        let canPromptForAccess = state == .notDetermined
+        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
         let platformRequestSupport = supportsPlatformCredentialRequests
         let securityKeySupport = supportsSecurityKeyCredentialRequests
         let deviceConfiguredForPasskeys = denied ? nil : self.deviceConfiguredForPasskeys()
+        let platformPasskeyAvailability = browserWebAuthnAdvertisedPlatformPasskeyAvailability(
+            authorizationState: state,
+            deviceConfiguredForPasskeys: deviceConfiguredForPasskeys,
+            callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
+        )
+        #if DEBUG
+        dlog("webauthn.capability state=\(state.rawValue) authorized=\(authorized) denied=\(denied) canPrompt=\(canPromptForAccess) callerMayPrompt=\(callerMayPromptForPlatformAuthorization) platformSupport=\(platformRequestSupport) securityKeySupport=\(securityKeySupport) deviceConfigured=\(deviceConfiguredForPasskeys as Any) advertisedPlatform=\(platformPasskeyAvailability as Any) btAuth=\(bluetoothState.isAuthorized) btHybrid=\(bluetoothState.canUseHybridTransport)")
+        #endif
 
         var payload: [String: Any] = [
             "authorized": authorized,
@@ -1702,10 +1860,10 @@ private extension BrowserWebAuthnCoordinator {
             payload["bluetoothPoweredOn"] = bluetoothPoweredOn
         }
 
-        if platformRequestSupport {
-            let platformAvailable = deviceConfiguredForPasskeys ?? (authorized || canPromptForAccess)
-            payload["userVerifyingPlatformAuthenticatorAvailable"] = !denied && platformAvailable
-            payload["conditionalMediationAvailable"] = !denied && platformAvailable
+        if platformRequestSupport,
+           let platformPasskeyAvailability {
+            payload["userVerifyingPlatformAuthenticatorAvailable"] = platformPasskeyAvailability
+            payload["conditionalMediationAvailable"] = platformPasskeyAvailability
         }
 
         return payload
