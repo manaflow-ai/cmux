@@ -1621,6 +1621,12 @@ class GhosttyApp {
                 logLabel: "layer background (fallback)"
             )
             usesHostLayerBackground = true
+            // Seed the conditional theme state before finalization here too,
+            // matching the primary path. Otherwise conditional themes in the
+            // fallback config would always resolve as light until a later
+            // surface color-scheme event triggered re-derivation.
+            let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ghostty_config_set_color_scheme(fallbackConfig, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
             ghostty_config_finalize(fallbackConfig)
             updateDefaultBackground(from: fallbackConfig, source: "initialize.fallbackConfig")
 
