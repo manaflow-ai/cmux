@@ -3000,7 +3000,7 @@ class TabManager: ObservableObject {
 
         appendSearchPath(environment["PATH"])
         appendSearchPath(getenv("PATH").map { String(cString: $0) })
-        if let bundledBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
+        for bundledBinPath in cmuxBundledBinDirectoryPaths() {
             appendSearchPath(bundledBinPath)
         }
         fallbackDirectories.forEach { appendSearchPath($0) }

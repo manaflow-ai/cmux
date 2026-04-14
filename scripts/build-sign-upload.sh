@@ -74,9 +74,9 @@ rm -rf build/
 xcodebuild -scheme cmux -configuration Release -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
 echo "Build succeeded"
 
-HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
-if [ ! -x "$HELPER_PATH" ]; then
-  echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
+RAW_HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
+if [ ! -x "$RAW_HELPER_PATH" ]; then
+  echo "Ghostty theme picker helper not found at $RAW_HELPER_PATH before release signing" >&2
   exit 1
 fi
 
@@ -92,15 +92,10 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-if [ -f "$HELPER_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+./scripts/sign-release-app.sh \
+  --app-path "$APP_PATH" \
+  --signing-identity "$SIGN_HASH" \
+  --entitlements "$ENTITLEMENTS"
 echo "Codesign verified"
 
 # --- Notarize app ---
@@ -186,7 +181,7 @@ cask "cmux" do
   depends_on macos: ">= :ventura"
 
   app "cmux.app"
-  binary "#{appdir}/cmux.app/Contents/Resources/bin/cmux"
+  binary "#{appdir}/cmux.app/Contents/Helpers/cmux"
 
   zap trash: [
     "~/Library/Application Support/cmux",

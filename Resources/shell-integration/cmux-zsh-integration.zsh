@@ -1259,20 +1259,35 @@ _cmux_precmd() {
     fi
 }
 
-# Ensure Resources/bin is at the front of PATH, and remove the app's
-# Contents/MacOS entry so the GUI cmux binary cannot shadow the CLI cmux.
+# Ensure bundled helper and wrapper directories are at the front of PATH, and
+# remove the app's Contents/MacOS entry so the GUI cmux binary cannot shadow
+# the CLI cmux.
 # Shell init (.zprofile/.zshrc) may prepend other dirs after launch.
 # We fix this once on first prompt (after all init files have run).
 _cmux_fix_path() {
     if [[ -n "${GHOSTTY_BIN_DIR:-}" ]]; then
         local gui_dir="${GHOSTTY_BIN_DIR%/}"
-        local bin_dir="${gui_dir%/MacOS}/Resources/bin"
-        if [[ -d "$bin_dir" ]]; then
-            # Remove existing entries and re-prepend the CLI bin dir.
+        local bundle_dir="${gui_dir%/MacOS}"
+        local helper_dir="${bundle_dir}/Helpers"
+        local wrapper_dir="${bundle_dir}/Resources/bin"
+        local -a preferred_dirs=()
+
+        [[ -d "$helper_dir" ]] && preferred_dirs+=("$helper_dir")
+        [[ -d "$wrapper_dir" ]] && preferred_dirs+=("$wrapper_dir")
+
+        if (( ${#preferred_dirs[@]} > 0 )); then
             local -a parts=("${(@s/:/)PATH}")
-            parts=("${(@)parts:#$bin_dir}")
             parts=("${(@)parts:#$gui_dir}")
-            PATH="${bin_dir}:${(j/:/)parts}"
+            for dir in "${preferred_dirs[@]}"; do
+                parts=("${(@)parts:#$dir}")
+            done
+
+            local preferred_path="${(j/:/)preferred_dirs}"
+            if (( ${#parts[@]} > 0 )); then
+                PATH="${preferred_path}:${(j/:/)parts}"
+            else
+                PATH="${preferred_path}"
+            fi
         fi
     fi
     add-zsh-hook -d precmd _cmux_fix_path
