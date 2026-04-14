@@ -42,16 +42,22 @@ private enum DockTileAppIconImageFactory {
         }
     }
 
-    private static func appearanceAwareImage(light: NSImage, dark: NSImage) -> NSImage? {
+    private static func appearanceAwareImage(
+        light: NSImage,
+        dark: NSImage,
+        resolveIsDark: @escaping @Sendable () -> Bool = {
+            MainActor.assumeIsolated {
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            }
+        }
+    ) -> NSImage? {
         let size = light.size.width > 0 && light.size.height > 0 ? light.size : dark.size
         guard size.width > 0, size.height > 0 else {
             return nil
         }
 
         return NSImage(size: size, flipped: false) { rect in
-            let appearance = NSAppearance.currentDrawing()
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let source = isDark ? dark : light
+            let source = resolveIsDark() ? dark : light
             source.draw(
                 in: rect,
                 from: CGRect(origin: .zero, size: source.size),

@@ -171,6 +171,7 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
+        AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
@@ -3840,16 +3841,22 @@ enum AppIconSettings {
         }
     }
 
-    static func appearanceAwareImage(light: NSImage, dark: NSImage) -> NSImage? {
+    static func appearanceAwareImage(
+        light: NSImage,
+        dark: NSImage,
+        resolveIsDark: @escaping @Sendable () -> Bool = {
+            MainActor.assumeIsolated {
+                NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            }
+        }
+    ) -> NSImage? {
         let size = light.size.width > 0 && light.size.height > 0 ? light.size : dark.size
         guard size.width > 0, size.height > 0 else {
             return nil
         }
 
         return NSImage(size: size, flipped: false) { rect in
-            let appearance = NSAppearance.currentDrawing()
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            let source = isDark ? dark : light
+            let source = resolveIsDark() ? dark : light
             source.draw(
                 in: rect,
                 from: CGRect(origin: .zero, size: source.size),
