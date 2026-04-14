@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
@@ -58,10 +59,12 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             self.updateDockTile(dockTile)
         }
 
-        appearanceObservation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.appearanceObservation != nil else { return }
-                self.updateDockTile(dockTile)
+        if let app = NSApp {
+            appearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    guard let self, self.appearanceObservation != nil else { return }
+                    self.updateDockTile(dockTile)
+                }
             }
         }
     }
@@ -82,7 +85,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        let isDarkAppearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
@@ -92,12 +95,14 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
               let icon = appBundle?.image(forResource: imageName) else {
             NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
             NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+            _ = LSRegisterURL(appBundleURL as CFURL, true)
             dockTile.showDefaultAppIcon()
             return
         }
 
         NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
         NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+        _ = LSRegisterURL(appBundleURL as CFURL, true)
         dockTile.showIcon(icon)
     }
 
