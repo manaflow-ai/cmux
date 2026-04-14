@@ -536,6 +536,18 @@ jobs:
           git tag -f nightly "${{ needs.decide.outputs.head_sha }}"
           git push origin refs/tags/nightly --force
 
+      - name: Prune old nightly release assets
+        if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 ./scripts/prune_nightly_release_assets.py \
+            --repo manaflow-ai/cmux \
+            --release-tag nightly \
+            --keep-builds 100 \
+            --execute
+
       - name: Publish nightly release assets
         if: needs.decide.outputs.should_publish == 'true' && steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true'
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
