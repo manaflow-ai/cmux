@@ -71,12 +71,21 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private func updateDockTile(_ dockTile: NSDockTile) {
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
-        guard let imageName = mode.imageName,
-              let icon = appBundle?.image(forResource: imageName) else {
+        guard let appBundleURL else {
             dockTile.showDefaultAppIcon()
             return
         }
 
+        guard let imageName = mode.imageName,
+              let icon = appBundle?.image(forResource: imageName) else {
+            NSWorkspace.shared.setIcon(nil, forFile: appBundleURL.path, options: [])
+            NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
+            dockTile.showDefaultAppIcon()
+            return
+        }
+
+        NSWorkspace.shared.setIcon(icon, forFile: appBundleURL.path, options: [])
+        NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
         dockTile.showIcon(icon)
     }
 

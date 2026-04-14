@@ -30,8 +30,6 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { icon in
                 receivedRuntimeIcon = icon
             },
-            setBundleIcon: { _ in true },
-            notifyBundleIconSystem: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
@@ -64,8 +62,6 @@ final class AppIconSettingsTests: XCTestCase {
             setApplicationIconImage: { _ in
                 XCTFail("Automatic mode should delegate live updates to the appearance observer")
             },
-            setBundleIcon: { _ in true },
-            notifyBundleIconSystem: {},
             startAppearanceObservation: {
                 startObservationCallCount += 1
             },
