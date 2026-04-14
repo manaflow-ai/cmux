@@ -171,6 +171,7 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance)
+        AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
         _tabManager = StateObject(wrappedValue: TabManager())
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
@@ -833,6 +834,9 @@ struct cmuxApp: App {
             appearanceMode = mode.rawValue
         }
         Self.applyAppearance(mode)
+        if AppIconSettings.resolvedMode() == .automatic {
+            AppIconSettings.applyIcon(.automatic)
+        }
     }
 
     private static func applyAppearance(_ mode: AppearanceMode) {
@@ -3782,13 +3786,18 @@ enum AppIconMode: String, CaseIterable, Identifiable {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
+    private static let appearanceAwareBundleIconNames: Set<String> = [
+        "AppIcon",
+        "AppIcon-Debug",
+    ]
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
-        let setApplicationIconImage: (NSImage) -> Void
-        let startAppearanceObservation: () -> Void
-        let stopAppearanceObservation: () -> Void
+        let automaticModeUsesBundleIcon: () -> Bool
+        let automaticModeAppearanceMode: () -> AppearanceMode
+        let automaticModeAppearance: () -> NSAppearance
+        let setApplicationIconImage: (NSImage?) -> Void
         let notifyDockTilePlugin: () -> Void
 
         static func live() -> Self {
@@ -3797,14 +3806,24 @@ enum AppIconSettings {
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
                 },
+                automaticModeUsesBundleIcon: {
+                    AppIconSettings.automaticModeUsesBundleIcon(bundle: Bundle.main)
+                },
+                automaticModeAppearanceMode: {
+                    AppearanceSettings.resolvedMode()
+                },
+                automaticModeAppearance: {
+                    switch AppearanceSettings.resolvedMode() {
+                    case .light:
+                        return NSAppearance(named: .aqua) ?? NSApplication.shared.effectiveAppearance
+                    case .dark:
+                        return NSAppearance(named: .darkAqua) ?? NSApplication.shared.effectiveAppearance
+                    case .system, .auto:
+                        return NSApplication.shared.effectiveAppearance
+                    }
+                },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
-                },
-                startAppearanceObservation: {
-                    AppIconAppearanceObserver.shared.startObserving()
-                },
-                stopAppearanceObservation: {
-                    AppIconAppearanceObserver.shared.stopObserving()
                 },
                 notifyDockTilePlugin: {
                     DistributedNotificationCenter.default().postNotificationName(
@@ -3829,49 +3848,69 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
-            environment.startAppearanceObservation()
+            let appearanceMode = environment.automaticModeAppearanceMode()
+            if environment.automaticModeUsesBundleIcon() && appearanceMode == .system {
+                environment.setApplicationIconImage(nil)
+            } else {
+                let icon = automaticRuntimeImage(environment: environment)
+                environment.setApplicationIconImage(icon)
+            }
         case .light:
-            environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }
             environment.setApplicationIconImage(icon)
         case .dark:
-            environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.dark) else { return }
             environment.setApplicationIconImage(icon)
         }
-
         environment.notifyDockTilePlugin()
     }
-}
 
-final class AppIconAppearanceObserver: NSObject {
-    static let shared = AppIconAppearanceObserver()
-    private var observation: NSKeyValueObservation?
-
-    private override init() { super.init() }
-
-    func startObserving() {
-        applyIconForCurrentAppearance()
-        guard observation == nil else { return }
-        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.observation != nil else { return }
-                self.applyIconForCurrentAppearance()
-            }
+    static func automaticModeUsesBundleIcon(bundle: Bundle) -> Bool {
+        guard let iconName = bundle.object(forInfoDictionaryKey: "CFBundleIconName") as? String ??
+                bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String else {
+            return false
         }
+        return automaticModeUsesBundleIcon(iconName: iconName)
     }
 
-    func stopObserving() {
-        observation?.invalidate()
-        observation = nil
+    static func automaticModeUsesBundleIcon(iconName: String?) -> Bool {
+        guard let iconName else { return false }
+
+        // Only the Icon Composer-backed bundle icons are appearance-aware.
+        // Nightly and fallback appiconsets stay static, so automatic mode must
+        // keep using the runtime light and dark image pair there.
+        let normalizedIconName = (iconName as NSString).deletingPathExtension
+        return appearanceAwareBundleIconNames.contains(normalizedIconName)
     }
 
-    private func applyIconForCurrentAppearance() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = NSImage(named: imageName) {
-            NSApplication.shared.applicationIconImage = icon
+    private static func automaticRuntimeImage(environment: Environment) -> NSImage? {
+        guard let light = environment.imageForMode(.light),
+              let dark = environment.imageForMode(.dark) else {
+            return nil
         }
+        return appearanceAwareImage(light: light, dark: dark, appearance: environment.automaticModeAppearance)
+    }
+
+    private static func appearanceAwareImage(
+        light: NSImage,
+        dark: NSImage,
+        appearance: @escaping () -> NSAppearance
+    ) -> NSImage? {
+        let lightIsRenderable = light.size.width > 0 && light.size.height > 0
+        let darkIsRenderable = dark.size.width > 0 && dark.size.height > 0
+        guard lightIsRenderable || darkIsRenderable else { return nil }
+
+        let size = lightIsRenderable ? light.size : dark.size
+        let image = NSImage(size: size, flipped: false) { rect in
+            let isDark = appearance().bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let preferred = isDark ? dark : light
+            let fallback = isDark ? light : dark
+            let source = preferred.size.width > 0 && preferred.size.height > 0 ? preferred : fallback
+            source.draw(in: rect)
+            return true
+        }
+        image.cacheMode = .never
+        return image
     }
 }
 
