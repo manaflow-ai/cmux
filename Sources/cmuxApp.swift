@@ -3787,6 +3787,8 @@ enum AppIconSettings {
     struct Environment {
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
+        let setBundleIcon: (NSImage?) -> Bool
+        let notifyBundleIconSystem: () -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
@@ -3799,6 +3801,17 @@ enum AppIconSettings {
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
+                },
+                setBundleIcon: { icon in
+                    NSWorkspace.shared.setIcon(icon, forFile: Bundle.main.bundlePath, options: [])
+                },
+                notifyBundleIconSystem: {
+                    let bundlePath = Bundle.main.bundlePath
+                    NSWorkspace.shared.noteFileSystemChanged(bundlePath)
+                    let bundleURL = Bundle.main.bundleURL.standardizedFileURL
+                    DispatchQueue.global(qos: .utility).async {
+                        _ = LSRegisterURL(bundleURL as CFURL, true)
+                    }
                 },
                 startAppearanceObservation: {
                     AppIconAppearanceObserver.shared.startObserving()
@@ -3829,15 +3842,24 @@ enum AppIconSettings {
     static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
         switch mode {
         case .automatic:
+            if environment.setBundleIcon(nil) {
+                environment.notifyBundleIconSystem()
+            }
             environment.startAppearanceObservation()
         case .light:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }
             environment.setApplicationIconImage(icon)
+            if environment.setBundleIcon(icon) {
+                environment.notifyBundleIconSystem()
+            }
         case .dark:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.dark) else { return }
             environment.setApplicationIconImage(icon)
+            if environment.setBundleIcon(icon) {
+                environment.notifyBundleIconSystem()
+            }
         }
 
         environment.notifyDockTilePlugin()
