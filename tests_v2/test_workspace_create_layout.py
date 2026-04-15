@@ -51,6 +51,13 @@ def _surface_list(c: cmux, workspace_id: str) -> list:
     return list(payload.get("surfaces") or [])
 
 
+def _close_workspace_quietly(c: cmux, workspace_id: str) -> None:
+    try:
+        c.close_workspace(workspace_id)
+    except cmuxError as err:
+        print(f"  WARN: failed to close workspace {workspace_id}: {err}", file=sys.stderr)
+
+
 def _create_and_get_id(c: cmux, params: dict) -> str:
     payload = c._call("workspace.create", params) or {}
     ws_id = str(payload.get("workspace_id") or "")
@@ -84,10 +91,7 @@ def test_horizontal_split(c: cmux) -> None:
         c.select_workspace(baseline)
     finally:
         if ws:
-            try:
-                c.close_workspace(ws)
-            except Exception:
-                pass
+            _close_workspace_quietly(c, ws)
     print("  PASS: horizontal split creates 2 terminal panes")
 
 
@@ -119,10 +123,7 @@ def test_nested_splits(c: cmux) -> None:
         c.select_workspace(baseline)
     finally:
         if ws:
-            try:
-                c.close_workspace(ws)
-            except Exception:
-                pass
+            _close_workspace_quietly(c, ws)
     print("  PASS: nested splits create 3 panes")
 
 
@@ -150,10 +151,7 @@ def test_env_vars(c: cmux) -> None:
         c.select_workspace(baseline)
     finally:
         if ws:
-            try:
-                c.close_workspace(ws)
-            except Exception:
-                pass
+            _close_workspace_quietly(c, ws)
     print("  PASS: per-surface env vars are applied")
 
 
@@ -180,10 +178,7 @@ def test_surface_commands(c: cmux) -> None:
         c.select_workspace(baseline)
     finally:
         if ws:
-            try:
-                c.close_workspace(ws)
-            except Exception:
-                pass
+            _close_workspace_quietly(c, ws)
     print("  PASS: per-surface commands are executed")
 
 
@@ -210,10 +205,7 @@ def test_multi_surface_pane(c: cmux) -> None:
         c.select_workspace(baseline)
     finally:
         if ws:
-            try:
-                c.close_workspace(ws)
-            except Exception:
-                pass
+            _close_workspace_quietly(c, ws)
     print("  PASS: multi-surface pane creates tabs within one pane")
 
 
