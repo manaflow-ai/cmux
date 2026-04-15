@@ -87714,6 +87714,124 @@
           }
         }
       }
+    },
+    "settings.app.openMarkdownInCmuxViewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Markdown in cmux Viewer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ビューアで Markdown を開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 뷰어에서 Markdown 열기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 查看器中打开 Markdown"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cmux 檢視器中開啟 Markdown"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown im cmux-Viewer öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir Markdown en el visor cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir Markdown dans la visionneuse cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri Markdown nel visualizzatore cmux"
+          }
+        }
+      }
+    },
+    "settings.app.openMarkdownInCmuxViewer.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".md/.markdown/.mkd/.mdx ファイルを Cmd+クリックすると、優先エディタの代わりに cmux マークダウンビューアパネルが開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".md/.markdown/.mkd/.mdx 파일을 Cmd+클릭하면 기본 에디터 대신 cmux 마크다운 뷰어 패널이 열립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+点击 .md/.markdown/.mkd/.mdx 文件将打开 cmux 标记查看器面板,而不是使用首选编辑器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+點擊 .md/.markdown/.mkd/.mdx 檔案會開啟 cmux Markdown 檢視器面板,而不是使用偏好編輯器。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd-Klick auf .md/.markdown/.mkd/.mdx-Dateien öffnet das cmux-Markdown-Viewer-Panel statt des bevorzugten Editors."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hacer Cmd+clic en archivos .md/.markdown/.mkd/.mdx abre el panel del visor de markdown de cmux en lugar del editor preferido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+clic sur les fichiers .md/.markdown/.mkd/.mdx ouvre le panneau de la visionneuse markdown cmux au lieu de l'éditeur préféré."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cmd+clic sui file .md/.markdown/.mkd/.mdx apre il pannello del visualizzatore markdown cmux invece dell'editor preferito."
+          }
+        }
+      }
     }
   }
 }

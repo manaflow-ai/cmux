@@ -33,6 +33,7 @@ final class CmuxSettingsFileStore {
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
         "app.preferredEditor",
+        "app.openMarkdownInCmuxViewer",
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.warnBeforeQuit",
@@ -429,6 +430,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonString(section["preferredEditor"]) {
             snapshot.managedUserDefaults[PreferredEditorSettings.key] = .string(value)
+        }
+        if let value = jsonBool(section["openMarkdownInCmuxViewer"]) {
+            snapshot.managedUserDefaults[CmdClickMarkdownRouteSettings.key] = .bool(value)
         }
         if let value = jsonBool(section["reorderOnNotification"]) {
             snapshot.managedUserDefaults[WorkspaceAutoReorderSettings.key] = .bool(value)
@@ -1357,6 +1361,7 @@ final class CmuxSettingsFileStore {
                     "keepWorkspaceOpenWhenClosingLastSurface": !LastSurfaceCloseShortcutSettings.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "preferredEditor": "",
+                    "openMarkdownInCmuxViewer": CmdClickMarkdownRouteSettings.defaultValue,
                     "reorderOnNotification": WorkspaceAutoReorderSettings.defaultValue,
                     "sendAnonymousTelemetry": TelemetrySettings.defaultSendAnonymousTelemetry,
                     "warnBeforeQuit": QuitWarningSettings.defaultWarnBeforeQuit,

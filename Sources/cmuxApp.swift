@@ -4128,6 +4128,37 @@ enum TelemetrySettings {
     static let enabledForCurrentLaunch = isEnabled()
 }
 
+enum CmdClickMarkdownRouteSettings {
+    static let key = "openMarkdownInCmuxViewer"
+    static let defaultValue = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: key) == nil ? defaultValue : defaults.bool(forKey: key)
+    }
+
+    /// Cheap extension check. Safe to call off the main thread before any
+    /// filesystem probe so remote/non-markdown paths can be filtered early.
+    static func isMarkdownPath(_ path: String) -> Bool {
+        let ext = (path as NSString).pathExtension.lowercased()
+        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mdx"
+    }
+
+    static func shouldRoute(path: String) -> Bool {
+        guard isEnabled(), isMarkdownPath(path) else { return false }
+        // Match the `markdown.open` socket path: only route real, readable
+        // files. Rejects FIFOs, device nodes, sockets, symlinks to non-regular
+        // targets, and permission-denied paths so the viewer never opens into
+        // an unavailable state.
+        let resolved = (path as NSString).resolvingSymlinksInPath
+        guard FileManager.default.isReadableFile(atPath: resolved),
+              let attrs = try? FileManager.default.attributesOfItem(atPath: resolved),
+              (attrs[.type] as? FileAttributeType) == .typeRegular else {
+            return false
+        }
+        return true
+    }
+}
+
 enum PreferredEditorSettings {
     static let key = "preferredEditorCommand"
 
@@ -4362,6 +4393,7 @@ struct SettingsView: View {
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
+    @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -5064,6 +5096,21 @@ struct SettingsView: View {
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("app.openMarkdownInCmuxViewer"),
+                            String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"),
+                            subtitle: String(localized: "settings.app.openMarkdownInCmuxViewer.subtitle", defaultValue: "Cmd-clicking .md/.markdown/.mkd/.mdx files opens the cmux markdown viewer panel instead of the preferred editor.")
+                        ) {
+                            Toggle("", isOn: $openMarkdownInCmuxViewer)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityLabel(
+                                    String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer")
+                                )
                         }
 
                         SettingsCardDivider()
@@ -6479,6 +6526,7 @@ struct SettingsView: View {
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
+        openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue
