@@ -2238,6 +2238,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
+    private var webAuthnCoordinator: BrowserWebAuthnCoordinator?
     private var webViewObservers: [NSKeyValueObservation] = []
     private var activeDownloadCount: Int = 0
 
@@ -2548,6 +2549,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: true
             )
         )
+        // WebAuthn can originate from same-origin child frames. The native
+        // bridge rejects first-time authorization requests from cross-origin
+        // subframes before touching the shared browser authorization state.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserWebAuthnBridgeContract.scriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: .page
+            )
+        )
         // Keep a native cache of whether the focused page element can currently accept
         // plain-text paste so Cmd+Shift+V is only consumed when the browser can use it.
         configuration.userContentController.addUserScript(
@@ -2575,6 +2587,9 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.uiDelegate = uiDelegate
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
+        let webAuthnCoordinator = BrowserWebAuthnCoordinator()
+        webAuthnCoordinator.install(on: webView)
+        self.webAuthnCoordinator = webAuthnCoordinator
     }
 
     private func configureNavigationDelegateCallbacks() {
@@ -2866,6 +2881,8 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
+        webAuthnCoordinator?.uninstall(from: previousWebView)
+        webAuthnCoordinator = nil
         previousWebView.stopLoading()
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
@@ -3215,6 +3232,8 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask = nil
         faviconRefreshGeneration &+= 1
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator?.uninstall(from: oldWebView)
+        webAuthnCoordinator = nil
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
@@ -3356,6 +3375,8 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
+        webAuthnCoordinator?.uninstall(from: webView)
+        webAuthnCoordinator = nil
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -3980,8 +4001,11 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        let webAuthnCoordinator = webAuthnCoordinator
+        self.webAuthnCoordinator = nil
         let webView = webView
         Task { @MainActor in
+            webAuthnCoordinator?.uninstall(from: webView)
             BrowserWindowPortalRegistry.detach(webView: webView)
         }
     }
@@ -4072,6 +4096,8 @@ extension BrowserPanel {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
+        webAuthnCoordinator?.uninstall(from: oldWebView)
+        webAuthnCoordinator = nil
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil

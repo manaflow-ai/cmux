@@ -384,6 +384,45 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
           security list-keychains -d user -s build.keychain
 
+      - name: Embed nightly provisioning profile
+        if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
+        env:
+          APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "Missing APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64 secret" >&2
+            exit 1
+          fi
+
+          APP_PATH="build-universal/Build/Products/Release/cmux NIGHTLY.app"
+          PROFILE_PATH="$APP_PATH/Contents/embedded.provisionprofile"
+          TMP_PROFILE="$(mktemp /tmp/cmux-nightly-profile.XXXXXX)"
+          TMP_PLIST="$(mktemp /tmp/cmux-nightly-profile.XXXXXX.plist)"
+          trap 'rm -f "$TMP_PROFILE" "$TMP_PLIST"' EXIT
+
+          echo "$APPLE_NIGHTLY_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$TMP_PROFILE"
+          security cms -D -i "$TMP_PROFILE" > "$TMP_PLIST"
+
+          APP_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$TMP_PLIST")"
+          if [ "$APP_ID" != "7WLXT3NR37.com.cmuxterm.app.nightly" ]; then
+            echo "Nightly provisioning profile targets unexpected app ID: $APP_ID" >&2
+            exit 1
+          fi
+
+          WEBAUTHN_ENTITLEMENT="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.web-browser.public-key-credential" "$TMP_PLIST")"
+          if [ "$WEBAUTHN_ENTITLEMENT" != "true" ]; then
+            echo "Nightly provisioning profile is missing WebAuthn browser entitlement" >&2
+            exit 1
+          fi
+
+          PROVISIONS_ALL_DEVICES="$(/usr/libexec/PlistBuddy -c "Print :ProvisionsAllDevices" "$TMP_PLIST")"
+          if [ "$PROVISIONS_ALL_DEVICES" != "true" ]; then
+            echo "Nightly provisioning profile is not a Developer ID all-devices profile" >&2
+            exit 1
+          fi
+
+          cp "$TMP_PROFILE" "$PROFILE_PATH"
+
       - name: Codesign apps
         if: needs.decide.outputs.should_publish != 'true' || (steps.current_head_prebuild.outputs.still_current == 'true' && steps.current_head_postbuild.outputs.still_current == 'true')
         env:
@@ -393,20 +432,34 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          ENTITLEMENTS="cmux.entitlements"
+          # AuthenticationServices refuses restricted entitlements like
+          # WebAuthn with error 1004 unless the signed entitlements
+          # carry a matching com.apple.application-identifier. The
+          # checked-in cmux.entitlements omits it because the value is
+          # bundle-id specific; inject it (and team-identifier) for the
+          # nightly bundle here.
+          NIGHTLY_ENT="$(mktemp /tmp/cmux-nightly-ent.XXXXXX.plist)"
+          trap 'rm -f "$NIGHTLY_ENT"' EXIT
+          cp cmux.entitlements "$NIGHTLY_ENT"
+          /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$NIGHTLY_ENT" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NIGHTLY_ENT" >/dev/null 2>&1 || true
+          /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string 7WLXT3NR37.com.cmuxterm.app.nightly" "$NIGHTLY_ENT"
+          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 7WLXT3NR37" "$NIGHTLY_ENT"
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
             CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
             HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
             if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" "$CLI_PATH"
             fi
             if [ -f "$HELPER_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" "$HELPER_PATH"
             fi
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" --deep "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+            /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "com.apple.developer.web-browser.public-key-credential"
+            /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "7WLXT3NR37.com.cmuxterm.app.nightly"
           done
 
       - name: Notarize apps and dmgs
