@@ -432,34 +432,21 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          # AuthenticationServices refuses restricted entitlements like
-          # WebAuthn with error 1004 unless the signed entitlements
-          # carry a matching com.apple.application-identifier. The
-          # checked-in cmux.entitlements omits it because the value is
-          # bundle-id specific; inject it (and team-identifier) for the
-          # nightly bundle here.
-          NIGHTLY_ENT="$(mktemp /tmp/cmux-nightly-ent.XXXXXX.plist)"
-          trap 'rm -f "$NIGHTLY_ENT"' EXIT
-          cp cmux.entitlements "$NIGHTLY_ENT"
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$NIGHTLY_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NIGHTLY_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string 7WLXT3NR37.com.cmuxterm.app.nightly" "$NIGHTLY_ENT"
-          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 7WLXT3NR37" "$NIGHTLY_ENT"
+          ENTITLEMENTS="cmux.entitlements"
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
             CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
             HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
             if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" "$CLI_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
             fi
             if [ -f "$HELPER_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" "$HELPER_PATH"
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
             fi
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_ENT" --deep "$APP_PATH"
+            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
             /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
             /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "com.apple.developer.web-browser.public-key-credential"
-            /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "7WLXT3NR37.com.cmuxterm.app.nightly"
           done
 
       - name: Notarize apps and dmgs
