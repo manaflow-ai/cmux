@@ -266,6 +266,37 @@ def test_empty_surfaces_rejected(c: cmux) -> None:
     print("  PASS: empty surfaces array is rejected")
 
 
+def test_layout_overrides_initial_command_and_env(c: cmux) -> None:
+    """When layout is provided, initial_command and initial_env are ignored."""
+    baseline = c.current_workspace()
+    ws = ""
+    try:
+        token = f"layout_only_{int(time.time() * 1000)}"
+        ws = _create_and_get_id(c, {
+            "title": "test_precedence",
+            "initial_command": "echo SHOULD_NOT_RUN",
+            "initial_env": {"SHOULD_NOT_EXIST": "1"},
+            "layout": {
+                "pane": {
+                    "surfaces": [{
+                        "type": "terminal",
+                        "env": {"CMUX_LAYOUT_TEST_TOKEN": token},
+                        "command": f"echo LAYOUT_CMD_{token}",
+                    }],
+                },
+            },
+        })
+        c.select_workspace(ws)
+        text = _wait_for_text(c, ws, f"LAYOUT_CMD_{token}")
+        _must(f"LAYOUT_CMD_{token}" in text, f"layout command missing: {text!r}")
+        _must("SHOULD_NOT_RUN" not in text, f"initial_command unexpectedly ran: {text!r}")
+        c.select_workspace(baseline)
+    finally:
+        if ws:
+            _close_workspace_quietly(c, ws)
+    print("  PASS: layout overrides initial_command and initial_env")
+
+
 def main() -> int:
     with cmux(SOCKET_PATH) as c:
         print("test_workspace_create_layout:")
@@ -274,6 +305,7 @@ def main() -> int:
         test_env_vars(c)
         test_surface_commands(c)
         test_multi_surface_pane(c)
+        test_layout_overrides_initial_command_and_env(c)
         test_malformed_layout_rejected(c)
         test_empty_surfaces_rejected(c)
 
