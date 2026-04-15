@@ -290,6 +290,17 @@ def test_layout_overrides_initial_command_and_env(c: cmux) -> None:
         text = _wait_for_text(c, ws, f"LAYOUT_CMD_{token}")
         _must(f"LAYOUT_CMD_{token}" in text, f"layout command missing: {text!r}")
         _must("SHOULD_NOT_RUN" not in text, f"initial_command unexpectedly ran: {text!r}")
+        # Verify initial_env was ignored and layout env was applied
+        surfaces = _surface_list(c, ws)
+        _must(len(surfaces) >= 1, f"expected at least 1 surface, got {len(surfaces)}")
+        surface_id = str(surfaces[0].get("id"))
+        c.send_surface(
+            surface_id,
+            "printf 'LAYOUT_ENV=%s INITIAL_ENV=%s\\n' \"$CMUX_LAYOUT_TEST_TOKEN\" \"$SHOULD_NOT_EXIST\"\\n",
+        )
+        env_text = _wait_for_text(c, ws, f"LAYOUT_ENV={token}")
+        _must(f"LAYOUT_ENV={token}" in env_text, f"layout env missing: {env_text!r}")
+        _must("INITIAL_ENV=1" not in env_text, f"initial_env unexpectedly applied: {env_text!r}")
         c.select_workspace(baseline)
     finally:
         if ws:
