@@ -2123,8 +2123,8 @@ struct CMUXCLI {
             }
             if let layoutOpt {
                 guard let layoutData = layoutOpt.data(using: .utf8),
-                      let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) else {
-                    throw CLIError(message: "new-workspace: --layout value must be valid JSON")
+                      let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) as? [String: Any] else {
+                    throw CLIError(message: "new-workspace: --layout value must be a valid JSON object")
                 }
                 params["layout"] = layoutObj
             }
