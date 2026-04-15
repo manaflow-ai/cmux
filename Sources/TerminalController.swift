@@ -3393,18 +3393,36 @@ class TerminalController {
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
         let description = v2RawString(params, "description")
 
+        // Decode optional layout param (same JSON schema as cmux.json layout field).
+        // Validate before creating the workspace so malformed layouts fail fast.
+        var layoutNode: CmuxLayoutNode?
+        if let rawLayout = params["layout"] {
+            guard JSONSerialization.isValidJSONObject(rawLayout),
+                  let layoutData = try? JSONSerialization.data(withJSONObject: rawLayout) else {
+                return .err(code: "invalid_params", message: "layout must be a valid JSON object", data: nil)
+            }
+            do {
+                layoutNode = try JSONDecoder().decode(CmuxLayoutNode.self, from: layoutData)
+            } catch {
+                return .err(code: "invalid_params", message: "Invalid layout: \(error.localizedDescription)", data: nil)
+            }
+        }
+
         var newId: UUID?
         let shouldFocus = v2FocusAllowed()
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
                 workingDirectory: cwd,
-                initialTerminalCommand: initialCommand,
-                initialTerminalEnvironment: initialEnv,
+                initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
+                initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
                 eagerLoadTerminal: !shouldFocus
             )
             ws.setCustomDescription(description)
+            if let layoutNode {
+                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+            }
             newId = ws.id
         }
 

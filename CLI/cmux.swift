@@ -2105,9 +2105,10 @@ struct CMUXCLI {
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-            let (descriptionOpt, remaining) = parseOption(rem2, name: "--description")
+            let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
+            let (layoutOpt, remaining) = parseOption(rem3, name: "--layout")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>")
+                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>")
             }
             var params: [String: Any] = [:]
             if let cwdOpt {
@@ -2120,10 +2121,17 @@ struct CMUXCLI {
             if let descriptionOpt {
                 params["description"] = descriptionOpt
             }
+            if let layoutOpt {
+                guard let layoutData = layoutOpt.data(using: .utf8),
+                      let layoutObj = try? JSONSerialization.jsonObject(with: layoutData) else {
+                    throw CLIError(message: "new-workspace: --layout value must be valid JSON")
+                }
+                params["layout"] = layoutObj
+            }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
-            if let commandText = commandOpt, !wsId.isEmpty {
+            if layoutOpt == nil, let commandText = commandOpt, !wsId.isEmpty {
                 let text = unescapeSendText(commandText + "\\n")
                 let sendParams: [String: Any] = ["text": text, "workspace_id": wsId]
                 _ = try client.sendV2(method: "surface.send_text", params: sendParams)
@@ -7201,15 +7209,18 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
 
             Create a new workspace in the current window.
 
             Flags:
-              --name <title>     Set a custom name for the new workspace
+              --name <title>       Set a custom name for the new workspace
               --description <text> Set a custom description for the new workspace
-              --cwd <path>       Set the working directory for the new workspace
-              --command <text>   Send text+Enter to the new workspace after creation
+              --cwd <path>         Set the working directory for the new workspace
+              --command <text>     Send text+Enter to the new workspace after creation
+              --layout <json>      Create workspace with a predefined split layout (inline JSON).
+                                   Uses the same schema as cmux.json layout definitions.
+                                   When provided, --command is ignored (layout surfaces define their own commands).
 
             Example:
               cmux new-workspace
@@ -7217,6 +7228,7 @@ struct CMUXCLI {
               cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
+              cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
             """
         case "list-workspaces":
             return """
@@ -14372,7 +14384,7 @@ struct CMUXCLI {
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
           workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           list-workspaces
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>]
