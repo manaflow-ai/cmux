@@ -2629,7 +2629,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         NSWindow.allowsAutomaticWindowTabbing = false
         disableNativeTabbingShortcut()
-        ensureApplicationIcon()
+        if !isRunningUnderXCTest {
+            ensureApplicationIcon()
+        }
         if !isRunningUnderXCTest {
             configureUserNotifications()
             installMenuBarVisibilityObserver()
