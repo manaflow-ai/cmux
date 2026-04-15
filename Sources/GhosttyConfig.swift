@@ -16,7 +16,8 @@ struct GhosttyConfig {
     var surfaceTabBarFontSize: CGFloat = 11
     var theme: String?
     var workingDirectory: String?
-    var scrollbackLimit: Int = 10000
+    // Ghostty measures scrollback-limit in bytes, not lines.
+    var scrollbackLimit: Int = 10_000_000
     var unfocusedSplitOpacity: Double = 0.7
     var unfocusedSplitFill: NSColor?
     var splitDividerColor: NSColor?
@@ -252,7 +253,7 @@ struct GhosttyConfig {
                 case "working-directory":
                     workingDirectory = value
                 case "scrollback-limit":
-                    if let limit = Int(value) {
+                    if let limit = Self.parseIntegerLiteral(value) {
                         scrollbackLimit = limit
                     }
                 case "background":
@@ -314,6 +315,11 @@ struct GhosttyConfig {
                 }
             }
         }
+    }
+
+    private static func parseIntegerLiteral(_ value: String) -> Int? {
+        let normalized = value.replacingOccurrences(of: "_", with: "")
+        return Int(normalized)
     }
 
     mutating func loadTheme(_ name: String) {
