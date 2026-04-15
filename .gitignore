@@ -47,3 +47,4 @@ tests/visual_report.html
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+build-local-nightly/
