@@ -290,33 +290,10 @@ jobs:
             exit 1
           fi
           APP_PATH="build-universal/Build/Products/Release/cmux.app"
-          # Inside-out signing (see docs/signing.md reasoning also in
-          # nightly.yml): CLI helpers get minimal hardened-runtime
-          # entitlements, main app bundle gets the full entitlements with
-          # application-identifier injected so AuthenticationServices can
-          # serve passkey / WebAuthn ceremonies. No --deep on the top
-          # sign: it would overwrite helper signatures and re-introduce
-          # the amfi launch rejection seen in the nightly.
-          HELPER_ENT="cmux-helper.entitlements"
-          RELEASE_APP_ENT="$(mktemp /tmp/cmux-release-app-ent.XXXXXX.plist)"
-          trap 'rm -f "$RELEASE_APP_ENT"' EXIT
-          cp cmux.entitlements "$RELEASE_APP_ENT"
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$RELEASE_APP_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$RELEASE_APP_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string 7WLXT3NR37.com.cmuxterm.app" "$RELEASE_APP_ENT"
-          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 7WLXT3NR37" "$RELEASE_APP_ENT"
-          CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-          HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
-          if [ -f "$CLI_PATH" ]; then
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$CLI_PATH"
-          fi
-          if [ -f "$HELPER_PATH" ]; then
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$HELPER_PATH"
-          fi
-          /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$RELEASE_APP_ENT" "$APP_PATH"
-          /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "com.apple.developer.web-browser.public-key-credential"
-          /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "7WLXT3NR37.com.cmuxterm.app"
+          ./scripts/sign-cmux-bundle.sh \
+            "$APP_PATH" \
+            cmux.release.entitlements \
+            "$APPLE_SIGNING_IDENTITY"
 
       - name: Notarize app
         if: steps.guard_release_assets.outputs.skip_all != 'true'

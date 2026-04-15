@@ -432,50 +432,13 @@ jobs:
             echo "Missing APPLE_SIGNING_IDENTITY secret" >&2
             exit 1
           fi
-          # Inside-out signing with per-binary entitlements:
-          # - CLI helpers get a minimal hardened-runtime entitlements file
-          #   (no application-identifier). If we gave them the main app's
-          #   application-identifier, amfi rejects the bundle at launch on
-          #   macOS 26 Tahoe because the helper's signing identifier
-          #   ("cmux" / "ghostty") doesn't match the claimed app id
-          #   (7WLXT3NR37.com.cmuxterm.app.nightly).
-          # - Main app bundle gets the full entitlements including an
-          #   injected application-identifier, which AuthenticationServices
-          #   requires for passkey / WebAuthn ceremonies
-          #   (ASAuthorizationError 1004 otherwise).
-          # - No --deep on the top-level sign: it would overwrite the
-          #   helper signatures with the main entitlements and reintroduce
-          #   the mismatch.
-          HELPER_ENT="cmux-helper.entitlements"
-          NIGHTLY_APP_ENT="$(mktemp /tmp/cmux-nightly-app-ent.XXXXXX.plist)"
-          trap 'rm -f "$NIGHTLY_APP_ENT"' EXIT
-          cp cmux.entitlements "$NIGHTLY_APP_ENT"
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.application-identifier" "$NIGHTLY_APP_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.team-identifier" "$NIGHTLY_APP_ENT" >/dev/null 2>&1 || true
-          /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string 7WLXT3NR37.com.cmuxterm.app.nightly" "$NIGHTLY_APP_ENT"
-          /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 7WLXT3NR37" "$NIGHTLY_APP_ENT"
           for APP_PATH in \
             "build-universal/Build/Products/Release/cmux NIGHTLY.app"
           do
-            CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-            HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
-            if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$CLI_PATH"
-            fi
-            if [ -f "$HELPER_PATH" ]; then
-              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$HELPER_PATH"
-            fi
-            /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$NIGHTLY_APP_ENT" "$APP_PATH"
-            /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-            /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "com.apple.developer.web-browser.public-key-credential"
-            /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "7WLXT3NR37.com.cmuxterm.app.nightly"
-            # Assert helpers do NOT carry the main app's application-identifier
-            if [ -f "$CLI_PATH" ]; then
-              /usr/bin/codesign -d --entitlements :- "$CLI_PATH" 2>&1 | grep -q "application-identifier" && {
-                echo "error: CLI helper unexpectedly carries application-identifier" >&2
-                exit 1
-              } || true
-            fi
+            ./scripts/sign-cmux-bundle.sh \
+              "$APP_PATH" \
+              cmux.nightly.entitlements \
+              "$APPLE_SIGNING_IDENTITY"
           done
 
       - name: Notarize apps and dmgs
