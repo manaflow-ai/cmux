@@ -307,12 +307,26 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :com.apple.developer.team-identifier string 7WLXT3NR37" "$RELEASE_APP_ENT"
           CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
           HELPER_PATH="$APP_PATH/Contents/Resources/bin/ghostty"
+          # 1. CLI helpers with minimal entitlements.
           if [ -f "$CLI_PATH" ]; then
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$CLI_PATH"
           fi
           if [ -f "$HELPER_PATH" ]; then
             /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$HELPER_ENT" "$HELPER_PATH"
           fi
+          # 2. Plugins with --deep, no entitlements.
+          if [ -d "$APP_PATH/Contents/PlugIns" ]; then
+            while IFS= read -r -d '' plugin; do
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --deep "$plugin"
+            done < <(find "$APP_PATH/Contents/PlugIns" -mindepth 1 -maxdepth 1 -print0)
+          fi
+          # 3. Frameworks with --deep, no entitlements.
+          if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+            while IFS= read -r -d '' fw; do
+              /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --deep "$fw"
+            done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
+          fi
+          # 4. Main app bundle last with full entitlements, NO --deep.
           /usr/bin/codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" --entitlements "$RELEASE_APP_ENT" "$APP_PATH"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>&1 | grep -q "com.apple.developer.web-browser.public-key-credential"
