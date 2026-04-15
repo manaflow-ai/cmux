@@ -240,6 +240,9 @@ def test_malformed_layout_rejected(c: cmux) -> None:
 
 def test_empty_surfaces_rejected(c: cmux) -> None:
     """Pane with empty surfaces array is rejected."""
+    baseline_workspaces = c._call("workspace.list") or {}
+    baseline_count = len((baseline_workspaces.get("workspaces") or []))
+
     try:
         c._call("workspace.create", {
             "title": "test_empty",
@@ -253,6 +256,10 @@ def test_empty_surfaces_rejected(c: cmux) -> None:
             pass  # expected
         else:
             raise
+
+    after_workspaces = c._call("workspace.list") or {}
+    after_count = len((after_workspaces.get("workspaces") or []))
+    _must(after_count == baseline_count, f"empty surfaces created a workspace: {baseline_count} -> {after_count}")
     print("  PASS: empty surfaces array is rejected")
 
 
