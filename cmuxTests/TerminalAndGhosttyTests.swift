@@ -49,6 +49,49 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         )
     }
 
+    /// Regression test for https://github.com/manaflow-ai/cmux/issues/2818 —
+    /// Qt-based apps (Telegram Desktop, etc.) register the legacy
+    /// `com.apple.traditional-mac-plain-text` type (Mac OS Roman encoding,
+    /// no CJK/Cyrillic/Arabic support) *before* UTF-8. Iterating the
+    /// pasteboard types in order used to return the lossy legacy value,
+    /// mangling every non-Latin character into "?". The helper must
+    /// prefer UTF-8 whenever it is also present on the pasteboard.
+    func testPrefersUTF8PlainTextOverLegacyMacRomanType() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-utf8-priority-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let koreanText = "삼성전자 거래량 미충족"
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        let utf8Type = NSPasteboard.PasteboardType("public.utf8-plain-text")
+
+        // Order matters: declare legacy FIRST to mirror Qt's behaviour.
+        pasteboard.declareTypes([legacyType, utf8Type], owner: nil)
+        pasteboard.setString("?? ??? ???", forType: legacyType)
+        pasteboard.setString(koreanText, forType: utf8Type)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            koreanText
+        )
+    }
+
+    /// Fallback-loop coverage: when *only* a legacy / unknown plain-text
+    /// type is present and no UTF-8 variant exists, the helper should still
+    /// return whatever string the pasteboard does expose (best-effort).
+    func testFallsBackWhenOnlyNonPreferredPlainTextTypePresent() {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-only-legacy-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let legacyType = NSPasteboard.PasteboardType("com.apple.traditional-mac-plain-text")
+        pasteboard.declareTypes([legacyType], owner: nil)
+        pasteboard.setString("plain ascii", forType: legacyType)
+
+        XCTAssertEqual(
+            cmuxPasteboardStringContentsForTesting(pasteboard),
+            "plain ascii"
+        )
+    }
+
     func testEmptyPlainTextFallsBackToRichTextPayload() throws {
         let pasteboard = NSPasteboard(name: .init("cmux-test-empty-plain-rich-fallback-\(UUID().uuidString)"))
         pasteboard.clearContents()

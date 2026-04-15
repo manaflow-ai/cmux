@@ -95,6 +95,19 @@
         }
       }
     },
+    "terminal": {
+      "title": "terminal",
+      "description": "Terminal presentation settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "showScrollBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
+        }
+      }
+    },
     "notifications": {
       "title": "notifications",
       "description": "Notification behavior from Settings > Notifications.",

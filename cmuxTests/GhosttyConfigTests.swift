@@ -2863,8 +2863,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             fi
 
             cmux_test_ready() {
+              [[ -e "$CMUX_TEST_READY" ]] && return 0
               print -r -- "PRE=$CMUX_STARTUP_THEME_TERM|$CMUX_STARTUP_THEME_BRANCH|$TERM|${CMUX_ZSH_RESTORE_TERM-unset}" > "$CMUX_TEST_OUTPUT"
               : > "$CMUX_TEST_READY"
+              precmd_functions=(${precmd_functions:#cmux_test_ready})
             }
             precmd_functions+=(cmux_test_ready)
             """

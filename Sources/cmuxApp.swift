@@ -96,6 +96,23 @@ enum PaneFirstClickFocusSettings {
     }
 }
 
+enum TerminalScrollBarSettings {
+    static let showScrollBarKey = "terminal.showScrollBar"
+    static let defaultShowScrollBar = true
+    static let didChangeNotification = Notification.Name("cmux.terminalScrollBarSettingsDidChange")
+
+    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: showScrollBarKey) == nil {
+            return defaultShowScrollBar
+        }
+        return defaults.bool(forKey: showScrollBarKey)
+    }
+
+    static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
+        notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 
@@ -3779,10 +3796,29 @@ enum AppIconMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum AppIconLaunchState {
+    private static let lock = NSLock()
+    private static var didFinishLaunching = false
+
+    static func markDidFinishLaunching() {
+        lock.lock()
+        defer { lock.unlock() }
+        didFinishLaunching = true
+    }
+
+    static func isApplicationFinishedLaunching() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let hasFinishedLaunching = didFinishLaunching
+        return hasFinishedLaunching
+    }
+}
+
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+    private static var liveEnvironmentProvider: () -> Environment = { .live() }
 
     private static func isRunningUnderXCTest(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -3796,6 +3832,7 @@ enum AppIconSettings {
     }
 
     struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
@@ -3804,6 +3841,9 @@ enum AppIconSettings {
 
         static func live() -> Self {
             Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
@@ -3838,7 +3878,13 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode, environment: Environment = .live()) {
+    static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+        let environment = environment ?? liveEnvironmentProvider()
+        // Tahoe can crash or wedge when app icon work runs during App.init(),
+        // so leave settings replay to update defaults only and let AppDelegate
+        // apply the resolved icon once didFinishLaunching begins.
+        guard environment.isApplicationFinishedLaunching() else { return }
+
         switch mode {
         case .automatic:
             environment.startAppearanceObservation()
@@ -3854,35 +3900,128 @@ enum AppIconSettings {
 
         environment.notifyDockTilePlugin()
     }
+
+    static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> Environment) {
+        liveEnvironmentProvider = provider
+    }
+
+    static func resetLiveEnvironmentProviderForTesting() {
+        liveEnvironmentProvider = { .live() }
+    }
 }
 
-final class AppIconAppearanceObserver: NSObject {
-    static let shared = AppIconAppearanceObserver()
-    private var observation: NSKeyValueObservation?
+protocol AppIconAppearanceObservation: AnyObject {
+    func invalidate()
+}
 
-    private override init() { super.init() }
+extension NSKeyValueObservation: AppIconAppearanceObservation {}
+
+final class AppIconAppearanceObserver: NSObject {
+    struct Environment {
+        let isApplicationFinishedLaunching: () -> Bool
+        let startEffectiveAppearanceObservation: (@escaping () -> Void) -> AppIconAppearanceObservation?
+        let addDidFinishLaunchingObserver: (@escaping () -> Void) -> NSObjectProtocol
+        let removeObserver: (NSObjectProtocol) -> Void
+        let currentAppearanceIsDark: () -> Bool?
+        let imageForName: (String) -> NSImage?
+        let setApplicationIconImage: (NSImage) -> Void
+
+        static func live() -> Self {
+            Self(
+                isApplicationFinishedLaunching: {
+                    AppIconLaunchState.isApplicationFinishedLaunching()
+                },
+                startEffectiveAppearanceObservation: { handler in
+                    guard let app = NSApp else { return nil }
+                    return app.observe(\.effectiveAppearance, options: []) { _, _ in
+                        DispatchQueue.main.async {
+                            handler()
+                        }
+                    }
+                },
+                addDidFinishLaunchingObserver: { handler in
+                    NotificationCenter.default.addObserver(
+                        forName: NSApplication.didFinishLaunchingNotification,
+                        object: nil,
+                        queue: .main
+                    ) { _ in
+                        handler()
+                    }
+                },
+                removeObserver: { observer in
+                    NotificationCenter.default.removeObserver(observer)
+                },
+                currentAppearanceIsDark: {
+                    guard let app = NSApp else { return nil }
+                    return app.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                },
+                imageForName: { imageName in
+                    NSImage(named: imageName)
+                },
+                setApplicationIconImage: { icon in
+                    NSApplication.shared.applicationIconImage = icon
+                }
+            )
+        }
+    }
+
+    static let shared = AppIconAppearanceObserver()
+    private let environment: Environment
+    private var observation: AppIconAppearanceObservation?
+    private var launchObserver: NSObjectProtocol?
+    private var hasDeferredStartPending = false
+
+    init(environment: Environment = .live()) {
+        self.environment = environment
+        super.init()
+    }
 
     func startObserving() {
+        // Tahoe crashes if effectiveAppearance is touched during App.init(),
+        // so defer the first automatic-icon apply until launch completes.
+        if !environment.isApplicationFinishedLaunching() {
+            deferStartUntilLaunchIfNeeded()
+            return
+        }
+
+        cancelDeferredStart()
         applyIconForCurrentAppearance()
         guard observation == nil else { return }
-        observation = NSApp.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                guard let self, self.observation != nil else { return }
-                self.applyIconForCurrentAppearance()
-            }
+        observation = environment.startEffectiveAppearanceObservation { [weak self] in
+            guard let self, self.observation != nil else { return }
+            self.applyIconForCurrentAppearance()
         }
     }
 
     func stopObserving() {
         observation?.invalidate()
         observation = nil
+        cancelDeferredStart()
+    }
+
+    private func deferStartUntilLaunchIfNeeded() {
+        hasDeferredStartPending = true
+        guard launchObserver == nil else { return }
+        launchObserver = environment.addDidFinishLaunchingObserver { [weak self] in
+            guard let self, self.hasDeferredStartPending else { return }
+            self.cancelDeferredStart()
+            self.startObserving()
+        }
+    }
+
+    private func cancelDeferredStart() {
+        hasDeferredStartPending = false
+        guard let launchObserver else { return }
+        environment.removeObserver(launchObserver)
+        self.launchObserver = nil
     }
 
     private func applyIconForCurrentAppearance() {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        guard environment.isApplicationFinishedLaunching() else { return }
+        guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        if let icon = NSImage(named: imageName) {
-            NSApplication.shared.applicationIconImage = icon
+        if let icon = environment.imageForName(imageName) {
+            environment.setApplicationIconImage(icon)
         }
     }
 }
@@ -4259,6 +4398,8 @@ struct SettingsView: View {
     private var closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
     @AppStorage(PaneFirstClickFocusSettings.enabledKey)
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+    @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
+    private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
@@ -4368,6 +4509,17 @@ struct SettingsView: View {
         return String(
             localized: "settings.app.paneFirstClickFocus.subtitleOff",
             defaultValue: "When cmux is inactive, the first click only activates the window. Click again to focus the pane."
+        )
+    }
+
+    private var showTerminalScrollBarBinding: Binding<Bool> {
+        Binding(
+            get: { showTerminalScrollBar },
+            set: { newValue in
+                guard showTerminalScrollBar != newValue else { return }
+                showTerminalScrollBar = newValue
+                TerminalScrollBarSettings.notifyDidChange()
+            }
         )
     }
 
@@ -5311,6 +5463,25 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.terminal", defaultValue: "Terminal"))
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.showScrollBar"),
+                            String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"),
+                            subtitle: showTerminalScrollBar
+                                ? String(localized: "settings.terminal.scrollBar.subtitleOn", defaultValue: "Shows the right-edge terminal scroll bar in shell scrollback. cmux hides it automatically for alternate-screen style TUI surfaces and you can also disable it per workspace.")
+                                : String(localized: "settings.terminal.scrollBar.subtitleOff", defaultValue: "Hides the right-edge terminal scroll bar everywhere. Changes apply immediately and persist across relaunches.")
+                        ) {
+                            Toggle("", isOn: showTerminalScrollBarBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
                     }
 
                     SettingsSectionHeader(title: String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors"))
@@ -6345,6 +6516,11 @@ struct SettingsView: View {
         defaults.removeObject(forKey: WorkspaceButtonFadeSettings.legacyPaneTabBarControlsVisibilityModeKey)
         closeWorkspaceOnLastSurfaceShortcut = LastSurfaceCloseShortcutSettings.defaultValue
         paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
+        let previousShowTerminalScrollBar = showTerminalScrollBar
+        showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+        if previousShowTerminalScrollBar != showTerminalScrollBar {
+            TerminalScrollBarSettings.notifyDidChange()
+        }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

@@ -333,6 +333,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customDescription: String?
     var customColor: String?
     var isPinned: Bool
+    var terminalScrollBarHidden: Bool?
     var currentDirectory: String
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
