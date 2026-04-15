@@ -148,7 +148,7 @@ def test_env_vars(c: cmux) -> None:
         surfaces = _surface_list(c, ws)
         _must(len(surfaces) >= 1, f"expected at least 1 surface, got {len(surfaces)}")
         surface_id = str(surfaces[0].get("id"))
-        c.send_surface(surface_id, f"printf 'CHECK=%s\\n' \"$CMUX_LAYOUT_TEST_TOKEN\"\\n")
+        c.send_surface(surface_id, "printf 'CHECK=%s\\n' \"$CMUX_LAYOUT_TEST_TOKEN\"\\n")
         text = _wait_for_text(c, ws, f"CHECK={token}")
         _must(f"CHECK={token}" in text, f"env var not found in output: {text!r}")
         c.select_workspace(baseline)
