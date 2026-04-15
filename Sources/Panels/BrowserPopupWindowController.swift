@@ -568,6 +568,17 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        // Shift+click: bypass embedded browser and open in system default browser.
+        if navigationAction.modifierFlags.contains(.shift),
+           navigationAction.navigationType == .linkActivated {
+            #if DEBUG
+            dlog("popup.nav.shiftClickExternal url=\(url.absoluteString)")
+            #endif
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+
         // Insecure HTTP → show same prompt as main browser
         if browserShouldBlockInsecureHTTPURL(url) {
             #if DEBUG

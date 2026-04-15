@@ -6171,6 +6171,18 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        // Shift+click: bypass embedded browser and open in system default browser.
+        if navigationAction.modifierFlags.contains(.shift),
+           navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url {
+            #if DEBUG
+            dlog("browser.nav.decidePolicy.action kind=shiftClickExternal url=\(url.absoluteString)")
+            #endif
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+
         // Cmd+click and middle-click on regular links should always open in a new tab.
         if shouldOpenInNewTab,
            let url = navigationAction.request.url {

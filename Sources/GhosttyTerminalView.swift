@@ -3257,6 +3257,15 @@ class GhosttyApp {
                 #endif
                 return false
             }
+            // Shift+click: bypass embedded browser, open in system default browser.
+            if NSEvent.modifierFlags.contains(.shift) {
+                #if DEBUG
+                dlog("link.openURL shift=true, forcing system browser url=\(target.url)")
+                #endif
+                return performOnMain {
+                    NSWorkspace.shared.open(target.url)
+                }
+            }
             if !BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser() {
                 #if DEBUG
                 dlog("link.openURL cmuxBrowser=disabled, opening externally url=\(target.url)")
@@ -7044,7 +7053,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             var keyEvent = ghostty_input_key_s()
             keyEvent.action = action
             keyEvent.keycode = UInt32(event.keyCode)
-            keyEvent.mods = modsFromEvent(event)
+            keyEvent.mods = linkModsFromEvent(event)
             keyEvent.consumed_mods = GHOSTTY_MODS_NONE
             keyEvent.text = nil
             keyEvent.composing = false
@@ -7098,11 +7107,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return ghostty_surface_has_selection(surface)
     }
 
+    // Strip Shift when Cmd is held so Ghostty treats Cmd+Shift+click as a
+    // link click. The real Shift state is checked in the OPEN_URL handler.
+    private func linkModsFromEvent(_ event: NSEvent) -> ghostty_input_mods_e {
+        let flags = event.modifierFlags
+        if flags.contains(.command), flags.contains(.shift) {
+            return modsFromFlags(flags.subtracting(.shift))
+        }
+        return modsFromFlags(flags)
+    }
+
     private func hoverModsFromFlags(
         _ flags: NSEvent.ModifierFlags,
         suppressCommandPathHover: Bool
     ) -> ghostty_input_mods_e {
-        let effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
+        var effectiveFlags = suppressCommandPathHover ? flags.subtracting(.command) : flags
+        if effectiveFlags.contains(.command), effectiveFlags.contains(.shift) {
+            effectiveFlags = effectiveFlags.subtracting(.shift)
+        }
 #if DEBUG
         if suppressCommandPathHover, flags.contains(.command) {
             _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(
@@ -7383,9 +7405,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
+            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, linkModsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, linkModsFromEvent(event))
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -7394,7 +7416,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, linkModsFromEvent(event))
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
     }
 
