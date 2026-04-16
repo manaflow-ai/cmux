@@ -4564,7 +4564,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@, 작업 공간 %2$lld / %3$lld"
+            "value": "%1$@, 워크스페이스 %2$lld / %3$lld"
           }
         },
         "de": {
@@ -5040,7 +5040,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 색상"
+            "value": "사용자 지정 워크스페이스 색상"
           }
         },
         "de": {
@@ -5754,7 +5754,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간의 사용자 지정 이름을 입력하세요."
+            "value": "이 워크스페이스의 사용자 지정 이름을 입력하세요."
           }
         },
         "de": {
@@ -5873,7 +5873,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -6111,7 +6111,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -17464,7 +17464,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 지우기"
+            "value": "워크스페이스 이름 지우기"
           }
         },
         "de": {
@@ -18128,7 +18128,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -18247,7 +18247,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -21586,7 +21586,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -21705,7 +21705,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -22062,7 +22062,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 탐색"
+            "value": "워크스페이스 탐색"
           }
         },
         "de": {
@@ -22181,7 +22181,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -22300,7 +22300,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -22822,7 +22822,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 PR 링크 모두 열기"
+            "value": "워크스페이스 PR 링크 모두 열기"
           }
         },
         "de": {
@@ -23060,7 +23060,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -23417,7 +23417,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 탐색"
+            "value": "워크스페이스 탐색"
           }
         },
         "de": {
@@ -23536,7 +23536,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -23774,7 +23774,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -27497,7 +27497,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -27941,7 +27941,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -28774,7 +28774,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enter를 눌러 작업 공간 이름을 적용하거나, Escape를 눌러 취소하세요."
+            "value": "Enter를 눌러 워크스페이스 이름을 적용하거나, Escape를 눌러 취소하세요."
           }
         },
         "de": {
@@ -28893,7 +28893,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 이름을 선택하세요."
+            "value": "사용자 지정 워크스페이스 이름을 선택하세요."
           }
         },
         "de": {
@@ -29012,7 +29012,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
+            "value": "워크스페이스 이름을 입력하세요. Enter로 이름 변경, Escape로 취소."
           }
         },
         "de": {
@@ -29131,7 +29131,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -29250,7 +29250,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -29607,7 +29607,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검색과 일치하는 작업 공간이 없습니다."
+            "value": "검색과 일치하는 워크스페이스가 없습니다."
           }
         },
         "de": {
@@ -29755,7 +29755,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 검색"
+            "value": "워크스페이스 검색"
           }
         },
         "de": {
@@ -30379,7 +30379,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -30498,7 +30498,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 • %@"
+            "value": "워크스페이스 • %@"
           }
         },
         "de": {
@@ -30736,7 +30736,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -32834,7 +32834,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 작업 공간 닫기"
+            "value": "다른 워크스페이스 닫기"
           }
         },
         "de": {
@@ -32953,7 +32953,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -33072,7 +33072,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -33191,7 +33191,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "위쪽 작업 공간 닫기"
+            "value": "위쪽 워크스페이스 닫기"
           }
         },
         "de": {
@@ -33310,7 +33310,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아래쪽 작업 공간 닫기"
+            "value": "아래쪽 워크스페이스 닫기"
           }
         },
         "de": {
@@ -33429,7 +33429,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽음으로 표시"
+            "value": "워크스페이스를 읽음으로 표시"
           }
         },
         "de": {
@@ -33548,7 +33548,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽지 않음으로 표시"
+            "value": "워크스페이스를 읽지 않음으로 표시"
           }
         },
         "de": {
@@ -33667,7 +33667,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽음으로 표시"
+            "value": "워크스페이스를 읽음으로 표시"
           }
         },
         "de": {
@@ -33786,7 +33786,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 읽지 않음으로 표시"
+            "value": "워크스페이스를 읽지 않음으로 표시"
           }
         },
         "de": {
@@ -34453,7 +34453,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 윈도우로 이동"
+            "value": "워크스페이스를 윈도우로 이동"
           }
         },
         "de": {
@@ -34572,7 +34572,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 윈도우로 이동"
+            "value": "워크스페이스를 윈도우로 이동"
           }
         },
         "de": {
@@ -34810,7 +34810,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -34929,7 +34929,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정"
+            "value": "워크스페이스 고정"
           }
         },
         "de": {
@@ -35048,7 +35048,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 작업 공간 이름 제거"
+            "value": "사용자 지정 워크스페이스 이름 제거"
           }
         },
         "de": {
@@ -35167,7 +35167,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -35286,7 +35286,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -35405,7 +35405,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 고정 해제"
+            "value": "워크스페이스 고정 해제"
           }
         },
         "de": {
@@ -35524,7 +35524,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상"
+            "value": "워크스페이스 색상"
           }
         },
         "de": {
@@ -35762,7 +35762,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "마지막 탭이 닫히면 해당 작업 공간도 닫힙니다."
+            "value": "마지막 탭이 닫히면 해당 워크스페이스도 닫힙니다."
           }
         },
         "de": {
@@ -36856,7 +36856,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간과 모든 패널을 닫습니다."
+            "value": "워크스페이스와 모든 패널을 닫습니다."
           }
         },
         "de": {
@@ -36975,7 +36975,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간을 닫으시겠습니까?"
+            "value": "워크스페이스를 닫으시겠습니까?"
           }
         },
         "de": {
@@ -38165,7 +38165,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 윈도우의 새 작업 공간"
+            "value": "현재 윈도우의 새 워크스페이스"
           }
         },
         "de": {
@@ -38284,7 +38284,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 작업 공간을 새 윈도우로"
+            "value": "선택한 워크스페이스를 새 윈도우로"
           }
         },
         "de": {
@@ -38522,7 +38522,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 윈도우와 작업 공간을 닫습니다."
+            "value": "모든 윈도우와 워크스페이스를 닫습니다."
           }
         },
         "de": {
@@ -39236,7 +39236,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간의 사용자 지정 이름을 입력하세요."
+            "value": "이 워크스페이스의 사용자 지정 이름을 입력하세요."
           }
         },
         "de": {
@@ -39355,7 +39355,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "de": {
@@ -39474,7 +39474,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -40925,7 +40925,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -41163,7 +41163,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간으로 이동…"
+            "value": "워크스페이스로 이동…"
           }
         },
         "de": {
@@ -41401,7 +41401,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -46305,7 +46305,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -46543,7 +46543,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -46781,7 +46781,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경…"
+            "value": "워크스페이스 이름 변경…"
           }
         },
         "de": {
@@ -47887,7 +47887,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 %lld"
+            "value": "워크스페이스 %lld"
           }
         },
         "de": {
@@ -51323,7 +51323,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간 위치"
+            "value": "새 워크스페이스 위치"
           }
         },
         "de": {
@@ -53504,7 +53504,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "알림을 받은 작업 공간을 맨 위로 이동합니다. 단축키 위치를 고정하려면 비활성화하세요."
+            "value": "알림을 받은 워크스페이스를 맨 위로 이동합니다. 단축키 위치를 고정하려면 비활성화하세요."
           }
         },
         "de": {
@@ -54572,7 +54572,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 작업 공간에서 감지된 수신 대기 포트를 표시합니다."
+            "value": "활성 워크스페이스에서 감지된 수신 대기 포트를 표시합니다."
           }
         },
         "de": {
@@ -58770,7 +58770,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "각 작업 공간에 전용 포트 범위가 있는 CMUX_PORT 및 CMUX_PORT_END 환경 변수가 할당됩니다. 새 터미널은 이 값을 상속합니다."
+            "value": "각 워크스페이스에 전용 포트 범위가 있는 CMUX_PORT 및 CMUX_PORT_END 환경 변수가 할당됩니다. 새 터미널은 이 값을 상속합니다."
           }
         },
         "de": {
@@ -59246,7 +59246,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간당 포트 수."
+            "value": "워크스페이스당 포트 수."
           }
         },
         "de": {
@@ -67980,7 +67980,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상"
+            "value": "워크스페이스 색상"
           }
         },
         "de": {
@@ -79952,7 +79952,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 색상 표시기"
+            "value": "워크스페이스 색상 표시기"
           }
         },
         "de": {
@@ -80071,7 +80071,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 색상: 아직 없습니다. 작업 공간 컨텍스트 메뉴에서 \"사용자 지정 색상 선택...\"을 사용하세요."
+            "value": "사용자 지정 색상: 아직 없습니다. 워크스페이스 컨텍스트 메뉴에서 \"사용자 지정 색상 선택...\"을 사용하세요."
           }
         },
         "de": {
@@ -80190,7 +80190,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사이드바 > 작업 공간 색상에서 사용하는 작업 공간 색상 팔레트를 사용자 지정합니다. \"사용자 지정 색상 선택...\" 항목은 아래에 저장됩니다."
+            "value": "사이드바 > 워크스페이스 색상에서 사용하는 워크스페이스 색상 팔레트를 사용자 지정합니다. \"사용자 지정 색상 선택...\" 항목은 아래에 저장됩니다."
           }
         },
         "de": {
@@ -80927,7 +80927,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -81998,7 +81998,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -82236,7 +82236,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 작업 공간"
+            "value": "다음 워크스페이스"
           }
         },
         "de": {
@@ -83149,7 +83149,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이전 작업 공간"
+            "value": "이전 워크스페이스"
           }
         },
         "de": {
@@ -83387,7 +83387,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 이름 변경"
+            "value": "워크스페이스 이름 변경"
           }
         },
         "de": {
@@ -85074,7 +85074,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 닫기"
+            "value": "워크스페이스 닫기"
           }
         },
         "de": {
@@ -86708,7 +86708,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 작업 공간에 포커스하려면 활성화하세요. 드래그하여 순서를 변경하거나 위로 이동 및 아래로 이동 동작을 사용하세요."
+            "value": "이 워크스페이스에 포커스하려면 활성화하세요. 드래그하여 순서를 변경하거나 위로 이동 및 아래로 이동 동작을 사용하세요."
           }
         },
         "de": {
@@ -90475,7 +90475,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -90594,7 +90594,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 작업 공간"
+            "value": "새 워크스페이스"
           }
         },
         "de": {
@@ -98329,7 +98329,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간"
+            "value": "워크스페이스"
           }
         },
         "de": {
@@ -98596,7 +98596,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성 작업 공간 바로 다음에 새 작업 공간을 삽입합니다."
+            "value": "활성 워크스페이스 바로 다음에 새 워크스페이스를 삽입합니다."
           }
         },
         "de": {
@@ -98834,7 +98834,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "목록 하단에 새 작업 공간을 추가합니다."
+            "value": "목록 하단에 새 워크스페이스를 추가합니다."
           }
         },
         "de": {
@@ -99072,7 +99072,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "목록 맨 위에 새 작업 공간을 삽입합니다."
+            "value": "목록 맨 위에 새 워크스페이스를 삽입합니다."
           }
         },
         "de": {
@@ -102442,7 +102442,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 창에 새 작업 공간"
+            "value": "현재 창에 새 워크스페이스"
           }
         },
         "de": {
@@ -102555,7 +102555,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 창에서 선택한 작업 공간"
+            "value": "새 창에서 선택한 워크스페이스"
           }
         },
         "de": {
