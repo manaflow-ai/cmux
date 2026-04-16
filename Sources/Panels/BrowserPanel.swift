@@ -855,6 +855,32 @@ func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     return preparedRequest
 }
 
+// Retargeted popup/new-tab navigations must carry the original request so
+// redirect interstitials keep Referer and any site-specific headers intact.
+struct BrowserNewTabNavigationSeed {
+    let url: URL
+    let initialRequest: URLRequest
+    let bypassInsecureHTTPHostOnce: String?
+}
+
+func browserNewTabNavigationSeed(
+    from request: URLRequest,
+    bypassInsecureHTTPHostOnce: String? = nil
+) -> BrowserNewTabNavigationSeed? {
+    guard let url = request.url else { return nil }
+    return BrowserNewTabNavigationSeed(
+        url: url,
+        initialRequest: browserPreparedNavigationRequest(request),
+        bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+    )
+}
+
+// Popup WKWebViews must stay on the opener's exact WebKit browsing context.
+struct BrowserPopupBrowserContext {
+    let websiteDataStore: WKWebsiteDataStore
+    let processPool: WKProcessPool
+}
+
 func browserReadAccessURL(forLocalFileURL fileURL: URL, fileManager: FileManager = .default) -> URL? {
     guard fileURL.isFileURL, fileURL.path.hasPrefix("/") else { return nil }
     let path = fileURL.path
@@ -2316,6 +2342,13 @@ final class BrowserPanel: Panel, ObservableObject {
         browserThemeMode
     }
 
+    var popupBrowserContext: BrowserPopupBrowserContext {
+        BrowserPopupBrowserContext(
+            websiteDataStore: websiteDataStore,
+            processPool: webView.configuration.processPool
+        )
+    }
+
     private static let portalHostAreaThreshold: CGFloat = 4
     private static let portalHostReplacementAreaGainRatio: CGFloat = 1.2
 
@@ -2631,6 +2664,7 @@ final class BrowserPanel: Panel, ObservableObject {
         workspaceId: UUID,
         profileID: UUID? = nil,
         initialURL: URL? = nil,
+        initialRequest: URLRequest? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
@@ -2665,6 +2699,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let navDelegate = BrowserNavigationDelegate()
         navDelegate.openInNewTab = { [weak self] url in
             self?.openLinkInNewTab(url: url)
+        }
+        navDelegate.requestNavigation = { [weak self] request, intent in
+            self?.requestNavigation(request, intent: intent)
         }
         navDelegate.shouldBlockInsecureHTTPNavigation = { [weak self] url in
             self?.shouldBlockInsecureHTTPNavigation(to: url) ?? false
@@ -2752,8 +2789,10 @@ final class BrowserPanel: Panel, ObservableObject {
             self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
 
-        // Navigate to initial URL if provided
-        if let url = initialURL {
+        if let initialRequest {
+            shouldRenderWebView = true
+            navigateWithoutInsecureHTTPPrompt(request: initialRequest, recordTypedNavigation: false)
+        } else if let url = initialURL {
             shouldRenderWebView = true
             navigate(to: url)
         }
@@ -3397,6 +3436,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let controller = BrowserPopupWindowController(
             configuration: configuration,
             windowFeatures: windowFeatures,
+            browserContext: popupBrowserContext,
             openerPanel: self
         )
         popupControllers.append(controller)
@@ -3916,7 +3956,7 @@ final class BrowserPanel: Panel, ObservableObject {
         case .currentTab:
             navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: false)
         case .newTab:
-            openLinkInNewTab(url: url)
+            openLinkInNewTab(request: request)
         }
     }
 
@@ -3982,7 +4022,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 insecureHTTPBypassHostOnce = host
                 navigateWithoutInsecureHTTPPrompt(request: request, recordTypedNavigation: recordTypedNavigation)
             case .newTab:
-                openLinkInNewTab(url: url, bypassInsecureHTTPHostOnce: host)
+                openLinkInNewTab(request: request, bypassInsecureHTTPHostOnce: host)
             }
         default:
             return
@@ -4226,11 +4266,24 @@ extension BrowserPanel {
 
     /// Open a link in a new browser surface in the same pane
     func openLinkInNewTab(url: URL, bypassInsecureHTTPHostOnce: String? = nil) {
+        openLinkInNewTab(
+            request: URLRequest(url: url),
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        )
+    }
+
+    func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
+        guard let seed = browserNewTabNavigationSeed(
+            from: request,
+            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+        ) else {
+            return
+        }
 #if DEBUG
         dlog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(url.absoluteString) " +
-            "bypass=\(bypassInsecureHTTPHostOnce ?? "nil")"
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(seed.url.absoluteString) " +
+            "bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
         guard let app = AppDelegate.shared else {
@@ -4256,10 +4309,11 @@ extension BrowserPanel {
         }
         workspace.newBrowserSurface(
             inPane: paneId,
-            url: url,
+            url: seed.url,
+            initialRequest: seed.initialRequest,
             focus: true,
             preferredProfileID: profileID,
-            bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
+            bypassInsecureHTTPHostOnce: seed.bypassInsecureHTTPHostOnce
         )
 #if DEBUG
         dlog(
@@ -5976,6 +6030,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didFailNavigation: ((WKWebView, String) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
+    var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var shouldBlockInsecureHTTPNavigation: ((URL) -> Bool)?
     var handleBlockedInsecureHTTPNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     /// Direct reference to the download delegate — must be set synchronously in didBecome callbacks.
@@ -6141,6 +6196,15 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
+            if let requestNavigation {
+                requestNavigation(request, .newTab)
+                return
+            }
+            if let url = request.url {
+                openInNewTab?(url)
+            }
+        }
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
             navigationType: navigationAction.navigationType,
@@ -6199,11 +6263,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // Cmd+click and middle-click on regular links should always open in a new tab.
         if shouldOpenInNewTab,
-           let url = navigationAction.request.url {
+           navigationAction.request.url != nil {
 #if DEBUG
-            dlog("browser.nav.decidePolicy.action kind=openInNewTab url=\(url.absoluteString)")
+            dlog(
+                "browser.nav.decidePolicy.action kind=openInNewTab url=\(navigationAction.request.url?.absoluteString ?? "nil")"
+            )
 #endif
-            openInNewTab?(url)
+            openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return
         }
@@ -6215,11 +6281,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            browserNavigationShouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
            ),
-           let url = navigationAction.request.url {
+           navigationAction.request.url != nil {
 #if DEBUG
-            dlog("browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(url.absoluteString)")
+            dlog(
+                "browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(navigationAction.request.url?.absoluteString ?? "nil")"
+            )
 #endif
-            openInNewTab?(url)
+            openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return
         }
