@@ -140,6 +140,10 @@
 					8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 					2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 					C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
+			FE0001B1 /* FileExplorerModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0001A1 /* FileExplorerModel.swift */; };
+			FE0001B2 /* FileExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0001A2 /* FileExplorerView.swift */; };
+			FE0001B4 /* FileSystemWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0001A4 /* FileSystemWatcher.swift */; };
+			FE0001B5 /* SidebarModeStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE0001A5 /* SidebarModeStrip.swift */; };
 		/* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -344,6 +348,10 @@
 				491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 				10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
 				C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
+				FE0001A1 /* FileExplorerModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorer/FileExplorerModel.swift; sourceTree = "<group>"; };
+				FE0001A2 /* FileExplorerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorer/FileExplorerView.swift; sourceTree = "<group>"; };
+				FE0001A4 /* FileSystemWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorer/FileSystemWatcher.swift; sourceTree = "<group>"; };
+				FE0001A5 /* SidebarModeStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorer/SidebarModeStrip.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -511,6 +519,10 @@
 				A5001419 /* MarkdownPanelView.swift */,
 				A5001510 /* CmuxWebView.swift */,
 				A5001415 /* PanelContentView.swift */,
+				FE0001A1 /* FileExplorerModel.swift */,
+				FE0001A2 /* FileExplorerView.swift */,
+				FE0001A4 /* FileSystemWatcher.swift */,
+				FE0001A5 /* SidebarModeStrip.swift */,
 				A5001211 /* UpdateController.swift */,
 				A5001212 /* UpdateDelegate.swift */,
 				A5001213 /* UpdateDriver.swift */,
@@ -842,6 +854,10 @@
 				A5001421 /* MarkdownPanelView.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
+				FE0001B1 /* FileExplorerModel.swift in Sources */,
+				FE0001B2 /* FileExplorerView.swift in Sources */,
+				FE0001B4 /* FileSystemWatcher.swift in Sources */,
+				FE0001B5 /* SidebarModeStrip.swift in Sources */,
 				A5001201 /* UpdateController.swift in Sources */,
 				A5001202 /* UpdateDelegate.swift in Sources */,
 				A5001203 /* UpdateDriver.swift in Sources */,

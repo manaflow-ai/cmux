@@ -5768,6 +5768,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         let firstResponder = window.firstResponder
+        // Don't steal focus from sidebar text fields (e.g. file explorer search).
+        // When a field editor is active for a FileExplorerNativeTextField, let
+        // normal AppKit key routing deliver keystrokes to the text field.
+        // Walk the responder chain instead of accessing NSTextView.delegate
+        // (which is unsafe-unretained and can crash during teardown).
+        if let fieldEditor = firstResponder as? NSTextView,
+           fieldEditor.isFieldEditor {
+            var responder: NSResponder? = fieldEditor.nextResponder
+            while let current = responder {
+                if current is FileExplorerNativeTextField { return }
+                responder = current.nextResponder
+            }
+        }
         if normalizedFlags.contains(.command) {
             let responderHasViableOwner = firstResponder.map { responderHasViableKeyRoutingOwner($0, in: window) } ?? false
             let commandEquivalentNeedsRepair = shouldRepairFocusedTerminalCommandEquivalentInputs(
