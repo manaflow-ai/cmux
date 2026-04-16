@@ -14463,7 +14463,35 @@ private extension NSWindow {
         if firstResponderGhosttyView != nil,
            shouldRouteCommandEquivalentDirectlyToMainMenu(event),
            let mainMenu = NSApp.mainMenu {
-            let consumedByMenu = mainMenu.performKeyEquivalent(with: event)
+            // Normalize event characters for non-Latin IME (Korean, Russian, etc.)
+            // so NSMenu.performKeyEquivalent can match ASCII-based shortcuts.
+            // When IME is active, event.charactersIgnoringModifiers may return
+            // non-ASCII characters (e.g. "ㅅ" instead of "t"), causing menu
+            // shortcut matching to fail.
+            var menuEvent = event
+            let rawChars = event.charactersIgnoringModifiers ?? ""
+            if (rawChars.isEmpty || !rawChars.allSatisfy(\.isASCII)),
+               let normalized = KeyboardLayout.character(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags),
+               !normalized.isEmpty {
+                menuEvent = NSEvent.keyEvent(
+                    with: event.type,
+                    location: event.locationInWindow,
+                    modifierFlags: event.modifierFlags,
+                    timestamp: event.timestamp,
+                    windowNumber: event.windowNumber,
+                    context: nil,
+                    characters: event.characters ?? normalized,
+                    charactersIgnoringModifiers: normalized,
+                    isARepeat: event.isARepeat,
+                    keyCode: event.keyCode
+                ) ?? event
+            }
+#if DEBUG
+            if menuEvent !== event {
+                dlog("  → normalized menu event chars: \(event.charactersIgnoringModifiers ?? "nil") → \(menuEvent.charactersIgnoringModifiers ?? "nil")")
+            }
+#endif
+            let consumedByMenu = mainMenu.performKeyEquivalent(with: menuEvent)
 #if DEBUG
             if browserZoomShortcutTraceCandidate(
                 flags: event.modifierFlags,
