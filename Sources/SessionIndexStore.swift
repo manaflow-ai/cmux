@@ -475,8 +475,7 @@ final class SessionIndexStore: ObservableObject {
         var results: [SessionEntry] = []
         results.reserveCapacity(limited.count)
         for (url, mtime) in limited {
-            let head = readFileHead(url: url, byteCap: headByteCap)
-            let parsed = extractCodexMetadata(jsonl: head)
+            let parsed = extractCodexMetadata(url: url)
             results.append(SessionEntry(
                 id: "codex:" + url.path,
                 agent: .codex,
@@ -499,11 +498,13 @@ final class SessionIndexStore: ObservableObject {
         var branch: String?
     }
 
-    private static func extractCodexMetadata(jsonl: String) -> CodexParsed {
+    /// Stream lines from `url` until we have everything we need. The first user_message
+    /// can sit ~100 KB into a Codex rollout (after huge base_instructions + AGENTS.md),
+    /// so a fixed head buffer is unreliable.
+    private static func extractCodexMetadata(url: URL) -> CodexParsed {
         var out = CodexParsed()
-        for line in jsonl.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+        let maxBytes = 4 * 1024 * 1024
+        forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
             let type = obj["type"] as? String
             let payload = obj["payload"] as? [String: Any]
             if type == "session_meta", let p = payload {
@@ -519,11 +520,64 @@ final class SessionIndexStore: ObservableObject {
                let msg = p["message"] as? String, !msg.isEmpty {
                 out.title = msg
             }
-            if !out.title.isEmpty && out.cwd != nil && out.branch != nil && !out.sessionId.isEmpty {
-                break
+            // Fallback: response_item with role=user and input_text content
+            if out.title.isEmpty, type == "response_item", let p = payload,
+               (p["type"] as? String) == "message",
+               (p["role"] as? String) == "user",
+               let content = p["content"] as? [[String: Any]] {
+                for part in content {
+                    if (part["type"] as? String) == "input_text",
+                       let text = part["text"] as? String,
+                       !text.isEmpty,
+                       !text.hasPrefix("# AGENTS.md"),
+                       !text.hasPrefix("<user_instructions>"),
+                       !text.hasPrefix("<permissions") {
+                        out.title = text
+                        break
+                    }
+                }
             }
+            return !out.title.isEmpty && out.cwd != nil && out.branch != nil && !out.sessionId.isEmpty
         }
         return out
+    }
+
+    /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
+    /// Caps total bytes read at `maxBytes`.
+    private static func forEachJSONLine(
+        url: URL,
+        maxBytes: Int,
+        body: ([String: Any]) -> Bool
+    ) {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+        var leftover = Data()
+        var totalRead = 0
+        let chunkSize = 64 * 1024
+        while totalRead < maxBytes {
+            let chunk: Data
+            if #available(macOS 10.15.4, *) {
+                chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            } else {
+                chunk = handle.readData(ofLength: chunkSize)
+            }
+            if chunk.isEmpty { break }
+            totalRead += chunk.count
+            leftover.append(chunk)
+            while let nl = leftover.firstIndex(of: 0x0a) {
+                let lineData = leftover.subdata(in: 0..<nl)
+                leftover.removeSubrange(0..<(nl + 1))
+                if lineData.isEmpty { continue }
+                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
+                    if body(obj) { return }
+                }
+            }
+        }
+        // Flush trailing line if no newline at EOF.
+        if !leftover.isEmpty,
+           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
+            _ = body(obj)
+        }
     }
 
     // MARK: OpenCode

@@ -2781,10 +2781,7 @@ struct ContentView: View {
                 fileExplorerState: fileExplorerState,
                 sessionIndexStore: sessionIndexStore,
                 onResumeSession: { entry in
-                    tabManager.addWorkspace(
-                        workingDirectory: entry.cwd,
-                        initialTerminalCommand: entry.resumeCommand
-                    )
+                    resumeSession(entry: entry)
                 }
             )
                 .frame(width: explorerVisible ? fileExplorerWidth : 0)
@@ -2972,6 +2969,40 @@ struct ContentView: View {
             backgroundEventId: backgroundEventId,
             backgroundSource: backgroundSource,
             notificationPayloadHex: notificationPayloadHex
+        )
+    }
+
+    private func resumeSession(entry: SessionEntry) {
+        let inputWithReturn = entry.resumeCommand + "\n"
+        let targetCwd = entry.cwd
+
+        // Smart placement: if the focused workspace's terminal is already in the
+        // same cwd, open a new tab in that workspace. Otherwise, create a new workspace.
+        let selected = tabManager.selectedWorkspace
+        let focusedDir = selected?.focusedTerminalPanel?.directory
+        let pwdMatches: Bool = {
+            guard let targetCwd, !targetCwd.isEmpty,
+                  let focusedDir, !focusedDir.isEmpty else { return false }
+            let lhs = (targetCwd as NSString).standardizingPath
+            let rhs = (focusedDir as NSString).standardizingPath
+            return lhs == rhs
+        }()
+
+        if pwdMatches,
+           let workspace = selected,
+           let paneId = workspace.bonsplitController.focusedPaneId {
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: targetCwd,
+                initialInput: inputWithReturn
+            )
+            return
+        }
+
+        tabManager.addWorkspace(
+            workingDirectory: targetCwd,
+            initialTerminalInput: inputWithReturn
         )
     }
 

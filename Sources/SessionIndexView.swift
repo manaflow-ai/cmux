@@ -3,8 +3,11 @@ import SwiftUI
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
-    @State private var collapsedSections: Set<SectionKey> = []
+    @State private var expandedSections: Set<SectionKey> = []
     let onResume: ((SessionEntry) -> Void)?
+
+    /// Rows shown per section before "Show more" is tapped.
+    private static let collapsedRowLimit = 5
 
     static let relativeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
@@ -103,14 +106,14 @@ struct SessionIndexView: View {
                     SectionReorderGap(insertIndex: index, store: store)
                     IndexSectionView(
                         section: section,
-                        showsAgentChips: store.grouping == .directory,
+                        rowLimit: Self.collapsedRowLimit,
                         isExpanded: Binding(
-                            get: { !collapsedSections.contains(section.key) },
+                            get: { expandedSections.contains(section.key) },
                             set: { newValue in
                                 if newValue {
-                                    collapsedSections.remove(section.key)
+                                    expandedSections.insert(section.key)
                                 } else {
-                                    collapsedSections.insert(section.key)
+                                    expandedSections.remove(section.key)
                                 }
                             }
                         ),
@@ -157,7 +160,7 @@ private struct GroupingButton: View {
 
 private struct IndexSectionView: View {
     let section: IndexSection
-    let showsAgentChips: Bool
+    let rowLimit: Int
     @Binding var isExpanded: Bool
     @ObservedObject var store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
@@ -165,62 +168,61 @@ private struct IndexSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
-            if isExpanded {
-                if section.entries.isEmpty {
-                    Text(String(localized: "sessionIndex.section.empty", defaultValue: "No sessions"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary.opacity(0.7))
-                        .padding(.horizontal, 30)
-                        .padding(.vertical, 4)
-                } else {
-                    ForEach(section.entries) { entry in
-                        SessionRow(entry: entry, showsAgentChip: showsAgentChips, onResume: onResume)
+            if section.entries.isEmpty {
+                Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .padding(.leading, 32)
+                    .padding(.vertical, 4)
+            } else {
+                let visible = isExpanded
+                    ? section.entries
+                    : Array(section.entries.prefix(rowLimit))
+                ForEach(visible) { entry in
+                    SessionRow(entry: entry, onResume: onResume)
+                }
+                if section.entries.count > rowLimit {
+                    Button {
+                        isExpanded.toggle()
+                    } label: {
+                        Text(isExpanded
+                             ? String(localized: "sessionIndex.section.showLess", defaultValue: "Show less")
+                             : String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.7))
+                            .padding(.leading, 32)
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            Spacer(minLength: 6)
         }
         .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
     }
 
     private var sectionHeader: some View {
-        Button {
-            withAnimation(nil) { isExpanded.toggle() }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                sectionIconView
-                Text(section.title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 4)
-                Text("\(section.entries.count)")
-                    .font(.system(size: 10, weight: .medium).monospacedDigit())
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                            .fill(Color.secondary.opacity(0.15))
-                    )
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
+        HStack(spacing: 8) {
+            sectionIconView
+            Text(section.title)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
         .onDrag {
             DispatchQueue.main.async { store.draggedKey = section.key }
             return NSItemProvider(object: section.key.raw as NSString)
         } preview: {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 sectionIconView
                 Text(section.title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 13))
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -238,7 +240,7 @@ private struct IndexSectionView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 14, height: 14)
         case .folder:
-            Image(systemName: "folder.fill")
+            Image(systemName: "folder")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
@@ -323,34 +325,30 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View {
     let entry: SessionEntry
-    let showsAgentChip: Bool
     let onResume: ((SessionEntry) -> Void)?
     @State private var isHovered: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: 8) {
             Text(entry.displayTitle)
-                .font(.system(size: 12))
-                .foregroundColor(.primary)
-                .lineLimit(2)
+                .font(.system(size: 13))
+                .foregroundColor(.primary.opacity(0.92))
+                .lineLimit(1)
                 .truncationMode(.tail)
-                .multilineTextAlignment(.leading)
-            metadataLine
-            HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                Text(relativeTime(entry.modified))
-                    .font(.system(size: 10).monospacedDigit())
-                    .foregroundColor(.secondary)
-            }
+            Spacer(minLength: 8)
+            Text(relativeTime(entry.modified))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundColor(.secondary.opacity(0.65))
+                .fixedSize()
         }
-        .padding(.horizontal, 10)
-        .padding(.leading, 18)
-        .padding(.vertical, 5)
+        .padding(.leading, 32)
+        .padding(.trailing, 12)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
+                .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
                 .padding(.horizontal, 6)
         )
         .onHover { isHovered = $0 }
@@ -408,47 +406,6 @@ private struct SessionRow: View {
         }
     }
 
-    @ViewBuilder
-    private var metadataLine: some View {
-        let chips = metadataChips
-        if !chips.isEmpty {
-            HStack(spacing: 4) {
-                ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                    chip
-                }
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private var metadataChips: [AnyView] {
-        var chips: [AnyView] = []
-        if showsAgentChip {
-            chips.append(AnyView(AgentChip(agent: entry.agent)))
-        }
-        if let basename = entry.cwdBasename {
-            chips.append(AnyView(MetadataChip(symbol: "folder", text: basename)))
-        }
-        if let branch = entry.gitBranch, !branch.isEmpty {
-            chips.append(AnyView(MetadataChip(symbol: "arrow.triangle.branch", text: branch)))
-        }
-        if let pr = entry.pullRequest {
-            chips.append(AnyView(
-                MetadataChip(
-                    symbol: "arrow.triangle.pull",
-                    text: "#\(pr.number)",
-                    accent: Color.purple,
-                    onTap: {
-                        if let url = URL(string: pr.url) {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                )
-            ))
-        }
-        return chips
-    }
-
     private var helpText: String {
         var lines: [String] = [entry.displayTitle]
         if let cwd = entry.cwdLabel {
@@ -498,58 +455,3 @@ private struct SessionRow: View {
     }
 }
 
-private struct AgentChip: View {
-    let agent: SessionAgent
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(agent.assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 10, height: 10)
-            Text(agent.displayName)
-                .font(.system(size: 10, weight: .medium))
-        }
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
-        )
-    }
-}
-
-private struct MetadataChip: View {
-    let symbol: String
-    let text: String
-    var accent: Color? = nil
-    var onTap: (() -> Void)? = nil
-
-    var body: some View {
-        let chip = HStack(spacing: 3) {
-            Image(systemName: symbol)
-                .font(.system(size: 9, weight: .medium))
-            Text(text)
-                .font(.system(size: 10, weight: .medium))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundColor(accent ?? .secondary)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 1)
-        .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill((accent ?? Color.secondary).opacity(0.12))
-        )
-
-        if let onTap {
-            chip
-                .onTapGesture(perform: onTap)
-                .contentShape(Rectangle())
-        } else {
-            chip
-        }
-    }
-}
