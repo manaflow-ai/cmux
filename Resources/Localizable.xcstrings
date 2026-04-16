@@ -55871,6 +55871,108 @@
         }
       }
     },
+    "settings.automation.pullRequestShellDebounce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delay Shell PR Refreshes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル PR 更新を遅延"
+          }
+        }
+      }
+    },
+    "settings.automation.pullRequestShellDebounce.delay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR Refresh Delay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 更新遅延"
+          }
+        }
+      }
+    },
+    "settings.automation.pullRequestShellDebounce.delay.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delay shell-triggered pull request refreshes by this many seconds before checking GitHub."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル起点の PR 更新を GitHub 確認前にこの秒数だけ遅延します。"
+          }
+        }
+      }
+    },
+    "settings.automation.pullRequestShellDebounce.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to shell prompt and command-hint pull request refreshes. Matching repo and branch targets share one queued refresh window."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "shell prompt と command hint の PR 更新に適用されます。同じ repo と branch の更新は 1 つの待機ウィンドウを共有します。"
+          }
+        }
+      }
+    },
+    "settings.automation.pullRequestShellDebounce.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell-triggered sidebar pull request refreshes check GitHub immediately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル起点のサイドバー PR 更新はすぐに GitHub を確認します。"
+          }
+        }
+      }
+    },
+    "settings.automation.pullRequestShellDebounce.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell-triggered sidebar pull request refreshes are delayed and coalesced before checking GitHub."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル起点のサイドバー PR 更新は GitHub 確認前に遅延・集約されます。"
+          }
+        }
+      }
+    },
     "settings.automation.portBase": {
       "extractionState": "manual",
       "localizations": {

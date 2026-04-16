@@ -76,6 +76,8 @@ final class CmuxSettingsFileStore {
         "automation.claudeBinaryPath",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
+        "automation.sidebarPullRequestShellDebounceEnabled",
+        "automation.sidebarPullRequestShellDebounceSeconds",
         "automation.portBase",
         "automation.portRange",
         "customCommands.trustedDirectories",
@@ -723,6 +725,22 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonBool(section["geminiIntegration"]) {
             snapshot.managedUserDefaults[GeminiIntegrationSettings.hooksEnabledKey] = .bool(value)
+        }
+        if let value = jsonBool(section["sidebarPullRequestShellDebounceEnabled"]) {
+            snapshot.managedUserDefaults[SidebarPullRequestShellDebounceSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("sidebarPullRequestShellDebounceEnabled") {
+            logInvalid("automation.sidebarPullRequestShellDebounceEnabled", sourcePath: sourcePath)
+            return
+        }
+        if let value = jsonInt(section["sidebarPullRequestShellDebounceSeconds"]) {
+            guard value > 0 else {
+                logInvalid("automation.sidebarPullRequestShellDebounceSeconds", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SidebarPullRequestShellDebounceSettings.delaySecondsKey] = .int(value)
+        } else if section.keys.contains("sidebarPullRequestShellDebounceSeconds") {
+            logInvalid("automation.sidebarPullRequestShellDebounceSeconds", sourcePath: sourcePath)
+            return
         }
         if let value = jsonInt(section["portBase"]) {
             guard value > 0 else {
@@ -1428,6 +1446,8 @@ final class CmuxSettingsFileStore {
                     "claudeBinaryPath": "",
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
+                    "sidebarPullRequestShellDebounceEnabled": SidebarPullRequestShellDebounceSettings.defaultEnabled,
+                    "sidebarPullRequestShellDebounceSeconds": SidebarPullRequestShellDebounceSettings.defaultDelaySeconds,
                     "portBase": 9100,
                     "portRange": 10,
                 ],

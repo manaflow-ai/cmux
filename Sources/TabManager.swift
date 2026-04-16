@@ -754,6 +754,17 @@ class TabManager: ObservableObject {
         let repoSlugs: [String]
     }
 
+    struct WorkspacePullRequestShellRefreshTarget: Hashable, Sendable {
+        let branch: String
+        let repoSlugs: [String]
+    }
+
+    private struct WorkspacePullRequestShellRefreshEntry: Sendable {
+        var probeKeys: Set<WorkspaceGitProbeKey>
+        var fireAt: Date
+        var bypassRepoCache: Bool
+    }
+
     private struct WorkspacePullRequestResolvedItem: Sendable {
         let number: Int
         let urlString: String
@@ -883,6 +894,7 @@ class TabManager: ObservableObject {
     private nonisolated static let workspacePullRequestTerminalStateSweepInterval: TimeInterval = 15 * 60
     private nonisolated static let workspacePullRequestPollJitterFraction = 0.10
     private nonisolated static let workspacePullRequestProbeTimeout: TimeInterval = 5.0
+    private nonisolated static let workspacePullRequestQueuedShellTriggerReason = "queuedShellTrigger"
     @Published var selectedTabId: UUID? {
         willSet {
 #if DEBUG
@@ -977,6 +989,7 @@ class TabManager: ObservableObject {
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestTransientFailureCountByKey: [WorkspaceGitProbeKey: Int] = [:]
     private var workspacePullRequestRepoCacheBySlug: [String: WorkspacePullRequestRepoCacheEntry] = [:]
+    private var workspacePullRequestShellRefreshEntriesByTarget: [WorkspacePullRequestShellRefreshTarget: WorkspacePullRequestShellRefreshEntry] = [:]
     private var workspacePullRequestPollTimer: DispatchSourceTimer?
     private var workspacePullRequestRefreshTask: Task<Void, Never>?
     private var workspacePullRequestFollowUpShouldBypassRepoCache = false
@@ -1141,7 +1154,10 @@ class TabManager: ObservableObject {
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             DispatchQueue.main.async { [weak self] in
-                self?.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+                guard let self else { return }
+                if !self.flushQueuedWorkspacePullRequestShellRefreshesIfNeeded(now: Date()) {
+                    self.refreshTrackedWorkspacePullRequestsIfNeeded(reason: "timer")
+                }
             }
         }
         timer.resume()
@@ -1315,31 +1331,159 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func scheduleWorkspacePullRequestRefresh(
+    nonisolated static func workspacePullRequestShellRefreshTarget(
+        branch: String,
+        repoSlugs: [String]
+    ) -> WorkspacePullRequestShellRefreshTarget? {
+        guard let normalizedBranch = normalizedBranchName(branch) else {
+            return nil
+        }
+        return WorkspacePullRequestShellRefreshTarget(
+            branch: normalizedBranch,
+            repoSlugs: repoSlugs
+        )
+    }
+
+    private func workspacePullRequestShellRefreshTarget(
+        workspace: Workspace,
+        panelId: UUID
+    ) -> WorkspacePullRequestShellRefreshTarget? {
+        let branch = workspace.panelGitBranches[panelId]?.branch
+            ?? workspace.panelPullRequests[panelId]?.branch
+        let repoSlugs = gitProbeDirectory(for: workspace, panelId: panelId)
+            .map(Self.githubRepositorySlugs(directory:)) ?? []
+        guard let branch else { return nil }
+        return Self.workspacePullRequestShellRefreshTarget(
+            branch: branch,
+            repoSlugs: repoSlugs
+        )
+    }
+
+    private func workspacePullRequestShellRefreshTarget(
+        for key: WorkspaceGitProbeKey
+    ) -> WorkspacePullRequestShellRefreshTarget? {
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }),
+              workspace.panels[key.panelId] != nil else {
+            return nil
+        }
+        return workspacePullRequestShellRefreshTarget(
+            workspace: workspace,
+            panelId: key.panelId
+        )
+    }
+
+    private func removeWorkspacePullRequestShellRefreshProbeKey(_ key: WorkspaceGitProbeKey) {
+        guard !workspacePullRequestShellRefreshEntriesByTarget.isEmpty else { return }
+        for target in Array(workspacePullRequestShellRefreshEntriesByTarget.keys) {
+            guard var entry = workspacePullRequestShellRefreshEntriesByTarget[target] else { continue }
+            entry.probeKeys.remove(key)
+            if entry.probeKeys.isEmpty {
+                workspacePullRequestShellRefreshEntriesByTarget.removeValue(forKey: target)
+            } else {
+                workspacePullRequestShellRefreshEntriesByTarget[target] = entry
+            }
+        }
+    }
+
+    @discardableResult
+    private func queueWorkspacePullRequestShellRefreshIfNeeded(
         workspaceId: UUID,
         panelId: UUID,
-        reason: String
-    ) {
+        reason: String,
+        now: Date = Date()
+    ) -> Bool {
+        guard SidebarPullRequestShellDebounceSettings.isEnabled(),
+              reason == "shellPrompt" || reason.hasPrefix("commandHint:"),
+              let workspace = tabs.first(where: { $0.id == workspaceId }),
+              let target = workspacePullRequestShellRefreshTarget(
+                workspace: workspace,
+                panelId: panelId
+              ) else {
+            return false
+        }
+
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
-        let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
-        if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
+        let bypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        removeWorkspacePullRequestShellRefreshProbeKey(key)
+
+        if var existingEntry = workspacePullRequestShellRefreshEntriesByTarget[target] {
+            existingEntry.probeKeys.insert(key)
+            existingEntry.bypassRepoCache = existingEntry.bypassRepoCache || bypassRepoCache
+            workspacePullRequestShellRefreshEntriesByTarget[target] = existingEntry
+        } else {
+            workspacePullRequestShellRefreshEntriesByTarget[target] = WorkspacePullRequestShellRefreshEntry(
+                probeKeys: [key],
+                fireAt: now.addingTimeInterval(
+                    TimeInterval(SidebarPullRequestShellDebounceSettings.delaySeconds())
+                ),
+                bypassRepoCache: bypassRepoCache
+            )
+        }
+
+#if DEBUG
+        if let entry = workspacePullRequestShellRefreshEntriesByTarget[target] {
+            let fireDelay = entry.fireAt.timeIntervalSince(now)
+            dlog(
+                "workspace.prRefresh.queue workspace=\(workspaceId.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) reason=\(reason) " +
+                "branch=\(target.branch) repos=\(target.repoSlugs.count) " +
+                "keys=\(entry.probeKeys.count) delay=\(String(format: "%.2f", fireDelay))"
+            )
+        }
+#endif
+        return true
+    }
+
+    private func requestWorkspacePullRequestRefresh(
+        key: WorkspaceGitProbeKey,
+        reason: String,
+        bypassRepoCache: Bool,
+        triggerImmediateRefresh: Bool = true
+    ) {
+        if bypassRepoCache, workspacePullRequestRefreshTask != nil {
             workspacePullRequestFollowUpShouldBypassRepoCache = true
         }
         if case .inFlight = workspacePullRequestProbeStateByKey[key] {
             markWorkspacePullRequestProbeRerunPending(
                 for: key,
-                bypassRepoCache: shouldBypassRepoCache
+                bypassRepoCache: bypassRepoCache
             )
         } else {
             workspacePullRequestNextPollAtByKey[key] = .distantPast
         }
 #if DEBUG
         dlog(
-            "workspace.prRefresh.schedule workspace=\(workspaceId.uuidString.prefix(5)) " +
-            "panel=\(panelId.uuidString.prefix(5)) reason=\(reason)"
+            "workspace.prRefresh.schedule workspace=\(key.workspaceId.uuidString.prefix(5)) " +
+            "panel=\(key.panelId.uuidString.prefix(5)) reason=\(reason)"
         )
 #endif
-        refreshTrackedWorkspacePullRequestsIfNeeded(reason: reason)
+        guard triggerImmediateRefresh else { return }
+        let allowCachedResultsOverride = bypassRepoCache ? false : nil
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: reason,
+            allowCachedResultsOverride: allowCachedResultsOverride
+        )
+    }
+
+    private func scheduleWorkspacePullRequestRefresh(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String
+    ) {
+        if queueWorkspacePullRequestShellRefreshIfNeeded(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        ) {
+            return
+        }
+
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        requestWorkspacePullRequestRefresh(
+            key: key,
+            reason: reason,
+            bypassRepoCache: !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
+        )
     }
 
     private func applyWorkspacePullRequestRefreshResults(
@@ -1521,6 +1665,88 @@ class TabManager: ObservableObject {
         workspacePullRequestNextPollAtByKey[key] = now.addingTimeInterval(Self.jitteredPollInterval(base: baseInterval))
     }
 
+    @discardableResult
+    private func flushQueuedWorkspacePullRequestShellRefreshesIfNeeded(
+        now: Date = Date()
+    ) -> Bool {
+        if workspacePullRequestShellRefreshEntriesByTarget.isEmpty {
+            return false
+        }
+        guard SidebarPullRequestShellDebounceSettings.isEnabled() else {
+            workspacePullRequestShellRefreshEntriesByTarget.removeAll()
+            return false
+        }
+
+        var validKeys = Set(workspacePullRequestNextPollAtByKey.keys)
+        validKeys.formUnion(workspacePullRequestProbeStateByKey.keys)
+        for workspace in tabs {
+            for panelId in Set(workspace.panelGitBranches.keys).union(workspace.panelPullRequests.keys) {
+                validKeys.insert(WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId))
+            }
+        }
+        pruneWorkspacePullRequestShellRefreshQueue(validKeys: validKeys)
+
+        let dueTargets = workspacePullRequestShellRefreshEntriesByTarget
+            .filter { $0.value.fireAt <= now }
+            .map(\.key)
+        guard !dueTargets.isEmpty else { return false }
+
+        var scheduledAnyRefresh = false
+        for target in dueTargets {
+            guard let entry = workspacePullRequestShellRefreshEntriesByTarget.removeValue(forKey: target) else {
+                continue
+            }
+
+            var scheduledKeys: Set<WorkspaceGitProbeKey> = []
+            for key in entry.probeKeys {
+                guard workspacePullRequestShellRefreshTarget(for: key) == target else {
+                    continue
+                }
+                scheduledKeys.insert(key)
+                requestWorkspacePullRequestRefresh(
+                    key: key,
+                    reason: Self.workspacePullRequestQueuedShellTriggerReason,
+                    bypassRepoCache: entry.bypassRepoCache,
+                    triggerImmediateRefresh: false
+                )
+            }
+
+            scheduledAnyRefresh = scheduledAnyRefresh || !scheduledKeys.isEmpty
+
+#if DEBUG
+            dlog(
+                "workspace.prRefresh.queue.flush branch=\(target.branch) " +
+                "repos=\(target.repoSlugs.count) scheduled=\(scheduledKeys.count)"
+            )
+#endif
+        }
+
+        guard scheduledAnyRefresh else { return false }
+        refreshTrackedWorkspacePullRequestsIfNeeded(
+            reason: Self.workspacePullRequestQueuedShellTriggerReason,
+            allowCachedResultsOverride: false
+        )
+        return true
+    }
+
+    private func pruneWorkspacePullRequestShellRefreshQueue(validKeys: Set<WorkspaceGitProbeKey>) {
+        var prunedEntries: [WorkspacePullRequestShellRefreshTarget: WorkspacePullRequestShellRefreshEntry] = [:]
+
+        for (target, entry) in workspacePullRequestShellRefreshEntriesByTarget {
+            let matchingProbeKeys = entry.probeKeys.filter { key in
+                guard validKeys.contains(key) else { return false }
+                return workspacePullRequestShellRefreshTarget(for: key) == target
+            }
+            guard !matchingProbeKeys.isEmpty else { continue }
+
+            var nextEntry = entry
+            nextEntry.probeKeys = Set(matchingProbeKeys)
+            prunedEntries[target] = nextEntry
+        }
+
+        workspacePullRequestShellRefreshEntriesByTarget = prunedEntries
+    }
+
     private func pruneWorkspacePullRequestTracking(validKeys: Set<WorkspaceGitProbeKey>) {
         workspacePullRequestNextPollAtByKey = workspacePullRequestNextPollAtByKey.filter { validKeys.contains($0.key) }
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { validKeys.contains($0.key) }
@@ -1530,6 +1756,7 @@ class TabManager: ObservableObject {
         workspacePullRequestRepoCacheBySlug = workspacePullRequestRepoCacheBySlug.filter {
             $0.value.fetchedAt >= repoCacheCutoff
         }
+        pruneWorkspacePullRequestShellRefreshQueue(validKeys: validKeys)
     }
 
     private func clearWorkspacePullRequestTracking(for key: WorkspaceGitProbeKey) {
@@ -1537,6 +1764,7 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey.removeValue(forKey: key)
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeValue(forKey: key)
         workspacePullRequestTransientFailureCountByKey.removeValue(forKey: key)
+        removeWorkspacePullRequestShellRefreshProbeKey(key)
     }
 
     private func clearWorkspacePullRequestTracking(workspaceId: UUID) {
@@ -1544,6 +1772,11 @@ class TabManager: ObservableObject {
         workspacePullRequestProbeStateByKey = workspacePullRequestProbeStateByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestLastTerminalStateRefreshAtByKey = workspacePullRequestLastTerminalStateRefreshAtByKey.filter { $0.key.workspaceId != workspaceId }
         workspacePullRequestTransientFailureCountByKey = workspacePullRequestTransientFailureCountByKey.filter { $0.key.workspaceId != workspaceId }
+        workspacePullRequestShellRefreshEntriesByTarget = workspacePullRequestShellRefreshEntriesByTarget.compactMapValues { entry in
+            var nextEntry = entry
+            nextEntry.probeKeys = Set(nextEntry.probeKeys.filter { $0.workspaceId != workspaceId })
+            return nextEntry.probeKeys.isEmpty ? nil : nextEntry
+        }
     }
 
     private func resetWorkspacePullRequestRefreshState() {
@@ -1554,6 +1787,7 @@ class TabManager: ObservableObject {
         workspacePullRequestLastTerminalStateRefreshAtByKey.removeAll()
         workspacePullRequestTransientFailureCountByKey.removeAll()
         workspacePullRequestRepoCacheBySlug.removeAll()
+        workspacePullRequestShellRefreshEntriesByTarget.removeAll()
         workspacePullRequestFollowUpShouldBypassRepoCache = false
     }
 
@@ -1662,6 +1896,71 @@ class TabManager: ObservableObject {
         let probeKeys = Set(workspaceGitProbeStateByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitProbeTimersByKey.keys.filter { $0.workspaceId == workspaceId })
         return Set(probeKeys.map(\.panelId))
+    }
+
+    @discardableResult
+    func queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String,
+        now: Date
+    ) -> Bool {
+        queueWorkspacePullRequestShellRefreshIfNeeded(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason,
+            now: now
+        )
+    }
+
+    @discardableResult
+    func flushQueuedWorkspacePullRequestShellRefreshesIfNeededForTesting(now: Date) -> Bool {
+        flushQueuedWorkspacePullRequestShellRefreshesIfNeeded(now: now)
+    }
+
+    func scheduleWorkspacePullRequestRefreshForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        reason: String
+    ) {
+        scheduleWorkspacePullRequestRefresh(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            reason: reason
+        )
+    }
+
+    func workspacePullRequestShellRefreshQueueTargetsForTesting() -> [WorkspacePullRequestShellRefreshTarget] {
+        workspacePullRequestShellRefreshEntriesByTarget.keys.sorted {
+            let lhs = "\($0.branch)|\($0.repoSlugs.joined(separator: ","))"
+            let rhs = "\($1.branch)|\($1.repoSlugs.joined(separator: ","))"
+            return lhs < rhs
+        }
+    }
+
+    func workspacePullRequestShellRefreshQueueSnapshotForTesting() -> [(target: WorkspacePullRequestShellRefreshTarget, fireAt: Date, probeKeyCount: Int)] {
+        workspacePullRequestShellRefreshEntriesByTarget
+            .map { target, entry in
+                (
+                    target: target,
+                    fireAt: entry.fireAt,
+                    probeKeyCount: entry.probeKeys.count
+                )
+            }
+            .sorted {
+                let lhs = "\($0.target.branch)|\($0.target.repoSlugs.joined(separator: ","))"
+                let rhs = "\($1.target.branch)|\($1.target.repoSlugs.joined(separator: ","))"
+                return lhs < rhs
+            }
+    }
+
+    func workspacePullRequestNextPollAtForTesting(
+        workspaceId: UUID,
+        panelId: UUID
+    ) -> Date? {
+        workspacePullRequestNextPollAtByKey[
+            WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        ]
     }
 
     private func trackedWorkspaceGitMetadataPollCandidatePanelIds(
@@ -3622,6 +3921,9 @@ class TabManager: ObservableObject {
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
+            removeWorkspacePullRequestShellRefreshProbeKey(
+                WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+            )
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
                 panelId: surfaceId,
@@ -3646,8 +3948,9 @@ class TabManager: ObservableObject {
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
         guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }
         tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: isDirty)
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        removeWorkspacePullRequestShellRefreshProbeKey(probeKey)
         if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
-            let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
         }
         scheduleWorkspacePullRequestRefresh(

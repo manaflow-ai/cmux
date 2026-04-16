@@ -402,6 +402,17 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "sidebarPullRequestShellDebounceEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Delay and coalesce shell-triggered sidebar pull request refreshes before checking GitHub."
+        },
+        "sidebarPullRequestShellDebounceSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 5,
+          "description": "Delay window in seconds for shell-triggered sidebar pull request refreshes."
+        },
         "portBase": {
           "type": "integer",
           "minimum": 1,

@@ -301,6 +301,32 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
 @MainActor
 final class TabManagerPullRequestProbeTests: XCTestCase {
+    private func withSidebarPullRequestShellDebounceSettings(
+        enabled: Bool,
+        delaySeconds: Int = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds,
+        _ body: () -> Void
+    ) {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+        let previousDelay = defaults.object(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            } else {
+                defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            }
+        }
+
+        defaults.set(enabled, forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+        defaults.set(delaySeconds, forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        body()
+    }
+
     func testGitHubRepositorySlugsPrioritizeUpstreamThenOriginAndDeduplicate() {
         let output = """
         origin https://github.com/austinwang/cmux.git (fetch)
@@ -416,6 +442,238 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
+    }
+
+    func testScheduleWorkspacePullRequestRefreshRunsImmediatelyWhenShellDebounceDisabled() {
+        withSidebarPullRequestShellDebounceSettings(enabled: false) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId else {
+                XCTFail("Expected selected workspace with focused panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/work", isDirty: false)
+
+            manager.scheduleWorkspacePullRequestRefreshForTesting(
+                workspaceId: workspace.id,
+                panelId: panelId,
+                reason: "shellPrompt"
+            )
+
+            XCTAssertTrue(manager.workspacePullRequestShellRefreshQueueSnapshotForTesting().isEmpty)
+            XCTAssertEqual(
+                manager.workspacePullRequestNextPollAtForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId
+                ),
+                .distantPast
+            )
+        }
+    }
+
+    func testShellDebounceQueuesSameTargetWithinFixedWindow() {
+        withSidebarPullRequestShellDebounceSettings(enabled: true, delaySeconds: 5) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId else {
+                XCTFail("Expected selected workspace with focused panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/work", isDirty: false)
+            let now = Date(timeIntervalSince1970: 1_000)
+
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "commandHint:merge",
+                    now: now
+                )
+            )
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "shellPrompt",
+                    now: now.addingTimeInterval(2)
+                )
+            )
+
+            let snapshot = manager.workspacePullRequestShellRefreshQueueSnapshotForTesting()
+            XCTAssertEqual(snapshot.count, 1)
+            XCTAssertEqual(
+                snapshot.first?.target,
+                TabManager.workspacePullRequestShellRefreshTarget(
+                    branch: "feature/work",
+                    repoSlugs: []
+                )
+            )
+            XCTAssertEqual(snapshot.first?.probeKeyCount, 1)
+            XCTAssertEqual(snapshot.first?.fireAt, now.addingTimeInterval(5))
+            XCTAssertNil(
+                manager.workspacePullRequestNextPollAtForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId
+                )
+            )
+        }
+    }
+
+    func testShellDebounceCoalescesAcrossPanelsForSameProbeTarget() {
+        withSidebarPullRequestShellDebounceSettings(enabled: true, delaySeconds: 5) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+                XCTFail("Expected selected workspace with split panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "feature/shared", isDirty: false)
+            workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/shared", isDirty: false)
+            let now = Date(timeIntervalSince1970: 1_000)
+
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: firstPanelId,
+                    reason: "shellPrompt",
+                    now: now
+                )
+            )
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: secondPanel.id,
+                    reason: "commandHint:merge",
+                    now: now.addingTimeInterval(1)
+                )
+            )
+
+            let snapshot = manager.workspacePullRequestShellRefreshQueueSnapshotForTesting()
+            XCTAssertEqual(snapshot.count, 1)
+            XCTAssertEqual(snapshot.first?.probeKeyCount, 2)
+        }
+    }
+
+    func testShellDebounceKeepsDifferentProbeTargetsSeparate() {
+        withSidebarPullRequestShellDebounceSettings(enabled: true, delaySeconds: 5) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let secondPanel = workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal) else {
+                XCTFail("Expected selected workspace with split panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: firstPanelId, branch: "feature/one", isDirty: false)
+            workspace.updatePanelGitBranch(panelId: secondPanel.id, branch: "feature/two", isDirty: false)
+            let now = Date(timeIntervalSince1970: 1_000)
+
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: firstPanelId,
+                    reason: "shellPrompt",
+                    now: now
+                )
+            )
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: secondPanel.id,
+                    reason: "commandHint:view",
+                    now: now
+                )
+            )
+
+            let targets = manager.workspacePullRequestShellRefreshQueueTargetsForTesting()
+            XCTAssertEqual(targets.count, 2)
+            XCTAssertEqual(Set(targets.map(\.branch)), Set(["feature/one", "feature/two"]))
+        }
+    }
+
+    func testShellDebounceFlushesDueEntriesOnceAndClearsQueue() {
+        withSidebarPullRequestShellDebounceSettings(enabled: true, delaySeconds: 5) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId else {
+                XCTFail("Expected selected workspace with focused panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/work", isDirty: false)
+            let now = Date(timeIntervalSince1970: 1_000)
+
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "shellPrompt",
+                    now: now
+                )
+            )
+            XCTAssertFalse(
+                manager.flushQueuedWorkspacePullRequestShellRefreshesIfNeededForTesting(
+                    now: now.addingTimeInterval(4)
+                )
+            )
+            XCTAssertEqual(manager.workspacePullRequestShellRefreshQueueSnapshotForTesting().count, 1)
+
+            XCTAssertTrue(
+                manager.flushQueuedWorkspacePullRequestShellRefreshesIfNeededForTesting(
+                    now: now.addingTimeInterval(5)
+                )
+            )
+            XCTAssertTrue(manager.workspacePullRequestShellRefreshQueueSnapshotForTesting().isEmpty)
+            XCTAssertEqual(
+                manager.workspacePullRequestNextPollAtForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId
+                ),
+                .distantPast
+            )
+        }
+    }
+
+    func testShellDebounceSkipsStaleQueuedEntryAfterBranchChanges() {
+        withSidebarPullRequestShellDebounceSettings(enabled: true, delaySeconds: 5) {
+            let manager = TabManager()
+            guard let workspace = manager.selectedWorkspace,
+                  let panelId = workspace.focusedPanelId else {
+                XCTFail("Expected selected workspace with focused panel")
+                return
+            }
+
+            workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/old", isDirty: false)
+            let now = Date(timeIntervalSince1970: 1_000)
+
+            XCTAssertTrue(
+                manager.queueWorkspacePullRequestShellRefreshIfNeededForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: "commandHint:merge",
+                    now: now
+                )
+            )
+
+            workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/new", isDirty: false)
+
+            XCTAssertFalse(
+                manager.flushQueuedWorkspacePullRequestShellRefreshesIfNeededForTesting(
+                    now: now.addingTimeInterval(5)
+                )
+            )
+            XCTAssertTrue(manager.workspacePullRequestShellRefreshQueueSnapshotForTesting().isEmpty)
+            XCTAssertNil(
+                manager.workspacePullRequestNextPollAtForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId
+                )
+            )
+        }
     }
 
     func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {

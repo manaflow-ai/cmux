@@ -4109,6 +4109,25 @@ enum GeminiIntegrationSettings {
     }
 }
 
+enum SidebarPullRequestShellDebounceSettings {
+    static let enabledKey = "sidebarPullRequestShellDebounceEnabled"
+    static let delaySecondsKey = "sidebarPullRequestShellDebounceSeconds"
+    static let defaultEnabled = false
+    static let defaultDelaySeconds = 5
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+
+    static func delaySeconds(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: delaySecondsKey) as? Int,
+              value > 0 else {
+            return defaultDelaySeconds
+        }
+        return value
+    }
+}
+
 enum WelcomeSettings {
     static let shownKey = "cmuxWelcomeShown"
 }
@@ -4390,6 +4409,10 @@ struct SettingsView: View {
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
     private var geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+    @AppStorage(SidebarPullRequestShellDebounceSettings.enabledKey)
+    private var sidebarPullRequestShellDebounceEnabled = SidebarPullRequestShellDebounceSettings.defaultEnabled
+    @AppStorage(SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+    private var sidebarPullRequestShellDebounceDelaySeconds = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
     @AppStorage(TelemetrySettings.sendAnonymousTelemetryKey)
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
@@ -5913,6 +5936,38 @@ struct SettingsView: View {
                     }
 
                     SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.sidebarPullRequestShellDebounceEnabled"),
+                            String(localized: "settings.automation.pullRequestShellDebounce", defaultValue: "Delay Shell PR Refreshes"),
+                            subtitle: sidebarPullRequestShellDebounceEnabled
+                                ? String(localized: "settings.automation.pullRequestShellDebounce.subtitleOn", defaultValue: "Shell-triggered sidebar pull request refreshes are delayed and coalesced before checking GitHub.")
+                                : String(localized: "settings.automation.pullRequestShellDebounce.subtitleOff", defaultValue: "Shell-triggered sidebar pull request refreshes check GitHub immediately.")
+                        ) {
+                            Toggle("", isOn: $sidebarPullRequestShellDebounceEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("automation.sidebarPullRequestShellDebounceSeconds"),
+                            String(localized: "settings.automation.pullRequestShellDebounce.delay", defaultValue: "PR Refresh Delay"),
+                            subtitle: String(localized: "settings.automation.pullRequestShellDebounce.delay.subtitle", defaultValue: "Delay shell-triggered pull request refreshes by this many seconds before checking GitHub."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            TextField("", value: $sidebarPullRequestShellDebounceDelaySeconds, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .disabled(!sidebarPullRequestShellDebounceEnabled)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.pullRequestShellDebounce.note", defaultValue: "Applies to shell prompt and command-hint pull request refreshes. Matching repo and branch targets share one queued refresh window."))
+                    }
+
+                    SettingsCard {
                         SettingsCardRow(configurationReview: .json("automation.portBase"), String(localized: "settings.automation.portBase", defaultValue: "Port Base"), subtitle: String(localized: "settings.automation.portBase.subtitle", defaultValue: "Starting port for CMUX_PORT env var."), controlWidth: pickerColumnWidth) {
                             TextField("", value: $cmuxPortBase, format: .number)
                                 .textFieldStyle(.roundedBorder)
@@ -6419,6 +6474,10 @@ struct SettingsView: View {
         .onChange(of: notificationSoundCustomFilePath) { _, _ in
             refreshNotificationCustomSoundStatus()
         }
+        .onChange(of: sidebarPullRequestShellDebounceDelaySeconds) { _, newValue in
+            guard newValue <= 0 else { return }
+            sidebarPullRequestShellDebounceDelaySeconds = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
+        }
         .onChange(of: browserInsecureHTTPAllowlist) { oldValue, newValue in
             // Keep draft in sync with external changes unless the user has local unsaved edits.
             if browserInsecureHTTPAllowlistDraft == oldValue {
@@ -6524,6 +6583,8 @@ struct SettingsView: View {
         customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
+        sidebarPullRequestShellDebounceEnabled = SidebarPullRequestShellDebounceSettings.defaultEnabled
+        sidebarPullRequestShellDebounceDelaySeconds = SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
         preferredEditorCommand = ""
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue

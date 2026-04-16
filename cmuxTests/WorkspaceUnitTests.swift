@@ -827,6 +827,8 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertTrue(contents.contains(#"//   "app" : {"#))
         XCTAssertTrue(contents.contains(#"//     "colors" : {"#))
         XCTAssertTrue(contents.contains(##"//       "Red" : "#C0392B""##))
+        XCTAssertTrue(contents.contains(#""sidebarPullRequestShellDebounceEnabled""#))
+        XCTAssertTrue(contents.contains(#""sidebarPullRequestShellDebounceSeconds""#))
         XCTAssertTrue(contents.contains(#"//   "shortcuts" : {"#))
     }
 
@@ -990,6 +992,107 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(
             store.override(for: .showNotifications),
             StoredShortcut(key: "i", command: true, shift: false, option: false, control: false)
+        )
+    }
+
+    func testSettingsFileStoreAppliesSidebarPullRequestShellDebounceSettings() throws {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+        let previousDelay = defaults.object(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            } else {
+                defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.enabledKey)
+        defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "sidebarPullRequestShellDebounceEnabled": true,
+                "sidebarPullRequestShellDebounceSeconds": 9
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: SidebarPullRequestShellDebounceSettings.enabledKey) as? Bool, true)
+        XCTAssertEqual(defaults.object(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey) as? Int, 9)
+    }
+
+    func testSidebarPullRequestShellDebounceDelayFallsBackToDefaultForInvalidManagedValue() throws {
+        let defaults = UserDefaults.standard
+        let previousDelay = defaults.object(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            } else {
+                defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "sidebarPullRequestShellDebounceSeconds": 0
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: SidebarPullRequestShellDebounceSettings.delaySecondsKey))
+        XCTAssertEqual(
+            SidebarPullRequestShellDebounceSettings.delaySeconds(defaults: defaults),
+            SidebarPullRequestShellDebounceSettings.defaultDelaySeconds
         )
     }
 
