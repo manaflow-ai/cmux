@@ -5,7 +5,7 @@ import SQLite3
 
 // MARK: - Agents
 
-enum SessionAgent: String, CaseIterable, Identifiable, Hashable {
+enum SessionAgent: String, CaseIterable, Identifiable, Hashable, Codable {
     case claude
     case codex
     case opencode
@@ -20,19 +20,12 @@ enum SessionAgent: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    var symbolName: String {
+    /// Asset catalog image name for the agent's brand mark.
+    var assetName: String {
         switch self {
-        case .claude: return "sparkles"
-        case .codex: return "terminal"
-        case .opencode: return "chevron.left.forwardslash.chevron.right"
-        }
-    }
-
-    var accentColor: NSColor {
-        switch self {
-        case .claude: return NSColor.systemOrange
-        case .codex: return NSColor.secondaryLabelColor
-        case .opencode: return NSColor.systemTeal
+        case .claude: return "AgentIcons/Claude"
+        case .codex: return "AgentIcons/Codex"
+        case .opencode: return "AgentIcons/OpenCode"
         }
     }
 }
@@ -73,6 +66,45 @@ final class SessionIndexStore: ObservableObject {
     @Published private(set) var isLoading: Bool = false
     @Published var scopeToCurrentDirectory: Bool = false
     @Published var currentDirectory: String? = nil
+
+    /// User-visible order of agent sections. Persisted across launches.
+    @Published var agentOrder: [SessionAgent] {
+        didSet { Self.persistOrder(agentOrder) }
+    }
+
+    private static let agentOrderDefaultsKey = "sessionIndex.agentOrder"
+
+    init() {
+        self.agentOrder = Self.loadOrder()
+    }
+
+    func moveAgent(_ agent: SessionAgent, to newIndex: Int) {
+        guard let oldIndex = agentOrder.firstIndex(of: agent) else { return }
+        var clamped = max(0, min(newIndex, agentOrder.count - 1))
+        if oldIndex == clamped { return }
+        var next = agentOrder
+        next.remove(at: oldIndex)
+        if clamped > oldIndex { clamped -= 1 }
+        next.insert(agent, at: min(clamped, next.count))
+        agentOrder = next
+    }
+
+    private static func loadOrder() -> [SessionAgent] {
+        let defaults = UserDefaults.standard
+        let stored = defaults.array(forKey: agentOrderDefaultsKey) as? [String] ?? []
+        var ordered: [SessionAgent] = stored.compactMap { SessionAgent(rawValue: $0) }
+        for agent in SessionAgent.allCases where !ordered.contains(agent) {
+            ordered.append(agent)
+        }
+        // Drop any duplicates while preserving first occurrence
+        var seen = Set<SessionAgent>()
+        ordered = ordered.filter { seen.insert($0).inserted }
+        return ordered
+    }
+
+    private static func persistOrder(_ order: [SessionAgent]) {
+        UserDefaults.standard.set(order.map { $0.rawValue }, forKey: agentOrderDefaultsKey)
+    }
 
     private var loadTask: Task<Void, Never>?
 

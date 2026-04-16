@@ -58,9 +58,10 @@ struct RightSidebarPanelView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 6)
+        .padding(.leading, 4)
+        .padding(.trailing, 6)
         .padding(.vertical, 4)
-        .frame(height: 30)
+        .frame(height: 31)
     }
 
     @ViewBuilder

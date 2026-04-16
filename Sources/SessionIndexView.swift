@@ -86,7 +86,7 @@ struct SessionIndexView: View {
     private var sessionsList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(SessionAgent.allCases) { agent in
+                ForEach(store.agentOrder) { agent in
                     let entries = store.filteredEntries(for: agent)
                     AgentSection(
                         agent: agent,
@@ -100,7 +100,8 @@ struct SessionIndexView: View {
                                     expandedAgents.remove(agent)
                                 }
                             }
-                        )
+                        ),
+                        store: store
                     )
                 }
             }
@@ -113,40 +114,12 @@ private struct AgentSection: View {
     let agent: SessionAgent
     let entries: [SessionEntry]
     @Binding var isExpanded: Bool
+    @ObservedObject var store: SessionIndexStore
+    @State private var isDropTarget: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(nil) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    Image(systemName: agent.symbolName)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(Color(agent.accentColor))
-                        .frame(width: 14)
-                    Text(agent.displayName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Text("\(entries.count)")
-                        .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .fill(Color.secondary.opacity(0.15))
-                        )
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            sectionHeader
 
             if isExpanded {
                 if entries.isEmpty {
@@ -162,6 +135,103 @@ private struct AgentSection: View {
                 }
             }
         }
+        .overlay(alignment: .top) {
+            if isDropTarget {
+                Rectangle()
+                    .fill(Color.accentColor)
+                    .frame(height: 2)
+            }
+        }
+    }
+
+    private var sectionHeader: some View {
+        Button {
+            withAnimation(nil) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                Image(agent.assetName)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 14, height: 14)
+                Text(agent.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+                Spacer()
+                Text("\(entries.count)")
+                    .font(.system(size: 10, weight: .medium).monospacedDigit())
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(Color.secondary.opacity(0.15))
+                    )
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onDrag {
+            NSItemProvider(object: agent.rawValue as NSString)
+        } preview: {
+            HStack(spacing: 6) {
+                Image(agent.assetName)
+                    .resizable()
+                    .frame(width: 14, height: 14)
+                Text(agent.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .onDrop(
+            of: [.text],
+            delegate: AgentSectionDropDelegate(
+                target: agent,
+                store: store,
+                isDropTarget: $isDropTarget
+            )
+        )
+    }
+}
+
+private struct AgentSectionDropDelegate: DropDelegate {
+    let target: SessionAgent
+    let store: SessionIndexStore
+    @Binding var isDropTarget: Bool
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.text])
+    }
+
+    func dropEntered(info: DropInfo) {
+        isDropTarget = true
+    }
+
+    func dropExited(info: DropInfo) {
+        isDropTarget = false
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isDropTarget = false
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let raw = object as? String,
+                  let dragged = SessionAgent(rawValue: raw),
+                  dragged != target else { return }
+            DispatchQueue.main.async {
+                guard let targetIndex = store.agentOrder.firstIndex(of: target) else { return }
+                store.moveAgent(dragged, to: targetIndex)
+            }
+        }
+        return true
     }
 }
 
