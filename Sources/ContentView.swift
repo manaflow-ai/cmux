@@ -2976,15 +2976,15 @@ struct ContentView: View {
         let inputWithReturn = entry.resumeCommand + "\n"
         let targetCwd = entry.cwd
 
-        // Smart placement: if the focused workspace's terminal is already in the
-        // same cwd, open a new tab in that workspace. Otherwise, create a new workspace.
+        // Smart placement: if the focused workspace's tracked cwd matches, open a
+        // new tab inside that workspace. Otherwise create a new workspace.
         let selected = tabManager.selectedWorkspace
-        let focusedDir = selected?.focusedTerminalPanel?.directory
+        let workspaceCwd = selected?.currentDirectory
         let pwdMatches: Bool = {
             guard let targetCwd, !targetCwd.isEmpty,
-                  let focusedDir, !focusedDir.isEmpty else { return false }
+                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
             let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (focusedDir as NSString).standardizingPath
+            let rhs = (workspaceCwd as NSString).standardizingPath
             return lhs == rhs
         }()
 

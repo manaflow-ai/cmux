@@ -3,7 +3,10 @@ import SwiftUI
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
-    @State private var expandedSections: Set<SectionKey> = []
+    /// Sections the user has explicitly collapsed (default is expanded).
+    @State private var collapsedSections: Set<SectionKey> = []
+    /// Sections with "Show more" tapped (default shows up to `rowLimit` rows).
+    @State private var showAllSections: Set<SectionKey> = []
     let onResume: ((SessionEntry) -> Void)?
 
     /// Rows shown per section before "Show more" is tapped.
@@ -107,13 +110,23 @@ struct SessionIndexView: View {
                     IndexSectionView(
                         section: section,
                         rowLimit: Self.collapsedRowLimit,
-                        isExpanded: Binding(
-                            get: { expandedSections.contains(section.key) },
+                        isCollapsed: Binding(
+                            get: { collapsedSections.contains(section.key) },
                             set: { newValue in
                                 if newValue {
-                                    expandedSections.insert(section.key)
+                                    collapsedSections.insert(section.key)
                                 } else {
-                                    expandedSections.remove(section.key)
+                                    collapsedSections.remove(section.key)
+                                }
+                            }
+                        ),
+                        showAll: Binding(
+                            get: { showAllSections.contains(section.key) },
+                            set: { newValue in
+                                if newValue {
+                                    showAllSections.insert(section.key)
+                                } else {
+                                    showAllSections.remove(section.key)
                                 }
                             }
                         ),
@@ -161,60 +174,72 @@ private struct GroupingButton: View {
 private struct IndexSectionView: View {
     let section: IndexSection
     let rowLimit: Int
-    @Binding var isExpanded: Bool
+    @Binding var isCollapsed: Bool
+    @Binding var showAll: Bool
     @ObservedObject var store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             sectionHeader
-            if section.entries.isEmpty {
-                Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.leading, 32)
-                    .padding(.vertical, 4)
-            } else {
-                let visible = isExpanded
-                    ? section.entries
-                    : Array(section.entries.prefix(rowLimit))
-                ForEach(visible) { entry in
-                    SessionRow(entry: entry, onResume: onResume)
-                }
-                if section.entries.count > rowLimit {
-                    Button {
-                        isExpanded.toggle()
-                    } label: {
-                        Text(isExpanded
-                             ? String(localized: "sessionIndex.section.showLess", defaultValue: "Show less")
-                             : String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary.opacity(0.7))
-                            .padding(.leading, 32)
-                            .padding(.vertical, 4)
-                            .contentShape(Rectangle())
+            if !isCollapsed {
+                if section.entries.isEmpty {
+                    Text(String(localized: "sessionIndex.section.noChats", defaultValue: "No chats"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary.opacity(0.6))
+                        .padding(.leading, 32)
+                        .padding(.vertical, 4)
+                } else {
+                    let visible = showAll
+                        ? section.entries
+                        : Array(section.entries.prefix(rowLimit))
+                    ForEach(visible) { entry in
+                        SessionRow(entry: entry, onResume: onResume)
                     }
-                    .buttonStyle(.plain)
+                    if section.entries.count > rowLimit {
+                        Button {
+                            showAll.toggle()
+                        } label: {
+                            Text(showAll
+                                 ? String(localized: "sessionIndex.section.showLess", defaultValue: "Show less")
+                                 : String(localized: "sessionIndex.section.showMore", defaultValue: "Show more"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondary.opacity(0.7))
+                                .padding(.leading, 32)
+                                .padding(.vertical, 4)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                Spacer(minLength: 6)
             }
-            Spacer(minLength: 6)
         }
         .opacity(store.draggedKey == section.key ? 0.45 : 1.0)
     }
 
     private var sectionHeader: some View {
-        HStack(spacing: 8) {
-            sectionIconView
-            Text(section.title)
-                .font(.system(size: 13, weight: .regular))
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 0)
+        Button {
+            isCollapsed.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                sectionIconView
+                Text(section.title)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
         .onDrag {
             DispatchQueue.main.async { store.draggedKey = section.key }
             return NSItemProvider(object: section.key.raw as NSString)
