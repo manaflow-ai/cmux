@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
@@ -685,18 +686,8 @@ private struct MirrorTabTransferData: Codable {
     let sourceProcessId: Int32
 }
 
-/// Build the NSItemProvider used when dragging a session row.
-///
-/// Two type representations on the same provider:
-/// 1. `com.splittabbar.tabtransfer` — bonsplit's drop overlays light up so the
-///    user can pick insert / split-left / split-right / etc. The synthetic UUID
-///    embedded as the tab id is registered in `SessionDragRegistry` so
-///    `Workspace.handleExternalTabDrop` can look it back up.
-/// 2. `public.utf8-plain-text` — fallback for terminal text-drop.
-private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
-    let dragId = SessionDragRegistry.shared.register(entry)
-    let provider = NSItemProvider()
-
+/// Build the encoded payload bonsplit's external-drop decoder accepts.
+private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
     let mirror = MirrorTabTransferData(
         tab: MirrorTabItem(
             id: dragId,
@@ -713,14 +704,43 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
         sourcePaneId: UUID(),
         sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
     )
+    return try? JSONEncoder().encode(mirror)
+}
 
-    if let data = try? JSONEncoder().encode(mirror) {
+/// NSItemProvider used by `.onDrag {}`. Registers two type representations:
+/// 1. `com.splittabbar.tabtransfer` — bonsplit's drop overlays light up.
+/// 2. `public.utf8-plain-text` — fallback for terminal text-drop.
+///
+/// Plus also exposes the tabTransfer payload directly on the system drag
+/// pasteboard so AppKit drag-aware views in the same process see it
+/// synchronously (some SwiftUI drop delegates only consult the pasteboard
+/// during validateDrop, not the NSItemProvider).
+private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
+    let dragId = SessionDragRegistry.shared.register(entry)
+    let provider = NSItemProvider()
+
+    if let data = sessionTabTransferData(for: entry, dragId: dragId) {
         provider.registerDataRepresentation(
             forTypeIdentifier: "com.splittabbar.tabtransfer",
             visibility: .ownProcess
         ) { completion in
             completion(data, nil)
             return nil
+        }
+        // Mirror onto the system drag pasteboard so bonsplit's
+        // decodeTransfer(from: NSPasteboard(name: .drag)) sees it. SwiftUI's
+        // NSItemProvider bridge sometimes doesn't surface the type on the
+        // system .drag pasteboard reliably for custom UTTypes.
+        DispatchQueue.main.async {
+            let pb = NSPasteboard(name: .drag)
+            let type = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+            pb.addTypes([type], owner: nil)
+            pb.setData(data, forType: type)
+            #if DEBUG
+            let types = pb.types?.map(\.rawValue).joined(separator: ",") ?? "-"
+            let pbData = pb.data(forType: type)
+            dlog("session.drag.pasteboard types=\(types) tabTransferBytes=\(pbData?.count ?? -1)")
+            #endif
         }
         #if DEBUG
         dlog("session.drag.start id=\(dragId.uuidString.prefix(5)) bytes=\(data.count) entry=\(entry.agent.rawValue):\(entry.sessionId.prefix(8))")
