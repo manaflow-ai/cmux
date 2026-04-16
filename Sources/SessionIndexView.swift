@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import SwiftUI
 
 struct SessionIndexView: View {
@@ -662,40 +663,58 @@ private struct PopoverRow: View {
 
 // MARK: - Drag payload
 
+/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
+/// that bonsplit's external-drop path will decode and accept.
+private struct MirrorTabItem: Codable {
+    let id: UUID
+    let title: String
+    let hasCustomTitle: Bool
+    let icon: String?
+    let iconImageData: Data?
+    let kind: String?
+    let isDirty: Bool
+    let showsNotificationBadge: Bool
+    let isLoading: Bool
+    let isPinned: Bool
+}
+
+/// Mirrors `Bonsplit.TabTransferData` exactly.
+private struct MirrorTabTransferData: Codable {
+    let tab: MirrorTabItem
+    let sourcePaneId: UUID
+    let sourceProcessId: Int32
+}
+
 /// Build the NSItemProvider used when dragging a session row.
 ///
-/// Two type representations:
+/// Two type representations on the same provider:
 /// 1. `com.splittabbar.tabtransfer` — bonsplit's drop overlays light up so the
 ///    user can pick insert / split-left / split-right / etc. The synthetic UUID
 ///    embedded as the tab id is registered in `SessionDragRegistry` so
-///    `Workspace.handleExternalTabDrop` can look up the original SessionEntry
-///    and create a brand new terminal at the chosen destination.
-/// 2. `public.utf8-plain-text` — fallback for terminal text-drop. Inserts the
-///    resume command into an existing terminal surface.
+///    `Workspace.handleExternalTabDrop` can look it back up.
+/// 2. `public.utf8-plain-text` — fallback for terminal text-drop.
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
 
-    // tabTransfer JSON. Field names mirror Bonsplit.TabTransferData / TabItem
-    // CodingKeys. UUIDs are encoded as uppercased hyphenated strings (Swift's
-    // default UUID Codable representation).
-    let tabPayload: [String: Any] = [
-        "id": dragId.uuidString,
-        "title": entry.displayTitle,
-        "hasCustomTitle": false,
-        "icon": "terminal.fill",
-        "kind": "terminal",
-        "isDirty": false,
-        "showsNotificationBadge": false,
-        "isLoading": false,
-        "isPinned": false,
-    ]
-    let transferPayload: [String: Any] = [
-        "tab": tabPayload,
-        "sourcePaneId": UUID().uuidString,
-        "sourceProcessId": Int(ProcessInfo.processInfo.processIdentifier),
-    ]
-    if let data = try? JSONSerialization.data(withJSONObject: transferPayload) {
+    let mirror = MirrorTabTransferData(
+        tab: MirrorTabItem(
+            id: dragId,
+            title: entry.displayTitle,
+            hasCustomTitle: false,
+            icon: "terminal.fill",
+            iconImageData: nil,
+            kind: "terminal",
+            isDirty: false,
+            showsNotificationBadge: false,
+            isLoading: false,
+            isPinned: false
+        ),
+        sourcePaneId: UUID(),
+        sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+    )
+
+    if let data = try? JSONEncoder().encode(mirror) {
         provider.registerDataRepresentation(
             forTypeIdentifier: "com.splittabbar.tabtransfer",
             visibility: .ownProcess
@@ -703,6 +722,9 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
             completion(data, nil)
             return nil
         }
+        #if DEBUG
+        dlog("session.drag.start id=\(dragId.uuidString.prefix(5)) bytes=\(data.count) entry=\(entry.agent.rawValue):\(entry.sessionId.prefix(8))")
+        #endif
     }
 
     let textData = entry.resumeCommand.data(using: .utf8) ?? Data()
@@ -713,5 +735,7 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
         completion(textData, nil)
         return nil
     }
+
+    provider.suggestedName = entry.displayTitle
     return provider
 }
